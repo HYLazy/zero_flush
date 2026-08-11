@@ -15,6 +15,10 @@
 
 namespace zeroflush {
 
+// ROCKS_LOG_* 宏在内联命名空间（ROCKSDB_NAMESPACE）中展开时使用
+// InfoLogLevel 而不加命名空间前缀，在 zeroflush 命名空间内需要显式借用。
+using ROCKSDB_NAMESPACE::InfoLogLevel;
+
 namespace {
 
 // 文件名 <dir>/zf-wal-<part>-<gen>.log
@@ -204,30 +208,124 @@ rocksdb::Status PartitionedWalManager::Open() {
   if (!s.ok()) {
     return s;
   }
-  // 只创建目录 + 打开读句柄（不截断文件），写句柄由 EnsureOpenForWrite 延迟打开。
-  // 恢复场景：Recover 扫描读到已有数据后，Append 首次写入时再打开写句柄。
+  // 修 D4：先列出全部分区文件，按 max(gen) 探测每个分区的活跃代，
+  // 避免重开后 Append 追加到已封存的旧代文件。
+  std::vector<std::pair<uint32_t, uint32_t>> all;
+  s = ListFiles(&all);
+  if (!s.ok()) {
+    return s;
+  }
   for (uint32_t i = 0; i < partitions_; ++i) {
     Partition* p = parts_[i].get();
-    std::string fname = FileName(i, p->gen);
-    if (env_->FileExists(fname).ok()) {
-      rocksdb::EnvOptions opts;
-      s = env_->NewRandomAccessFile(fname, &p->rfile, opts);
-      if (!s.ok()) {
-        return s;
-      }
-      uint64_t sz = 0;
-      s = env_->GetFileSize(fname, &sz);
-      if (!s.ok()) {
-        return s;
-      }
-      p->flushed_size = sz;
-      p->total_size = sz;
-    } else {
-      // 文件不存在（首次运行）
+    // MaxGen 在"该分区无任何代文件"时返回 0，但我们用 gen=0 作第一个有效代，
+    // 两者歧义。所以用"all 中是否存在 (i, *)"判别"是否有文件"。
+    bool has_file = false;
+    for (const auto& fg : all) {
+      if (fg.first == i) { has_file = true; break; }
+    }
+    if (!has_file) {
+      // 该分区无任何代文件（首次运行）
+      p->gen = 0;
       p->flushed_size = 0;
       p->total_size = 0;
+      p->buf.clear();
+      continue;
+    }
+    const uint32_t mg = MaxGen(i, all);
+    p->gen = mg;
+    const std::string fname = MakeFileName(dir_, i, mg);
+    rocksdb::EnvOptions opts;
+    s = env_->NewRandomAccessFile(fname, &p->rfile, opts);
+    if (!s.ok()) {
+      return s;
+    }
+    uint64_t sz = 0;
+    s = env_->GetFileSize(fname, &sz);
+    if (!s.ok()) {
+      return s;
+    }
+    p->flushed_size = sz;
+    p->total_size = sz;
+    p->buf.clear();
+  }
+  return rocksdb::Status::OK();
+}
+
+uint32_t PartitionedWalManager::MaxGen(
+    uint32_t part,
+    const std::vector<std::pair<uint32_t, uint32_t>>& all) const {
+  uint32_t mx = 0;
+  bool found = false;
+  for (const auto& p : all) {
+    if (p.first == part && p.second > mx) {
+      mx = p.second;
+      found = true;
     }
   }
+  return found ? mx : 0;
+}
+
+uint64_t PartitionedWalManager::GetFileSize(
+    uint32_t part, uint32_t gen,
+    const std::vector<std::pair<uint32_t, uint32_t>>& all,
+    rocksdb::Env* env) const {
+  const std::string fname = MakeFileName(dir_, part, gen);
+  (void)all;  // 不需遍历 all，文件名即标识
+  uint64_t sz = 0;
+  if (env->GetFileSize(fname, &sz).ok()) {
+    return sz;
+  }
+  return 0;
+}
+
+uint32_t PartitionedWalManager::ActiveGen(uint32_t part) const {
+  assert(part < partitions_);
+  Partition* p = parts_[part].get();
+  rocksdb::MutexLock l(&p->mu);
+  return p->gen;
+}
+
+rocksdb::Status PartitionedWalManager::ReadFromSealed(
+    rocksdb::RandomAccessFile* rf, const WalRecordRef& ref,
+    std::string* buf, rocksdb::Slice* value) {
+  // 从已封存文件定点读：先读 header 求长度，再读整条。
+  char scratch[kZfHeaderSize];
+  rocksdb::Slice result;
+  rocksdb::Status s = rf->Read(ref.offset, kZfHeaderSize, &result, scratch);
+  if (!s.ok()) {
+    return s;
+  }
+  if (result.size() < kZfHeaderSize) {
+    return rocksdb::Status::Corruption("ZF sealed record header truncated");
+  }
+  uint32_t key_len = 0, val_len = 0;
+  DecodeKeyValLen(result.data(), &key_len, &val_len);
+  uint32_t total = ZfRecordLength(key_len, val_len);
+  std::string rec;
+  rec.resize(total);
+  std::memcpy(&rec[0], result.data(), kZfHeaderSize);
+  rocksdb::Slice rest;
+  s = rf->Read(ref.offset + kZfHeaderSize, total - kZfHeaderSize, &rest,
+               &rec[0] + kZfHeaderSize);
+  if (!s.ok()) {
+    return s;
+  }
+  if (rest.size() < total - kZfHeaderSize) {
+    return rocksdb::Status::Corruption("ZF sealed record truncated");
+  }
+  ZfRecordHeader h;
+  rocksdb::Slice k, v;
+  s = DecodeZfRecord(rec.data(), total, &h, &k, &v);
+  if (!s.ok()) {
+    return s;
+  }
+  if (h.type == rocksdb::kTypeDeletion) {
+    buf->clear();
+    *value = rocksdb::Slice();
+    return rocksdb::Status::OK();
+  }
+  buf->assign(v.data(), v.size());
+  *value = rocksdb::Slice(*buf);
   return rocksdb::Status::OK();
 }
 
@@ -353,18 +451,39 @@ uint64_t PartitionedWalManager::ActiveSize(uint32_t part) const {
   return p->total_size;
 }
 
-uint32_t PartitionedWalManager::Freeze(uint32_t part) {
+FreezeResult PartitionedWalManager::Freeze(uint32_t part) {
   assert(part < partitions_);
   Partition* p = parts_[part].get();
+  ROCKS_LOG_DEBUG(info_log_,
+                  "ZeroFlush Freeze: part=%u gen=%u acquiring partition mutex",
+                  part, p->gen);
   rocksdb::MutexLock l(&p->mu);
-  FlushBuf(p).PermitUncheckedError();
-  p->wfile->Sync().PermitUncheckedError();
-  p->wfile.reset();
-  p->rfile.reset();  // M1：旧代读句柄由 M2 的封存索引管理
+  // 修 D3：wfile 是延迟打开的，未写过的分区此处为 nullptr。
+  if (p->wfile) {
+    FlushBuf(p).PermitUncheckedError();
+    p->wfile->Sync().PermitUncheckedError();
+    p->wfile.reset();
+  }
+  // 旧代读句柄移交 SealedFileCache（M2.1 启用时）；若未启用，本句
+  // 释放文件描述符但保留物理文件（与原 M1 行为一致）。
+  p->rfile.reset();
+  const uint64_t old_sealed_size = p->total_size;
   const uint32_t old_gen = p->gen;
+  FreezeResult fr;
+  fr.old_gen = old_gen;
+  fr.sealed_bytes = old_sealed_size;
+  fr.sealed_path = MakeFileName(dir_, part, old_gen);
   ++p->gen;
+  // 修 D2：新代文件从 0 写起；否则 Append 会用旧代总长作 offset 写错位置。
+  p->flushed_size = 0;
+  p->total_size = 0;
+  p->buf.clear();
   OpenGen(p).PermitUncheckedError();
-  return old_gen;
+  ROCKS_LOG_DEBUG(info_log_,
+                  "ZeroFlush Freeze: part=%u done, new_gen=%u releasing "
+                  "partition mutex",
+                  part, p->gen);
+  return fr;
 }
 
 rocksdb::Status PartitionedWalManager::ReadRecord(const WalRecordRef& ref,

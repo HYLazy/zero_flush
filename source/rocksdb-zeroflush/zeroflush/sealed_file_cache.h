@@ -1,0 +1,148 @@
+//  Copyright (c) 2026, ZeroFlush-RocksDB.
+//  ZeroFlush M2: 封存代文件缓存 + 引用计数 + 延迟 unlink。
+//
+// 设计要点（对应 M2_DESIGN.md §4.3 / §6.5 / I3）：
+//  - 封存代文件由 EpochRef 引用计数管理。引用归零时文件移入 pending_unlink_，
+//    不立即 unlink（POSIX 下 unlink 对已打开 fd 无害，但新开 fd 会失败，
+//    与并发读者的 Get() 窗口有竞态）；
+//  - unlink 推迟到 PurgePending() 调用（由 DBImpl::PurgeObsoleteFiles 触发，
+//    与原生 SST 删除时机统一）；
+//  - 读句柄用 LRU 缓存。未命中则按需打开。
+//  - reclaim_sealed_files=false 时，ReleaseEpoch 只减引用不入队（调试用）。
+//
+// 线程安全：所有公开方法持 mu_；LRU 由 mu_ 保护（单线程访问）。
+
+#pragma once
+
+#include <atomic>
+#include <cstdint>
+#include <list>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "port/port.h"
+#include "rocksdb/env.h"
+#include "rocksdb/status.h"
+
+namespace zeroflush {
+
+// (part, gen) → 物理路径
+using ZfFileKey = uint64_t;
+
+inline ZfFileKey MakeFileKey(uint32_t part, uint32_t gen) {
+  return (static_cast<uint64_t>(part) << 32) | static_cast<uint64_t>(gen);
+}
+
+// 一个 Epoch 的封存文件集合。
+struct SealedEpoch {
+  uint64_t epoch = 0;
+  std::vector<std::pair<uint32_t, uint32_t>> gens;  // (part_id, gen)
+  uint64_t total_bytes = 0;                          // 所有 gens 文件大小之和
+  // M3.0 R1：本 epoch 是否收养了恢复期孤儿代（用于物化期的断言放宽，
+  // 见 M3_DESIGN.md §7.4/§8.1）。
+  bool has_adopted_orphans = false;
+  // M3.0：封存登记时刻（NowMicros），用于物化耗时统计。
+  uint64_t sealed_at_micros = 0;
+};
+
+// LRU 节点。
+struct SealedFileEntry {
+  ZfFileKey key;
+  std::shared_ptr<rocksdb::RandomAccessFile> file;
+};
+
+class SealedFileCache {
+ public:
+  SealedFileCache(rocksdb::Env* env, std::string dir, uint32_t capacity,
+                  bool reclaim_enabled);
+  ~SealedFileCache();
+
+  SealedFileCache(const SealedFileCache&) = delete;
+  SealedFileCache& operator=(const SealedFileCache&) = delete;
+
+  // 登记一个 epoch 的封存文件集，refcount = 1。与原生 AddEpoch 不同：
+  // 会在同一个持锁窗口内先收养恢复期孤儿代（若有），保证读路径的
+  // in_epoch 校验在收养期间恒成立（M3.0 R1，见 M3_DESIGN.md §8.1）。
+  void AddEpochWithRecoveryAdoption(const SealedEpoch& e);
+
+  // M3.0 R1：登记恢复期孤儿代（Recover 时调用）。这些文件可读但不可
+  // 回收、不占 refcount，直到被下一次 AddEpochWithRecoveryAdoption 收养。
+  void AddRecoveryGens(const std::vector<std::pair<uint32_t, uint32_t>>& gens,
+                       uint64_t total_bytes);
+
+  // 释放一个 epoch 的引用。引用归零时把文件名移入 pending_unlink_，
+  // 并返回该 epoch 的封存字节（用于物化统计）；未找到或未归零返回 0。
+  // reclaim_sealed_files == false 时只减引用不入队。
+  uint64_t ReleaseEpoch(uint64_t epoch);
+
+  // 取 (part, gen) 的只读句柄。LRU 命中直接返回；未命中则打开。
+  // gen 不在 epochs_ 中且不在恢复期集合中（即未登记）返回 NotFound。
+  rocksdb::Status Get(uint32_t part, uint32_t gen,
+                      std::shared_ptr<rocksdb::RandomAccessFile>* out);
+
+  // 由 DBImpl::PurgeObsoleteFiles 调用，真实 unlink 移入队列的文件。
+  // 调用后清空 pending_unlink_，返回实际 unlink 的文件数。
+  size_t PurgePending();
+
+  // 统计。
+  uint64_t sealed_bytes() const;
+  uint64_t pending_count() const;
+  size_t handle_count() const;
+  // M3.0：封存代定点读次数 / LRU 未命中次数（打开文件才算 miss）。
+  uint64_t sealed_read_count() const;
+  uint64_t sealed_cache_miss() const;
+  // M3.0：物化完成（引用归零）epoch 数 / 累计物化耗时（封存→归零）。
+  uint64_t materialized_epochs() const;
+  uint64_t materialize_micros() const;
+  // M3.0：已真实 unlink 的 epoch 数。
+  uint64_t reclaimed_epochs() const;
+  // M3.0 R1：当前待收养的恢复期孤儿代文件数（诊断用）。
+  size_t recovery_count() const;
+
+ private:
+  std::string FileName(uint32_t part, uint32_t gen) const;
+  void TouchLRU(ZfFileKey key);
+
+  mutable rocksdb::port::Mutex mu_;
+  rocksdb::Env* env_;
+  std::string dir_;
+  uint32_t capacity_;
+  bool reclaim_enabled_;
+
+  // epoch → SealedEpoch（持久保留以便 Get 校验）
+  std::unordered_map<uint64_t, SealedEpoch> epochs_;
+  // epoch → 引用计数
+  std::unordered_map<uint64_t, uint32_t> refs_;
+
+  // (part, gen) → 已打开句柄
+  std::unordered_map<ZfFileKey, std::shared_ptr<rocksdb::RandomAccessFile>>
+      handles_;
+  // LRU 列表（front = 最新，back = 最久未用）
+  std::list<ZfFileKey> lru_order_;
+
+  // 待 unlink 的文件名（ReleaseEpoch 收集，PurgePending 真正删除）
+  std::vector<std::string> pending_unlink_;
+
+  // M3.0 R1：恢复期孤儿代集合（可读、不可回收、不占 refcount）。
+  // 由 Recover() 登记，由 AddEpochWithRecoveryAdoption 收养（并入 epoch）。
+  std::unordered_set<ZfFileKey> recovery_gens_;
+  uint64_t recovery_bytes_ = 0;
+
+  // 累计封存字节（统计用）
+  uint64_t sealed_bytes_ = 0;
+  // M3.0 统计
+  std::atomic<uint64_t> sealed_read_count_{0};
+  std::atomic<uint64_t> sealed_cache_miss_{0};
+  // M3.0：物化完成 epoch 数 / 累计物化耗时（mu_ 保护）
+  uint64_t materialized_epochs_ = 0;
+  uint64_t materialize_micros_total_ = 0;
+  // M3.0：已真实 unlink 的 epoch 数 / 排队待 unlink 的 epoch 数（mu_ 保护）
+  uint64_t reclaimed_epochs_ = 0;
+  uint64_t pending_epochs_ = 0;
+};
+
+}  // namespace zeroflush

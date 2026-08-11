@@ -10,10 +10,13 @@
 zeroflush/
 ├── README.md                   # 本文件（模块入口）
 ├── M1_WAL_PERSISTENCE_FIX.md   # M1 修复与 M2 改进方向技术文档
+├── M2_DESIGN.md                # M2 方案设计：封存 · 物化 · 回收（Epoch 模型）
+├── M3_DESIGN.md                # M3 方案设计：范围路由 · 消除 L0 · API 完备
 ├── slim_memtable.{h,cc}        # SlimMemTableRep：仅存 16B SlimLocator
-├── wal_format.{h,cc}           # ZfRecord 记录格式 / WalScanner 重放
-├── wal_manager.{h,cc}          # PartitionedWalManager：分区 WAL 写/读
-└── zeroflush_db.{h,cc}         # ZeroFlushContext / Open / Recover
+├── wal_format.{h,cc}           # ZfRecord 记录格式 / WalScanner 重放 / ZFPROPS
+├── wal_manager.{h,cc}          # PartitionedWalManager：分区 WAL 写/读/封存
+├── sealed_file_cache.{h,cc}    # 封存代只读句柄缓存 + epoch 引用计数 + 延迟 unlink
+└── zeroflush_db.{h,cc}         # ZeroFlushContext / Open / Recover / Epoch 管理
 ```
 
 ## 核心改动
@@ -41,7 +44,7 @@ cmake .. && make -j$(nproc) db_bench zf_test
 cd build && ./zf_test
 ```
 
-预期：7 个用例全部 PASS，退出码 0。每个用例用独立 dbname 且通过 `rm -rf`
+预期：13 个用例全部 PASS，退出码 0。每个用例用独立 dbname 且通过 `rm -rf`
 完全清理（含 `zfwal` 子目录），保证测试间隔离。
 
 ### 性能对比（vs 原生 RocksDB）
@@ -80,9 +83,24 @@ python3 generate_html_report.py    # 生成 report.html
 ## 当前状态
 
 - ✅ WAL 持久化两处 bug 已修复（析构 flush + ReopenWritableFile 防截断）
-- ✅ 7 个回归用例全 PASS
+- ✅ M1 回归 7/7 PASS
 - ✅ 与原生 RocksDB 性能对比报告已生成
-- ⏳ M2 改进（封存 + 增量恢复 + DestroyDB 重载）待落地
+- ✅ **M2 方案已实现**（见 [M2_DESIGN.md](M2_DESIGN.md)）：
+  - M2.0：Freeze 路径缺陷修复 + ZFPROPS 分区校验
+  - M2.1：Epoch 封存/物化/回收闭环
+  - M2.3：sync 语义 + DestroyDB 清理 + ZFPROPS 拒绝
+- ✅ **M3.0 已全部完成**（2026-08-10）:
+  - R1：修复孤儿封存代未登记 SealedFileCache（恢复期 epoch 机制）
+  - R2：IteratorPins 测试缺陷修复
+  - R3：sync 移出 DB mutex 临界区，消除持锁 fsync 死锁
+  - R4：清理约 207 万行 `fprintf(stderr, "DEBUG …")`，替换为 `ROCKS_LOG_*`（`use_logger` 条件门控）
+  - R5：`zf.*` 统计指标（10 项，经 `GetProperty("rocksdb.zeroflush.*")` 暴露）+ `SlimMemTableRep::ApproximateMemoryUsage` 真实内存统计
+  - `zf_test` 13 例全绿，输出 45 行（DEBUG 0 行），可开工 M3.1
+- ✅ **M3 方案设计已定稿**（见 [M3_DESIGN.md](M3_DESIGN.md)）：
+  M3.0 清偿 M2 债务 → M3.1 PartitionTable 范围路由 → M3.2 并行物化 + 跳过 L0
+  直装 base level → M3.3 Materialize-into-BaseLevel 融合归并 →
+  M3.4 多列族/Merge/DeleteRange → M3.5 CSD 卸载后端
+- ⏳ **下一步**：M3.1（PartitionTable 范围路由），在 [M3_DESIGN.md](M3_DESIGN.md) 中由 13 例全绿准入门槛保护
 
 ## 参考
 

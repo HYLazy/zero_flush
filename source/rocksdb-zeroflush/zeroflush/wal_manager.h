@@ -33,6 +33,13 @@ struct WalRecordRef {
   uint64_t offset;  // 记录在分区文件中的精确字节偏移
 };
 
+// Freeze 结果：旧代号、旧代封存字节数、对应文件名。
+struct FreezeResult {
+  uint32_t old_gen;       // 刚被封存的代号
+  uint64_t sealed_bytes;  // 旧代封存时的逻辑大小（=p->total_size 旧值）
+  std::string sealed_path;  // 旧代文件路径（绝对 or 相对 env 基址）
+};
+
 // 顺序扫描器：恢复（重放）与 M2 CSD/fallback 归并使用。
 class WalScanner {
  public:
@@ -86,9 +93,10 @@ class PartitionedWalManager {
   // 活跃分区的逻辑大小（含未刷盘缓冲），用于封存大小上限判断。
   uint64_t ActiveSize(uint32_t part) const;
 
-  // 封存：刷盘缓冲、关闭旧代文件、开新代文件。返回旧 gen。
-  // M1 暂无调用方（SealWorker 在 M2 接入）；实现保证旧代文件只读可查。
-  uint32_t Freeze(uint32_t part);
+  // 封存：刷盘缓冲、关闭旧代文件、开新代文件。返回旧代信息。
+  // 修 D2：分代字段已重置，新代从 0 写起。
+  // 修 D3：未写过的分区不会触发 wfile->Sync() 段错误。
+  FreezeResult Freeze(uint32_t part);
 
   // 按引用定点读 value（Get / 迭代器取值路径）。
   rocksdb::Status ReadRecord(const WalRecordRef& ref,
@@ -98,11 +106,38 @@ class PartitionedWalManager {
   rocksdb::Status ReadRecord(const WalRecordRef& ref, std::string* buf,
                              rocksdb::Slice* value) const;
 
+  // M2.1：把 ref 的代际转成"当前活跃 gen"，用于在 ReadRecord 之前由
+  // ZeroFlushContext 判断走"活跃代 IO"还是"SealedFileCache IO"。
+  uint32_t ActiveGen(uint32_t part) const;
+
+  // M2.1：从一个已打开的封存代 RandomAccessFile 读 value（无锁 IO）。
+  // ZeroFlushContext::ReadValue 拿到 SealedFileCache 句柄后调用此方法。
+  static rocksdb::Status ReadFromSealed(
+      rocksdb::RandomAccessFile* rf, const WalRecordRef& ref,
+      std::string* buf, rocksdb::Slice* value);
+
   // 列出目录中全部 (part, gen) 文件（恢复用）。
   rocksdb::Status ListFiles(std::vector<std::pair<uint32_t, uint32_t>>* out) const;
 
+  // M2.1：发现一个分区当前最大活跃代（用于 Open() 中按 max(gen) 探测，
+  // 修 D4——避免重开后 Append 追加到已封存的旧代文件）。
+  // 若该分区无任何代文件返回 0。
+  uint32_t MaxGen(uint32_t part,
+                  const std::vector<std::pair<uint32_t, uint32_t>>& all) const;
+
+  // M2.1：获取该分区某代文件的物理大小（用于 Open 初始化 flushed_size）。
+  // 若 (part, gen) 不在 all 中返回 0。
+  uint64_t GetFileSize(uint32_t part, uint32_t gen,
+                       const std::vector<std::pair<uint32_t, uint32_t>>& all,
+                       rocksdb::Env* env) const;
+
   const std::string& dir() const { return dir_; }
   uint32_t partitions() const { return partitions_; }
+
+  // M3.0：接入 DB info log（zeroflush::Open 在 use_logger 时调用；
+  // nullptr = 静默，ROCKS_LOG_* 对 nullptr 安全）。
+  void SetInfoLog(rocksdb::Logger* l) { info_log_ = l; }
+  rocksdb::Logger* InfoLog() const { return info_log_; }
 
  private:
   struct Partition {
@@ -125,7 +160,9 @@ class PartitionedWalManager {
   std::string dir_;
   uint32_t partitions_;
   std::vector<std::unique_ptr<Partition>> parts_;
-  rocksdb::Logger* info_log_;
+  // M3.0 R4：M2 遗留 bug——该成员从未初始化（构造器未赋值）。
+  // 现默认 nullptr（ROCKS_LOG_* 安全），由 SetInfoLog 接线。
+  rocksdb::Logger* info_log_ = nullptr;
 };
 
 }  // namespace zeroflush
