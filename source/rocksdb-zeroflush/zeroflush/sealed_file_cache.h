@@ -42,11 +42,17 @@ struct SealedEpoch {
   uint64_t epoch = 0;
   std::vector<std::pair<uint32_t, uint32_t>> gens;  // (part_id, gen)
   uint64_t total_bytes = 0;                          // 所有 gens 文件大小之和
+  // M3.3：per-partition 封存字节（融合归并触发判定 §7.2 用：
+  // sealed_bytes[p] / overlap_bytes >= base_merge_min_ratio）。
+  std::unordered_map<uint32_t, uint64_t> part_bytes;
   // M3.0 R1：本 epoch 是否收养了恢复期孤儿代（用于物化期的断言放宽，
   // 见 M3_DESIGN.md §7.4/§8.1）。
   bool has_adopted_orphans = false;
   // M3.0：封存登记时刻（NowMicros），用于物化耗时统计。
   uint64_t sealed_at_micros = 0;
+  // M3.1：该 epoch 写入时使用的 PartitionTable version（用于物化时取回
+  // 同一张表做范围断言，见 M3_DESIGN.md §4.3）。
+  uint32_t table_version = 0;
 };
 
 // LRU 节点。
@@ -64,10 +70,13 @@ class SealedFileCache {
   SealedFileCache(const SealedFileCache&) = delete;
   SealedFileCache& operator=(const SealedFileCache&) = delete;
 
-  // 登记一个 epoch 的封存文件集，refcount = 1。与原生 AddEpoch 不同：
+  // 登记一个 epoch 的封存文件集。与原生 AddEpoch 不同：
   // 会在同一个持锁窗口内先收养恢复期孤儿代（若有），保证读路径的
   // in_epoch 校验在收养期间恒成立（M3.0 R1，见 M3_DESIGN.md §8.1）。
-  void AddEpochWithRecoveryAdoption(const SealedEpoch& e);
+  // M3.4：多列族共享同一物理分区文件时 refcount = CF 个数
+  // （每个 CF 的 imm 各持一引，见 M3_DESIGN.md §9.1）。
+  void AddEpochWithRecoveryAdoption(const SealedEpoch& e,
+                                    uint32_t refcount = 1);
 
   // M3.0 R1：登记恢复期孤儿代（Recover 时调用）。这些文件可读但不可
   // 回收、不占 refcount，直到被下一次 AddEpochWithRecoveryAdoption 收养。
@@ -83,6 +92,10 @@ class SealedFileCache {
   // gen 不在 epochs_ 中且不在恢复期集合中（即未登记）返回 NotFound。
   rocksdb::Status Get(uint32_t part, uint32_t gen,
                       std::shared_ptr<rocksdb::RandomAccessFile>* out);
+
+  // M3.2：取 epoch 的封存登记信息（物化用：gens/table_version/字节等）。
+  // 未登记（未知 epoch 或已回收）返回 false。
+  bool GetEpoch(uint64_t epoch, SealedEpoch* out) const;
 
   // 由 DBImpl::PurgeObsoleteFiles 调用，真实 unlink 移入队列的文件。
   // 调用后清空 pending_unlink_，返回实际 unlink 的文件数。

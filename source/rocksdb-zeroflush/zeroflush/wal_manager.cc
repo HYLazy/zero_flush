@@ -88,6 +88,7 @@ WalScanner::~WalScanner() = default;
 bool WalScanner::Next(ZfRecordHeader* h, rocksdb::Slice* key,
                       rocksdb::Slice* value) {
   if (!file_) {
+    status_ = rocksdb::Status::IOError("ZeroFlush: scanner file not open");
     return false;
   }
   // 缓冲剩余不足 header 时读入 header（覆盖式）
@@ -101,12 +102,19 @@ bool WalScanner::Next(ZfRecordHeader* h, rocksdb::Slice* key,
                         "ZeroFlush: scanner read header failed: %s",
                         s.ToString().c_str());
       }
+      status_ = s;
       return false;
     }
     buf_.resize(result.size());
     buf_pos_ = 0;
     if (buf_.size() < kZfHeaderSize) {
-      return false;  // EOF 或损坏尾部，截断处理
+      // size == 0：干净 EOF（正好落在记录边界）；0 < size < header：
+      // 头部被截断——对已封存文件意味着数据丢失，标记 Corruption。
+      if (buf_.size() > 0) {
+        status_ = rocksdb::Status::Corruption(
+            "ZeroFlush: truncated record header in sealed WAL");
+      }
+      return false;
     }
   }
   const char* p = buf_.data() + buf_pos_;
@@ -128,10 +136,14 @@ bool WalScanner::Next(ZfRecordHeader* h, rocksdb::Slice* key,
                         "ZeroFlush: scanner read record failed: %s",
                         s.ToString().c_str());
       }
+      status_ = s;
       return false;
     }
     if (result.size() < total - have) {
-      return false;  // 尾部记录不完整，截断
+      // 尾部记录不完整：对已封存文件意味着数据丢失（封存时已完整刷盘）。
+      status_ = rocksdb::Status::Corruption(
+          "ZeroFlush: truncated record in sealed WAL");
+      return false;
     }
     buf_ = std::move(rec);
     buf_pos_ = 0;
@@ -147,6 +159,7 @@ bool WalScanner::Next(ZfRecordHeader* h, rocksdb::Slice* key,
           "ZeroFlush: scanner decode record @%llu failed: %s",
           static_cast<unsigned long long>(offset_), st.ToString().c_str());
     }
+    status_ = st;
     return false;
   }
   offset_ += total;
@@ -169,7 +182,7 @@ PartitionedWalManager::PartitionedWalManager(rocksdb::Env* env,
   for (uint32_t i = 0; i < partitions; ++i) {
     auto p = std::unique_ptr<Partition>(new Partition());
     p->part_id = i;
-    parts_.push_back(std::move(p));
+    parts_[i] = std::move(p);
   }
 }
 
@@ -181,10 +194,10 @@ PartitionedWalManager::~PartitionedWalManager() {
 
 rocksdb::Status PartitionedWalManager::Close() {
   rocksdb::Status s;
-  for (uint32_t i = 0; i < partitions_; ++i) {
-    Partition* p = parts_[i].get();
+  for (auto& [pid, p] : parts_) {
+    (void)pid;
     rocksdb::MutexLock l(&p->mu);
-    s = FlushBuf(p);
+    s = FlushBuf(p.get());
     if (!s.ok()) {
       return s;
     }
@@ -216,7 +229,11 @@ rocksdb::Status PartitionedWalManager::Open() {
     return s;
   }
   for (uint32_t i = 0; i < partitions_; ++i) {
-    Partition* p = parts_[i].get();
+    auto it = parts_.find(i);
+    if (it == parts_.end()) {
+      continue;  // 该分区在初始化时已被创建，但防御性跳过
+    }
+    Partition* p = it->second.get();
     // MaxGen 在"该分区无任何代文件"时返回 0，但我们用 gen=0 作第一个有效代，
     // 两者歧义。所以用"all 中是否存在 (i, *)"判别"是否有文件"。
     bool has_file = false;
@@ -279,8 +296,9 @@ uint64_t PartitionedWalManager::GetFileSize(
 }
 
 uint32_t PartitionedWalManager::ActiveGen(uint32_t part) const {
-  assert(part < partitions_);
-  Partition* p = parts_[part].get();
+  auto it = parts_.find(part);
+  if (it == parts_.end()) return 0;
+  Partition* p = it->second.get();
   rocksdb::MutexLock l(&p->mu);
   return p->gen;
 }
@@ -366,8 +384,12 @@ rocksdb::Status PartitionedWalManager::Append(uint32_t part,
                                               const rocksdb::Slice& value,
                                               uint8_t type, uint64_t seq,
                                               WalRecordRef* out) {
-  assert(part < partitions_);
-  Partition* p = parts_[part].get();
+  auto it = parts_.find(part);
+  if (it == parts_.end()) {
+    return rocksdb::Status::InvalidArgument(
+        "ZF Append: unknown partition " + std::to_string(part));
+  }
+  Partition* p = it->second.get();
   rocksdb::MutexLock l(&p->mu);
 
   // 延迟打开写句柄（首次 Append 时创建文件）
@@ -420,7 +442,12 @@ rocksdb::Status PartitionedWalManager::FlushBuf(Partition* p) const {
 }
 
 rocksdb::Status PartitionedWalManager::Sync(uint32_t part) {
-  Partition* p = parts_[part].get();
+  auto it = parts_.find(part);
+  if (it == parts_.end()) {
+    return rocksdb::Status::InvalidArgument(
+        "ZF Sync: unknown partition " + std::to_string(part));
+  }
+  Partition* p = it->second.get();
   rocksdb::MutexLock l(&p->mu);
   rocksdb::Status s = EnsureOpenForWrite(p);
   if (!s.ok()) {
@@ -435,8 +462,9 @@ rocksdb::Status PartitionedWalManager::Sync(uint32_t part) {
 
 rocksdb::Status PartitionedWalManager::SyncAll() {
   rocksdb::Status s;
-  for (uint32_t i = 0; i < partitions_; ++i) {
-    s = Sync(i);
+  for (auto& [pid, p] : parts_) {
+    (void)pid;
+    s = Sync(pid);
     if (!s.ok()) {
       return s;
     }
@@ -445,15 +473,20 @@ rocksdb::Status PartitionedWalManager::SyncAll() {
 }
 
 uint64_t PartitionedWalManager::ActiveSize(uint32_t part) const {
-  assert(part < partitions_);
-  Partition* p = parts_[part].get();
+  auto it = parts_.find(part);
+  if (it == parts_.end()) return 0;
+  Partition* p = it->second.get();
   rocksdb::MutexLock l(&p->mu);
   return p->total_size;
 }
 
 FreezeResult PartitionedWalManager::Freeze(uint32_t part) {
-  assert(part < partitions_);
-  Partition* p = parts_[part].get();
+  auto it = parts_.find(part);
+  if (it == parts_.end()) {
+    FreezeResult empty;
+    return empty;  // 未知分区返回空结果
+  }
+  Partition* p = it->second.get();
   ROCKS_LOG_DEBUG(info_log_,
                   "ZeroFlush Freeze: part=%u gen=%u acquiring partition mutex",
                   part, p->gen);
@@ -495,8 +528,12 @@ rocksdb::Status PartitionedWalManager::ReadRecord(const WalRecordRef& ref,
 rocksdb::Status PartitionedWalManager::ReadRecord(const WalRecordRef& ref,
                                                   std::string* buf,
                                                   rocksdb::Slice* value) const {
-  assert(ref.part_id < partitions_);
-  Partition* p = parts_[ref.part_id].get();
+  auto it = parts_.find(ref.part_id);
+  if (it == parts_.end()) {
+    return rocksdb::Status::InvalidArgument(
+        "ZF ReadRecord: unknown partition " + std::to_string(ref.part_id));
+  }
+  Partition* p = it->second.get();
   rocksdb::MutexLock l(&p->mu);
 
   // 记录可能在未刷盘缓冲中（offset >= flushed_size）
@@ -589,6 +626,35 @@ rocksdb::Status PartitionedWalManager::ListFiles(
   }
   std::sort(out->begin(), out->end());
   return rocksdb::Status::OK();
+}
+
+// ---------------------------------------------------------------------------
+// M3.1：EnsurePartition / HasPartition / AllPartitionIds
+// ---------------------------------------------------------------------------
+
+void PartitionedWalManager::EnsurePartition(uint32_t part_id) {
+  if (parts_.count(part_id) > 0) return;
+  auto p = std::unique_ptr<Partition>(new Partition());
+  p->part_id = part_id;
+  p->gen = 0;
+  p->flushed_size = 0;
+  p->total_size = 0;
+  parts_[part_id] = std::move(p);
+}
+
+bool PartitionedWalManager::HasPartition(uint32_t part_id) const {
+  return parts_.count(part_id) > 0;
+}
+
+std::vector<uint32_t> PartitionedWalManager::AllPartitionIds() const {
+  std::vector<uint32_t> ids;
+  ids.reserve(parts_.size());
+  for (const auto& [id, _] : parts_) {
+    (void)_;
+    ids.push_back(id);
+  }
+  std::sort(ids.begin(), ids.end());
+  return ids;
 }
 
 }  // namespace zeroflush

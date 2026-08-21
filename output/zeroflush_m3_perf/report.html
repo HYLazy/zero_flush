@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>ZeroFlush M3.3 vs 原生 RocksDB — 50GB 性能对比报告</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+         max-width: 1200px; margin: 30px auto; padding: 0 20px; color: #222; }
+  h1 { border-bottom: 3px solid #1976d2; padding-bottom: 8px; }
+  h2 { color: #1976d2; margin-top: 32px; }
+  .meta { background: #f5f5f5; padding: 12px 16px; border-left: 4px solid #1976d2; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { padding: 6px 10px; border: 1px solid #ddd; font-size: 0.95em; }
+  th { background: #f0f0f0; }
+  .chart-container { position: relative; height: 360px; margin: 24px 0; }
+  .finding { background: #fff8e1; border-left: 4px solid #ffb300; padding: 12px 16px;
+              margin: 12px 0; }
+  .conclusion { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 12px 16px;
+                 margin: 16px 0; }
+  code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<h1>ZeroFlush M3.3 vs 原生 RocksDB — 50GB 性能对比报告</h1>
+
+<div class="meta">
+  <strong>生成时间</strong>：2026-08-21 11:38:47<br>
+  <strong>工作负载</strong>：fillrandom（50GB 逻辑写入）+ readrandom（1,000,000 次随机读）<br>
+  <strong>线程数</strong>：16 &nbsp;|&nbsp;
+  <strong>Key 大小</strong>：16B &nbsp;|&nbsp;
+  <strong>压缩</strong>：none<br>
+  <strong>CPU</strong>：Intel(R) Core(TM) i9-10980XE CPU @ 3.00GHz（36 核） &nbsp;|&nbsp;
+  <strong>内存</strong>：62.48GB &nbsp;|&nbsp;
+  <strong>OS</strong>：GNU/Linux 6.8.0-124-generic<br>
+  <strong>原生 DB</strong>：/home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench<br>
+  <strong>ZeroFlush DB</strong>：/home/embed/hyl/metadata_offload/source/rocksdb-zeroflush/build/db_bench --zeroflush --zf_partitions=64
+</div>
+
+<h2>1. fillrandom 随机写吞吐量 (ops/s)</h2>
+<div class="chart-container"><canvas id="fillChart"></canvas></div>
+
+<h2>2. readrandom 随机读吞吐量 (ops/s)</h2>
+<div class="chart-container"><canvas id="readChart"></canvas></div>
+
+<h2>3. 尾延迟 P99 对比 (μs, 越低越好)</h2>
+<div class="chart-container"><canvas id="latChart"></canvas></div>
+
+<h2>4. 详细吞吐量 &amp; 延迟数据</h2>
+<table>
+  <tr>
+    <th rowspan="2" style="background:#fafafa">vs</th>
+    <th colspan="3">原生 RocksDB</th>
+    <th colspan="3">ZeroFlush M3.3</th>
+    <th rowspan="2" style="background:#fafafa">ZF/Native</th>
+    <th rowspan="2" colspan="2" style="background:#fafafa">延迟分布 us (N/Z)</th>
+    <th rowspan="2" style="background:#fafafa">更优</th>
+  </tr>
+  <tr>
+    <th>ops/s</th><th>MB/s</th><th>μs/op</th>
+    <th>ops/s</th><th>MB/s</th><th>μs/op</th>
+  </tr>
+  <tr><th colspan="10" style="background:#eef">fillrandom (随机写)</th></tr>
+<tr style="font-size:0.9em"><th>vs</th><th>Native<br>ops/s</th><th>Native<br>MB/s</th><th>Native<br>us/op</th><th>ZF<br>ops/s</th><th>ZF<br>MB/s</th><th>ZF<br>us/op</th><th>ZF/Native</th><th>P50 (N/Z)</th><th>P99 (N/Z)</th></tr>
+
+            <tr>
+              <td>256B</td>
+              <td align="right">124,125</td>
+              <td align="right">32.2</td>
+              <td align="right">128.86</td>
+              <td align="right">3,387</td>
+              <td align="right">0.9</td>
+              <td align="right">4722.75</td>
+              <td align="right" style="color:#a00;font-weight:bold">2.7%</td>
+              <td align="right">14.3/1440.7 us</td>
+              <td align="right">1645.8/4237.4 us</td>
+              <td align="left">Native</td>
+            </tr>
+            <tr>
+              <td>1024B</td>
+              <td align="right">30,255</td>
+              <td align="right">30.0</td>
+              <td align="right">528.82</td>
+              <td align="right">1,919</td>
+              <td align="right">1.9</td>
+              <td align="right">8333.25</td>
+              <td align="right" style="color:#a00;font-weight:bold">6.3%</td>
+              <td align="right">20.4/1894.2 us</td>
+              <td align="right">4189.4/9355.4 us</td>
+              <td align="left">Native</td>
+            </tr><tr><th colspan="10" style="background:#eef">readrandom (随机读)</th></tr>
+<tr style="font-size:0.9em"><th>vs</th><th>Native<br>ops/s</th><th>Native<br>MB/s</th><th>Native<br>us/op</th><th>ZF<br>ops/s</th><th>ZF<br>MB/s</th><th>ZF<br>us/op</th><th>ZF/Native</th><th>P50 (N/Z)</th><th>P99 (N/Z)</th></tr>
+
+            <tr>
+              <td>256B</td>
+              <td align="right">11,599</td>
+              <td align="right">1.9</td>
+              <td align="right">1363.27</td>
+              <td align="right">96,554</td>
+              <td align="right">15.8</td>
+              <td align="right">163.63</td>
+              <td align="right" style="color:#0a0;font-weight:bold">832.4%</td>
+              <td align="right">204.3/160.1 us</td>
+              <td align="right">14433.2/248.5 us</td>
+              <td align="left">ZeroFlush</td>
+            </tr>
+            <tr>
+              <td>1024B</td>
+              <td align="right">30,250</td>
+              <td align="right">19.0</td>
+              <td align="right">527.46</td>
+              <td align="right">4,115</td>
+              <td align="right">2.6</td>
+              <td align="right">3860.48</td>
+              <td align="right" style="color:#a00;font-weight:bold">13.6%</td>
+              <td align="right">188.2/3654.2 us</td>
+              <td align="right">3782.6/6085.6 us</td>
+              <td align="left">Native</td>
+            </tr>
+</table>
+
+<h2>5. 写放大 (DB 磁盘 / 逻辑数据)</h2>
+<table>
+  <tr><th>vs</th><th>逻辑 (GB)</th><th colspan="2">原生</th><th colspan="2">ZeroFlush</th></tr>
+  <tr><th></th><th></th><th>磁盘 GB</th><th>W-Amp</th><th>磁盘 GB</th><th>W-Amp</th></tr>
+  
+        <tr>
+          <td>256B</td>
+          <td align="right">50.0</td>
+          <td align="right">40.6</td>
+          <td align="right">0.81</td>
+          <td align="right">35.2</td>
+          <td align="right">0.70</td>
+        </tr>
+        <tr>
+          <td>1024B</td>
+          <td align="right">50.0</td>
+          <td align="right">40.8</td>
+          <td align="right">0.82</td>
+          <td align="right">35.2</td>
+          <td align="right">0.70</td>
+        </tr>
+</table>
+
+<h2>6. 关键发现</h2>
+
+<div class="finding" id="findings">
+  <p><em>数据分析将在两引擎测试完成后填充。</em></p>
+</div>
+
+<div class="conclusion">
+  <p><strong>测试配置摘要</strong>：50GB 逻辑数据集，16 线程，无压缩，8MB block cache，64MB write_buffer。</p>
+  <p>ZeroFlush 配置：P=64、kHash 路由、partition_target_bytes=64MB、epoch_target_bytes=256MB、install_below_l0=true、merge_into_base_level=false（默认）。</p>
+</div>
+
+<script>
+const fillCtx = document.getElementById('fillChart').getContext('2d');
+new Chart(fillCtx, { type: 'bar', data: {"labels": ["256B", "1024B"], "datasets": [{"label": "Native fillrandom", "data": [124125.0, 30255.0], "backgroundColor": "#4caf50", "borderColor": "#388e3c"}, {"label": "ZeroFlush fillrandom", "data": [3387.0, 1919.0], "backgroundColor": "#81c784", "borderColor": "#4caf50"}]},
+  options: { responsive: true, maintainAspectRatio: false,
+    scales: { y: { type: 'logarithmic', title: { display: true, text: 'ops/sec (log)' } } },
+    plugins: { legend: { position: 'top' }, title: { display: true, text: 'fillrandom 吞吐量对比' } }
+  }
+});
+const readCtx = document.getElementById('readChart').getContext('2d');
+new Chart(readCtx, { type: 'bar', data: {"labels": ["256B", "1024B"], "datasets": [{"label": "Native readrandom", "data": [11599.0, 30250.0], "backgroundColor": "#2196f3", "borderColor": "#1565c0"}, {"label": "ZeroFlush readrandom", "data": [96554.0, 4115.0], "backgroundColor": "#64b5f6", "borderColor": "#2196f3"}]},
+  options: { responsive: true, maintainAspectRatio: false,
+    scales: { y: { type: 'logarithmic', title: { display: true, text: 'ops/sec (log)' } } },
+    plugins: { legend: { position: 'top' }, title: { display: true, text: 'readrandom 吞吐量对比' } }
+  }
+});
+const latCtx = document.getElementById('latChart').getContext('2d');
+new Chart(latCtx, { type: 'bar', data: {"labels": ["256B", "1024B"], "datasets": [{"label": "Native fill P99", "data": [1645.84, 4189.38], "backgroundColor": "#e53935", "borderColor": "#b71c1c"}, {"label": "ZeroFlush fill P99", "data": [4237.4, 9355.43], "backgroundColor": "#ff7043", "borderColor": "#e64a19"}, {"label": "Native read P99", "data": [14433.24, 3782.56], "backgroundColor": "#5c6bc0", "borderColor": "#283593"}, {"label": "ZeroFlush read P99", "data": [248.48, 6085.55], "backgroundColor": "#9fa8da", "borderColor": "#5c6bc0"}]},
+  options: { responsive: true, maintainAspectRatio: false,
+    scales: { y: { type: 'logarithmic', title: { display: true, text: 'μs (log)' } } },
+    plugins: { legend: { position: 'top' }, title: { display: true, text: 'P99 尾延迟对比' } }
+  }
+});
+</script>
+
+</body>
+</html>

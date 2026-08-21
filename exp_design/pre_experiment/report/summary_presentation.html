@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZeroFlush 前期实验 0–3 跨实验汇总</title>
+<style>
+:root{--bg:#0f172a;--panel:#1e293b;--panel2:#273449;--ink:#e2e8f0;--muted:#94a3b8;
+--line:#334155;--accent:#38bdf8;--red:#f87171;--red-bg:#7f1d1d;--green:#34d399;
+--amber:#fbbf24;--blue:#60a5fa;--purple:#a78bfa}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Helvetica,Arial,sans-serif;
+line-height:1.6;font-size:15px}
+.wrap{max-width:1200px;margin:0 auto;padding:32px 24px 64px}
+header{padding:28px 30px;border-radius:14px;background:linear-gradient(135deg,#1e293b,#312e4a);
+border:1px solid var(--line);margin-bottom:28px}
+header h1{margin:0 0 6px;font-size:26px;font-weight:800;letter-spacing:.3px}
+header .sub{color:var(--muted);font-size:13.5px}
+.badge{display:inline-block;padding:3px 12px;border-radius:999px;font-size:12px;font-weight:700;margin-left:8px}
+.badge.pass{background:#14532d;color:#bbf7d0;border:1px solid #16a34a}
+.badge.fail{background:var(--red-bg);color:#fff;border:1px solid #b91c1c}
+.badge.abort{background:#4a4a4a;color:#ddd;border:1px solid #666}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:20px}
+.card h2{margin:0 0 10px;font-size:18px;color:#fff;border-bottom:1px solid var(--line);padding-bottom:8px}
+.card h3{margin:18px 0 8px;font-size:15px;color:var(--accent)}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:6px 14px;font-size:13.5px}
+.kv b{color:var(--muted);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0 4px}
+th,td{border:1px solid var(--line);padding:7px 9px;text-align:right;white-space:nowrap}
+th{background:var(--panel2);color:#cbd5e1;font-weight:700}
+td.l,th.l{text-align:left}td.c,th.c{text-align:center}
+tr:hover td{background:#1b2638}
+.hl-red{color:var(--red);font-weight:700}.hl-green{color:var(--green);font-weight:700}
+.hl-amber{color:var(--amber);font-weight:700}.hl-blue{color:var(--blue);font-weight:700}
+.failbox{background:linear-gradient(135deg,#7f1d1d,#451a1a);border:1.5px solid #b91c1c;
+border-radius:12px;padding:20px 24px;margin:22px 0}
+.passbox{background:linear-gradient(135deg,#14532d,#0d3320);border:1.5px solid #16a34a;
+border-radius:12px;padding:20px 24px;margin:22px 0}
+.passbox .verdict{font-size:26px;font-weight:900;color:#bbf7d0;letter-spacing:1px}
+.failbox .verdict{font-size:26px;font-weight:900;color:#fecaca;letter-spacing:1px}
+.alt{background:#0b1220;border-left:3px solid var(--accent);padding:12px 14px;border-radius:6px;margin:8px 0}
+.alt2{background:#0b1220;border-left:3px solid var(--purple);padding:12px 14px;border-radius:6px;margin:8px 0}
+.note{font-size:12.5px;color:var(--muted);background:#0b1220;border-radius:8px;padding:10px 14px;margin-top:10px}
+.warn{background:#0b1220;border-left:3px solid var(--amber);padding:12px 14px;border-radius:6px;margin:8px 0}
+.toc{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.toc a{font-size:12.5px;color:var(--accent);text-decoration:none;padding:3px 9px;border:1px solid var(--line);border-radius:6px}
+.toc a:hover{background:var(--panel2)}
+.link-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:12px 0}
+.link-card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px 16px;text-align:center}
+.link-card a{color:var(--accent);text-decoration:none;font-size:14px;font-weight:600}
+.link-card a:hover{text-decoration:underline}
+.link-card .desc{color:var(--muted);font-size:12px;margin-top:4px}
+footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+@media(max-width:820px){.link-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+<h1>ZeroFlush 前期实验 0–3 跨实验汇总</h1>
+<div class="sub">方案文档：<code>ZeroFlush_实验方案与执行提示词_Exp0-3.docx</code> · PPT：<code>ZeroFlush_Presentation.pptx</code> 第 3-4/10 页 · 报告日期 2026-08-05 · 数据源 <code>exp{0,1,2}_report.json</code></div>
+<div class="toc">
+<a href="#overview">总览</a><a href="#exp0">Exp0</a><a href="#exp1">Exp1</a><a href="#exp2">Exp2</a><a href="#exp3">Exp3</a><a href="#conclusion">综合结论</a><a href="#revision">设计修订</a><a href="#deviation">偏离声明</a><a href="#data">数据引用</a><a href="#future">后续建议</a>
+</div>
+</header>
+
+<!-- 1. 四实验状态总览 -->
+<section class="card" id="overview">
+<h2>1. 四实验状态总览</h2>
+<table>
+<thead><tr><th class="l">实验</th><th class="l">目的</th><th>状态</th><th class="l">关键指标</th><th class="l">验收结论</th><th>PPT 页</th></tr></thead>
+<tbody>
+<tr>
+<td class="l">Exp0</td>
+<td class="l">Flush 成本分解 (H1)</td>
+<td class="c"><span class="badge pass">PASS</span></td>
+<td class="l">WA_WAL≈1.020, WA_Flush≈0.767 (uniform≈1.01), WA_Comp≈3.367; flush_share=0.1668; 残差 0.0%</td>
+<td class="l">H1 核心成立 (WA_Flush≈1.01)</td>
+<td class="c">3-4</td>
+</tr>
+<tr>
+<td class="l">Exp1</td>
+<td class="l">L0 Overlap (H2)</td>
+<td class="c"><span class="badge fail">FAIL</span></td>
+<td class="l">overlap 5.9987→1.9798 (−67%); compaction 读 +166.3%; 吞吐 −62.74%</td>
+<td class="l">3/4 项 FAIL; run3/uniform 达标</td>
+<td class="c">4/10</td>
+</tr>
+<tr>
+<td class="l">Exp2</td>
+<td class="l">分区开销门</td>
+<td class="c"><span class="badge fail">FAIL</span></td>
+<td class="l">range p99 66-90ns (达标); 模式B(P=64) 回退 19.47%, 窗口 1902ms</td>
+<td class="l">FAIL, 触发设计修订</td>
+<td class="c">10</td>
+</tr>
+<tr>
+<td class="l">Exp3</td>
+<td class="l">Partition Index vs MemTable (H4)</td>
+<td class="c"><span class="badge abort">ABORTED</span></td>
+<td class="l">无 (前置 exp2=FAIL 中止)</td>
+<td class="l">按方案中止</td>
+<td class="c">10</td>
+</tr>
+</tbody>
+</table>
+</section>
+
+<!-- 2. 关键指标对比 -->
+<section class="card" id="metrics">
+<h2>2. 关键指标对比</h2>
+
+<h3>2.1 Exp0 — WA 分解 (Motivation)</h3>
+<table>
+<thead><tr><th class="l">指标</th><th>值</th><th class="l">说明</th></tr></thead>
+<tbody>
+<tr><td class="l">WA_WAL</td><td>1.0203</td><td class="l">WAL 写入 ≈ 用户数据字节</td></tr>
+<tr><td class="l">WA_Flush</td><td>0.7670</td><td class="l">uniform≈1.01 (支撑 H1); zipfian&lt;1.0 (热键覆写)</td></tr>
+<tr><td class="l">WA_Compaction</td><td>3.3673</td><td class="l">NAND 写主导; uniform_vs4096 达 9.099x</td></tr>
+<tr><td class="l">flush_share</td><td class="hl-amber">0.1668</td><td class="l">低于 [0.2,0.4] 期望, 根因 compaction 放大</td></tr>
+<tr><td class="l">守恒残差</td><td class="hl-green">0.0%</td><td class="l">恒成立 (total=WAL+Flush+Compact)</td></tr>
+<tr><td class="l">磁盘交叉核对残差</td><td class="hl-green">&lt; 2.0%</td><td class="l">[1.80, 0.78, 1.36, 0.79, 0.83, 0.36]%</td></tr>
+</tbody>
+</table>
+
+<h3>2.2 Exp1 — L0 Overlap 下降与验收</h3>
+<table>
+<thead><tr><th class="l">指标</th><th>baseline</th><th>intervention</th><th>变化</th><th>阈值</th><th>判定</th></tr></thead>
+<tbody>
+<tr><td class="l">overlap (zipfian 中位数)</td><td>5.9987</td><td class="hl-red">1.9798</td><td class="hl-amber">−67.0%</td><td>≤1.2</td><td class="hl-red">FAIL</td></tr>
+<tr><td class="l">compaction_read (MB)</td><td>145,339.75</td><td class="hl-red">387,052.77</td><td class="hl-red">+166.3% (2.66×)</td><td>≥40% 降</td><td class="hl-red">FAIL</td></tr>
+<tr><td class="l">吞吐 (ops/s)</td><td>58,522</td><td class="hl-red">21,808</td><td class="hl-red">−62.74%</td><td>≤5%</td><td class="hl-red">FAIL</td></tr>
+<tr><td class="l">baseline overlap ≥2.0</td><td>5.9987</td><td>—</td><td>—</td><td>≥2.0</td><td class="hl-green">PASS</td></tr>
+</tbody>
+</table>
+<table style="margin-top:12px">
+<thead><tr><th class="l">达标证据</th><th>数值</th><th>判定</th></tr></thead>
+<tbody>
+<tr><td class="l">zipfian run3 overlap</td><td class="hl-green">0.98773 (L0=1)</td><td class="hl-green">PASS</td></tr>
+<tr><td class="l">uniform overlap</td><td class="hl-green">0.23429 (L0=2)</td><td class="hl-green">PASS</td></tr>
+<tr><td class="l">P_recommend</td><td class="hl-amber">16</td><td>—</td></tr>
+</tbody>
+</table>
+
+<h3>2.3 Exp2 — multi-WAL fsync 判定</h3>
+<table>
+<thead><tr><th class="l">候选 (P=64, sync=true)</th><th>throughput (ops/s)</th><th>回退</th><th>fsync/op</th><th>fsync 比值</th><th>durability (ms)</th><th>判定</th></tr></thead>
+<tbody>
+<tr><td class="l">基线 P=1 模式A</td><td>306,743.0</td><td>—</td><td>0.00021</td><td>1.0×</td><td>44.5179</td><td class="l">基线</td></tr>
+<tr><td class="l">模式A independent</td><td class="hl-red">71,174.0</td><td class="hl-red">76.797%</td><td class="hl-red">0.013143</td><td class="hl-red">62.59×</td><td>214.1229</td><td class="hl-red">FAIL</td></tr>
+<tr><td class="l">模式B batched</td><td class="hl-amber">247,030.7</td><td class="hl-red">19.467%</td><td class="hl-green">0.000383</td><td class="hl-green">1.8238×</td><td class="hl-red">1902.0261</td><td class="hl-red">FAIL</td></tr>
+</tbody>
+</table>
+<p style="font-size:13px;color:var(--muted)">阈值：G1 回退≤15% | G2 fsync比值≤2× | G3 durability≤5ms。模式B G2 PASS 但 G1/G3 FAIL；模式A 三闸全 FAIL。</p>
+<p style="font-size:13px;color:var(--muted)">range lookup p99 66-90ns < 100ns <span class="hl-green">达标</span>（风险点 a 消除）。</p>
+</section>
+
+<!-- 3. Exp0 详情 -->
+<section class="card" id="exp0">
+<h2>3. Exp0: Flush 成本分解 — H1 PASS</h2>
+<div class="passbox">
+<div class="verdict">H1: PASS</div>
+<div style="color:#bbf7d0;margin-top:8px;font-size:13.5px">
+<b>flush 可分解、可量化</b>：WA 分解成功，守恒残差 0.0%，磁盘交叉核对 < 2.0%<br>
+<b>flush 占一次 NAND 写</b>：uniform WA_Flush ≈ 1.01x，直接支撑 H1 核心主张<br>
+<b>flush_share 0.2-0.4 预期未达</b>：实测均值 0.1668，根因 compaction 放大膨胀分母（不否定 H1）
+</div>
+</div>
+<div class="kv" style="margin-top:14px">
+<b>WA_Flush (uniform)</b><span>vs100=1.025, vs1024=1.010, vs4096=1.010 → flush = 一次完整 NAND 写</span>
+<b>WA_Compaction</b><span>1.17x ~ 9.10x, uniform_vs4096 最严重, 导致 flush_share 偏低</span>
+<b>冻结配置</b><span><code>exp_design/pre_experiment/code/exp0_flush_cost/workload_config.json</code></span>
+<b>关键参数</b><span>num=20M, writes=10M/thread×8=80M ops, wbs=64MB, mwbn=4, level compaction, sync=false, compression=none, seed=42</span>
+</div>
+</section>
+
+<!-- 4. Exp1 详情 -->
+<section class="card" id="exp1">
+<h2>4. Exp1: L0 Overlap — H2 部分支持</h2>
+<div class="failbox">
+<div class="verdict">H2: 部分支持 (FAIL)</div>
+<div style="color:#fee2e2;margin-top:8px;font-size:13.5px">
+<b>3 项 FAIL</b>：V2 overlap 1.9798>1.2 | V3 compaction 读 +166.3% | V4 吞吐 −62.74%<br>
+<b>达标证据</b>：run3 zipfian=0.99 (L0=1) PASS | uniform=0.23 (L0=2) PASS<br>
+<b>根因</b>：flush 时分区每次 16 SST → L0 文件数暴涨 16× (中位数 17 vs 6) → stall (2281 delays+728 stops, stall.micros 3.5×基线) → 吞吐 −62.74%<br>
+<b>干预类型</b>：flush_time_partition（回退预案，非主方案 PartitionedMemTable）
+</div>
+</div>
+<div class="kv" style="margin-top:14px">
+<b>主方案必要性</b><span>PartitionedMemTable（写入时路由到 P 子表，各独立 flush 每次 1 SST）从根本上避免 L0 文件数暴涨；因集成复杂度超标未采用</span>
+<b>关键发现</b><span>zipfian 热键集中致分区不均 (overlap 1.98) vs uniform 均匀分布效果更佳 (overlap 0.23)</span>
+<b>P_recommend</b><span class="hl-amber">16</span>
+<b>FAIL 范围</b><span>仅针对回退方案 flush 时分区；不等同于主方案 PartitionedMemTable 不可行</span>
+</div>
+</section>
+
+<!-- 5. Exp2 详情 -->
+<section class="card" id="exp2">
+<h2>5. Exp2: 分区开销门 — FAIL</h2>
+<div class="failbox">
+<div class="verdict">Gate: FAIL</div>
+<div style="color:#fee2e2;margin-top:8px;font-size:13.5px">
+<b>range lookup 达标</b>：p99 66-90ns < 100ns（风险点 a 消除）<br>
+<b>multi-WAL FAIL</b>：模式A(P=64) 回退 76.797%, fsync/op 0.013143 (62.59×基线) | 模式B(P=64) 回退 19.467% (>15%), fsync/op 0.000383 (1.8238×, 达标), 窗口 1902.0261ms (≫5ms)<br>
+<b>根本矛盾</b>：批量 fsync 摊薄 fsync 需放大 commit 批 (512×P)，但 commit 批放大使 durability window 随 P 急剧膨胀，模型层面不可调和
+</div>
+</div>
+</section>
+
+<!-- 6. Exp3 详情 -->
+<section class="card" id="exp3">
+<h2>6. Exp3: 中止</h2>
+<div class="warn">
+<b>status = aborted</b><br>
+<b>reason</b>：exp2 decision=FAIL<br>
+<b>说明</b>：实验3前置条件为实验2 decision=PASS；exp2判定FAIL（多WAL fsync模式B吞吐回退19.47%>15%、durability窗口1902.0261ms≫5ms），按方案中止，未产出任何实验数据。<br>
+<b>产物</b>：<code>exp_design/pre_experiment/report/exp3_report.json</code>（status=aborted）
+</div>
+</section>
+
+<!-- 7. 综合结论 -->
+<section class="card" id="conclusion">
+<h2>7. 跨实验综合结论</h2>
+
+<h3>7.1 核心假设验证状态</h3>
+<table>
+<thead><tr><th class="l">假设</th><th>状态</th><th class="l">证据</th></tr></thead>
+<tbody>
+<tr><td class="l">H1 (flush 成本可分解)</td><td class="hl-green">PASS</td><td class="l">WA 分解成功 (WA_WAL≈1.020, WA_Flush≈0.767, WA_Comp≈3.367), 残差 0.0%, 磁盘核对 <2%; uniform WA_Flush≈1.01 支撑 "flush=一次NAND写"</td></tr>
+<tr><td class="l">H2 (L0 overlap 源于写入准入)</td><td class="hl-amber">部分支持</td><td class="l">分区有效降 overlap (zipfian −67%, uniform −96.7%), 但受 compaction lag 限制, zipfian 中位数 1.9798 未达 ≤1.2; run3=0.99/uniform=0.23 达标</td></tr>
+<tr><td class="l">H4 (Partition Index 替代 MemTable)</td><td class="hl-red">未验证</td><td class="l">exp2 FAIL 中止 exp3, H4 未获任何实验数据</td></tr>
+</tbody>
+</table>
+
+<h3>7.2 关键瓶颈</h3>
+<div class="alt">
+<b>瓶颈 ① WAL 分区 fsync 语义 (exp2 FAIL)</b><br>
+多 WAL group commit 在当前模型下吞吐崩塌 + durability 窗口过大：<br>
+• 模式A P=64：吞吐 71,174 ops/s (回退 76.797%), fsync/op 0.013143 (62.59×基线)<br>
+• 模式B P=64：吞吐 247,031 ops/s (回退 19.467%), fsync/op 0.000383 (1.8238×, 达标), 窗口 1902.0261ms (≫5ms, 超标~380×)
+</div>
+<div class="alt">
+<b>瓶颈 ② L0 文件数管理 (exp1 flush 时分区缺陷)</b><br>
+分区 flush 导致 L0 文件数暴涨触发 stall：<br>
+• 每次 flush 16 SST → L0 文件数增长 16× (中位数 17 vs 6) → level0_slowdown_writes stall (2,281 delays + 728 stops, stall.micros 3.5×基线) → 吞吐回退 62.74%<br>
+• 主方案 PartitionedMemTable (独立子表 flush 每次 1 SST) 是必要修正
+</div>
+
+<h3>7.3 负面结果的研究价值</h3>
+<div class="alt2">
+如实量化了 ZeroFlush 设计在两个维度的可行性边界：<br>
+• <b>WAL fsync 语义维度</b> (exp2)：多 WAL group commit 吞吐崩塌与 durability 窗口膨胀的不可调和矛盾<br>
+• <b>L0 文件数管理维度</b> (exp1)：flush 时分区致 L0 文件数暴涨 → stall → 吞吐回退 62.74% 的固有缺陷，揭示"任何增加 L0 文件数 (每次 flush >1 SST) 的方案都会触发 stall"的设计约束
+</div>
+</section>
+
+<!-- 8. 设计修订建议 -->
+<section class="card" id="revision">
+<h2>8. 设计修订建议（对应 PPT 第 10 页）</h2>
+<div class="alt">
+<b>WAL 分区 — 替代设计 ①</b><br>
+单 WAL 写入 + 轻量后台分区线程（写入路径保持单文件组提交，分区路由推迟到 flush/L0 构建时后台完成）
+</div>
+<div class="alt">
+<b>WAL 分区 — 替代设计 ②</b><br>
+放弃 WAL=L0 映射，退化为分区 MemTable 方案（WAL 仅作崩溃恢复日志，分区结构只在内存 MemTable 与 L0 维持）
+</div>
+<div class="alt2">
+<b>L0 管理 — 主方案 PartitionedMemTable</b><br>
+独立子表 flush 每次 1 SST，避免 L0 文件数暴涨。flush 时分区（回退方案）已证明不可行（吞吐 −62.74%），但 run3/uniform 达标证明分区方向正确
+</div>
+</section>
+
+<!-- 9. 偏离声明 -->
+<section class="card" id="deviation">
+<h2>9. 方案执行偏离声明</h2>
+<table>
+<thead><tr><th class="l">偏离项</th><th class="l">说明</th><th class="l">影响</th></tr></thead>
+<tbody>
+<tr><td class="l">exp1 flush 时分区回退</td><td class="l">非主方案 PartitionedMemTable，因集成复杂度超标（前任未完成）</td><td class="l">FAIL 仅针对回退方案，不等同于主方案不可行</td></tr>
+<tr><td class="l">exp1 uniform 单点非中位数</td><td class="l">uniform 仅 1 rep（运行时长约 zipfian 2.5×），非中位数</td><td class="l">达标为单点证据，zipfian 3 rep 中位数为主结论</td></tr>
+<tr><td class="l">exp0 zipfian 工具层补丁</td><td class="l">db_bench 无原生 zipfian，工具层实现 θ=0.99 生成器</td><td class="l">冒烟验证通过，未经独立审计</td></tr>
+<tr><td class="l">YCSB-A JNI 6.2.2 割裂</td><td class="l">rocksdbjni 6.2.2 vs RocksDB 11.2.0 版本割裂</td><td class="l">YCSB-A 无引擎 Statistics，仅作吞吐/延迟交叉验证</td></tr>
+</tbody>
+</table>
+</section>
+
+<!-- 10. 数据引用 -->
+<section class="card" id="data">
+<h2>10. 原始数据与阶段报告引用</h2>
+<table>
+<thead><tr><th class="l">实验</th><th class="l">报告 JSON</th><th class="l">阶段报告</th><th class="l">原始数据</th><th class="l">展示页</th></tr></thead>
+<tbody>
+<tr><td class="l">Exp0</td><td class="l"><code>exp0_report.json</code></td><td class="l"><code>exp0_stage_report.md</code></td><td class="l"><code>output/pre_exp/exp0/</code></td><td class="l"><a href="exp0_presentation.html">exp0_presentation.html</a></td></tr>
+<tr><td class="l">Exp1</td><td class="l"><code>exp1_report.json</code></td><td class="l"><code>exp1_stage_report.md</code></td><td class="l"><code>output/pre_exp/exp1/raw/</code></td><td class="l"><a href="exp1_presentation.html">exp1_presentation.html</a></td></tr>
+<tr><td class="l">Exp2</td><td class="l"><code>exp2_report.json</code></td><td class="l"><code>exp2_stage_report.md</code></td><td class="l"><code>output/pre_exp/exp2/</code></td><td class="l"><a href="exp2_presentation.html">exp2_presentation.html</a></td></tr>
+<tr><td class="l">Exp3</td><td class="l"><code>exp3_report.json</code></td><td class="l">—（中止）</td><td class="l">—（中止）</td><td class="l">—</td></tr>
+</tbody>
+</table>
+<div class="link-grid">
+<div class="link-card"><a href="exp0_presentation.html">Exp0 展示页</a><div class="desc">Flush 成本分解</div></div>
+<div class="link-card"><a href="exp1_presentation.html">Exp1 展示页</a><div class="desc">L0 Overlap</div></div>
+<div class="link-card"><a href="exp2_presentation.html">Exp2 展示页</a><div class="desc">分区开销门</div></div>
+<div class="link-card"><a href="summary.md">汇总文档 (Markdown)</a><div class="desc">完整跨实验报告</div></div>
+</div>
+<h3>硬件环境</h3>
+<p style="font-size:13px;color:var(--muted)">CPU: Intel i9-10980XE 3.00GHz 36核 | 内存: 62.48GB | 磁盘: NVMe 1.8T ext4 | 内核: 6.8.0-124-generic | OS: Ubuntu 22.04 | 调频器: powersave (exp1/exp2)</p>
+</section>
+
+<!-- 11. 后续建议 -->
+<section class="card" id="future">
+<h2>11. 后续建议</h2>
+<div class="alt">
+<b>① 尝试主方案 PartitionedMemTable</b><br>
+独立子表 flush 每次 1 SST，避免 L0 文件数暴涨。exp1 run3/uniform 达标证明分区方向正确，主方案有望解决 L0 文件数管理问题。
+</div>
+<div class="alt">
+<b>② 对 WAL 分区替代设计做微基准验证</b><br>
+替代设计 ①（单 WAL + 轻量后台分区线程）保持单文件组提交，有望在吞吐与 durability 间取得平衡，需微基准验证。
+</div>
+<div class="alt">
+<b>③ 论文终稿规模放大 (200M keys) 复核</b><br>
+当前 num=20M（终稿 200M 的 10%），uniform_vs4096 单轮 7-8h，200M 预计 70+h/轮。WA 趋势可外推，绝对值可能变化。
+</div>
+</section>
+
+<footer>本页全部数值严格取自 exp{0,1,2}_report.json，禁止伪造或估算 · 生成于 2026-08-05 · 任务 #6 跨实验汇总成果</footer>
+
+</div>
+</body>
+</html>

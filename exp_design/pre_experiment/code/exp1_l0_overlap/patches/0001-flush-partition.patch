@@ -1,0 +1,459 @@
+diff --git a/db/flush_job.cc b/db/flush_job.cc
+index cb0d000..3ce7147 100644
+--- a/db/flush_job.cc
++++ b/db/flush_job.cc
+@@ -50,6 +50,98 @@
+ 
+ namespace ROCKSDB_NAMESPACE {
+ 
++namespace {
++
++// Iterator wrapper that restricts iteration to a contiguous user-key subrange
++// [lower, upper] of an underlying InternalIterator.  Used by the
++// flush-time partitioned emission path in WriteLevel0Table() to split a
++// single memtable scan into P non-overlapping SST outputs whose key ranges
++// are aligned with current L1 file boundaries.
++//
++// Semantics:
++//   * lower_bound (exclusive): if non-null/non-empty, SeekToFirst() positions
++//     at the first entry whose user key is strictly greater than lower_bound.
++//   * upper_bound (inclusive): if non-null/non-empty, Valid() becomes false
++//     once the underlying iterator advances past the last entry whose user
++//     key <= upper_bound.
++class PartitionBoundedIterator : public InternalIterator {
++ public:
++  PartitionBoundedIterator(InternalIterator* inner, const Slice* lower_bound,
++                           const Slice* upper_bound, const Comparator* ucmp)
++      : inner_(inner),
++        lower_bound_(lower_bound),
++        upper_bound_(upper_bound),
++        ucmp_(ucmp),
++        valid_(false) {}
++
++  bool Valid() const override { return valid_ && inner_->Valid(); }
++
++  void SeekToFirst() override {
++    if (lower_bound_ != nullptr && !lower_bound_->empty()) {
++      // Construct the largest possible internal key for this user key so that
++      // Seek() lands on the first entry with user key strictly greater than
++      // lower_bound_ (exclusive lower bound).
++      seek_key_.SetMaxPossibleForUserKey(*lower_bound_);
++      inner_->Seek(seek_key_.Encode());
++    } else {
++      inner_->SeekToFirst();
++    }
++    UpdateValid();
++  }
++
++  void SeekToLast() override {
++    inner_->SeekToLast();
++    UpdateValid();
++  }
++
++  void Seek(const Slice& target) override {
++    inner_->Seek(target);
++    UpdateValid();
++  }
++
++  void SeekForPrev(const Slice& target) override {
++    inner_->SeekForPrev(target);
++    UpdateValid();
++  }
++
++  void Next() override {
++    inner_->Next();
++    UpdateValid();
++  }
++
++  void Prev() override {
++    inner_->Prev();
++    UpdateValid();
++  }
++
++  Slice key() const override { return inner_->key(); }
++  Slice value() const override { return inner_->value(); }
++  Status status() const override { return inner_->status(); }
++
++ private:
++  void UpdateValid() {
++    valid_ = inner_->Valid();
++    if (!valid_) {
++      return;
++    }
++    if (upper_bound_ != nullptr && !upper_bound_->empty()) {
++      Slice uk = ExtractUserKey(inner_->key());
++      if (ucmp_->Compare(uk, *upper_bound_) > 0) {
++        valid_ = false;
++      }
++    }
++  }
++
++  InternalIterator* inner_;
++  const Slice* lower_bound_;  // exclusive, nullable
++  const Slice* upper_bound_;  // inclusive, nullable
++  const Comparator* ucmp_;
++  InternalKey seek_key_;
++  bool valid_;
++};
++
++}  // anonymous namespace
++
+ const char* GetFlushReasonString(FlushReason flush_reason) {
+   switch (flush_reason) {
+     case FlushReason::kOthers:
+@@ -899,6 +991,8 @@ Status FlushJob::WriteLevel0Table() {
+   // Note that here we treat flush as level 0 compaction in internal stats
+   InternalStats::CompactionStats flush_stats(CompactionReason::kFlush,
+                                              1 /* count**/);
++  // exp1: partition output metadata vector (visible outside outer block)
++  std::vector<FileMetaData> partition_metas;
+   {
+     auto write_hint = base_->storage_info()->CalculateSSTWriteHint(
+         /*level=*/0, db_options_.calculate_sst_write_lifetime_hint_set);
+@@ -971,7 +1065,22 @@ Status FlushJob::WriteLevel0Table() {
+                          << "num_range_deletes" << total_num_range_deletes
+                          << "flush_reason"
+                          << GetFlushReasonString(flush_reason_);
+-
++    
++    // === exp1: Compute L1 partition boundaries for flush-time partitioned
++    //  L0 emission.
++    const auto& l1_files = base_->storage_info()->LevelFiles(1);
++    size_t num_partitions = 0;
++    std::vector<std::string> partition_bounds;  // inclusive upper-bound user keys
++    if (range_del_iters.empty() && l1_files.size() >= 2) {
++      num_partitions = std::min(static_cast<size_t>(16), l1_files.size());
++      for (size_t i = 0; i + 1 < num_partitions; i++) {
++        size_t idx = i * l1_files.size() / (num_partitions - 1);
++        idx = std::min(idx, l1_files.size() - 1);
++        partition_bounds.push_back(
++            ExtractUserKey(l1_files[idx]->largest.Encode()).ToString());
++      }
++    }
++    // (partition_metas declared before outer block for post-block visibility)
+     {
+       ScopedArenaPtr<InternalIterator> iter(
+           NewMergingIterator(&cfd_->internal_comparator(), memtables.data(),
+@@ -1016,90 +1125,196 @@ Status FlushJob::WriteLevel0Table() {
+       ReadOptions read_options(Env::IOActivity::kFlush);
+       read_options.rate_limiter_priority = io_priority;
+       const WriteOptions write_options(io_priority, Env::IOActivity::kFlush);
+-      TableBuilderOptions tboptions(
+-          cfd_->ioptions(), mutable_cf_options_, read_options, write_options,
+-          cfd_->internal_comparator(), cfd_->internal_tbl_prop_coll_factories(),
+-          output_compression_, mutable_cf_options_.compression_opts,
+-          cfd_->GetID(), cfd_->GetName(), 0 /* level */,
+-          current_time /* newest_key_time */, false /* is_bottommost */,
+-          TableFileCreationReason::kFlush, oldest_key_time, current_time,
+-          db_id_, db_session_id_, 0 /* target_file_size */,
+-          meta_.fd.GetNumber(),
+-          preclude_last_level_min_seqno_ == kMaxSequenceNumber
+-              ? preclude_last_level_min_seqno_
+-              : std::min(earliest_snapshot_, preclude_last_level_min_seqno_));
+-      s = BuildTable(
+-          dbname_, versions_, db_options_, tboptions, file_options_,
+-          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
+-          &blob_file_additions, job_context_->snapshot_seqs, earliest_snapshot_,
+-          job_context_->earliest_write_conflict_snapshot,
+-          job_context_->GetJobSnapshotSequence(),
+-          job_context_->snapshot_checker,
+-          mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
+-          &io_s, io_tracer_, BlobFileCreationReason::kFlush,
+-          seqno_to_time_mapping_.get(), event_logger_, job_context_->job_id,
+-          &table_properties_, write_hint, full_history_ts_low, blob_callback_,
+-          base_, &memtable_payload_bytes, &memtable_garbage_bytes, &flush_stats,
+-          blob_file_garbages_for_filtering, fast_sst_open_);
+-      TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:s", &s);
+-      // TODO: Cleanup io_status in BuildTable and table builders
+-      assert(!s.ok() || io_s.ok());
+-      io_s.PermitUncheckedError();
+-      if (s.ok() && total_num_input_entries != flush_stats.num_input_records) {
+-        std::string msg = "Expected " +
+-                          std::to_string(total_num_input_entries) +
+-                          " entries in memtables, but read " +
+-                          std::to_string(flush_stats.num_input_records);
+-        ROCKS_LOG_WARN(db_options_.info_log, "[%s] [JOB %d] Level-0 flush %s",
+-                       cfd_->GetName().c_str(), job_context_->job_id,
+-                       msg.c_str());
+-        if (db_options_.flush_verify_memtable_count) {
+-          s = Status::Corruption(msg);
++      if (num_partitions >= 2) {
++        // === exp1: Partitioned path — emit P SSTs aligned to L1 boundaries ===
++        ROCKS_LOG_INFO(db_options_.info_log,
++            "[%s] [JOB %d] Flush partitioned into %zu SSTs by L1 boundaries",
++            cfd_->GetName().c_str(), job_context_->job_id, num_partitions);
++        uint64_t p_total_input = 0;
++        for (size_t p = 0; p < num_partitions && s.ok(); p++) {
++          FileMetaData pmeta;
++          pmeta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
++          pmeta.temperature = meta_.temperature;
++          pmeta.oldest_ancester_time = oldest_ancester_time;
++          pmeta.file_creation_time = current_time;
++          pmeta.epoch_number = meta_.epoch_number;
++
++          TableBuilderOptions ptboptions(
++              cfd_->ioptions(), mutable_cf_options_, read_options,
++              write_options, cfd_->internal_comparator(),
++              cfd_->internal_tbl_prop_coll_factories(), output_compression_,
++              mutable_cf_options_.compression_opts, cfd_->GetID(),
++              cfd_->GetName(), 0, current_time, false,
++              TableFileCreationReason::kFlush, oldest_key_time, current_time,
++              db_id_, db_session_id_, 0, pmeta.fd.GetNumber(),
++              preclude_last_level_min_seqno_ == kMaxSequenceNumber
++                  ? preclude_last_level_min_seqno_
++                  : std::min(earliest_snapshot_,
++                             preclude_last_level_min_seqno_));
++
++          InternalIterator* piter = NewMergingIterator(
++              &cfd_->internal_comparator(), memtables.data(),
++              static_cast<int>(memtables.size()), &arena);
++          Slice lower_slice =
++              (p == 0) ? Slice() : Slice(partition_bounds[p - 1]);
++          Slice upper_slice =
++              (p == num_partitions - 1)
++                  ? Slice()
++                  : Slice(partition_bounds[p]);
++          const Slice* lower_b = (p == 0) ? nullptr : &lower_slice;
++          const Slice* upper_b =
++              (p == num_partitions - 1) ? nullptr : &upper_slice;
++          PartitionBoundedIterator bounded_iter(piter, lower_b, upper_b, ucmp);
++
++          IOStatus pio_s;
++          InternalStats::CompactionStats p_stats(CompactionReason::kFlush, 1);
++          TableProperties p_props;
++          uint64_t p_payload = 0, p_garbage = 0;
++          s = BuildTable(
++              dbname_, versions_, db_options_, ptboptions, file_options_,
++              cfd_->table_cache(), &bounded_iter, {} /*range_del*/, &pmeta,
++              &blob_file_additions, job_context_->snapshot_seqs,
++              earliest_snapshot_,
++              job_context_->earliest_write_conflict_snapshot,
++              job_context_->GetJobSnapshotSequence(),
++              job_context_->snapshot_checker,
++              mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
++              &pio_s, io_tracer_, BlobFileCreationReason::kFlush,
++              seqno_to_time_mapping_.get(), event_logger_, job_context_->job_id,
++              &p_props, write_hint, full_history_ts_low, blob_callback_, base_,
++              &p_payload, &p_garbage, &p_stats,
++              blob_file_garbages_for_filtering, fast_sst_open_);
++          pio_s.PermitUncheckedError();
++          if (s.ok()) {
++            memtable_payload_bytes += p_payload;
++            memtable_garbage_bytes += p_garbage;
++            p_total_input += p_stats.num_input_records;
++            flush_stats.num_output_records += p_stats.num_output_records;
++            flush_stats.bytes_written_pre_comp +=
++                p_stats.bytes_written_pre_comp;
++            flush_stats.cpu_micros += p_stats.cpu_micros;
++            if (partition_metas.empty()) table_properties_ = p_props;
++            if (pmeta.fd.GetFileSize() > 0) {
++              partition_metas.push_back(std::move(pmeta));
++            }
++          }
+         }
+-      }
+-
+-      // Only verify on table with format collects table properties
+-      if (s.ok() &&
+-          (mutable_cf_options_.table_factory->IsInstanceOf(
+-               TableFactory::kBlockBasedTableName()) ||
+-           mutable_cf_options_.table_factory->IsInstanceOf(
+-               TableFactory::kPlainTableName())) &&
+-          flush_stats.num_output_records != table_properties_.num_entries) {
+-        std::string msg =
+-            "Number of keys in flush output SST files does not match "
+-            "number of keys added to the table. Expected " +
+-            std::to_string(flush_stats.num_output_records) + " but there are " +
+-            std::to_string(table_properties_.num_entries) +
+-            " in output SST files";
+-        ROCKS_LOG_WARN(db_options_.info_log, "[%s] [JOB %d] Level-0 flush %s",
+-                       cfd_->GetName().c_str(), job_context_->job_id,
+-                       msg.c_str());
+-        if (db_options_.flush_verify_memtable_count) {
+-          s = Status::Corruption(msg);
++        flush_stats.num_input_records = p_total_input;
++        if (s.ok() && total_num_input_entries != p_total_input) {
++          std::string msg = "Expected " +
++              std::to_string(total_num_input_entries) +
++              " entries in memtables, but read " +
++              std::to_string(p_total_input);
++          ROCKS_LOG_WARN(db_options_.info_log,
++              "[%s] [JOB %d] Level-0 flush %s",
++              cfd_->GetName().c_str(), job_context_->job_id, msg.c_str());
++          if (db_options_.flush_verify_memtable_count) {
++            s = Status::Corruption(msg);
++          }
+         }
+-      }
+-      if (tboptions.reason == TableFileCreationReason::kFlush) {
++        TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:s", &s);
+         TEST_SYNC_POINT("DBImpl::FlushJob:Flush");
+         RecordTick(stats_, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
+                    memtable_payload_bytes);
+         RecordTick(stats_, MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+                    memtable_garbage_bytes);
++      } else {
++        // === Vanilla path: single SST (original behaviour) ===
++        TableBuilderOptions tboptions(
++            cfd_->ioptions(), mutable_cf_options_, read_options, write_options,
++            cfd_->internal_comparator(), cfd_->internal_tbl_prop_coll_factories(),
++            output_compression_, mutable_cf_options_.compression_opts,
++            cfd_->GetID(), cfd_->GetName(), 0 /* level */,
++            current_time /* newest_key_time */, false /* is_bottommost */,
++            TableFileCreationReason::kFlush, oldest_key_time, current_time,
++            db_id_, db_session_id_, 0 /* target_file_size */,
++            meta_.fd.GetNumber(),
++            preclude_last_level_min_seqno_ == kMaxSequenceNumber
++                ? preclude_last_level_min_seqno_
++                : std::min(earliest_snapshot_, preclude_last_level_min_seqno_));
++        s = BuildTable(
++            dbname_, versions_, db_options_, tboptions, file_options_,
++            cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
++            &blob_file_additions, job_context_->snapshot_seqs, earliest_snapshot_,
++            job_context_->earliest_write_conflict_snapshot,
++            job_context_->GetJobSnapshotSequence(),
++            job_context_->snapshot_checker,
++            mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
++            &io_s, io_tracer_, BlobFileCreationReason::kFlush,
++            seqno_to_time_mapping_.get(), event_logger_, job_context_->job_id,
++            &table_properties_, write_hint, full_history_ts_low, blob_callback_,
++            base_, &memtable_payload_bytes, &memtable_garbage_bytes,
++            &flush_stats, blob_file_garbages_for_filtering, fast_sst_open_);
++        TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:s", &s);
++        assert(!s.ok() || io_s.ok());
++        io_s.PermitUncheckedError();
++        if (s.ok() && total_num_input_entries != flush_stats.num_input_records) {
++          std::string msg = "Expected " +
++                            std::to_string(total_num_input_entries) +
++                            " entries in memtables, but read " +
++                            std::to_string(flush_stats.num_input_records);
++          ROCKS_LOG_WARN(db_options_.info_log, "[%s] [JOB %d] Level-0 flush %s",
++                         cfd_->GetName().c_str(), job_context_->job_id,
++                         msg.c_str());
++          if (db_options_.flush_verify_memtable_count) {
++            s = Status::Corruption(msg);
++          }
++        }
++        if (s.ok() &&
++            (mutable_cf_options_.table_factory->IsInstanceOf(
++                 TableFactory::kBlockBasedTableName()) ||
++             mutable_cf_options_.table_factory->IsInstanceOf(
++                 TableFactory::kPlainTableName())) &&
++            flush_stats.num_output_records != table_properties_.num_entries) {
++          std::string msg =
++              "Number of keys in flush output SST files does not match "
++              "number of keys added to the table. Expected " +
++              std::to_string(flush_stats.num_output_records) + " but there are " +
++              std::to_string(table_properties_.num_entries) +
++              " in output SST files";
++          ROCKS_LOG_WARN(db_options_.info_log, "[%s] [JOB %d] Level-0 flush %s",
++                         cfd_->GetName().c_str(), job_context_->job_id,
++                         msg.c_str());
++          if (db_options_.flush_verify_memtable_count) {
++            s = Status::Corruption(msg);
++          }
++        }
++        if (tboptions.reason == TableFileCreationReason::kFlush) {
++          TEST_SYNC_POINT("DBImpl::FlushJob:Flush");
++          RecordTick(stats_, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
++                     memtable_payload_bytes);
++          RecordTick(stats_, MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
++                     memtable_garbage_bytes);
++        }
+       }
+       LogFlush(db_options_.info_log);
+     }
+-    ROCKS_LOG_BUFFER(log_buffer_,
+-                     "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
+-                     " bytes %s"
+-                     " %s"
+-                     " %s",
+-                     cfd_->GetName().c_str(), job_context_->job_id,
+-                     meta_.fd.GetNumber(), meta_.fd.GetFileSize(),
+-                     s.ToString().c_str(),
+-                     s.ok() && meta_.fd.GetFileSize() == 0
+-                         ? "It's an empty SST file from a successful flush so "
+-                           "won't be kept in the DB"
+-                         : "",
+-                     meta_.marked_for_compaction ? " (needs compaction)" : "");
++    if (partition_metas.empty()) {
++      ROCKS_LOG_BUFFER(log_buffer_,
++                       "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
++                       " bytes %s"
++                       " %s"
++                       " %s",
++                       cfd_->GetName().c_str(), job_context_->job_id,
++                       meta_.fd.GetNumber(), meta_.fd.GetFileSize(),
++                       s.ToString().c_str(),
++                       s.ok() && meta_.fd.GetFileSize() == 0
++                           ? "It's an empty SST file from a successful flush so "
++                             "won't be kept in the DB"
++                           : "",
++                       meta_.marked_for_compaction ? " (needs compaction)" : "");
++    } else {
++      uint64_t total_bytes = 0;
++      for (const auto& pm : partition_metas) {
++        total_bytes += pm.fd.GetFileSize();
++      }
++      ROCKS_LOG_BUFFER(log_buffer_,
++                       "[%s] [JOB %d] Level-0 flush %zu partitioned SSTs, %" PRIu64
++                       " bytes total %s",
++                       cfd_->GetName().c_str(), job_context_->job_id,
++                       partition_metas.size(), total_bytes,
++                       s.ToString().c_str());
++    }
+ 
+     if (s.ok() && output_file_directory_ != nullptr && sync_output_directory_) {
+       s = output_file_directory_->FsyncWithDirOptions(
+@@ -1114,18 +1329,22 @@ Status FlushJob::WriteLevel0Table() {
+   // Note that if file_size is zero, the SST has been deleted and should not be
+   // added to the manifest. Blob metadata updates may still need to be
+   // committed for direct-write files or flush-time filtering.
+-  const bool has_output = meta_.fd.GetFileSize() > 0;
++  const bool has_output =
++      !partition_metas.empty() || meta_.fd.GetFileSize() > 0;
+ 
+   if (s.ok()) {
+     if (has_output) {
+       TEST_SYNC_POINT("DBImpl::FlushJob:SSTFileCreated");
+-      // if we have more than 1 background thread, then we cannot
+-      // insert files directly into higher levels because some other
+-      // threads could be concurrently producing compacted files for
+-      // that key range.
+-      // Add file to L0
+-      TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", &meta_);
+-      edit_->AddFile(0 /* level */, meta_);
++      // Add file(s) to L0
++      if (partition_metas.empty()) {
++        TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", &meta_);
++        edit_->AddFile(0 /* level */, meta_);
++      } else {
++        for (auto& pm : partition_metas) {
++          TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", &pm);
++          edit_->AddFile(0 /* level */, pm);
++        }
++      }
+     }
+ 
+     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
+@@ -1156,8 +1375,18 @@ Status FlushJob::WriteLevel0Table() {
+                  flush_stats.cpu_micros);
+ 
+   if (has_output) {
+-    flush_stats.bytes_written = meta_.fd.GetFileSize();
+-    flush_stats.num_output_files = 1;
++    if (!partition_metas.empty()) {
++      uint64_t total_bytes = 0;
++      for (const auto& pm : partition_metas) {
++        total_bytes += pm.fd.GetFileSize();
++      }
++      flush_stats.bytes_written = total_bytes;
++      flush_stats.num_output_files =
++          static_cast<int>(partition_metas.size());
++    } else {
++      flush_stats.bytes_written = meta_.fd.GetFileSize();
++      flush_stats.num_output_files = 1;
++    }
+   }
+ 
+   const auto& blobs = edit_->GetBlobFileAdditions();

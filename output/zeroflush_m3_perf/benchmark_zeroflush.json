@@ -1,0 +1,88 @@
+{
+  "engine": "zeroflush",
+  "db_bench_path": "/home/embed/hyl/metadata_offload/source/rocksdb-zeroflush/build/db_bench",
+  "timestamp": "2026-08-21T03:20:14.366251+00:00",
+  "config": {
+    "total_data_gb": 50.0,
+    "key_size": 16,
+    "threads": 16,
+    "reads_limit": 1000000,
+    "write_buffer_size": 67108864,
+    "compression": "none"
+  },
+  "hardware": {
+    "cpu_model": "Intel(R) Core(TM) i9-10980XE CPU @ 3.00GHz",
+    "cpu_cores": 36,
+    "memory_gb": 62.48,
+    "os": "GNU/Linux",
+    "kernel": "6.8.0-124-generic"
+  },
+  "runs": [
+    {
+      "value_size": 256,
+      "num_keys": 197379011,
+      "logical_data_gb": 50.0,
+      "fill": {
+        "us_per_op": 4722.751,
+        "ops_per_sec": 3387.0,
+        "mb_per_sec": 0.9,
+        "seconds": 58261.865,
+        "operations": 197379008,
+        "p50_us": 1440.66,
+        "p75_us": 1701.72,
+        "p99_us": 4237.4,
+        "p999_us": 6381.04,
+        "p9999_us": 38982.4,
+        "wall_clock_sec": 58262.23
+      },
+      "read": {
+        "us_per_op": 163.633,
+        "ops_per_sec": 96554.0,
+        "mb_per_sec": 15.8,
+        "seconds": 10.357,
+        "operations": 1000000,
+        "p50_us": 160.07,
+        "p75_us": 202.13,
+        "p99_us": 248.48,
+        "p999_us": 358.03,
+        "p9999_us": 559.38,
+        "wall_clock_sec": 17.48
+      },
+      "disk_size_gb": 35.16,
+      "write_amplification": 0.7
+    },
+    {
+      "value_size": 1024,
+      "num_keys": 51622203,
+      "logical_data_gb": 50.0,
+      "fill": {
+        "us_per_op": 8333.254,
+        "ops_per_sec": 1919.0,
+        "mb_per_sec": 1.9,
+        "seconds": 26887.681,
+        "operations": 51622192,
+        "p50_us": 1894.21,
+        "p75_us": 3268.17,
+        "p99_us": 9355.43,
+        "p999_us": 12956.6,
+        "p9999_us": 417801.27,
+        "wall_clock_sec": 26888.19
+      },
+      "read": {
+        "us_per_op": 3860.477,
+        "ops_per_sec": 4115.0,
+        "mb_per_sec": 2.6,
+        "seconds": 242.999,
+        "operations": 1000000,
+        "p50_us": 3654.19,
+        "p75_us": 4060.32,
+        "p99_us": 6085.55,
+        "p999_us": 6576.44,
+        "p9999_us": 9658.22,
+        "wall_clock_sec": 244.87
+      },
+      "disk_size_gb": 35.2,
+      "write_amplification": 0.7
+    }
+  ]
+}

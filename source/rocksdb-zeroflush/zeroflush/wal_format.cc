@@ -111,4 +111,194 @@ rocksdb::Status DecodeZfProps(const char* data, size_t len, ZfProps* out) {
   return rocksdb::Status::OK();
 }
 
+// ---------------------------------------------------------------------------
+// ZFPROPS v2
+// ---------------------------------------------------------------------------
+
+rocksdb::Status EncodeZfPropsV2(uint8_t routing_mode,
+                                const std::string& comparator_name,
+                                const std::vector<ZfPropsTableInfo>& tables,
+                                uint32_t current_version,
+                                std::string* out) {
+  out->clear();
+  std::string buf;
+
+  // Header: magic + format_version + routing_mode + pad
+  rocksdb::PutFixed32(&buf, kZfPropsMagicV2);
+  rocksdb::PutFixed32(&buf, 2);  // format_version
+  buf.push_back(static_cast<char>(routing_mode));
+  buf.append(3, '\0');  // pad
+
+  // Comparator name
+  rocksdb::PutFixed32(&buf, static_cast<uint32_t>(comparator_name.size()));
+  buf.append(comparator_name);
+
+  // Table count
+  rocksdb::PutFixed32(&buf, static_cast<uint32_t>(tables.size()));
+
+  // Per-table data
+  for (const auto& t : tables) {
+    rocksdb::PutFixed32(&buf, t.version);
+    rocksdb::PutFixed32(&buf, t.partitions);
+    for (uint32_t pid : t.part_ids) {
+      rocksdb::PutFixed32(&buf, pid);
+    }
+    rocksdb::PutFixed32(&buf, static_cast<uint32_t>(t.boundaries.size()));
+    for (const auto& b : t.boundaries) {
+      rocksdb::PutFixed32(&buf, static_cast<uint32_t>(b.size()));
+      buf.append(b);
+    }
+  }
+
+  // Current version
+  rocksdb::PutFixed32(&buf, current_version);
+
+  // CRC32C over entire payload
+  const uint32_t crc = rocksdb::crc32c::Value(buf.data(), buf.size());
+  rocksdb::PutFixed32(&buf, crc);
+
+  *out = std::move(buf);
+  return rocksdb::Status::OK();
+}
+
+rocksdb::Status DecodeZfPropsAuto(const char* data, size_t len,
+                                  ZfPropsV2* out) {
+  if (len < 8) {
+    return rocksdb::Status::Corruption("ZFPROPS: too short");
+  }
+  const uint32_t magic = rocksdb::DecodeFixed32(data);
+  if (magic == kZfPropsMagic) {
+    // v1 格式：向前兼容包装为 v2 结构。
+    if (len < kZfPropsSize) {
+      return rocksdb::Status::Corruption("ZFPROPS: v1 too short");
+    }
+    ZfProps v1;
+    {
+      rocksdb::Status s = DecodeZfProps(data, len, &v1);
+      if (!s.ok()) return s;
+    }
+    out->magic = kZfPropsMagic;
+    out->format_version = 1;
+    out->routing_mode = 0;  // kHash
+    out->comparator_name.clear();  // v1 无 comparator 信息
+    ZfPropsTableInfo ti;
+    ti.version = 0;
+    ti.partitions = v1.partitions;
+    ti.part_ids.clear();
+    for (uint32_t i = 0; i < v1.partitions; ++i) {
+      ti.part_ids.push_back(i);
+    }
+    ti.boundaries.clear();  // hash 模式无边界
+    out->tables = {ti};
+    out->current_version = 0;
+    out->crc = v1.crc;
+    return rocksdb::Status::OK();
+  }
+  if (magic != kZfPropsMagicV2) {
+    return rocksdb::Status::Corruption("ZFPROPS: bad magic");
+  }
+  // v2 解码。
+  const char* p = data;
+  const char* end = data + len;
+  if (end - p < 12) {  // magic(4) + ver(4) + rmode(1) + pad(3)
+    return rocksdb::Status::Corruption("ZFPROPS v2: header too short");
+  }
+  out->magic = kZfPropsMagicV2;
+  p += 4;
+  out->format_version = rocksdb::DecodeFixed32(p);
+  p += 4;
+  if (out->format_version != 2) {
+    return rocksdb::Status::Corruption(
+        "ZFPROPS v2: unsupported format_version");
+  }
+  out->routing_mode = static_cast<uint8_t>(*p);
+  p += 4;  // routing_mode(1) + pad(3)
+
+  // Comparator name
+  if (end - p < 4) {
+    return rocksdb::Status::Corruption("ZFPROPS v2: cname_len truncated");
+  }
+  const uint32_t cname_len = rocksdb::DecodeFixed32(p);
+  p += 4;
+  if (static_cast<size_t>(end - p) < cname_len) {
+    return rocksdb::Status::Corruption("ZFPROPS v2: cname truncated");
+  }
+  out->comparator_name.assign(p, cname_len);
+  p += cname_len;
+
+  // Table count
+  if (end - p < 4) {
+    return rocksdb::Status::Corruption("ZFPROPS v2: table_count truncated");
+  }
+  const uint32_t table_count = rocksdb::DecodeFixed32(p);
+  p += 4;
+
+  out->tables.clear();
+  out->tables.reserve(table_count);
+  for (uint32_t ti = 0; ti < table_count; ++ti) {
+    ZfPropsTableInfo t;
+    if (end - p < 8) {  // version(4) + partitions(4)
+      return rocksdb::Status::Corruption("ZFPROPS v2: table header truncated");
+    }
+    t.version = rocksdb::DecodeFixed32(p);
+    p += 4;
+    t.partitions = rocksdb::DecodeFixed32(p);
+    p += 4;
+
+    // part_ids P × 4B
+    if (static_cast<size_t>(end - p) < t.partitions * 4) {
+      return rocksdb::Status::Corruption("ZFPROPS v2: part_ids truncated");
+    }
+    t.part_ids.resize(t.partitions);
+    for (uint32_t i = 0; i < t.partitions; ++i) {
+      t.part_ids[i] = rocksdb::DecodeFixed32(p);
+      p += 4;
+    }
+
+    // boundary_count
+    if (end - p < 4) {
+      return rocksdb::Status::Corruption("ZFPROPS v2: boundary count truncated");
+    }
+    const uint32_t bc = rocksdb::DecodeFixed32(p);
+    p += 4;
+
+    t.boundaries.reserve(bc);
+    for (uint32_t bi = 0; bi < bc; ++bi) {
+      if (end - p < 4) {
+        return rocksdb::Status::Corruption("ZFPROPS v2: boundary len truncated");
+      }
+      const uint32_t blen = rocksdb::DecodeFixed32(p);
+      p += 4;
+      if (static_cast<size_t>(end - p) < blen) {
+        return rocksdb::Status::Corruption("ZFPROPS v2: boundary data truncated");
+      }
+      t.boundaries.emplace_back(p, blen);
+      p += blen;
+    }
+    out->tables.push_back(std::move(t));
+  }
+
+  // Current version
+  if (end - p < 4) {
+    return rocksdb::Status::Corruption("ZFPROPS v2: current_version truncated");
+  }
+  out->current_version = rocksdb::DecodeFixed32(p);
+  p += 4;
+
+  // CRC (last 4 bytes)
+  if (end - p < 4) {
+    return rocksdb::Status::Corruption("ZFPROPS v2: crc truncated");
+  }
+  out->crc = rocksdb::DecodeFixed32(p);
+
+  // Verify CRC over the payload (everything before crc itself).
+  const size_t payload_len = static_cast<size_t>(p - data);
+  const uint32_t calc = rocksdb::crc32c::Value(data, payload_len);
+  if (calc != out->crc) {
+    return rocksdb::Status::Corruption("ZFPROPS v2: crc mismatch");
+  }
+
+  return rocksdb::Status::OK();
+}
+
 }  // namespace zeroflush

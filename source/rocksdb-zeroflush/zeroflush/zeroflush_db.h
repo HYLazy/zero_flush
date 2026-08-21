@@ -31,6 +31,7 @@ struct WriteOptions;
 namespace zeroflush {
 
 class PartitionedWalManager;
+struct SealedEpoch;
 
 // ZeroFlush 扩展选项（对应设计文档 §10.1 zf 命名空间；M1 仅路由相关）。
 struct ZeroFlushOptions {
@@ -50,6 +51,26 @@ struct ZeroFlushOptions {
   // 是否在 zeroflush::Open() 中写/校验 ZFPROPS 元数据文件（保护 partitions
   // 一致性；首次部署的 DB 也会自动创建）。
   bool use_zfprops = true;
+
+  // ---- M3.1 路由 ----
+  enum class RoutingMode : uint8_t {
+    kHash = 0,        // M2 行为：Hash(user_key) % P（兼容既有 DB）
+    kStatic = 1,      // 用户提供 P-1 个分隔键
+    kSampled = 2,     // 首个 epoch 用 hash，封存时采样学习边界后固定
+  };
+  RoutingMode routing_mode = RoutingMode::kHash;
+  std::vector<std::string> static_boundaries;   // kStatic：升序，size == P-1
+  uint32_t sample_every_n_records = 64;         // kSampled：采样步长
+  // 连续 k 个 epoch 超 partition_target_bytes 才允许分裂（0 = 禁用分裂）
+  uint32_t split_after_skewed_epochs = 0;
+
+  // ---- M3.2/M3.3 物化与安装（M3_DESIGN.md §4.1）----
+  uint32_t materialize_parallelism = 8;  // K：并行归并 worker 数
+  bool install_below_l0 = true;          // M3.2 层级下探直装开关
+  bool merge_into_base_level = false;    // M3.3 融合归并开关（默认关，逐步放开）
+  // M3.3 触发比：封存字节 / 待重写 base-level 字节 ≥ 该值才融合，否则落 L0
+  double base_merge_min_ratio = 0.25;
+  uint32_t l0_fallback_tolerance = 0;    // 允许的 L0 回落文件数（超出告警）
 };
 
 class ZeroFlushContext {
@@ -93,7 +114,7 @@ class ZeroFlushContext {
   const std::string& wal_dir() const { return wal_dir_; }
 
   // 路由：M1 用 key 哈希取模（确定性，同 key 同分区 → 正确性不变式成立）；
-  // M2 由 PartitionTable 的边界二分接替。
+  // M3.1 由 PartitionTable 的边界二分接替。
   uint32_t Route(const ROCKSDB_NAMESPACE::Slice& user_key) const;
 
   // 单条记录：分区 WAL 追加 + Slim MemTable 索引插入（ZfBatchHandler 调用）。
@@ -133,6 +154,22 @@ class ZeroFlushContext {
   // 当前未物化 epoch 数（cfd->imm() 大小）— 用于写流控。
   uint32_t pending_epochs(ROCKSDB_NAMESPACE::ColumnFamilyData* cfd) const;
 
+  // ---- M3.1 路由访问器 ----
+
+  // 当前最新 PartitionTable 的引用（写路径 Route 的目标）。
+  // 线程安全：读写 atomic current_version，写时在 Seal 独占窗口内。
+  std::shared_ptr<class PartitionTable> current_table() const;
+
+  // PartitionTableSet 容器（供 Seal 写入新版本、物化时取历史版本）。
+  class PartitionTableSet* tables() const { return tables_.get(); }
+
+  // 用户比较器（从 cfd->user_comparator() 取得，ucmp->Name() 写入 ZFPROPS）。
+  const ROCKSDB_NAMESPACE::Comparator* ucmp() const { return ucmp_; }
+  void set_ucmp(const ROCKSDB_NAMESPACE::Comparator* c) { ucmp_ = c; }
+
+  // kSampled 采样器。
+  class KeySampler* sampler() const { return sampler_.get(); }
+
   // ---- M3.0：zf.* 统计指标（经 DBImpl::GetProperty 暴露）----
 
   // 解析 "rocksdb.zeroflush.<name>"；未知 name 返回 false。
@@ -149,6 +186,27 @@ class ZeroFlushContext {
   size_t recovery_count() const;      // 待收养恢复期孤儿代数
   double partition_skew() const;      // max(ActiveSize) / avg(ActiveSize)
 
+  // ---- M3.2：物化状态与统计（M3_DESIGN.md §6/§13）----
+
+  // 取 epoch 的封存登记信息（物化用：gens/table_version/字节等）。
+  // 未登记（未知 epoch 或已回收）返回 false。
+  bool GetSealedEpoch(uint64_t epoch, SealedEpoch* out) const;
+
+  // 已物化完成的最后一个 epoch 号（FlushJob 成功后推进；0 = 尚无）。
+  // ZfMaterializeJob::Run 入口用它做按序物化断言。
+  uint64_t last_materialized_epoch() const;
+  void SetLastMaterializedEpoch(uint64_t e);
+
+  // M3.2 指标：直装 base_level / 回落 L0 的文件数；物化排序累计耗时。
+  uint64_t install_direct_base() const;
+  uint64_t install_fallback_l0() const;
+  uint64_t materialize_sort_micros() const;
+
+  // M3.3 指标：融合归并次数（按分区计）与被重写的 base 层字节
+  // （M3_DESIGN.md §7.2/§13）。
+  uint64_t base_merge_count() const;
+  uint64_t base_merge_rewritten_bytes() const;
+
   ZeroFlushOptions zfo_;
   std::string wal_dir_;       // wal_dir/zfwal
   ROCKSDB_NAMESPACE::Env* env_;
@@ -156,6 +214,19 @@ class ZeroFlushContext {
   // ---- M2 成员 ----
   std::unique_ptr<class SealedFileCache> sealed_cache_;
   std::atomic<uint64_t> epoch_counter_{0};
+  // ---- M3.1 路由 ----
+  std::unique_ptr<class PartitionTableSet> tables_;
+  const ROCKSDB_NAMESPACE::Comparator* ucmp_ = nullptr;  // user comparator
+  std::unique_ptr<class KeySampler> sampler_;  // kSampled 学习期采样器
+  // ---- M3.2 物化状态与统计 ----
+  // 物化按序推进（imm FIFO 单后台线程）；由 FlushJob 成功后更新。
+  std::atomic<uint64_t> last_materialized_epoch_{0};
+  std::atomic<uint64_t> install_direct_base_{0};    // 直装 base_level 文件数
+  std::atomic<uint64_t> install_fallback_l0_{0};    // 回落 L0 文件数
+  std::atomic<uint64_t> materialize_sort_micros_{0};  // 物化排序累计耗时
+  // ---- M3.3 融合归并统计 ----
+  std::atomic<uint64_t> base_merge_count_{0};       // 融合归并次数（按分区）
+  std::atomic<uint64_t> base_merge_rewritten_bytes_{0};  // 被重写 base 字节
 };
 
 // 打开 ZeroFlush DB：

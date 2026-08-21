@@ -1,0 +1,153 @@
+diff --git a/tools/db_bench_tool.cc b/tools/db_bench_tool.cc
+index b60f51b..8b831db 100644
+--- a/tools/db_bench_tool.cc
++++ b/tools/db_bench_tool.cc
+@@ -316,6 +316,12 @@ DEFINE_int32(duration, 0,
+ DEFINE_string(value_size_distribution_type, "fixed",
+               "Value size distribution type: fixed, uniform, normal");
+ 
++// [EXP0-TOOLS PATCH] Key index distribution selection. Maps the uniformly
++// drawn key rank to a key index; only affects db_bench key generation.
++DEFINE_string(key_distribution, "uniform",
++              "Key index distribution for key generation: 'uniform' or "
++              "'zipfian:<theta>' (e.g. 'zipfian:0.99', YCSB-style skew).");
++
+ DEFINE_int32(value_size, 100, "Size of each value in fixed distribution");
+ static unsigned int value_size = 100;
+ 
+@@ -2080,6 +2086,106 @@ class UniformDistribution : public BaseDistribution,
+   std::mt19937 gen_;
+ };
+ 
++// ---------------------------------------------------------------------------
++// [EXP0-TOOLS PATCH] begin: key distribution mapper (uniform / zipfian).
++// Adds --key_distribution support: a uniformly drawn key rank in [0, FLAGS_num)
++// is mapped to a key index following the configured distribution. YCSB-style
++// Zipfian inverse CDF (theta in (0,1)). Engine code is untouched.
++// ---------------------------------------------------------------------------
++namespace {
++struct KeyDistributionMapper {
++  bool enabled = false;    // true iff zipfian parsed OK
++  double theta = 0.0;
++  double alpha = 0.0;      // 1 / (1 - theta)
++  double eta = 0.0;
++  double zetan = 0.0;
++  uint64_t itemcount = 0;
++};
++KeyDistributionMapper g_key_dist;
++
++double ZipfZeta(uint64_t n, double theta) {
++  double sum = 0.0;
++  for (uint64_t i = 1; i <= n; ++i) {
++    sum += 1.0 / std::pow(static_cast<double>(i), theta);
++  }
++  return sum;
++}
++
++// Maps a uniformly drawn rank in [0, FLAGS_num) to a key index in the same
++// range. Returns the rank unchanged for the uniform distribution.
++inline uint64_t MapKeyIndex(uint64_t rank) {
++  if (!g_key_dist.enabled) {
++    return rank;
++  }
++  const uint64_t n = g_key_dist.itemcount;
++  if (n == 0) {
++    return rank;
++  }
++  const double u =
++      static_cast<double>(rank) / static_cast<double>(n);  // in [0,1)
++  const double uz = u * g_key_dist.zetan;
++  if (uz < 1.0) {
++    return 0;
++  }
++  if (uz < 1.0 + std::pow(0.5, g_key_dist.theta)) {
++    return 1;
++  }
++  uint64_t ret = static_cast<uint64_t>(
++      static_cast<double>(n) *
++      std::pow(g_key_dist.eta * u - g_key_dist.eta + 1.0, g_key_dist.alpha));
++  if (ret >= n) {
++    ret = n - 1;
++  }
++  return ret;
++}
++
++void InitKeyDistribution() {
++  const std::string spec = FLAGS_key_distribution;
++  if (spec == "uniform") {
++    g_key_dist.enabled = false;
++    return;
++  }
++  const std::string prefix = "zipfian:";
++  if (spec.compare(0, prefix.size(), prefix) != 0) {
++    fprintf(stderr,
++            "Invalid --key_distribution '%s' (expected 'uniform' or "
++            "'zipfian:<theta>')\n",
++            spec.c_str());
++    db_bench_exit(1);
++  }
++  double theta = 0.0;
++  try {
++    theta = std::stod(spec.substr(prefix.size()));
++  } catch (...) {
++    theta = -1.0;
++  }
++  if (!(theta > 0.0 && theta < 1.0)) {
++    fprintf(stderr, "Invalid zipfian theta in --key_distribution '%s' "
++            "(must be in (0,1))\n", spec.c_str());
++    db_bench_exit(1);
++  }
++  const uint64_t n = static_cast<uint64_t>(FLAGS_num);
++  if (n == 0) {
++    fprintf(stderr, "--key_distribution=zipfian requires --num > 0\n");
++    db_bench_exit(1);
++  }
++  g_key_dist.theta = theta;
++  g_key_dist.itemcount = n;
++  g_key_dist.alpha = 1.0 / (1.0 - theta);
++  g_key_dist.zetan = ZipfZeta(n, theta);
++  const double zeta2 = ZipfZeta(2, theta);
++  g_key_dist.eta = (1.0 - std::pow(2.0 / static_cast<double>(n), 1.0 - theta)) /
++                   (1.0 - zeta2 / g_key_dist.zetan);
++  g_key_dist.enabled = true;
++  fprintf(stderr,
++          "[exp0-tools] key distribution: zipfian(theta=%.4f) over %"
++          PRIu64 " keys (zetan=%.6f)\n",
++          theta, n, g_key_dist.zetan);
++}
++}  // namespace
++// [EXP0-TOOLS PATCH] end: key distribution mapper.
++// ---------------------------------------------------------------------------
++
+ // Helper for quickly generating random data.
+ class RandomGenerator {
+  private:
+@@ -5660,7 +5766,9 @@ class Benchmark {
+         case SEQUENTIAL:
+           return next_++;
+         case RANDOM:
+-          return rand_->Next() % num_;
++          // [EXP0-TOOLS PATCH] apply --key_distribution mapping
++          // ('uniform' is the identity map).
++          return MapKeyIndex(rand_->Next() % num_);
+         case UNIQUE_RANDOM:
+           assert(next_ < num_);
+           return values_[next_++];
+@@ -6646,7 +6754,8 @@ class Benchmark {
+     uint64_t rand_int = rand->Next();
+     int64_t key_rand;
+     if (read_random_exp_range_ == 0) {
+-      key_rand = rand_int % FLAGS_num;
++      // [EXP0-TOOLS PATCH] apply --key_distribution mapping to read keys too
++      key_rand = static_cast<int64_t>(MapKeyIndex(rand_int % FLAGS_num));
+     } else {
+       const uint64_t kBigInt = static_cast<uint64_t>(1U) << 62;
+       long double order = -static_cast<long double>(rand_int % kBigInt) /
+@@ -9495,6 +9604,7 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
+   }
+   RegisterDbBenchBdwFlagValidators();
+   ParseCommandLineFlags(&argc, &argv, true);
++  InitKeyDistribution();  // [EXP0-TOOLS PATCH] parse --key_distribution
+   FLAGS_compaction_style_e =
+       (ROCKSDB_NAMESPACE::CompactionStyle)FLAGS_compaction_style;
+   if (FLAGS_statistics && !FLAGS_statistics_string.empty()) {

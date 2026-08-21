@@ -1,0 +1,8 @@
+{
+  "experiment": "exp3_partition_index_vs_memtable",
+  "status": "aborted",
+  "reason": "exp2 decision=FAIL",
+  "exp2_decision_ref": "FAIL",
+  "exp2_rationale_ref": "模式A、B 均不满足 PASS 条件：A(P=64) 回退 76.80%、fsync/op 0.013143；B(P=64) 回退 19.47%、fsync/op 0.000383、窗口 1902.026ms；基线 P=1 吞吐 306743 ops/s、fsync/op 0.000210。替代设计: 单 WAL 写入 + 轻量后台分区线程（写入路径保持单文件组提交，分区路由推迟到 flush/L0 构建时后台完成）；放弃 WAL=L0 映射，退化为分区 MemTable 方案（WAL 仅作崩溃恢复日志，分区结构只在内存 MemTable 与 L0 维持）",
+  "notes": "实验3前置条件为实验2 decision=PASS；exp2判定FAIL（多WAL fsync模式B吞吐回退19.5%>15%、durability窗口1902ms≫5ms），按方案中止。"
+}

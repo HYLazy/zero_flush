@@ -1,0 +1,1138 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1d27d73..8c21d0a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -792,6 +792,7 @@ set(SOURCES
+         db/manifest_ops.cc
+         db/memtable.cc
+         db/memtable_list.cc
++        db/partitioned_memtable.cc
+         db/merge_helper.cc
+         db/merge_operator.cc
+         db/multi_scan.cc
+diff --git a/db/column_family.cc b/db/column_family.cc
+index bd1ace0..6a19a1f 100644
+--- a/db/column_family.cc
++++ b/db/column_family.cc
+@@ -1242,10 +1242,94 @@ uint64_t ColumnFamilyData::GetLiveSstFilesSize() const {
+ 
+ MemTable* ColumnFamilyData::ConstructNewMemtable(
+     const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
++  // exp1: Create PartitionedMemTable if partitioning is enabled
++  if (PartitionedMemTable::enabled()) {
++    auto* pmem = new PartitionedMemTable(
++        internal_comparator_, ioptions_, mutable_cf_options,
++        write_buffer_manager_, earliest_seq, id_,
++        PartitionedMemTable::num_partitions_config);
++    pmem->Ref();
++    return pmem;
++  }
+   return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
+                       write_buffer_manager_, earliest_seq, id_);
+ }
+ 
++void ColumnFamilyData::UpdatePartitionBoundaries() {
++  if (!mem_ || !mem_->IsPartitioned()) {
++    return;
++  }
++  auto* pmem = static_cast<PartitionedMemTable*>(mem_);
++  const auto* vstorage = current_->storage_info();
++  const auto& l1_files = vstorage->LevelFiles(1);
++  std::vector<std::string> l1_boundaries;
++  int P = pmem->num_partitions();
++
++  if (!l1_files.empty()) {
++    std::string smallest_key, largest_key;
++    for (const auto& f : l1_files) {
++      Slice sk = ExtractUserKey(f->smallest.Encode());
++      Slice lk = ExtractUserKey(f->largest.Encode());
++      if (smallest_key.empty() || sk.compare(smallest_key) < 0) {
++        smallest_key = sk.ToString();
++      }
++      if (largest_key.empty() || lk.compare(largest_key) > 0) {
++        largest_key = lk.ToString();
++      }
++    }
++    if (l1_files.size() >= static_cast<size_t>(P - 1)) {
++      for (int i = 0; i < P - 1; i++) {
++        int idx = static_cast<int>(
++            static_cast<int64_t>(i + 1) * l1_files.size() / P);
++        idx = std::min(idx, static_cast<int>(l1_files.size()) - 1);
++        l1_boundaries.push_back(
++            ExtractUserKey(l1_files[idx]->largest.Encode()).ToString());
++      }
++    } else {
++      // Not enough L1 files: compute P-1 evenly spaced boundaries
++      size_t klen = smallest_key.size();
++      std::vector<uint8_t> diff(klen, 0);
++      int borrow = 0;
++      for (int i = static_cast<int>(klen) - 1; i >= 0; i--) {
++        int d = static_cast<uint8_t>(largest_key[i]) -
++                static_cast<uint8_t>(smallest_key[i]) - borrow;
++        if (d < 0) { d += 256; borrow = 1; } else { borrow = 0; }
++        diff[i] = static_cast<uint8_t>(d);
++      }
++      for (int k = 1; k < P; k++) {
++        std::vector<uint32_t> mul(klen, 0);
++        uint32_t carry = 0;
++        for (int i = static_cast<int>(klen) - 1; i >= 0; i--) {
++          uint32_t val = static_cast<uint32_t>(k) * diff[i] + carry;
++          mul[i] = val & 0xFF;
++          carry = val >> 8;
++        }
++        uint32_t rem = carry;
++        std::string boundary(klen, '\0');
++        for (size_t i = 0; i < klen; i++) {
++          rem = (rem << 8) | mul[i];
++          boundary[i] = static_cast<char>(rem / P);
++          rem = rem % P;
++        }
++        int add_carry = 0;
++        for (int i = static_cast<int>(klen) - 1; i >= 0; i--) {
++          int val = static_cast<uint8_t>(smallest_key[i]) +
++                    static_cast<uint8_t>(boundary[i]) + add_carry;
++          if (val >= 256) { val -= 256; add_carry = 1; } else { add_carry = 0; }
++          boundary[i] = static_cast<char>(val);
++        }
++        l1_boundaries.push_back(boundary);
++      }
++    }
++  }
++  pmem->UpdateBoundaries(l1_boundaries);
++  ROCKS_LOG_INFO(ioptions_.info_log,
++                  "[%s] UpdatePartitionBoundaries: L1_files=%zu, "
++                  "boundaries_set=%zu, num_partitions=%d\n",
++                  GetName().c_str(), l1_files.size(),
++                  l1_boundaries.size(), P);
++}
++
+ void ColumnFamilyData::CreateNewMemtable(SequenceNumber earliest_seq) {
+   if (mem_ != nullptr) {
+     delete mem_->Unref();
+diff --git a/db/column_family.h b/db/column_family.h
+index e21ce4c..cdf68ed 100644
+--- a/db/column_family.h
++++ b/db/column_family.h
+@@ -16,6 +16,7 @@
+ 
+ #include "cache/cache_reservation_manager.h"
+ #include "db/memtable_list.h"
++#include "db/partitioned_memtable.h"
+ #include "db/snapshot_checker.h"
+ #include "db/table_cache.h"
+ #include "db/table_properties_collector.h"
+@@ -413,6 +414,10 @@ class ColumnFamilyData {
+                                  SequenceNumber earliest_seq);
+   void CreateNewMemtable(SequenceNumber earliest_seq);
+ 
++  // exp1: Update partition boundaries for PartitionedMemTable from current
++  // L1 file metadata. No-op for regular MemTable.
++  void UpdatePartitionBoundaries();
++
+   TableCache* table_cache() const { return table_cache_.get(); }
+   BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }
+   BlobSource* blob_source() const { return blob_source_.get(); }
+diff --git a/db/db_impl/db_impl.h b/db/db_impl/db_impl.h
+index 47fab3b..1e87bea 100644
+--- a/db/db_impl/db_impl.h
++++ b/db/db_impl/db_impl.h
+@@ -2404,6 +2404,13 @@ class DBImpl : public DB {
+                         ReadOnlyMemTable* new_imm = nullptr,
+                         SequenceNumber last_seqno = 0);
+ 
++  // exp1: Switch a single full sub-table of a PartitionedMemTable to
++  // immutable, create a replacement, and install a new SuperVersion.
++  // Does NOT create a new WAL or switch the entire PartitionedMemTable.
++  // REQUIRES: DB mutex held, cfd->mem() is PartitionedMemTable.
++  Status SwitchPartitionedSubTable(ColumnFamilyData* cfd,
++                                   WriteContext* context);
++
+   // Select and output column families qualified for atomic flush in
+   // `selected_cfds`. If `provided_candidate_cfds` is non-empty, it will be used
+   // as candidate CFs to select qualified ones from. Otherwise, all column
+diff --git a/db/db_impl/db_impl_write.cc b/db/db_impl/db_impl_write.cc
+index 1648296..21a76ce 100644
+--- a/db/db_impl/db_impl_write.cc
++++ b/db/db_impl/db_impl_write.cc
+@@ -3098,6 +3098,14 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
+   mutex_.AssertHeld();
+   assert(lock_wal_count_ == 0);
+ 
++  // exp1: Handle PartitionedMemTable per-sub-table flush.
++  // Instead of switching the entire active memtable, we extract the full
++  // sub-table and add it to the immutable list. A replacement sub-table is
++  // created in its place. No new WAL is created.
++  if (cfd->mem()->IsPartitioned()) {
++    return SwitchPartitionedSubTable(cfd, context);
++  }
++
+   // TODO: plumb Env::IOActivity, Env::IOPriority
+   const WriteOptions write_options;
+ 
+@@ -3368,6 +3376,55 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
+   return s;
+ }
+ 
++// exp1: Switch a single full sub-table of a PartitionedMemTable.
++// Extracts the full sub-table, marks it immutable, adds it to the
++// immutable memtable list, creates a replacement, and installs a new
++// SuperVersion. No new WAL is created — sub-tables share the active WAL.
++Status DBImpl::SwitchPartitionedSubTable(ColumnFamilyData* cfd,
++                                         WriteContext* context) {
++  mutex_.AssertHeld();
++  assert(cfd->mem()->IsPartitioned());
++
++  auto* pmem = static_cast<PartitionedMemTable*>(cfd->mem());
++
++  // Update partition boundaries from current L1 state before switching
++  cfd->UpdatePartitionBoundaries();
++
++  // Extract the full sub-table (also creates replacement)
++  MemTable* full_sub = pmem->TakeFullSubTable();
++  if (full_sub == nullptr) {
++    // Race: no full sub-table found. Reset and return OK.
++    pmem->ResetFlushState();
++    return Status::OK();
++  }
++
++  // Set the next log number so the immutable sub-table references the
++  // current active WAL (same WAL, not switching)
++  full_sub->SetNextLogNumber(cur_wal_number_);
++
++  // Assign memtable ID so PickMemtablesToFlush can pick it up
++  cfd->AssignMemtableID(full_sub);
++
++  // Add the full sub-table to the immutable memtable list.
++  // The imm list takes over the reference (refs=1 from TakeFullSubTable).
++  cfd->imm()->Add(full_sub, &context->memtables_to_free_);
++
++  // Install new SuperVersion so reads see the replacement sub-table.
++  context->superversion_context.NewSuperVersion();
++  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context);
++
++  // Update partition boundaries for the new sub-table arrangement
++  cfd->UpdatePartitionBoundaries();
++
++  ROCKS_LOG_INFO(immutable_db_options_.info_log,
++                  "[%s] PartitionedMemTable sub-table flushed (id=%" PRIu64
++                  "), replacement created. Immutable: %d\n",
++                  cfd->GetName().c_str(), full_sub->GetID(),
++                  cfd->imm()->NumNotFlushed());
++
++  return Status::OK();
++}
++
+ size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
+   mutex_.AssertHeld();
+   size_t bsize =
+diff --git a/db/memtable.h b/db/memtable.h
+index 7211366..a5bf30c 100644
+--- a/db/memtable.h
++++ b/db/memtable.h
+@@ -571,8 +571,11 @@ class ReadOnlyMemTable {
+   std::vector<uint64_t> protected_blob_file_numbers_;
+ };
+ 
+-class MemTable final : public ReadOnlyMemTable {
++class MemTable : public ReadOnlyMemTable {
+  public:
++  // exp1: virtual dispatch for PartitionedMemTable subclass
++  virtual bool IsPartitioned() const { return false; }
++
+   struct KeyComparator final : public MemTableRep::KeyComparator {
+     const InternalKeyComparator comparator;
+     explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) {}
+@@ -624,13 +627,13 @@ class MemTable final : public ReadOnlyMemTable {
+ 
+   // This method heuristically determines if the memtable should continue to
+   // host more data.
+-  bool ShouldScheduleFlush() const {
++  virtual bool ShouldScheduleFlush() const {
+     return flush_state_.load(std::memory_order_relaxed) == FLUSH_REQUESTED;
+   }
+ 
+   // Returns true if a flush should be scheduled and the caller should
+   // be the one to schedule it
+-  bool MarkFlushScheduled() {
++  virtual bool MarkFlushScheduled() {
+     auto before = FLUSH_REQUESTED;
+     return flush_state_.compare_exchange_strong(before, FLUSH_SCHEDULED,
+                                                 std::memory_order_relaxed,
+@@ -673,7 +676,7 @@ class MemTable final : public ReadOnlyMemTable {
+   // Returns `Status::TryAgain` if the `seq`, `key` combination already exists
+   // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.
+   // The next attempt should try a larger value for `seq`.
+-  Status Add(SequenceNumber seq, ValueType type, const Slice& key,
++  virtual Status Add(SequenceNumber seq, ValueType type, const Slice& key,
+              const Slice& value, const ProtectionInfoKVOS64* kv_prot_info,
+              bool allow_concurrent = false,
+              MemTablePostProcessInfo* post_process_info = nullptr,
+@@ -849,7 +852,7 @@ class MemTable final : public ReadOnlyMemTable {
+   }
+ 
+   // Returns a heuristic flush decision
+-  bool ShouldFlushNow();
++  virtual bool ShouldFlushNow();
+ 
+   // Updates `fragmented_range_tombstone_list_` that will be used to serve reads
+   // when this memtable becomes an immutable memtable (in some
+@@ -965,7 +968,7 @@ class MemTable final : public ReadOnlyMemTable {
+   Atomic<const char*> newest_udt_data_{nullptr};
+ 
+   // Updates flush_state_ using ShouldFlushNow()
+-  void UpdateFlushState();
++  virtual void UpdateFlushState();
+ 
+   void UpdateOldestKeyTime();
+ 
+diff --git a/db/partitioned_memtable.cc b/db/partitioned_memtable.cc
+new file mode 100644
+index 0000000..140c876
+--- /dev/null
++++ b/db/partitioned_memtable.cc
+@@ -0,0 +1,488 @@
++//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
++//  This source code is licensed under both the GPLv2 (found in the
++//  COPYING file in the root directory) and Apache 2.0 License
++//  (found in the LICENSE.Apache file in the root directory).
++
++#include "db/partitioned_memtable.h"
++
++#include <algorithm>
++#include <cstring>
++
++#include "db/dbformat.h"
++#include "table/merging_iterator.h"
++#include "util/coding.h"
++
++namespace ROCKSDB_NAMESPACE {
++
++// Static config: 0 = disabled (default)
++int PartitionedMemTable::num_partitions_config = 0;
++
++PartitionedMemTable::PartitionedMemTable(
++    const InternalKeyComparator& comparator,
++    const ImmutableOptions& ioptions,
++    const MutableCFOptions& mutable_cf_options,
++    WriteBufferManager* write_buffer_manager,
++    SequenceNumber earliest_seq, uint32_t column_family_id,
++    int num_partitions)
++    : MemTable(comparator, ioptions, mutable_cf_options, write_buffer_manager,
++               earliest_seq, column_family_id),
++      num_partitions_(num_partitions),
++      comparator_(comparator),
++      ioptions_(ioptions),
++      mutable_cf_options_(mutable_cf_options),
++      write_buffer_manager_(write_buffer_manager),
++      column_family_id_(column_family_id),
++      sub_table_buffer_size_(mutable_cf_options.write_buffer_size /
++                             num_partitions) {
++  // Create P sub-tables, each with wbs/P buffer size
++  sub_tables_.reserve(num_partitions_);
++  for (int i = 0; i < num_partitions; i++) {
++    MemTable* sub = CreateSubTable(earliest_seq);
++    sub_tables_.push_back(sub);
++  }
++  // boundaries_ starts empty. When empty, GetPartitionIndex uses
++  // hash-based routing as a fallback. Once L1 files exist,
++  // UpdatePartitionBoundaries() will set correct key-range boundaries
++  // from L1 file metadata. This avoids the problem of guessing the
++  // key distribution before any data has been written.
++  // The hash-based fallback distributes keys evenly across partitions,
++  // but produces overlapping SSTs (each covers the full key range).
++  // These are quickly compacted to L1, after which range-based routing
++  // produces non-overlapping SSTs.
++}
++
++PartitionedMemTable::~PartitionedMemTable() {
++  // Unref all sub-tables (each has refs=1 from CreateSubTable)
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i]) {
++      delete sub_tables_[i]->Unref();
++    }
++  }
++}
++
++MemTable* PartitionedMemTable::CreateSubTable(SequenceNumber earliest_seq) {
++  // Create a MutableCFOptions with reduced write_buffer_size for sub-table
++  MutableCFOptions sub_opts = mutable_cf_options_;
++  sub_opts.write_buffer_size = sub_table_buffer_size_;
++  // max_write_buffer_number: keep same; each sub-table gets same count
++  auto* sub = new MemTable(comparator_, ioptions_, sub_opts,
++                           write_buffer_manager_, earliest_seq,
++                           column_family_id_);
++  // Ref so PartitionedMemTable owns it (refs=1)
++  sub->Ref();
++  return sub;
++}
++
++void PartitionedMemTable::ReadLock() const {
++  while (true) {
++    while (rw_writer_active_.load(std::memory_order_acquire)) {}
++    rw_reader_count_.fetch_add(1, std::memory_order_acquire);
++    if (!rw_writer_active_.load(std::memory_order_acquire)) break;
++    rw_reader_count_.fetch_sub(1, std::memory_order_release);
++  }
++}
++
++void PartitionedMemTable::ReadUnlock() const {
++  rw_reader_count_.fetch_sub(1, std::memory_order_release);
++}
++
++void PartitionedMemTable::WriteLock() {
++  bool expected = false;
++  while (!rw_writer_active_.compare_exchange_weak(
++      expected, true, std::memory_order_acquire, std::memory_order_relaxed)) {
++    expected = false;
++  }
++  while (rw_reader_count_.load(std::memory_order_acquire) > 0) {}
++}
++
++void PartitionedMemTable::WriteUnlock() {
++  rw_writer_active_.store(false, std::memory_order_release);
++}
++
++int PartitionedMemTable::GetPartitionIndex(const Slice& user_key) const {
++  if (boundaries_.empty()) {
++    // No boundaries: hash-based distribution
++    // Use simple hash to distribute
++    size_t h = std::hash<std::string>{}(user_key.ToString());
++    return static_cast<int>(h % num_partitions_);
++  }
++
++  // Binary search: find the first boundary >= user_key
++  // Partition i covers keys in (boundaries_[i-1], boundaries_[i]]
++  // For partition 0: keys <= boundaries_[0]
++  // For partition P-1: keys > boundaries_[P-2]
++  int lo = 0, hi = static_cast<int>(boundaries_.size()) - 1;
++  int result = static_cast<int>(boundaries_.size());  // default: last partition
++  while (lo <= hi) {
++    int mid = lo + (hi - lo) / 2;
++    if (user_key.compare(Slice(boundaries_[mid])) <= 0) {
++      result = mid;
++      hi = mid - 1;
++    } else {
++      lo = mid + 1;
++    }
++  }
++  // result = number of boundaries that are < user_key
++  // If result == boundaries_.size(), it's the last partition
++  return std::min(result, num_partitions_ - 1);
++}
++
++void PartitionedMemTable::UpdateBoundaries(
++    const std::vector<std::string>& l1_boundary_keys) {
++  if (l1_boundary_keys.empty()) {
++    // No L1 files: keep boundaries_ empty for hash-based routing
++    return;
++  }
++  WriteLock();
++  // Take min(P-1, l1_boundary_keys.size()) boundaries from L1 file
++  // largest user keys. Each L1 file's largest user key becomes a
++  // partition boundary. When L1 has fewer files than P-1, we get
++  // fewer partitions (each covering a larger key range). This is
++  // fine — the partitions are still non-overlapping.
++  int num_bounds = std::min(num_partitions_ - 1,
++                            static_cast<int>(l1_boundary_keys.size()));
++  boundaries_.clear();
++  // Pick evenly spaced L1 boundary keys
++  for (int i = 0; i < num_bounds; i++) {
++    int idx = static_cast<int>(
++        static_cast<int64_t>(i + 1) * l1_boundary_keys.size() /
++        (num_bounds + 1));
++    idx = std::min(idx, static_cast<int>(l1_boundary_keys.size()) - 1);
++    boundaries_.push_back(l1_boundary_keys[idx]);
++  }
++  WriteUnlock();
++}
++
++Status PartitionedMemTable::Add(SequenceNumber seq, ValueType type,
++                                const Slice& key, const Slice& value,
++                                const ProtectionInfoKVOS64* kv_prot_info,
++                                bool allow_concurrent,
++                                MemTablePostProcessInfo* post_process_info,
++                                void** hint) {
++  // Extract user key from internal key
++  Slice user_key = ExtractUserKey(key);
++
++  // Hold read lock for the entire Add to prevent TakeFullSubTable
++  // from replacing the sub-table pointer while we are using it.
++  // Multiple Add() calls proceed concurrently (readers do not block).
++  ReadLock();
++
++  // Route to correct sub-table (boundaries_ also protected by ReadLock)
++  int idx = GetPartitionIndex(user_key);
++  assert(idx >= 0 && idx < num_partitions_);
++
++  Status s;
++  if (allow_concurrent) {
++    // CRITICAL: In the concurrent write path, MemTable::Add() accumulates
++    // entry counts in post_process_info instead of directly incrementing
++    // num_entries_. The caller later calls BatchPostProcess() on *us*
++    // (the PartitionedMemTable), NOT on the sub-table. Without this fix,
++    // the sub-table's num_entries_ is never updated, causing the
++    // flush_verify_memtable_count check to fail.
++    // Fix: use a local post_process_info and call BatchPostProcess on
++    // the sub-table immediately after Add().
++    MemTablePostProcessInfo local_ppi;
++    s = sub_tables_[idx]->Add(seq, type, key, value, kv_prot_info,
++                              true, &local_ppi, hint);
++    if (s.ok()) {
++      sub_tables_[idx]->BatchPostProcess(local_ppi);
++    }
++  } else {
++    // Non-concurrent path: Add() directly updates counters
++    s = sub_tables_[idx]->Add(seq, type, key, value, kv_prot_info,
++                              false, post_process_info, hint);
++  }
++
++  // Check if this sub-table is now full
++  if (s.ok() && sub_tables_[idx]->ShouldFlushNow()) {
++    int expected = -1;
++    // Try to claim this partition as the one needing flush
++    if (full_partition_idx_.compare_exchange_strong(expected, idx) ||
++        full_partition_idx_.load() == idx) {
++      partition_flush_pending_.store(true);
++    }
++  }
++
++  ReadUnlock();
++  return s;
++}
++
++bool PartitionedMemTable::ShouldFlushNow() {
++  ReadLock();
++  // Check if any sub-table is full
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i] && sub_tables_[i]->ShouldFlushNow()) {
++      int expected = -1;
++      if (full_partition_idx_.compare_exchange_strong(expected, i) ||
++          full_partition_idx_.load() == i) {
++        partition_flush_pending_.store(true);
++      }
++      ReadUnlock();
++      return true;
++    }
++  }
++  ReadUnlock();
++  return false;
++}
++
++bool PartitionedMemTable::ShouldScheduleFlush() const {
++  return partition_flush_pending_.load();
++}
++
++bool PartitionedMemTable::MarkFlushScheduled() {
++  bool expected = true;
++  return partition_flush_pending_.compare_exchange_strong(
++      expected, false, std::memory_order_relaxed, std::memory_order_relaxed);
++}
++
++void PartitionedMemTable::UpdateFlushState() {
++  if (!partition_flush_pending_.load()) {
++    ShouldFlushNow();  // This will set partition_flush_pending_ if needed
++  }
++}
++
++MemTable* PartitionedMemTable::TakeFullSubTable() {
++  int idx = full_partition_idx_.exchange(-1);
++  if (idx < 0 || idx >= num_partitions_) {
++    return nullptr;
++  }
++
++  // WriteLock: wait for all in-flight Add() calls to complete.
++  // This ensures no thread is using the old sub-table pointer
++  // when we replace it.
++  WriteLock();
++
++  // Find the full sub-table (it might be at a different index if multiple
++  // were full - check the claimed index first, then scan)
++  MemTable* full = nullptr;
++  int actual_idx = idx;
++
++  if (sub_tables_[idx] && sub_tables_[idx]->ShouldFlushNow()) {
++    full = sub_tables_[idx];
++    actual_idx = idx;
++  } else {
++    // Scan for any full sub-table
++    for (int i = 0; i < num_partitions_; i++) {
++      if (sub_tables_[i] && sub_tables_[i]->ShouldFlushNow()) {
++        full = sub_tables_[i];
++        actual_idx = i;
++        break;
++      }
++    }
++  }
++
++  if (full == nullptr) {
++    WriteUnlock();
++    return nullptr;
++  }
++
++  // Mark the sub-table as immutable (prevents future ShouldFlushNow)
++  full->MarkImmutable();
++  full->ConstructFragmentedRangeTombstones();
++
++  // Create replacement sub-table in the same slot.
++  // The full sub-table has refs=1 (owned by PartitionedMemTable).
++  // We transfer ownership to the caller (who will add it to the imm list,
++  // which takes over the reference).
++  SequenceNumber earliest = full->GetEarliestSequenceNumber();
++  sub_tables_[actual_idx] = CreateSubTable(earliest);
++
++  // Release WriteLock: allow new Add() calls to proceed.
++  // They will now see the new replacement sub-table.
++  WriteUnlock();
++
++  // Reset flush state
++  partition_flush_pending_.store(false);
++
++  // Return full sub-table with refs=1 (ownership transferred)
++  return full;
++}
++
++bool PartitionedMemTable::HasFullSubTable() const {
++  return full_partition_idx_.load() >= 0;
++}
++
++void PartitionedMemTable::ResetFlushState() {
++  partition_flush_pending_.store(false);
++  full_partition_idx_.store(-1);
++}
++
++InternalIterator* PartitionedMemTable::NewIterator(
++    const ReadOptions& read_options,
++    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
++    const SliceTransform* prefix_extractor, bool for_flush) {
++  // Merge all sub-table iterators
++  ReadLock();
++  std::vector<InternalIterator*> iters;
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i]) {
++      iters.push_back(sub_tables_[i]->NewIterator(
++          read_options, seqno_to_time_mapping, arena, prefix_extractor,
++          for_flush));
++    }
++  }
++  ReadUnlock();
++  // Iterators hold their own refs to sub-tables, so safe after unlock
++  if (iters.empty()) {
++    return NewEmptyInternalIterator<Slice>(arena);
++  }
++  return NewMergingIterator(&comparator_, iters.data(),
++                            static_cast<int>(iters.size()), arena);
++}
++
++bool PartitionedMemTable::Get(const LookupKey& key, std::string* value,
++                              PinnableWideColumns* columns,
++                              std::string* timestamp, Status* s,
++                              MergeContext* merge_context,
++                              SequenceNumber* max_covering_tombstone_seq,
++                              SequenceNumber* seq,
++                              const ReadOptions& read_opts,
++                              bool immutable_memtable, ReadCallback* callback,
++                              bool* is_blob_index, bool do_merge) {
++  // Route to the correct sub-table by user key
++  ReadLock();
++  Slice user_key = key.user_key();
++  int idx = GetPartitionIndex(user_key);
++  assert(idx >= 0 && idx < num_partitions_);
++
++  bool found = false;
++  if (sub_tables_[idx]) {
++    found = sub_tables_[idx]->Get(
++        key, value, columns, timestamp, s, merge_context,
++        max_covering_tombstone_seq, seq, read_opts, immutable_memtable,
++        callback, is_blob_index, do_merge);
++  } else {
++    *s = Status::NotFound();
++  }
++  ReadUnlock();
++  return found;
++}
++
++size_t PartitionedMemTable::ApproximateMemoryUsage() {
++  ReadLock();
++  size_t total = 0;
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i]) {
++      total += sub_tables_[i]->ApproximateMemoryUsage();
++    }
++  }
++  ReadUnlock();
++  return total;
++}
++
++size_t PartitionedMemTable::MemoryAllocatedBytes() const {
++  ReadLock();
++  size_t total = 0;
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i]) {
++      total += sub_tables_[i]->MemoryAllocatedBytes();
++    }
++  }
++  ReadUnlock();
++  return total;
++}
++
++uint64_t PartitionedMemTable::NumEntries() const {
++  ReadLock();
++  uint64_t total = 0;
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i]) {
++      total += sub_tables_[i]->NumEntries();
++    }
++  }
++  ReadUnlock();
++  return total;
++}
++
++uint64_t PartitionedMemTable::NumDeletion() const {
++  ReadLock();
++  uint64_t total = 0;
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i]) {
++      total += sub_tables_[i]->NumDeletion();
++    }
++  }
++  ReadUnlock();
++  return total;
++}
++
++uint64_t PartitionedMemTable::NumRangeDeletion() const {
++  ReadLock();
++  uint64_t total = 0;
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i]) {
++      total += sub_tables_[i]->NumRangeDeletion();
++    }
++  }
++  ReadUnlock();
++  return total;
++}
++
++uint64_t PartitionedMemTable::GetDataSize() const {
++  ReadLock();
++  uint64_t total = 0;
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i]) {
++      total += sub_tables_[i]->GetDataSize();
++    }
++  }
++  ReadUnlock();
++  return total;
++}
++
++bool PartitionedMemTable::IsEmpty() const {
++  ReadLock();
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i] && !sub_tables_[i]->IsEmpty()) {
++      ReadUnlock();
++      return false;
++    }
++  }
++  ReadUnlock();
++  return true;
++}
++
++SequenceNumber PartitionedMemTable::GetFirstSequenceNumber() {
++  ReadLock();
++  SequenceNumber min_seq = kMaxSequenceNumber;
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i] && !sub_tables_[i]->IsEmpty()) {
++      SequenceNumber s = sub_tables_[i]->GetFirstSequenceNumber();
++      if (s < min_seq) min_seq = s;
++    }
++  }
++  ReadUnlock();
++  return min_seq == kMaxSequenceNumber ? 0 : min_seq;
++}
++
++SequenceNumber PartitionedMemTable::GetEarliestSequenceNumber() {
++  ReadLock();
++  SequenceNumber min_seq = kMaxSequenceNumber;
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i]) {
++      SequenceNumber s = sub_tables_[i]->GetEarliestSequenceNumber();
++      if (s < min_seq) min_seq = s;
++    }
++  }
++  ReadUnlock();
++  return min_seq == kMaxSequenceNumber ? 0 : min_seq;
++}
++
++uint64_t PartitionedMemTable::ApproximateOldestKeyTime() const {
++  ReadLock();
++  uint64_t min_time = UINT64_MAX;
++  for (int i = 0; i < num_partitions_; i++) {
++    if (sub_tables_[i]) {
++      uint64_t t = sub_tables_[i]->ApproximateOldestKeyTime();
++      if (t < min_time) min_time = t;
++    }
++  }
++  ReadUnlock();
++  return min_time == UINT64_MAX ? 0 : min_time;
++}
++
++size_t PartitionedMemTable::write_buffer_size() const {
++  return mutable_cf_options_.write_buffer_size;
++}
++
++}  // namespace ROCKSDB_NAMESPACE
+diff --git a/db/partitioned_memtable.h b/db/partitioned_memtable.h
+new file mode 100644
+index 0000000..bc58fac
+--- /dev/null
++++ b/db/partitioned_memtable.h
+@@ -0,0 +1,164 @@
++//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
++//  This source code is licensed under both the GPLv2 (found in the
++//  COPYING file in the root directory) and Apache 2.0 License
++//  (found in the LICENSE.Apache file in the root directory).
++//
++// PartitionedMemTable: P sub-MemTables with write-time key-range routing.
++// Each sub-table flushes independently → 1 SST per flush (not P).
++// Total memory budget = write_buffer_size (each sub-table gets wbs/P).
++//
++// This is the "main approach" for exp1: writes are routed to the correct
++// sub-table at admission time by L1 key-range boundaries, proving that
++// L0 overlap is decided at write admission, not at flush.
++
++#pragma once
++
++#include <atomic>
++#include <memory>
++#include <string>
++#include <vector>
++
++#include "db/dbformat.h"
++#include "db/memtable.h"
++#include "memory/allocator.h"
++#include "monitoring/instrumented_mutex.h"
++#include "options/cf_options.h"
++#include "port/port.h"
++#include "rocksdb/memtablerep.h"
++#include "util/autovector.h"
++
++namespace ROCKSDB_NAMESPACE {
++
++class PartitionedMemTable : public MemTable {
++ public:
++  // Static configuration: set before DB open via db_bench flag.
++  // 0 = disabled (vanilla single MemTable), >0 = P partitions.
++  static int num_partitions_config;
++  static bool enabled() { return num_partitions_config > 0; }
++
++  PartitionedMemTable(const InternalKeyComparator& comparator,
++                      const ImmutableOptions& ioptions,
++                      const MutableCFOptions& mutable_cf_options,
++                      WriteBufferManager* write_buffer_manager,
++                      SequenceNumber earliest_seq, uint32_t column_family_id,
++                      int num_partitions);
++
++  ~PartitionedMemTable() override;
++
++  const char* Name() const override { return "PartitionedMemTable"; }
++
++  bool IsPartitioned() const override { return true; }
++
++  // === Write path: route to correct sub-table by L1 boundaries ===
++  Status Add(SequenceNumber seq, ValueType type, const Slice& key,
++             const Slice& value, const ProtectionInfoKVOS64* kv_prot_info,
++             bool allow_concurrent = false,
++             MemTablePostProcessInfo* post_process_info = nullptr,
++             void** hint = nullptr) override;
++
++  // === Flush management ===
++  bool ShouldFlushNow() override;
++  bool ShouldScheduleFlush() const override;
++  bool MarkFlushScheduled() override;
++  void UpdateFlushState() override;
++
++  // Per-sub-table flush: extract the full sub-table for independent flushing.
++  // Returns the full sub-table (caller owns the ref) or nullptr if none full.
++  // The sub-table is marked immutable and removed from the active set.
++  // A replacement sub-table is created in its slot.
++  // REQUIRES: DB mutex held.
++  MemTable* TakeFullSubTable();
++  bool HasFullSubTable() const;
++
++  // Reset flush scheduling state after a sub-table flush has been initiated.
++  void ResetFlushState();
++
++  // === Read path: merge all sub-table iterators ===
++  InternalIterator* NewIterator(const ReadOptions& read_options,
++                                 UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
++                                 Arena* arena,
++                                 const SliceTransform* prefix_extractor,
++                                 bool for_flush) override;
++
++  bool Get(const LookupKey& key, std::string* value,
++           PinnableWideColumns* columns, std::string* timestamp, Status* s,
++           MergeContext* merge_context,
++           SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
++           const ReadOptions& read_opts, bool immutable_memtable,
++           ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
++           bool do_merge = true) override;
++
++  // === Stats ===
++  size_t ApproximateMemoryUsage() override;
++  size_t MemoryAllocatedBytes() const override;
++  uint64_t NumEntries() const override;
++  uint64_t NumDeletion() const override;
++  uint64_t NumRangeDeletion() const override;
++  uint64_t GetDataSize() const override;
++  bool IsEmpty() const override;
++  SequenceNumber GetFirstSequenceNumber() override;
++  SequenceNumber GetEarliestSequenceNumber() override;
++  uint64_t ApproximateOldestKeyTime() const override;
++  size_t write_buffer_size() const;
++
++  // === Boundary management ===
++  // Update partition boundaries from L1 file metadata.
++  // Called when a new SuperVersion is installed (boundaries may change
++  // after L0→L1 compaction). If L1 is empty, falls back to uniform
++  // key-space splitting.
++  void UpdateBoundaries(const std::vector<std::string>& l1_boundary_keys);
++
++  // Get the partition index for a given user key (binary search on boundaries).
++  int GetPartitionIndex(const Slice& user_key) const;
++
++  // Number of partitions
++  int num_partitions() const { return num_partitions_; }
++
++  // Access sub-tables (for testing/debugging)
++  MemTable* GetSubTable(int idx) const { return sub_tables_[idx]; }
++
++ private:
++  int num_partitions_;
++  // Sub-tables are ref-counted (refs=1 owned by PartitionedMemTable).
++  // When a sub-table is taken for flush, ownership transfers to the
++  // immutable memtable list.
++  std::vector<MemTable*> sub_tables_;
++
++  // Partition boundaries: user_key upper-bounds for partitions 0..P-2.
++  // Partition i covers keys in (boundaries_[i-1], boundaries_[i]].
++  // boundaries_[0] is the upper bound of partition 0.
++  // If empty, uses uniform key-space splitting.
++  std::vector<std::string> boundaries_;
++
++  // Constructor params stored for creating replacement sub-tables
++  const InternalKeyComparator& comparator_;
++  const ImmutableOptions ioptions_;
++  MutableCFOptions mutable_cf_options_;
++  WriteBufferManager* write_buffer_manager_;
++  uint32_t column_family_id_;
++  size_t sub_table_buffer_size_;  // write_buffer_size / P
++
++  // Flush state: atomic flag for "a sub-table is full and needs flush"
++  std::atomic<bool> partition_flush_pending_{false};
++  std::atomic<int> full_partition_idx_{-1};
++
++  // Reader-writer spinlock: protects sub_tables_ and boundaries_ from
++  // concurrent modification by the flush thread while write threads are
++  // reading. Write threads (Add, Get, NewIterator, stats) take read lock
++  // (concurrent reads allowed). Flush thread (TakeFullSubTable,
++  // UpdateBoundaries) takes write lock (exclusive, waits for all readers).
++  // This prevents use-after-free: TakeFullSubTable waits for all in-flight
++  // Add() calls to complete before replacing the sub-table pointer.
++  mutable std::atomic<int> rw_reader_count_{0};
++  mutable std::atomic<bool> rw_writer_active_{false};
++
++  void ReadLock() const;
++  void ReadUnlock() const;
++  void WriteLock();
++  void WriteUnlock();
++
++  // Create a new sub-table with the per-partition buffer size
++  MemTable* CreateSubTable(SequenceNumber earliest_seq);
++};
++
++}  // namespace ROCKSDB_NAMESPACE
+diff --git a/tools/db_bench_tool.cc b/tools/db_bench_tool.cc
+index b60f51b..51fe704 100644
+--- a/tools/db_bench_tool.cc
++++ b/tools/db_bench_tool.cc
+@@ -41,6 +41,7 @@
+ 
+ #include "db/db_impl/db_impl.h"
+ #include "db/malloc_stats.h"
++#include "db/partitioned_memtable.h"
+ #include "db/version_set.h"
+ #include "monitoring/histogram.h"
+ #include "monitoring/statistics_impl.h"
+@@ -316,6 +317,12 @@ DEFINE_int32(duration, 0,
+ DEFINE_string(value_size_distribution_type, "fixed",
+               "Value size distribution type: fixed, uniform, normal");
+ 
++// [EXP0-TOOLS PATCH] Key index distribution selection. Maps the uniformly
++// drawn key rank to a key index; only affects db_bench key generation.
++DEFINE_string(key_distribution, "uniform",
++              "Key index distribution for key generation: 'uniform' or "
++              "'zipfian:<theta>' (e.g. 'zipfian:0.99', YCSB-style skew).");
++
+ DEFINE_int32(value_size, 100, "Size of each value in fixed distribution");
+ static unsigned int value_size = 100;
+ 
+@@ -481,6 +488,13 @@ DEFINE_int32(max_write_buffer_number,
+              "The number of in-memory memtables. Each memtable is of size"
+              " write_buffer_size bytes.");
+ 
++// exp1: PartitionedMemTable write-time routing with independent per-sub-table flush
++DEFINE_int32(partitioned_memtable_partitions, 0,
++             "Number of partitions (P) for PartitionedMemTable. 0 = disabled "
++             "(vanilla single MemTable). >0 = P sub-tables with write-time "
++             "key-range routing, each flushing independently (1 SST/flush). "
++             "Total memtable budget = write_buffer_size (each sub: wbs/P).");
++
+ DEFINE_int32(min_write_buffer_number_to_merge,
+              ROCKSDB_NAMESPACE::Options().min_write_buffer_number_to_merge,
+              "The minimum number of write buffers that will be merged together"
+@@ -2080,6 +2094,106 @@ class UniformDistribution : public BaseDistribution,
+   std::mt19937 gen_;
+ };
+ 
++// ---------------------------------------------------------------------------
++// [EXP0-TOOLS PATCH] begin: key distribution mapper (uniform / zipfian).
++// Adds --key_distribution support: a uniformly drawn key rank in [0, FLAGS_num)
++// is mapped to a key index following the configured distribution. YCSB-style
++// Zipfian inverse CDF (theta in (0,1)). Engine code is untouched.
++// ---------------------------------------------------------------------------
++namespace {
++struct KeyDistributionMapper {
++  bool enabled = false;    // true iff zipfian parsed OK
++  double theta = 0.0;
++  double alpha = 0.0;      // 1 / (1 - theta)
++  double eta = 0.0;
++  double zetan = 0.0;
++  uint64_t itemcount = 0;
++};
++KeyDistributionMapper g_key_dist;
++
++double ZipfZeta(uint64_t n, double theta) {
++  double sum = 0.0;
++  for (uint64_t i = 1; i <= n; ++i) {
++    sum += 1.0 / std::pow(static_cast<double>(i), theta);
++  }
++  return sum;
++}
++
++// Maps a uniformly drawn rank in [0, FLAGS_num) to a key index in the same
++// range. Returns the rank unchanged for the uniform distribution.
++inline uint64_t MapKeyIndex(uint64_t rank) {
++  if (!g_key_dist.enabled) {
++    return rank;
++  }
++  const uint64_t n = g_key_dist.itemcount;
++  if (n == 0) {
++    return rank;
++  }
++  const double u =
++      static_cast<double>(rank) / static_cast<double>(n);  // in [0,1)
++  const double uz = u * g_key_dist.zetan;
++  if (uz < 1.0) {
++    return 0;
++  }
++  if (uz < 1.0 + std::pow(0.5, g_key_dist.theta)) {
++    return 1;
++  }
++  uint64_t ret = static_cast<uint64_t>(
++      static_cast<double>(n) *
++      std::pow(g_key_dist.eta * u - g_key_dist.eta + 1.0, g_key_dist.alpha));
++  if (ret >= n) {
++    ret = n - 1;
++  }
++  return ret;
++}
++
++void InitKeyDistribution() {
++  const std::string spec = FLAGS_key_distribution;
++  if (spec == "uniform") {
++    g_key_dist.enabled = false;
++    return;
++  }
++  const std::string prefix = "zipfian:";
++  if (spec.compare(0, prefix.size(), prefix) != 0) {
++    fprintf(stderr,
++            "Invalid --key_distribution '%s' (expected 'uniform' or "
++            "'zipfian:<theta>')\n",
++            spec.c_str());
++    db_bench_exit(1);
++  }
++  double theta = 0.0;
++  try {
++    theta = std::stod(spec.substr(prefix.size()));
++  } catch (...) {
++    theta = -1.0;
++  }
++  if (!(theta > 0.0 && theta < 1.0)) {
++    fprintf(stderr, "Invalid zipfian theta in --key_distribution '%s' "
++            "(must be in (0,1))\n", spec.c_str());
++    db_bench_exit(1);
++  }
++  const uint64_t n = static_cast<uint64_t>(FLAGS_num);
++  if (n == 0) {
++    fprintf(stderr, "--key_distribution=zipfian requires --num > 0\n");
++    db_bench_exit(1);
++  }
++  g_key_dist.theta = theta;
++  g_key_dist.itemcount = n;
++  g_key_dist.alpha = 1.0 / (1.0 - theta);
++  g_key_dist.zetan = ZipfZeta(n, theta);
++  const double zeta2 = ZipfZeta(2, theta);
++  g_key_dist.eta = (1.0 - std::pow(2.0 / static_cast<double>(n), 1.0 - theta)) /
++                   (1.0 - zeta2 / g_key_dist.zetan);
++  g_key_dist.enabled = true;
++  fprintf(stderr,
++          "[exp0-tools] key distribution: zipfian(theta=%.4f) over %"
++          PRIu64 " keys (zetan=%.6f)\n",
++          theta, n, g_key_dist.zetan);
++}
++}  // namespace
++// [EXP0-TOOLS PATCH] end: key distribution mapper.
++// ---------------------------------------------------------------------------
++
+ // Helper for quickly generating random data.
+ class RandomGenerator {
+  private:
+@@ -4535,6 +4649,11 @@ class Benchmark {
+         FLAGS_min_write_buffer_number_to_merge;
+     options.max_write_buffer_size_to_maintain =
+         FLAGS_max_write_buffer_size_to_maintain;
++    // exp1: Enable PartitionedMemTable if configured
++    if (FLAGS_partitioned_memtable_partitions > 0) {
++      ROCKSDB_NAMESPACE::PartitionedMemTable::num_partitions_config =
++          FLAGS_partitioned_memtable_partitions;
++    }
+     options.max_background_jobs = FLAGS_max_background_jobs;
+     options.max_background_compactions = FLAGS_max_background_compactions;
+     options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
+@@ -5660,7 +5779,9 @@ class Benchmark {
+         case SEQUENTIAL:
+           return next_++;
+         case RANDOM:
+-          return rand_->Next() % num_;
++          // [EXP0-TOOLS PATCH] apply --key_distribution mapping
++          // ('uniform' is the identity map).
++          return MapKeyIndex(rand_->Next() % num_);
+         case UNIQUE_RANDOM:
+           assert(next_ < num_);
+           return values_[next_++];
+@@ -6646,7 +6767,8 @@ class Benchmark {
+     uint64_t rand_int = rand->Next();
+     int64_t key_rand;
+     if (read_random_exp_range_ == 0) {
+-      key_rand = rand_int % FLAGS_num;
++      // [EXP0-TOOLS PATCH] apply --key_distribution mapping to read keys too
++      key_rand = static_cast<int64_t>(MapKeyIndex(rand_int % FLAGS_num));
+     } else {
+       const uint64_t kBigInt = static_cast<uint64_t>(1U) << 62;
+       long double order = -static_cast<long double>(rand_int % kBigInt) /
+@@ -9495,6 +9617,7 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
+   }
+   RegisterDbBenchBdwFlagValidators();
+   ParseCommandLineFlags(&argc, &argv, true);
++  InitKeyDistribution();  // [EXP0-TOOLS PATCH] parse --key_distribution
+   FLAGS_compaction_style_e =
+       (ROCKSDB_NAMESPACE::CompactionStyle)FLAGS_compaction_style;
+   if (FLAGS_statistics && !FLAGS_statistics_string.empty()) {

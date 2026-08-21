@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Exp0: Flush 成本分解 — 展示页</title>
+<style>
+:root{--bg:#1a1a2e;--card:#16213e;--accent:#0f3460;--text:#e0e0e0;--green:#55A868;--orange:#DD8452;--blue:#4C72B0;--red:#C44E52;--yellow:#FFD93D;--border:#2a2a4a}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+.container{max-width:1200px;margin:0 auto;padding:20px}
+h1{text-align:center;color:var(--yellow);margin:20px 0;font-size:2em}
+h2{color:var(--blue);border-bottom:2px solid var(--border);padding-bottom:8px;margin:30px 0 15px}
+h3{color:var(--orange);margin:20px 0 10px}
+.subtitle{text-align:center;color:var(--text);opacity:.7;margin-bottom:30px}
+.card{background:var(--card);border-radius:12px;padding:20px;margin:15px 0;border:1px solid var(--border)}
+.highlight{background:rgba(255,217,61,.1);border-left:4px solid var(--yellow);padding:12px 16px;border-radius:0 8px 8px 0;margin:15px 0}
+.decision{background:rgba(85,168,104,.15);border:2px solid var(--green);border-radius:8px;padding:15px;margin:15px 0}
+.warn{background:rgba(196,78,82,.15);border:2px solid var(--red);border-radius:8px;padding:15px;margin:15px 0}
+table{width:100%;border-collapse:collapse;margin:15px 0;font-size:.9em}
+th{background:var(--accent);color:var(--text);padding:10px 8px;text-align:center;font-weight:600}
+td{padding:8px;text-align:center;border-bottom:1px solid var(--border)}
+tr:hover{background:rgba(15,52,96,.3)}
+td.num{text-align:right;font-family:'Courier New',monospace}
+.chart-box{text-align:center;margin:20px 0}
+.chart-box img{max-width:100%;border-radius:8px;border:1px solid var(--border)}
+.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:.8em;font-weight:bold}
+.badge-pass{background:var(--green);color:#fff}
+.badge-warn{background:var(--orange);color:#fff}
+.badge-fail{background:var(--red);color:#fff}
+.badge-na{background:#666;color:#fff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+@media(max-width:768px){.grid2{grid-template-columns:1fr}}
+.bar-chart{margin:10px 0}
+.bar-row{display:flex;align-items:center;margin:4px 0}
+.bar-label{width:140px;font-size:.85em;text-align:right;padding-right:10px}
+.bar-track{flex:1;background:var(--border);border-radius:4px;height:24px;position:relative}
+.bar-fill{height:100%;border-radius:4px;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:.75em;color:#fff;font-weight:bold;min-width:30px}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Exp0: Flush 成本分解</h1>
+<p class="subtitle">RocksDB 11.2.0 | 2026-08-05 | 对应 PPT 第 3–4 页 Motivation | self_check: <span class="badge badge-pass">PASS</span> (5 ok / 1 warn / 0 error)</p>
+
+<div class="card">
+<h2>1. 实验目的与假设 H1</h2>
+<div class="highlight">
+<b>H1</b>: flush 在写路径中占整整一次 NAND 写，且可分解、可量化。<br>
+• WA 分解: WA_WAL + WA_Flush + WA_Compaction<br>
+• 守恒残差 < 5% | 磁盘交叉核对 < 5%<br>
+• flush 占 NAND 写 0.2–0.4 (期望区间)
+</div>
+</div>
+
+<div class="card">
+<h2>2. 方法学摘要</h2>
+<table>
+<tr><th>参数</th><th>值</th></tr>
+<tr><td>引擎</td><td>RocksDB 11.2.0 (vanilla, 仅 db_bench 工具层补丁)</td></tr>
+<tr><td>Benchmark</td><td>fillrandom, --statistics</td></tr>
+<tr><td>key_size</td><td>16B</td></tr>
+<tr><td>value_sizes</td><td>100B / 1024B / 4096B</td></tr>
+<tr><td>分布</td><td>zipfian(θ=0.99) / uniform</td></tr>
+<tr><td>num / writes</td><td>20M keyspace / 10M per thread × 8 = 80M total ops</td></tr>
+<tr><td>write_buffer_size</td><td>64MB</td></tr>
+<tr><td>max_write_buffer_number</td><td>4</td></tr>
+<tr><td>compaction_style</td><td>level (target_file=64MB, max_bytes_for_level=256MB)</td></tr>
+<tr><td>sync / compression / seed</td><td>false / none / 42</td></tr>
+<tr><td>重复次数 / 聚合</td><td>3 次 / 中位数 (median)</td></tr>
+<tr><td>计时</td><td>/usr/bin/time -v (wall / user / system)</td></tr>
+<tr><td>YCSB-A</td><td>workloada 50R/50U, 2M records, rocksdbjni 6.2.2</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>3. 测试数据表 — fillrandom 六组合 (中位数)</h2>
+<table>
+<tr><th>组合</th><th>Wall(s)</th><th>CPU(s)</th><th>User(MB)</th><th>WAL(MB)</th><th>Flush(MB)</th><th>Compact(MB)</th><th>Total NAND(MB)</th><th>Stalls</th><th>Stall(ms)</th><th>ops/sec</th></tr>
+<tr><td>zipfian_vs100</td><td class="num">95.84</td><td class="num">823.10</td><td class="num">8,850</td><td class="num">9,311</td><td class="num">3,849</td><td class="num">10,339</td><td class="num">23,499</td><td class="num">0</td><td class="num">0</td><td class="num">838,964</td></tr>
+<tr><td>uniform_vs100</td><td class="num">265.85</td><td class="num">1,076.02</td><td class="num">8,850</td><td class="num">9,312</td><td class="num">9,070</td><td class="num">16,947</td><td class="num">35,329</td><td class="num">51</td><td class="num">98,246</td><td class="num">312,675</td></tr>
+<tr><td>zipfian_vs1024</td><td class="num">1,053.34</td><td class="num">2,394.18</td><td class="num">79,346</td><td class="num">79,886</td><td class="num">41,691</td><td class="num">111,635</td><td class="num">233,213</td><td class="num">704</td><td class="num">612,352</td><td class="num">76,133</td></tr>
+<tr><td>uniform_vs1024</td><td class="num">3,088.28</td><td class="num">4,621.91</td><td class="num">79,346</td><td class="num">79,902</td><td class="num">80,148</td><td class="num">331,695</td><td class="num">491,745</td><td class="num">1,938</td><td class="num">2,225,721</td><td class="num">25,905</td></tr>
+<tr><td>zipfian_vs4096</td><td class="num">8,370.00</td><td class="num">7,616.65</td><td class="num">313,721</td><td class="num">314,279</td><td class="num">187,125</td><td class="num">763,810</td><td class="num">1,265,214</td><td class="num">5,077</td><td class="num">6,454,117</td><td class="num">9,558</td></tr>
+<tr><td>uniform_vs4096</td><td class="num">25,754.00</td><td class="num">19,690.16</td><td class="num">313,721</td><td class="num">314,338</td><td class="num">316,873</td><td class="num">2,854,463</td><td class="num">3,485,674</td><td class="num">16,491</td><td class="num">22,515,749</td><td class="num">3,106</td></tr>
+</table>
+
+<h3>YCSB-A 交叉验证</h3>
+<table>
+<tr><th>指标</th><th>值</th><th>指标</th><th>值</th></tr>
+<tr><td>Wall Time</td><td>13.0 s</td><td>DB 磁盘占用</td><td>2,988.78 MB</td></tr>
+<tr><td>READ ops</td><td>1,000,246</td><td>UPDATE ops</td><td>999,754</td></tr>
+<tr><td>READ avg latency</td><td>33.57 µs</td><td>UPDATE avg latency</td><td>47.41 µs</td></tr>
+<tr><td>READ p95 / p99</td><td>93 / 111 µs</td><td>UPDATE p95 / p99</td><td>107 / 128 µs</td></tr>
+<tr><td>WAL/Flush/Compact</td><td><span class="badge badge-na">N/A</span></td><td>Throughput</td><td><span class="badge badge-na">N/A</span></td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>4. 分析</h2>
+
+<h3>4.1 WA 分解</h3>
+<table>
+<tr><th>组合</th><th>WA_WAL</th><th>WA_Flush</th><th>WA_Comp</th><th>ΣWA</th><th>flush_share</th><th>磁盘残差(%)</th></tr>
+<tr><td>zipfian_vs100</td><td class="num">1.052</td><td class="num">0.435</td><td class="num">1.168</td><td class="num">2.655</td><td class="num">0.164</td><td class="num">1.80</td></tr>
+<tr><td>uniform_vs100</td><td class="num">1.052</td><td class="num" style="color:var(--green)">1.025</td><td class="num">1.915</td><td class="num">3.992</td><td class="num" style="color:var(--green)">0.257</td><td class="num">0.78</td></tr>
+<tr><td>zipfian_vs1024</td><td class="num">1.007</td><td class="num">0.525</td><td class="num">1.407</td><td class="num">2.939</td><td class="num">0.179</td><td class="num">1.36</td></tr>
+<tr><td>uniform_vs1024</td><td class="num">1.007</td><td class="num" style="color:var(--green)">1.010</td><td class="num">4.180</td><td class="num">6.197</td><td class="num">0.163</td><td class="num">0.79</td></tr>
+<tr><td>zipfian_vs4096</td><td class="num">1.002</td><td class="num">0.596</td><td class="num">2.435</td><td class="num">4.033</td><td class="num">0.148</td><td class="num">0.83</td></tr>
+<tr><td>uniform_vs4096</td><td class="num">1.002</td><td class="num" style="color:var(--green)">1.010</td><td class="num" style="color:var(--red)">9.099</td><td class="num">11.111</td><td class="num">0.091</td><td class="num">0.36</td></tr>
+<tr style="font-weight:bold;background:var(--accent)"><td>均值</td><td class="num">1.020</td><td class="num">0.767</td><td class="num">3.367</td><td class="num">5.154</td><td class="num">0.167</td><td>—</td></tr>
+</table>
+
+<div class="chart-box">
+<img src="charts/exp0_wa_decomposition.png" alt="WA Decomposition">
+</div>
+
+<h3>4.2 守恒残差核对</h3>
+<div class="decision">
+<b>decomposition_residual_pct = 0.0%</b> (恒成立, total_nand = WAL+Flush+Compact)<br>
+<b>磁盘增量交叉核对残差: 全部 < 2.0%</b> (远低于 5% 阈值)<br>
+逐组合: [1.80%, 0.78%, 1.36%, 0.79%, 0.83%, 0.36%]
+</div>
+
+<h3>4.3 flush_share_of_nand_writes</h3>
+<div class="chart-box">
+<img src="charts/exp0_flush_share.png" alt="Flush Share">
+</div>
+<div class="warn">
+<b>flush_share 均值 = 0.1668, 低于期望区间 [0.2, 0.4]</b><br>
+根因: <b>WA_Compaction 远超预期</b> (uniform_vs4096 达 9.10x), 使 total_nand_write 分母膨胀。<br>
+但 <b>WA_Flush ≈ 1.01x (uniform)</b> 直接支撑 H1: flush = 一次完整 NAND 写。<br>
+zipfian 下 WA_Flush < 1.0 因热键在 memtable 中被覆写, 属预期行为。
+</div>
+
+<div class="bar-chart">
+<div class="bar-row"><div class="bar-label">zipfian_vs100</div><div class="bar-track"><div class="bar-fill" style="width:32.8%;background:var(--red)">0.164</div></div></div>
+<div class="bar-row"><div class="bar-label">uniform_vs100</div><div class="bar-track"><div class="bar-fill" style="width:51.4%;background:var(--green)">0.257</div></div></div>
+<div class="bar-row"><div class="bar-label">zipfian_vs1024</div><div class="bar-track"><div class="bar-fill" style="width:35.8%;background:var(--red)">0.179</div></div></div>
+<div class="bar-row"><div class="bar-label">uniform_vs1024</div><div class="bar-track"><div class="bar-fill" style="width:32.6%;background:var(--red)">0.163</div></div></div>
+<div class="bar-row"><div class="bar-label">zipfian_vs4096</div><div class="bar-track"><div class="bar-fill" style="width:29.6%;background:var(--red)">0.148</div></div></div>
+<div class="bar-row"><div class="bar-label">uniform_vs4096</div><div class="bar-track"><div class="bar-fill" style="width:18.2%;background:var(--red)">0.091</div></div></div>
+<div class="bar-row"><div class="bar-label">期望下限 0.2</div><div class="bar-track"><div class="bar-fill" style="width:40%;background:var(--green);opacity:.5">0.2</div></div></div>
+<div class="bar-row"><div class="bar-label">期望上限 0.4</div><div class="bar-track"><div class="bar-fill" style="width:80%;background:var(--green);opacity:.5">0.4</div></div></div>
+</div>
+
+<h3>4.4 吞吐 vs Value Size</h3>
+<div class="chart-box">
+<img src="charts/exp0_throughput_vs_value.png" alt="Throughput vs Value Size">
+</div>
+
+<h3>4.5 NAND 写三项对比</h3>
+<div class="chart-box">
+<img src="charts/exp0_nand_write_comparison.png" alt="NAND Write Comparison">
+</div>
+
+<h3>4.6 Stall 触发情况</h3>
+<table>
+<tr><th>组合</th><th>Stall Count</th><th>Stall Total (ms)</th><th>占 Wall Time (%)</th></tr>
+<tr><td>zipfian_vs100</td><td class="num">0</td><td class="num">0</td><td class="num">0.0%</td></tr>
+<tr><td>uniform_vs100</td><td class="num">51</td><td class="num">98,246</td><td class="num">37.0%</td></tr>
+<tr><td>zipfian_vs1024</td><td class="num">704</td><td class="num">612,352</td><td class="num">58.1%</td></tr>
+<tr><td>uniform_vs1024</td><td class="num">1,938</td><td class="num">2,225,721</td><td class="num">72.1%</td></tr>
+<tr><td>zipfian_vs4096</td><td class="num">5,077</td><td class="num">6,454,117</td><td class="num">77.1%</td></tr>
+<tr><td>uniform_vs4096</td><td class="num">16,491</td><td class="num">22,515,749</td><td class="num" style="color:var(--red)">87.5%</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>5. 结论</h2>
+<div class="decision">
+<b>H1 验证结果: 部分成立, 需修正表述口径</b><br><br>
+✅ <b>flush 可分解、可量化</b>: 三项 WA 分解成功, 守恒残差 0.0%, 磁盘交叉核对 < 2.0%<br>
+✅ <b>flush 占一次 NAND 写</b>: uniform 分布 WA_Flush ≈ 1.01x, 直接支撑 H1 核心主张<br>
+⚠️ <b>flush_share 0.2–0.4 预期未达</b>: 实测均值 0.167, 根因是 compaction WA 远超预期<br><br>
+<b>冻结配置已产出</b>: <code>exp_design/pre_experiment/code/exp0_flush_cost/workload_config.json</code>
+</div>
+
+<div class="grid2">
+<div class="highlight">
+<b>WA_Flush (uniform) ≈ 1.01x</b><br>
+→ flush = 一次完整 NAND 写<br>
+→ 直接支撑 H1
+</div>
+<div class="highlight">
+<b>WA_Compaction 主导</b><br>
+→ 1.17x ~ 9.10x<br>
+→ uniform_vs4096 最严重<br>
+→ 导致 flush_share 偏低
+</div>
+</div>
+</div>
+
+<div class="card">
+<h2>6. 风险与局限</h2>
+<table>
+<tr><th>风险项</th><th>说明</th><th>影响</th></tr>
+<tr><td>zipfian 工具层补丁</td><td>db_bench_tool.cc 工具层实现, 不修改引擎</td><td>冒烟验证通过, 未经独立审计</td></tr>
+<tr><td>YCSB JNI 6.2.2 割裂</td><td>rocksdbjni 6.2.2 vs RocksDB 11.2.0</td><td>YCSB-A 无引擎 Statistics, 仅作吞吐/延迟参考</td></tr>
+<tr><td>单机规模 20M vs 200M</td><td>当前 num=20M, 论文终稿 200M</td><td>WA 趋势可外推, 绝对值可能变化</td></tr>
+<tr><td>compression=none</td><td>未链接任何压缩库</td><td>压缩会改变 WA 绝对值, 不影响 H1 核心论点</td></tr>
+<tr><td>commit_hash=N/A</td><td>无 .git 目录</td><td>版本以 version.h 11.2.0 为准</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>7. 原始数据引用</h2>
+<table>
+<tr><th>数据</th><th>路径</th></tr>
+<tr><td>报告 JSON</td><td><code>exp_design/pre_experiment/report/exp0_report.json</code></td></tr>
+<tr><td>WA 明细</td><td><code>output/pre_exp/exp0/wa_summary.json</code></td></tr>
+<tr><td>聚合数据</td><td><code>output/pre_exp/exp0/aggregated.json</code></td></tr>
+<tr><td>YCSB 结果</td><td><code>output/pre_exp/exp0/ycsb_result.json</code></td></tr>
+<tr><td>冻结配置</td><td><code>exp_design/pre_experiment/code/exp0_flush_cost/workload_config.json</code></td></tr>
+<tr><td>原始 run</td><td><code>output/pre_exp/exp0/raw/&lt;combo&gt;/run&lt;N&gt;/</code></td></tr>
+<tr><td>图表</td><td><code>exp_design/pre_experiment/report/charts/exp0_*.png</code></td></tr>
+</table>
+
+<h3>硬件环境</h3>
+<p>CPU: Intel i9-10980XE 3.00GHz 36核 | 内存: 62.48GB | 磁盘: NVMe 1.8T ext4 | 内核: 6.8.0-124-generic | OS: Ubuntu 22.04</p>
+</div>
+
+</div>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Exp0: Flush Cost Breakdown</title>
+<style>
+:root{--bg:#1a1a2e;--card:#16213e;--accent:#0f3460;--text:#e0e0e0;--green:#55A868;--orange:#DD8452;--blue:#4C72B0;--red:#C44E52;--yellow:#FFD93D;--border:#2a2a4a}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+.container{max-width:1200px;margin:0 auto;padding:20px}
+h1{text-align:center;color:var(--yellow);margin:20px 0;font-size:2em}
+h2{color:var(--blue);border-bottom:2px solid var(--border);padding-bottom:8px;margin:30px 0 15px}
+h3{color:var(--orange);margin:20px 0 10px}
+.subtitle{text-align:center;opacity:.7;margin-bottom:30px}
+.card{background:var(--card);border-radius:12px;padding:20px;margin:15px 0;border:1px solid var(--border)}
+.highlight{background:rgba(255,217,61,.1);border-left:4px solid var(--yellow);padding:12px 16px;border-radius:0 8px 8px 0;margin:15px 0}
+.decision{background:rgba(85,168,104,.15);border:2px solid var(--green);border-radius:8px;padding:15px;margin:15px 0}
+.warn{background:rgba(196,78,82,.15);border:2px solid var(--red);border-radius:8px;padding:15px;margin:15px 0}
+table{width:100%;border-collapse:collapse;margin:15px 0;font-size:.9em}
+th{background:var(--accent);padding:10px 8px;text-align:center;font-weight:600}
+td{padding:8px;text-align:center;border-bottom:1px solid var(--border)}
+tr:hover{background:rgba(15,52,96,.3)}
+td.num{text-align:right;font-family:'Courier New',monospace}
+.chart-box{text-align:center;margin:20px 0}
+.chart-box img{max-width:100%;border-radius:8px;border:1px solid var(--border)}
+.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:.8em;font-weight:bold}
+.badge-pass{background:var(--green);color:#fff}
+.badge-na{background:#666;color:#fff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+.bar-row{display:flex;align-items:center;margin:4px 0}
+.bar-label{width:140px;font-size:.85em;text-align:right;padding-right:10px}
+.bar-track{flex:1;background:var(--border);border-radius:4px;height:24px}
+.bar-fill{height:100%;border-radius:4px;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:.75em;color:#fff;font-weight:bold;min-width:30px}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Exp0: Flush 成本分解</h1>
+<p class="subtitle">RocksDB 11.2.0 | 2026-08-05 | PPT 第 3-4 页 Motivation | self_check: <span class="badge badge-pass">PASS</span> (5 ok / 1 warn / 0 error)</p>
+
+<div class="card">
+<h2>1. 实验目的与假设 H1</h2>
+<div class="highlight">
+<b>H1</b>: flush 在写路径中占整整一次 NAND 写，且可分解、可量化。<br>
+WA 分解: WA_WAL + WA_Flush + WA_Compaction | 守恒残差 < 5% | flush 占 NAND 写 0.2-0.4 (期望)
+</div>
+</div>
+
+<div class="card">
+<h2>2. 方法学摘要</h2>
+<table>
+<tr><th>参数</th><th>值</th></tr>
+<tr><td>引擎</td><td>RocksDB 11.2.0 (vanilla, 仅 db_bench 工具层补丁)</td></tr>
+<tr><td>Benchmark</td><td>fillrandom --statistics</td></tr>
+<tr><td>key_size / value_sizes</td><td>16B / {100, 1024, 4096}B</td></tr>
+<tr><td>分布</td><td>zipfian(theta=0.99) / uniform</td></tr>
+<tr><td>num / writes</td><td>20M keyspace / 10M/thread x 8 = 80M total ops</td></tr>
+<tr><td>write_buffer / mwbn</td><td>64MB / 4</td></tr>
+<tr><td>compaction_style</td><td>level (target_file=64MB, max_bytes=256MB)</td></tr>
+<tr><td>sync / compression / seed</td><td>false / none / 42</td></tr>
+<tr><td>重复 / 聚合</td><td>3 次 / 中位数 (median)</td></tr>
+<tr><td>YCSB-A</td><td>workloada 50R/50U, 2M records, rocksdbjni 6.2.2</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>3. 测试数据表 - fillrandom 六组合 (中位数)</h2>
+<table>
+<tr><th>组合</th><th>Wall(s)</th><th>CPU(s)</th><th>User(MB)</th><th>WAL(MB)</th><th>Flush(MB)</th><th>Compact(MB)</th><th>Total NAND(MB)</th><th>Stalls</th><th>Stall(ms)</th><th>ops/sec</th></tr>
+<tr><td>zipfian_vs100</td><td class="num">95.84</td><td class="num">823.10</td><td class="num">8,850</td><td class="num">9,311</td><td class="num">3,849</td><td class="num">10,339</td><td class="num">23,499</td><td class="num">0</td><td class="num">0</td><td class="num">838,964</td></tr>
+<tr><td>uniform_vs100</td><td class="num">265.85</td><td class="num">1,076.02</td><td class="num">8,850</td><td class="num">9,312</td><td class="num">9,070</td><td class="num">16,947</td><td class="num">35,329</td><td class="num">51</td><td class="num">98,246</td><td class="num">312,675</td></tr>
+<tr><td>zipfian_vs1024</td><td class="num">1,053.34</td><td class="num">2,394.18</td><td class="num">79,346</td><td class="num">79,886</td><td class="num">41,691</td><td class="num">111,635</td><td class="num">233,213</td><td class="num">704</td><td class="num">612,352</td><td class="num">76,133</td></tr>
+<tr><td>uniform_vs1024</td><td class="num">3,088.28</td><td class="num">4,621.91</td><td class="num">79,346</td><td class="num">79,902</td><td class="num">80,148</td><td class="num">331,695</td><td class="num">491,745</td><td class="num">1,938</td><td class="num">2,225,721</td><td class="num">25,905</td></tr>
+<tr><td>zipfian_vs4096</td><td class="num">8,370.00</td><td class="num">7,616.65</td><td class="num">313,721</td><td class="num">314,279</td><td class="num">187,125</td><td class="num">763,810</td><td class="num">1,265,214</td><td class="num">5,077</td><td class="num">6,454,117</td><td class="num">9,558</td></tr>
+<tr><td>uniform_vs4096</td><td class="num">25,754.00</td><td class="num">19,690.16</td><td class="num">313,721</td><td class="num">314,338</td><td class="num">316,873</td><td class="num">2,854,463</td><td class="num">3,485,674</td><td class="num">16,491</td><td class="num">22,515,749</td><td class="num">3,106</td></tr>
+</table>
+<h3>YCSB-A 交叉验证</h3>
+<table>
+<tr><th>指标</th><th>值</th><th>指标</th><th>值</th></tr>
+<tr><td>Wall Time</td><td>13.0 s</td><td>DB 磁盘占用</td><td>2,988.78 MB</td></tr>
+<tr><td>READ ops / avg lat</td><td>1,000,246 / 33.57 us</td><td>UPDATE ops / avg lat</td><td>999,754 / 47.41 us</td></tr>
+<tr><td>READ p95 / p99</td><td>93 / 111 us</td><td>UPDATE p95 / p99</td><td>107 / 128 us</td></tr>
+<tr><td>WAL/Flush/Compact</td><td><span class="badge badge-na">N/A</span></td><td>Throughput</td><td><span class="badge badge-na">N/A</span></td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>4. 分析</h2>
+<h3>4.1 WA 分解</h3>
+<table>
+<tr><th>组合</th><th>WA_WAL</th><th>WA_Flush</th><th>WA_Comp</th><th>Sum</th><th>flush_share</th><th>磁盘残差(%)</th></tr>
+<tr><td>zipfian_vs100</td><td class="num">1.052</td><td class="num">0.435</td><td class="num">1.168</td><td class="num">2.655</td><td class="num">0.164</td><td class="num">1.80</td></tr>
+<tr><td>uniform_vs100</td><td class="num">1.052</td><td class="num" style="color:var(--green)">1.025</td><td class="num">1.915</td><td class="num">3.992</td><td class="num" style="color:var(--green)">0.257</td><td class="num">0.78</td></tr>
+<tr><td>zipfian_vs1024</td><td class="num">1.007</td><td class="num">0.525</td><td class="num">1.407</td><td class="num">2.939</td><td class="num">0.179</td><td class="num">1.36</td></tr>
+<tr><td>uniform_vs1024</td><td class="num">1.007</td><td class="num" style="color:var(--green)">1.010</td><td class="num">4.180</td><td class="num">6.197</td><td class="num">0.163</td><td class="num">0.79</td></tr>
+<tr><td>zipfian_vs4096</td><td class="num">1.002</td><td class="num">0.596</td><td class="num">2.435</td><td class="num">4.033</td><td class="num">0.148</td><td class="num">0.83</td></tr>
+<tr><td>uniform_vs4096</td><td class="num">1.002</td><td class="num" style="color:var(--green)">1.010</td><td class="num" style="color:var(--red)">9.099</td><td class="num">11.111</td><td class="num">0.091</td><td class="num">0.36</td></tr>
+<tr style="font-weight:bold;background:var(--accent)"><td>均值</td><td class="num">1.020</td><td class="num">0.767</td><td class="num">3.367</td><td class="num">5.154</td><td class="num">0.167</td><td>-</td></tr>
+</table>
+<div class="chart-box"><img src="charts/exp0_wa_decomposition.png" alt="WA Decomposition"></div>
+
+<h3>4.2 守恒残差核对</h3>
+<div class="decision">
+<b>decomposition_residual_pct = 0.0%</b> (恒成立, total_nand = WAL+Flush+Compact)<br>
+<b>磁盘增量交叉核对残差: 全部 < 2.0%</b> (远低于 5% 阈值)<br>
+逐组合: [1.80%, 0.78%, 1.36%, 0.79%, 0.83%, 0.36%]
+</div>
+
+<h3>4.3 flush_share_of_nand_writes</h3>
+<div class="chart-box"><img src="charts/exp0_flush_share.png" alt="Flush Share"></div>
+<div class="warn">
+<b>flush_share 均值 = 0.1668, 低于期望区间 [0.2, 0.4]</b><br>
+根因: <b>WA_Compaction 远超预期</b> (uniform_vs4096 达 9.10x), 使 total_nand_write 分母膨胀。<br>
+但 <b>WA_Flush 约 1.01x (uniform)</b> 直接支撑 H1: flush = 一次完整 NAND 写。
+</div>
+<div class="bar-row"><div class="bar-label">zipfian_vs100</div><div class="bar-track"><div class="bar-fill" style="width:32.8%;background:var(--red)">0.164</div></div></div>
+<div class="bar-row"><div class="bar-label">uniform_vs100</div><div class="bar-track"><div class="bar-fill" style="width:51.4%;background:var(--green)">0.257</div></div></div>
+<div class="bar-row"><div class="bar-label">zipfian_vs1024</div><div class="bar-track"><div class="bar-fill" style="width:35.8%;background:var(--red)">0.179</div></div></div>
+<div class="bar-row"><div class="bar-label">uniform_vs1024</div><div class="bar-track"><div class="bar-fill" style="width:32.6%;background:var(--red)">0.163</div></div></div>
+<div class="bar-row"><div class="bar-label">zipfian_vs4096</div><div class="bar-track"><div class="bar-fill" style="width:29.6%;background:var(--red)">0.148</div></div></div>
+<div class="bar-row"><div class="bar-label">uniform_vs4096</div><div class="bar-track"><div class="bar-fill" style="width:18.2%;background:var(--red)">0.091</div></div></div>
+
+<h3>4.4 吞吐 vs Value Size</h3>
+<div class="chart-box"><img src="charts/exp0_throughput_vs_value.png" alt="Throughput"></div>
+
+<h3>4.5 NAND 写三项对比</h3>
+<div class="chart-box"><img src="charts/exp0_nand_write_comparison.png" alt="NAND Write"></div>
+
+<h3>4.6 Stall 触发情况</h3>
+<table>
+<tr><th>组合</th><th>Stall Count</th><th>Stall Total (ms)</th><th>占 Wall Time (%)</th></tr>
+<tr><td>zipfian_vs100</td><td class="num">0</td><td class="num">0</td><td class="num">0.0%</td></tr>
+<tr><td>uniform_vs100</td><td class="num">51</td><td class="num">98,246</td><td class="num">37.0%</td></tr>
+<tr><td>zipfian_vs1024</td><td class="num">704</td><td class="num">612,352</td><td class="num">58.1%</td></tr>
+<tr><td>uniform_vs1024</td><td class="num">1,938</td><td class="num">2,225,721</td><td class="num">72.1%</td></tr>
+<tr><td>zipfian_vs4096</td><td class="num">5,077</td><td class="num">6,454,117</td><td class="num">77.1%</td></tr>
+<tr><td>uniform_vs4096</td><td class="num">16,491</td><td class="num">22,515,749</td><td class="num" style="color:var(--red)">87.5%</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>5. 结论</h2>
+<div class="decision">
+<b>H1 验证结果: 部分成立, 需修正表述口径</b><br><br>
+PASS <b>flush 可分解、可量化</b>: 三项 WA 分解成功, 守恒残差 0.0%, 磁盘交叉核对 < 2.0%<br>
+PASS <b>flush 占一次 NAND 写</b>: uniform 分布 WA_Flush 约 1.01x, 直接支撑 H1 核心主张<br>
+WARN <b>flush_share 0.2-0.4 预期未达</b>: 实测均值 0.167, 根因是 compaction WA 远超预期<br><br>
+<b>冻结配置已产出</b>: exp_design/pre_experiment/code/exp0_flush_cost/workload_config.json
+</div>
+<div class="grid2">
+<div class="highlight"><b>WA_Flush (uniform) 约 1.01x</b><br>-> flush = 一次完整 NAND 写<br>-> 直接支撑 H1</div>
+<div class="highlight"><b>WA_Compaction 主导</b><br>-> 1.17x ~ 9.10x<br>-> uniform_vs4096 最严重<br>-> 导致 flush_share 偏低</div>
+</div>
+</div>
+
+<div class="card">
+<h2>6. 风险与局限</h2>
+<table>
+<tr><th>风险项</th><th>说明</th><th>影响</th></tr>
+<tr><td>zipfian 工具层补丁</td><td>db_bench_tool.cc 工具层实现, 不修改引擎</td><td>冒烟验证通过, 未经独立审计</td></tr>
+<tr><td>YCSB JNI 6.2.2 割裂</td><td>rocksdbjni 6.2.2 vs RocksDB 11.2.0</td><td>YCSB-A 无引擎 Statistics, 仅吞吐/延迟参考</td></tr>
+<tr><td>单机规模 20M vs 200M</td><td>当前 num=20M, 论文终稿 200M</td><td>WA 趋势可外推, 绝对值可能变化</td></tr>
+<tr><td>compression=none</td><td>未链接任何压缩库</td><td>压缩改变 WA 绝对值, 不影响 H1 核心论点</td></tr>
+<tr><td>commit_hash=N/A</td><td>无 .git 目录</td><td>版本以 version.h 11.2.0 为准</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>7. 原始数据引用</h2>
+<table>
+<tr><th>数据</th><th>路径</th></tr>
+<tr><td>报告 JSON</td><td>exp_design/pre_experiment/report/exp0_report.json</td></tr>
+<tr><td>WA 明细</td><td>output/pre_exp/exp0/wa_summary.json</td></tr>
+<tr><td>聚合数据</td><td>output/pre_exp/exp0/aggregated.json</td></tr>
+<tr><td>YCSB 结果</td><td>output/pre_exp/exp0/ycsb_result.json</td></tr>
+<tr><td>冻结配置</td><td>exp_design/pre_experiment/code/exp0_flush_cost/workload_config.json</td></tr>
+<tr><td>原始 run</td><td>output/pre_exp/exp0/raw/&lt;combo&gt;/run&lt;N&gt;/</td></tr>
+<tr><td>图表</td><td>exp_design/pre_experiment/report/charts/exp0_*.png</td></tr>
+</table>
+<h3>硬件环境</h3>
+<p>CPU: Intel i9-10980XE 3.00GHz 36核 | 内存: 62.48GB | 磁盘: NVMe 1.8T ext4 | 内核: 6.8.0-124-generic | OS: Ubuntu 22.04</p>
+</div>
+</div>
+</body>
+</html>

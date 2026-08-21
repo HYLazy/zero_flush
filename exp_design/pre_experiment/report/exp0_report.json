@@ -1,0 +1,183 @@
+{
+  "experiment": "exp0_flush_cost_breakdown",
+  "status": "done",
+  "rocksdb_version": "11.2.0",
+  "commit_hash": "N/A",
+  "workload_config": {
+    "engine": "RocksDB",
+    "rocksdb_version": "11.2.0",
+    "commit_hash": "N/A",
+    "build": {
+      "source_tree": "source/rocksdb-exp0-tools (vanilla source/rocksdb 的隔离副本, 仅 tools/db_bench_tool.cc 打 --key_distribution 工具层补丁, 引擎零改动)",
+      "build_dir": "source/rocksdb-exp0-tools/build",
+      "cmake": "-DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=ON -DWITH_JNI=OFF -DWITH_TESTS=OFF -DWITH_TOOLS=OFF -DWITH_CORE_TOOLS=ON -DWITH_BENCHMARK_TOOLS=ON -DWITH_SNAPPY=OFF -DWITH_ZLIB=OFF -DWITH_LZ4=OFF -DWITH_ZSTD=OFF -DUSE_RTTI=AUTO -DPORTABLE=0",
+      "ld_library_path": "<build_dir>:/usr/lib/x86_64-linux-gnu (禁止 anaconda 路径)"
+    },
+    "key_size_bytes": 16,
+    "value_sizes_bytes": [
+      100,
+      1024,
+      4096
+    ],
+    "num_keys": 20000000,
+    "ops_per_run": 10000000,
+    "write_buffer_size_mb": 64,
+    "max_write_buffer_number": 4,
+    "compaction_style": "level",
+    "target_file_size_base_mb": 64,
+    "max_bytes_for_level_base_mb": 256,
+    "distributions": [
+      "zipfian(theta=0.99)",
+      "uniform"
+    ],
+    "benchmarks": [
+      "fillrandom",
+      "ycsb-a"
+    ],
+    "sync_wal": false,
+    "threads": 8,
+    "seed": 42,
+    "compression_type": "none",
+    "repetitions_per_point": 3,
+    "aggregation": "median"
+  },
+  "runs": [
+    {
+      "benchmark": "fillrandom",
+      "value_size_bytes": 100,
+      "distribution": "zipfian",
+      "wall_time_sec": 95.84,
+      "cpu_time_sec": 823.1,
+      "user_bytes_written_mb": 8850.098,
+      "wal_bytes_written_mb": 9310.616,
+      "flush_bytes_written_mb": 3849.062,
+      "compaction_bytes_written_mb": 10339.471,
+      "total_nand_write_mb": 23499.149,
+      "stall_count": 0,
+      "stall_total_ms": 0.0,
+      "notes": "writes=10000000/thread × 8 threads = 80000000 总ops (db_bench --writes 为每线程计数), seed=42, compression=none(构建未含压缩库), ops/sec=838964.0, 3次极差: wall=43.480000000000004s, wal=1.018MB, flush=36.142MB, compact=315.817MB; 磁盘增量交叉核对残差=1.8049520342626406% (口径: du(DB) vs flush+compact_write-compact_read+驻留WAL)"
+    },
+    {
+      "benchmark": "fillrandom",
+      "value_size_bytes": 100,
+      "distribution": "uniform",
+      "wall_time_sec": 265.85,
+      "cpu_time_sec": 1076.02,
+      "user_bytes_written_mb": 8850.098,
+      "wal_bytes_written_mb": 9312.324,
+      "flush_bytes_written_mb": 9069.749,
+      "compaction_bytes_written_mb": 16946.816,
+      "total_nand_write_mb": 35328.889,
+      "stall_count": 51,
+      "stall_total_ms": 98246.406,
+      "notes": "writes=10000000/thread × 8 threads = 80000000 总ops (db_bench --writes 为每线程计数), seed=42, compression=none(构建未含压缩库), ops/sec=312675.0, 3次极差: wall=69.56999999999996s, wal=0.468MB, flush=56.06MB, compact=263.666MB; 磁盘增量交叉核对残差=0.7803682714489153% (口径: du(DB) vs flush+compact_write-compact_read+驻留WAL)"
+    },
+    {
+      "benchmark": "fillrandom",
+      "value_size_bytes": 1024,
+      "distribution": "zipfian",
+      "wall_time_sec": 1053.34,
+      "cpu_time_sec": 2394.18,
+      "user_bytes_written_mb": 79345.703,
+      "wal_bytes_written_mb": 79886.441,
+      "flush_bytes_written_mb": 41690.879,
+      "compaction_bytes_written_mb": 111635.348,
+      "total_nand_write_mb": 233212.669,
+      "stall_count": 704,
+      "stall_total_ms": 612351.926,
+      "notes": "writes=10000000/thread × 8 threads = 80000000 总ops (db_bench --writes 为每线程计数), seed=42, compression=none(构建未含压缩库), ops/sec=76133.0, 3次极差: wall=139.76s, wal=0.736MB, flush=55.507MB, compact=614.568MB; 磁盘增量交叉核对残差=1.361035404238605% (口径: du(DB) vs flush+compact_write-compact_read+驻留WAL)"
+    },
+    {
+      "benchmark": "fillrandom",
+      "value_size_bytes": 1024,
+      "distribution": "uniform",
+      "wall_time_sec": 3088.28,
+      "cpu_time_sec": 4621.91,
+      "user_bytes_written_mb": 79345.703,
+      "wal_bytes_written_mb": 79902.199,
+      "flush_bytes_written_mb": 80147.758,
+      "compaction_bytes_written_mb": 331695.474,
+      "total_nand_write_mb": 491745.431,
+      "stall_count": 1938,
+      "stall_total_ms": 2225720.544,
+      "notes": "writes=10000000/thread × 8 threads = 80000000 总ops (db_bench --writes 为每线程计数), seed=42, compression=none(构建未含压缩库), ops/sec=25905.0, 3次极差: wall=340.27s, wal=1.92MB, flush=51.697MB, compact=4513.83MB; 磁盘增量交叉核对残差=0.7868242021256786% (口径: du(DB) vs flush+compact_write-compact_read+驻留WAL)"
+    },
+    {
+      "benchmark": "fillrandom",
+      "value_size_bytes": 4096,
+      "distribution": "zipfian",
+      "wall_time_sec": 8370.0,
+      "cpu_time_sec": 7616.65,
+      "user_bytes_written_mb": 313720.703,
+      "wal_bytes_written_mb": 314279.252,
+      "flush_bytes_written_mb": 187124.794,
+      "compaction_bytes_written_mb": 763810.329,
+      "total_nand_write_mb": 1265214.375,
+      "stall_count": 5077,
+      "stall_total_ms": 6454117.007,
+      "notes": "writes=10000000/thread × 8 threads = 80000000 总ops (db_bench --writes 为每线程计数), seed=42, compression=none(构建未含压缩库), ops/sec=9558.0, 3次极差: wall=997.0s, wal=1.672MB, flush=100.861MB, compact=3653.842MB; 磁盘增量交叉核对残差=0.830615228005702% (口径: du(DB) vs flush+compact_write-compact_read+驻留WAL)"
+    },
+    {
+      "benchmark": "fillrandom",
+      "value_size_bytes": 4096,
+      "distribution": "uniform",
+      "wall_time_sec": 25754.0,
+      "cpu_time_sec": 19690.16,
+      "user_bytes_written_mb": 313720.703,
+      "wal_bytes_written_mb": 314337.798,
+      "flush_bytes_written_mb": 316873.418,
+      "compaction_bytes_written_mb": 2854462.51,
+      "total_nand_write_mb": 3485673.726,
+      "stall_count": 16491,
+      "stall_total_ms": 22515748.847,
+      "notes": "writes=10000000/thread × 8 threads = 80000000 总ops (db_bench --writes 为每线程计数), seed=42, compression=none(构建未含压缩库), ops/sec=3106.0, 3次极差: wall=9032.0s, wal=8.517MB, flush=31.258MB, compact=10892.228MB; 磁盘增量交叉核对残差=0.3626891811900241% (口径: du(DB) vs flush+compact_write-compact_read+驻留WAL)"
+    },
+    {
+      "benchmark": "ycsb-a",
+      "value_size_bytes": 1024,
+      "distribution": "zipfian",
+      "wall_time_sec": 13.0,
+      "cpu_time_sec": 98.92999999999999,
+      "user_bytes_written_mb": 986.099,
+      "wal_bytes_written_mb": "N/A",
+      "flush_bytes_written_mb": "N/A",
+      "compaction_bytes_written_mb": "N/A",
+      "total_nand_write_mb": "N/A",
+      "stall_count": "N/A",
+      "stall_total_ms": "N/A",
+      "notes": "YCSB workloada (50% read/50% update, zipfian request distribution), recordcount=2000000, operationcount=2000000, threads=8, value=1 field x 1024B; binding=rocksdbjni 6.2.2 (与本地 RocksDB 11.2 割裂, 仅作交叉验证); 引擎 Statistics 不经 JNI 暴露 → WAL/flush/compaction 写字节为 N/A; DB 最终磁盘占用=2988.783MB; 吞吐=None ops/sec, latency={'READ': {'Operations': 1000246.0, 'AverageLatency(us)': 33.56720346794688, '95thPercentileLatency(us)': 93.0, '99thPercentileLatency(us)': 111.0}, 'UPDATE': {'Operations': 999754.0, 'AverageLatency(us)': 47.40562678418891, '95thPercentileLatency(us)': 107.0, '99thPercentileLatency(us)': 128.0}, 'CLEANUP': {'Operations': 8.0, 'AverageLatency(us)': 10398.375, '95thPercentileLatency(us)': 83199.0, '99thPercentileLatency(us)': 83199.0}}"
+    }
+  ],
+  "summary": {
+    "flush_share_of_nand_writes": 0.16684667923595053,
+    "wa_decomposition": {
+      "wal": 1.0203066361389925,
+      "flush": 0.7669661863643519,
+      "compaction": 3.3673192154714653
+    },
+    "decomposition_residual_pct": 0.0,
+    "notes": "total_nand_write 按任务口径 = wal+flush+compaction 三项之和, 故 decomposition_residual_pct 恒为 0 (守恒恒成立); 磁盘实际增量交叉核对口径为 du(DB) vs flush+compact_write-compact_read+驻留WAL (旧 WAL 在 flush 后即删除, wal_bytes 为累计写流量), 残差: [1.8, 0.78, 1.36, 0.79, 0.83, 0.36]% (逐组合)。wa_decomposition 为 6 组合 wa_x 的平均值。"
+  },
+  "failures_or_na": [
+    "commit_hash=N/A: 源码树无 .git 目录, build_version.cc 显示 rocksdb_build_git_sha:0; 版本以 include/rocksdb/version.h 的 11.2.0 为准",
+    "ycsb-a 的 wal/flush/compaction 字节与 stall 指标为 N/A: YCSB rocksdb binding (rocksdbjni 6.2.2) 不创建/暴露 RocksDB Statistics, 该条仅作吞吐/延迟交叉验证",
+    "compression_type=none: 本机构建未启用任何压缩库 (与 vanilla build 配置一致), db_bench 默认 snappy 不可用; 附录 A 未指定压缩, 如实记录",
+    "口径: db_bench --num/--writes 为每线程计数, 实际总写入 80M ops (10M×8 线程), keyspace=20M 全局共享; user_bytes_written 按总 ops 计算 (已用 WAL 字节≈用户字节×1.05 验证)"
+  ],
+  "metadata": {
+    "hardware": {
+      "cpu_model": "Intel(R) Core(TM) i9-10980XE CPU @ 3.00GHz",
+      "cpu_cores": 36,
+      "memory_gb": 62.48,
+      "disk": "/           1.8T ext4",
+      "kernel": "6.8.0-124-generic",
+      "uname": "Linux embed-System-Product-Name 6.8.0-124-generic #124~22.04.1-Ubuntu SMP PREEMPT_DYNAMIC Tue May 26 21:05:19 UTC  x86_64 x86_64",
+      "os": "Linux"
+    },
+    "reps": 3,
+    "timestamp": "2026-08-05T10:00:26.950919",
+    "raw_outputs": "output/pre_exp/exp0/raw/<combo>/run<N>/{stdout.txt,stderr.txt,time.txt,LOG,disk_bytes.txt}",
+    "wa_summary_detail": "output/pre_exp/exp0/wa_summary.json",
+    "ycsb_binding": "rocksdbjni 6.2.2 (source/YCSB), 与本地 RocksDB 11.2.0 版本割裂, 仅作交叉验证"
+  }
+}

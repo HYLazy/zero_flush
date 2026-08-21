@@ -4,7 +4,6 @@
 #include "zeroflush/sealed_file_cache.h"
 
 #include <algorithm>
-#include <cassert>
 
 #include "util/mutexlock.h"
 
@@ -14,10 +13,8 @@ SealedFileCache::SealedFileCache(rocksdb::Env* env, std::string dir,
                                  uint32_t capacity, bool reclaim_enabled)
     : env_(env),
       dir_(std::move(dir)),
-      capacity_(capacity == 0 ? 1 : capacity),
-      reclaim_enabled_(reclaim_enabled) {
-  handles_.reserve(capacity_ * 2);
-}
+      capacity_(capacity),
+      reclaim_enabled_(reclaim_enabled) {}
 
 SealedFileCache::~SealedFileCache() {
   // 析构时若还有未释放 epoch 不报错（DB 异常关闭路径）。
@@ -29,7 +26,8 @@ std::string SealedFileCache::FileName(uint32_t part, uint32_t gen) const {
          std::to_string(gen) + ".log";
 }
 
-void SealedFileCache::AddEpochWithRecoveryAdoption(const SealedEpoch& e) {
+void SealedFileCache::AddEpochWithRecoveryAdoption(const SealedEpoch& e,
+                                                   uint32_t refcount) {
   rocksdb::MutexLock l(&mu_);
   auto it = epochs_.find(e.epoch);
   if (it != epochs_.end()) {
@@ -52,7 +50,8 @@ void SealedFileCache::AddEpochWithRecoveryAdoption(const SealedEpoch& e) {
   }
   merged.sealed_at_micros = env_->NowMicros();
   epochs_.emplace(merged.epoch, merged);
-  refs_[merged.epoch] = 1;
+  // M3.4：多列族共享同一物理分区文件时 refcount = CF 个数。
+  refs_[merged.epoch] = refcount;
   sealed_bytes_ += merged.total_bytes;
 }
 
@@ -168,6 +167,18 @@ void SealedFileCache::TouchLRU(ZfFileKey key) {
     lru_order_.erase(it);
   }
   lru_order_.push_front(key);
+}
+
+bool SealedFileCache::GetEpoch(uint64_t epoch, SealedEpoch* out) const {
+  rocksdb::MutexLock l(&mu_);
+  auto it = epochs_.find(epoch);
+  if (it == epochs_.end()) {
+    return false;
+  }
+  if (out != nullptr) {
+    *out = it->second;
+  }
+  return true;
 }
 
 size_t SealedFileCache::PurgePending() {

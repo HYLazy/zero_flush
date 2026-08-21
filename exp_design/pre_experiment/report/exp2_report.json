@@ -1,0 +1,298 @@
+{
+  "experiment": "exp2_partition_overhead_gate",
+  "range_lookup": {
+    "results": [
+      {
+        "p": 64,
+        "impl": "binary_search",
+        "mean_ns": 26.123,
+        "p99_ns": 66.0
+      },
+      {
+        "p": 64,
+        "impl": "small_btree",
+        "mean_ns": 27.642,
+        "p99_ns": 78.0
+      },
+      {
+        "p": 128,
+        "impl": "binary_search",
+        "mean_ns": 32.673,
+        "p99_ns": 81.0
+      },
+      {
+        "p": 128,
+        "impl": "small_btree",
+        "mean_ns": 31.274,
+        "p99_ns": 87.0
+      },
+      {
+        "p": 256,
+        "impl": "binary_search",
+        "mean_ns": 37.121,
+        "p99_ns": 89.0
+      },
+      {
+        "p": 256,
+        "impl": "small_btree",
+        "mean_ns": 33.335,
+        "p99_ns": 90.0
+      }
+    ]
+  },
+  "multi_wal_fsync": {
+    "results": [
+      {
+        "p": 1,
+        "mode": "independent_fsync",
+        "sync_wal": true,
+        "throughput_ops_per_s": 306743.0,
+        "fsync_count_per_op": 0.00021,
+        "durability_window_ms": 44.5179
+      },
+      {
+        "p": 1,
+        "mode": "independent_fsync",
+        "sync_wal": false,
+        "throughput_ops_per_s": 2185463.8,
+        "fsync_count_per_op": 0.0,
+        "durability_window_ms": 4.9355
+      },
+      {
+        "p": 1,
+        "mode": "batched_fsync",
+        "sync_wal": true,
+        "throughput_ops_per_s": 298867.9,
+        "fsync_count_per_op": 0.00022,
+        "durability_window_ms": 55.9321
+      },
+      {
+        "p": 1,
+        "mode": "batched_fsync",
+        "sync_wal": false,
+        "throughput_ops_per_s": 2099587.5,
+        "fsync_count_per_op": 0.0,
+        "durability_window_ms": 5.9725
+      },
+      {
+        "p": 16,
+        "mode": "independent_fsync",
+        "sync_wal": true,
+        "throughput_ops_per_s": 135256.5,
+        "fsync_count_per_op": 0.003423,
+        "durability_window_ms": 149.7172
+      },
+      {
+        "p": 16,
+        "mode": "independent_fsync",
+        "sync_wal": false,
+        "throughput_ops_per_s": 2424634.6,
+        "fsync_count_per_op": 0.0,
+        "durability_window_ms": 5.2446
+      },
+      {
+        "p": 16,
+        "mode": "batched_fsync",
+        "sync_wal": true,
+        "throughput_ops_per_s": 226244.5,
+        "fsync_count_per_op": 0.000387,
+        "durability_window_ms": 583.5687
+      },
+      {
+        "p": 16,
+        "mode": "batched_fsync",
+        "sync_wal": false,
+        "throughput_ops_per_s": 1890751.4,
+        "fsync_count_per_op": 0.0,
+        "durability_window_ms": 41.6155
+      },
+      {
+        "p": 64,
+        "mode": "independent_fsync",
+        "sync_wal": true,
+        "throughput_ops_per_s": 71174.0,
+        "fsync_count_per_op": 0.013143,
+        "durability_window_ms": 214.1229
+      },
+      {
+        "p": 64,
+        "mode": "independent_fsync",
+        "sync_wal": false,
+        "throughput_ops_per_s": 2284206.6,
+        "fsync_count_per_op": 0.0,
+        "durability_window_ms": 4.1969
+      },
+      {
+        "p": 64,
+        "mode": "batched_fsync",
+        "sync_wal": true,
+        "throughput_ops_per_s": 247030.7,
+        "fsync_count_per_op": 0.000383,
+        "durability_window_ms": 1902.0261
+      },
+      {
+        "p": 64,
+        "mode": "batched_fsync",
+        "sync_wal": false,
+        "throughput_ops_per_s": 1816119.1,
+        "fsync_count_per_op": 0.0,
+        "durability_window_ms": 289.1641
+      }
+    ],
+    "baseline_single_wal": [
+      {
+        "sync_wal": true,
+        "throughput_ops_per_s": 306743.0,
+        "fsync_count_per_op": 0.00021
+      },
+      {
+        "sync_wal": false,
+        "throughput_ops_per_s": 2185463.8,
+        "fsync_count_per_op": 0.0
+      }
+    ]
+  },
+  "decision": "FAIL",
+  "decision_rationale": "模式A、B 均不满足 PASS 条件：A(P=64) 回退 76.80%、fsync/op 0.013143；B(P=64) 回退 19.47%、fsync/op 0.000383、窗口 1902.026ms；基线 P=1 吞吐 306743 ops/s、fsync/op 0.000210。替代设计: 单 WAL 写入 + 轻量后台分区线程（写入路径保持单文件组提交，分区路由推迟到 flush/L0 构建时后台完成）；放弃 WAL=L0 映射，退化为分区 MemTable 方案（WAL 仅作崩溃恢复日志，分区结构只在内存 MemTable 与 L0 维持）",
+  "notes": "CPU 调频器为 powersave（实测低频运行），延迟用 rdtsc cycles 经 CLOCK_MONOTONIC 校准换算 ns（invariant TSC，校准频率见原始 JSON tsc_freq_hz），调频器状态记录于 metadata.hardware.cpu_governor；multi_wal 写 key 采用均匀分布以制造 worst-case dirty 扇出（zipfian(0.99) 会把约 96% 质量压到 P=64 的 0 号分区，低估 fsync 扇出开销）；range_lookup 按任务要求使用 zipfian(0.99)，每组合丢弃 1,000,000 次预热后测量 10,000,000 次；durability_window_ms 取各轮 p99 的中位数；模式A commit 批=base_batch(512 ops)，模式B commit 批=base_batch*P，用更大的组提交摊销每文件 fsync。ops 自适应：sync=true 档按 pilot 速率×10s 目标迭代重标定（实测每组合 >=10s）；sync=false 档取 [2M,4M] ops（满足 spec >=2M ops；实测更大量会触发脏页回写限速并干扰后续组合，故该档以 ops 数而非时长为准）。",
+  "failures_or_na": [],
+  "metadata": {
+    "hardware": {
+      "cpu_model": "Intel(R) Core(TM) i9-10980XE CPU @ 3.00GHz",
+      "cpu_cores": 36,
+      "memory_gb": 62.48,
+      "disk": "/           1.8T ext4",
+      "kernel": "6.8.0-124-generic",
+      "uname": "Linux embed-System-Product-Name 6.8.0-124-generic #124~22.04.1-Ubuntu SMP PREEMPT_DYNAMIC Tue May 26 21:05:19 UTC  x86_64 x86_64",
+      "os": "Linux",
+      "cpu_governor": "powersave"
+    },
+    "kernel": "6.8.0-124-generic",
+    "mount_opts": "rw,relatime,errors=remount-ro",
+    "scheduler": "none",
+    "reps": 3,
+    "ops_per_combo": {
+      "p1_independent_fsync_true": {
+        "ops_per_rep": [
+          2432819,
+          3139725,
+          4921423,
+          4810210,
+          3420653
+        ],
+        "reason": "sync=true: pilot_rate*10s target clamped to [50000,8000000], 迭代重标定保证 >=10s; rescale#1: elapsed 5.7s < 10s -> ops x1.76"
+      },
+      "p1_independent_fsync_false": {
+        "ops_per_rep": [
+          4000000,
+          4000000,
+          4000000
+        ],
+        "reason": "sync=false: ops clamped to [2000000,4000000]，满足 spec >=2M ops；上限压低以避免脏页回写风暴（实测 22M ops 触发限速，单轮 30-90s 且干扰后续组合），故该档时长以 ops 数而非 10s 为准; rescale#1: elapsed 1.3s < 10s -> ops x7.77"
+      },
+      "p1_batched_fsync_true": {
+        "ops_per_rep": [
+          4803844,
+          3347032,
+          3268661
+        ],
+        "reason": "sync=true: pilot_rate*10s target clamped to [50000,8000000], 迭代重标定保证 >=10s; rescale#1: elapsed 6.8s < 10s -> ops x1.47"
+      },
+      "p1_batched_fsync_false": {
+        "ops_per_rep": [
+          4000000,
+          4000000,
+          4000000
+        ],
+        "reason": "sync=false: ops clamped to [2000000,4000000]，满足 spec >=2M ops；上限压低以避免脏页回写风暴（实测 22M ops 触发限速，单轮 30-90s 且干扰后续组合），故该档时长以 ops 数而非 10s 为准; rescale#1: elapsed 1.5s < 10s -> ops x6.73"
+      },
+      "p16_independent_fsync_true": {
+        "ops_per_rep": [
+          1991161,
+          1683147,
+          1244673
+        ],
+        "reason": "sync=true: pilot_rate*10s target clamped to [50000,8000000], 迭代重标定保证 >=10s; rescale#1: elapsed 8.2s < 10s -> ops x1.22"
+      },
+      "p16_independent_fsync_false": {
+        "ops_per_rep": [
+          4000000,
+          4000000,
+          4000000
+        ],
+        "reason": "sync=false: ops clamped to [2000000,4000000]，满足 spec >=2M ops；上限压低以避免脏页回写风暴（实测 22M ops 触发限速，单轮 30-90s 且干扰后续组合），故该档时长以 ops 数而非 10s 为准; rescale#1: elapsed 1.7s < 10s -> ops x6.06"
+      },
+      "p16_batched_fsync_true": {
+        "ops_per_rep": [
+          2648126,
+          2457780,
+          2477943
+        ],
+        "reason": "sync=true: pilot_rate*10s target clamped to [50000,8000000], 迭代重标定保证 >=10s; rescale#1: elapsed 4.9s < 10s -> ops x2.04"
+      },
+      "p16_batched_fsync_false": {
+        "ops_per_rep": [
+          4000000,
+          4000000,
+          4000000
+        ],
+        "reason": "sync=false: ops clamped to [2000000,4000000]，满足 spec >=2M ops；上限压低以避免脏页回写风暴（实测 22M ops 触发限速，单轮 30-90s 且干扰后续组合），故该档时长以 ops 数而非 10s 为准"
+      },
+      "p64_independent_fsync_true": {
+        "ops_per_rep": [
+          879301,
+          876504,
+          954704
+        ],
+        "reason": "sync=true: pilot_rate*10s target clamped to [50000,8000000], 迭代重标定保证 >=10s; rescale#1: elapsed 2.7s < 10s -> ops x3.75"
+      },
+      "p64_independent_fsync_false": {
+        "ops_per_rep": [
+          4000000,
+          4000000,
+          4000000
+        ],
+        "reason": "sync=false: ops clamped to [2000000,4000000]，满足 spec >=2M ops；上限压低以避免脏页回写风暴（实测 22M ops 触发限速，单轮 30-90s 且干扰后续组合），故该档时长以 ops 数而非 10s 为准; rescale#1: elapsed 1.7s < 10s -> ops x5.93"
+      },
+      "p64_batched_fsync_true": {
+        "ops_per_rep": [
+          4346046,
+          2902846,
+          4676969
+        ],
+        "reason": "sync=true: pilot_rate*10s target clamped to [50000,8000000], 迭代重标定保证 >=10s; rescale#1: elapsed 5.9s < 10s -> ops x1.68"
+      },
+      "p64_batched_fsync_false": {
+        "ops_per_rep": [
+          4000000,
+          4000000,
+          4000000
+        ],
+        "reason": "sync=false: ops clamped to [2000000,4000000]，满足 spec >=2M ops；上限压低以避免脏页回写风暴（实测 22M ops 触发限速，单轮 30-90s 且干扰后续组合），故该档时长以 ops 数而非 10s 为准"
+      }
+    },
+    "value_size": 1024,
+    "key_distribution": "uniform over 2^24 (worst-case dirty fan-out; zipfian(0.99) would put ~96% mass into partition 0 of 64 and underestimate fsync fan-out)",
+    "decision_referenced_values": {
+      "baseline_p1_throughput_ops_per_s": 306743.0,
+      "baseline_p1_fsync_count_per_op": 0.00021,
+      "mode_b_p64_throughput_ops_per_s": 247030.7,
+      "mode_b_p64_fsync_count_per_op": 0.000383,
+      "mode_b_p64_durability_window_ms": 1902.0261,
+      "mode_b_regression_pct": 19.467,
+      "mode_b_fsync_ratio_vs_p1": 1.8238,
+      "mode_a_p64_throughput_ops_per_s": 71174.0,
+      "mode_a_p64_fsync_count_per_op": 0.013143,
+      "mode_a_regression_pct": 76.797,
+      "limits": {
+        "regression_pct_max": 15.0,
+        "fsync_ratio_max": 2.0,
+        "durability_window_ms_max": 5.0
+      }
+    },
+    "alternatives": [
+      "单 WAL 写入 + 轻量后台分区线程（写入路径保持单文件组提交，分区路由推迟到 flush/L0 构建时后台完成）",
+      "放弃 WAL=L0 映射，退化为分区 MemTable 方案（WAL 仅作崩溃恢复日志，分区结构只在内存 MemTable 与 L0 维持）"
+    ]
+  }
+}

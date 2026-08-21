@@ -1055,10 +1055,12 @@ set(SOURCES
         utilities/wal_filter.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
+        zeroflush/partition_table.cc
         zeroflush/wal_format.cc
         zeroflush/wal_manager.cc
         zeroflush/sealed_file_cache.cc
         zeroflush/slim_memtable.cc
+        zeroflush/materialize_job.cc
         zeroflush/zeroflush_db.cc)
 
 list(APPEND SOURCES

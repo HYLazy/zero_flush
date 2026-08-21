@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "port/port.h"
@@ -56,6 +57,13 @@ class WalScanner {
   // 语义一致）。
   bool Next(ZfRecordHeader* h, rocksdb::Slice* key, rocksdb::Slice* value);
 
+  // M3.2：区分"干净 EOF"与"中途损坏"。Next() 返回 false 后调用：
+  //  - OK：正常扫完（EOF 或尾部截断——截断对物化同样视为脏数据）；
+  //  - Corruption：CRC/解码失败（头部 magic 不对或 CRC 校验不过）；
+  //  - IOError：底层读失败或文件打开失败。
+  // 恢复路径（Recover）沿用"false 即停"的宽容语义，不受影响。
+  rocksdb::Status status() const { return status_; }
+
   uint64_t offset() const { return offset_; }
 
  private:
@@ -66,6 +74,8 @@ class WalScanner {
   size_t buf_pos_ = 0;
   uint64_t offset_ = 0;
   rocksdb::Logger* info_log_;
+  // M3.2：扫描终态。OK = 干净 EOF（或尾部截断）；Corruption/IOError = 中途失败。
+  rocksdb::Status status_ = rocksdb::Status::OK();
 };
 
 // 分区 WAL 管理器：追加 / 同步 / 冻结 / 定点读 / 扫描。
@@ -139,6 +149,17 @@ class PartitionedWalManager {
   void SetInfoLog(rocksdb::Logger* l) { info_log_ = l; }
   rocksdb::Logger* InfoLog() const { return info_log_; }
 
+  // M3.1：确保分区 id 存在（初始化或分裂后延迟创建）。已存在则 no-op。
+  // 返回指向该分区的指针（保证非空）。
+  void EnsurePartition(uint32_t part_id);
+
+  // M3.1：检查分区 id 是否已被管理（用于 ReadValue 的上界校验替代
+  // "part_id < partitions_"）。
+  bool HasPartition(uint32_t part_id) const;
+
+  // M3.1：返回管理的全部分区 ID 列表（用于遍历）。
+  std::vector<uint32_t> AllPartitionIds() const;
+
  private:
   struct Partition {
     uint32_t part_id = 0;               // 分区号（Open 时初始化）
@@ -156,10 +177,12 @@ class PartitionedWalManager {
   rocksdb::Status OpenGen(Partition* p) const;   // 打开 p->gen 代读写句柄（追加模式）
   rocksdb::Status EnsureOpenForWrite(Partition* p) const;  // 延迟打开写句柄
 
+  // M3.1：parts_ 从 vector 改为 unordered_map，支持稀疏 part_id 空间
+  // （分裂后 part_ids 不再连续[0,P)，见 M3_DESIGN.md §8.2）。
   rocksdb::Env* env_;
   std::string dir_;
-  uint32_t partitions_;
-  std::vector<std::unique_ptr<Partition>> parts_;
+  uint32_t partitions_;  // 初始 P 值（实际分区数由 parts_.size() 反映）
+  std::unordered_map<uint32_t, std::unique_ptr<Partition>> parts_;
   // M3.0 R4：M2 遗留 bug——该成员从未初始化（构造器未赋值）。
   // 现默认 nullptr（ROCKS_LOG_* 安全），由 SetInfoLog 接线。
   rocksdb::Logger* info_log_ = nullptr;

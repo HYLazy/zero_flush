@@ -3681,6 +3681,11 @@ Status DBImpl::ZfSwitchMemtable(ColumnFamilyData* cfd) {
   if (!s.ok()) {
     return s;
   }
+  // M3.2 修复：SwitchMemtable 内部用 ConstructNewMemtable 创建新 mem，不会
+  // 传播 zf_ctx_（CreateNewMemtable 才传播）。若不加，则只有 Open 时创建的
+  // 首个 memtable 带 ctx：后续封存切表产生的 imm 在析构时跳过 ReleaseEpoch，
+  // SealedFileCache 引用永不归零（封存文件不回收、materialized 指标不推进）。
+  cfd->mem()->SetZeroFlushContext(zf_ctx_);
   // 若 imm 实际产生了新可刷写 mem（SwitchMemtable 成功即意味着旧 mem 已
   // 入列），显式登记一个 FlushRequest，使 BG flush worker 能接管。
   // 在 atomic_flush 模式下也走 non-atomic 路径：ZeroFlush 当前只支持

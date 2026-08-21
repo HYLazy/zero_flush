@@ -1,0 +1,40 @@
+{
+  "workload_config": {
+    "engine": "RocksDB",
+    "rocksdb_version": "11.2.0",
+    "commit_hash": "N/A",
+    "build": {
+      "source_tree": "source/rocksdb-exp0-tools (vanilla source/rocksdb 的隔离副本, 仅 tools/db_bench_tool.cc 打 --key_distribution 工具层补丁, 引擎零改动)",
+      "build_dir": "source/rocksdb-exp0-tools/build",
+      "cmake": "-DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=ON -DWITH_JNI=OFF -DWITH_TESTS=OFF -DWITH_TOOLS=OFF -DWITH_CORE_TOOLS=ON -DWITH_BENCHMARK_TOOLS=ON -DWITH_SNAPPY=OFF -DWITH_ZLIB=OFF -DWITH_LZ4=OFF -DWITH_ZSTD=OFF -DUSE_RTTI=AUTO -DPORTABLE=0",
+      "ld_library_path": "<build_dir>:/usr/lib/x86_64-linux-gnu (禁止 anaconda 路径)"
+    },
+    "key_size_bytes": 16,
+    "value_sizes_bytes": [
+      100,
+      1024,
+      4096
+    ],
+    "num_keys": 20000000,
+    "ops_per_run": 10000000,
+    "write_buffer_size_mb": 64,
+    "max_write_buffer_number": 4,
+    "compaction_style": "level",
+    "target_file_size_base_mb": 64,
+    "max_bytes_for_level_base_mb": 256,
+    "distributions": [
+      "zipfian(theta=0.99)",
+      "uniform"
+    ],
+    "benchmarks": [
+      "fillrandom",
+      "ycsb-a"
+    ],
+    "sync_wal": false,
+    "threads": 8,
+    "seed": 42,
+    "compression_type": "none",
+    "repetitions_per_point": 3,
+    "aggregation": "median"
+  }
+}

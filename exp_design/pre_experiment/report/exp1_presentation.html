@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实验 1：L0 Overlap 源于写入准入 — 阶段性报告</title>
+<style>
+:root{--bg:#0f172a;--panel:#1e293b;--panel2:#273449;--ink:#e2e8f0;--muted:#94a3b8;
+--line:#334155;--accent:#38bdf8;--red:#f87171;--red-bg:#7f1d1d;--green:#34d399;
+--amber:#fbbf24;--blue:#60a5fa}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Helvetica,Arial,sans-serif;
+line-height:1.6;font-size:15px}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 24px 64px}
+header{padding:28px 30px;border-radius:14px;background:linear-gradient(135deg,#1e293b,#312e4a);
+border:1px solid var(--line);margin-bottom:28px}
+header h1{margin:0 0 6px;font-size:26px;font-weight:800;letter-spacing:.3px}
+header .sub{color:var(--muted);font-size:13.5px}
+.badge{display:inline-block;padding:3px 12px;border-radius:999px;font-size:12px;font-weight:700;margin-left:8px}
+.badge.fail{background:var(--red-bg);color:#fff;border:1px solid #b91c1c}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:20px}
+.card h2{margin:0 0 10px;font-size:18px;color:#fff;border-bottom:1px solid var(--line);padding-bottom:8px}
+.card h3{margin:18px 0 8px;font-size:15px;color:var(--accent)}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:6px 14px;font-size:13.5px}
+.kv b{color:var(--muted);font-weight:600}
+.failbox{background:linear-gradient(135deg,#7f1d1d,#451a1a);border:1.5px solid #b91c1c;
+border-radius:12px;padding:20px 24px;margin:22px 0}
+.failbox .verdict{font-size:30px;font-weight:900;color:#fecaca;letter-spacing:1px}
+.failbox .why{color:#fee2e2;margin-top:8px;font-size:13.5px}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0 4px}
+th,td{border:1px solid var(--line);padding:7px 9px;text-align:right;white-space:nowrap}
+th{background:var(--panel2);color:#cbd5e1;font-weight:700}
+td.l,th.l{text-align:left}td.c,th.c{text-align:center}
+tr:hover td{background:#1b2638}
+.hl-red{color:var(--red);font-weight:700}.hl-green{color:var(--green);font-weight:700}
+.hl-amber{color:var(--amber);font-weight:700}
+.chart{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.chart img{display:block;width:100%;height:auto;margin:0 auto;border-radius:6px;background:#fff}
+.chart .cap{color:var(--muted);font-size:12.5px;text-align:center;margin-top:6px}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.alt{background:#0b1220;border-left:3px solid var(--accent);padding:12px 14px;border-radius:6px;margin:8px 0}
+.note{font-size:12.5px;color:var(--muted);background:#0b1220;border-radius:8px;padding:10px 14px;margin-top:10px}
+.warn{background:#0b1220;border-left:3px solid var(--amber);padding:12px 14px;border-radius:6px;margin:8px 0}
+.toc{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.toc a{font-size:12.5px;color:var(--accent);text-decoration:none;padding:3px 9px;border:1px solid var(--line);border-radius:6px}
+footer{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+@media(max-width:820px){.cols2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+<h1>实验 1：L0 Overlap 源于写入准入<span class="badge fail">判定 FAIL</span></h1>
+<div class="sub">ZeroFlush · H2 验证 · flush 时分区（回退预案）· 报告日期 2026-08-05 · 对应 PPT 第 4/10 页 · 数据源 <code>exp1_report.json</code></div>
+<div class="toc"><a href="#summary">摘要</a><a href="#method">方法</a><a href="#data">数据</a><a href="#charts">图表</a><a href="#verdict">验收</a><a href="#conclusion">结论</a><a href="#risk">局限</a></div>
+</header>
+
+<section class="card" id="summary">
+<h2>摘要</h2>
+<p>本实验验证 H2：L0 SST 之间的 key range 重叠源于写入准入。基线（vanilla db_bench）overlap ≥ 2.0；干预（flush 时分区补丁，P=16）预期 overlap ≤ 1.2、compaction 读降 ≥ 40%、吞吐回退 ≤ 5%。</p>
+<p>结果：<span class="hl-green">overlap 下降显著</span>（zipfian −67%、uniform −96.7%），<span class="hl-red">但 3 项验收 FAIL</span>——intervention overlap 中位数 1.9798 > 1.2 目标（run3=0.99 和 uniform=0.23 达标）；compaction 读反增 166.3%（2.66×基线）；吞吐回退 62.74%（L0 文件数暴涨 → level0_slowdown_writes stall）。<b>回退方案 flush 时分区不可行，主方案 PartitionedMemTable 有必要性</b>。</p>
+<div class="kv">
+<b>实验编号</b><span>exp1_overlap_at_admission</span>
+<b>干预类型</b><span>flush_time_partition（回退预案，非主方案 PartitionedMemTable）</span>
+<b>分区数 P</b><span>16（对齐 L1 文件边界）</span>
+<b>基线 overlap</b><span>5.9987（zipfian 中位数）</span>
+<b>干预 overlap</b><span>1.9798（zipfian 中位数）/ 0.2343（uniform 单点）</span>
+<b>吞吐回退</b><span>62.74%（zipfian）/ 68.81%（uniform）</span>
+<b>硬件</b><span>Intel(R) Core(TM) i9-10980XE @ 3.00GHz · 36 核 · 25,344 KB cache</span>
+<b>reps</b><span>3（zipfian，取中位数）/ 1（uniform，单点非中位数）</span>
+</div>
+</section>
+
+<section class="failbox" id="verdict">
+<div class="verdict">判定：FAIL</div>
+<div class="why"><b>验收 4 项中 3 项 FAIL：</b>V1 baseline overlap ≥2.0 PASS（5.9987）；V2 intervention overlap ≤1.2 FAIL（中位数 1.9798，run3=0.99 / uniform=0.23 达标）；V3 compaction 读降 ≥40% FAIL（反增 166.3%，387053MB vs 145340MB）；V4 吞吐回退 ≤5% FAIL（62.74%）。根因：flush 时分区每次 flush 发射 16 SST → L0 文件数增长 16×（中位数 17 vs 6）→ level0_slowdown_writes stall（2281 delays + 728 stops，stall.micros 3.5×基线）→ 吞吐回退 62.74%。主方案 PartitionedMemTable（独立子表 flush 每次 1 SST）可避免此问题，但因集成复杂度超标未采用。</div>
+</section>
+
+<section class="card" id="method">
+<h2>2. 方法学</h2>
+<h3>2.1 引擎与构建</h3>
+<ul>
+<li><b>基线</b>：RocksDB 11.2.0 vanilla（<code>source/rocksdb-exp0-tools/build/db_bench</code>），仅工具层 zipfian 补丁，引擎零改动</li>
+<li><b>干预</b>：RocksDB 11.2.0 + flush 时分区补丁（<code>source/rocksdb-exp1-partition/build/db_bench</code>），在 <code>db/flush_job.cc</code> 的 WriteLevel0Table 中按 L1 文件边界将单 MemTable 迭代流分流到 ≤P=16 个 TableBuilder</li>
+<li><b>回退方案声明</b>：flush 时分区为回退预案，非主方案 PartitionedMemTable。固有缺陷：每次 flush 16 SST → L0 文件数暴涨 → stall。主方案 PartitionedMemTable（写入时路由到 P 子表，各独立 flush 每次 1 SST）可避免此缺陷，因集成复杂度超标（前任未完成）未采用</li>
+</ul>
+<h3>2.2 测量方法</h3>
+<ul>
+<li><b>overlap_probe</b>：均匀随机 100K key 采样，<code>GetLiveFilesMetaData</code> 统计 L0 覆盖数（level==0）；链接 vanilla lib 只读打开</li>
+<li><b>compaction 读</b>：<code>rocksdb.compact.read.bytes</code> ticker（全层级），非 L0→L1 特定口径。LOG per-level 口径仅 run3 可用（LOG 被 overlap_probe 覆盖问题，已在 measurement_method 声明）</li>
+<li><b>点查代理</b>：<code>point_query_l0_files_checked_mean</code> = overlap_factor_mean（同一覆盖计数），与 <code>readrandom --perf_level=4</code> PerfContext 交叉验证</li>
+<li><b>参数</b>：num=20M, writes=10M/thread × 8 threads = 80M ops, value=1024B, wbs=64MB, mwbn=4, tfsb=64MB, mblb=256MB, sync=false, compression=none, seed=42</li>
+</ul>
+</section>
+
+<section class="card" id="data">
+<h2>3. 测试数据表</h2>
+<h3>3.1 zipfian(θ=0.99) 6 runs（中位数加粗）</h3>
+<table>
+<thead><tr><th class="l">组</th><th>rep</th><th>overlap_mean</th><th>overlap_p99</th><th>L0 文件数</th><th>compaction_read (MB)</th><th>吞吐 (ops/s)</th><th>flush_partition_count</th></tr></thead>
+<tbody>
+<tr><td class="l">baseline</td><td class="c">1</td><td>8.99813</td><td>9</td><td>9</td><td>145,339.75</td><td>58,738</td><td>0</td></tr>
+<tr><td class="l">baseline</td><td class="c">2</td><td class="hl-amber">5.99874</td><td class="hl-amber">6</td><td class="hl-amber">6</td><td>145,279.49</td><td>55,992</td><td>0</td></tr>
+<tr><td class="l">baseline</td><td class="c">3</td><td>3.99934</td><td>4</td><td>4</td><td>145,658.14</td><td class="hl-amber">58,522</td><td>0</td></tr>
+<tr><td class="l">intervention</td><td class="c">1</td><td>1.99766</td><td>2</td><td>17</td><td>393,955.54</td><td>23,010</td><td>0</td></tr>
+<tr><td class="l">intervention</td><td class="c">2</td><td class="hl-amber">1.97978</td><td class="hl-amber">2</td><td class="hl-amber">17</td><td>384,493.81</td><td class="hl-amber">21,808</td><td>0</td></tr>
+<tr><td class="l">intervention</td><td class="c">3</td><td class="hl-green">0.98773</td><td class="hl-green">1</td><td class="hl-green">1</td><td class="hl-amber">387,052.77</td><td>21,804</td><td>912</td></tr>
+</tbody>
+</table>
+<p style="color:var(--muted);font-size:13px">run3 overlap=0.99（L0=1）<span class="hl-green">达标</span>：compaction 追上时 P=16 可满足 ≤1.2 目标。runs 1-2 overlap≈1.98（L0=17）：多轮 flush 积聚后 compaction 未追上。</p>
+
+<h3>3.2 uniform 2 runs（单点非中位数）</h3>
+<table>
+<thead><tr><th class="l">组</th><th>rep</th><th>overlap_mean</th><th>overlap_p99</th><th>L0 文件数</th><th>compaction_read (MB)</th><th>吞吐 (ops/s)</th><th>flush_partition_count</th></tr></thead>
+<tbody>
+<tr><td class="l">baseline</td><td class="c">1</td><td>6.99943</td><td>7</td><td>7</td><td>388,444.17</td><td>23,311</td><td>0</td></tr>
+<tr><td class="l">intervention</td><td class="c">1</td><td class="hl-green">0.23429</td><td class="hl-green">1</td><td class="hl-green">2</td><td>1,152,814.46</td><td>7,273</td><td>1,018</td></tr>
+</tbody>
+</table>
+<p style="color:var(--muted);font-size:13px">uniform overlap=0.23 <span class="hl-green">达标</span>（−96.7%）：均匀分布分区效果更佳。声明：uniform 仅 1 rep（非中位数），因运行时长约 zipfian 的 2.5 倍。</p>
+
+<h3>3.3 汇总对比（zipfian 中位数）</h3>
+<table>
+<thead><tr><th class="l">指标</th><th>baseline</th><th>intervention</th><th>变化</th></tr></thead>
+<tbody>
+<tr><td class="l">overlap_factor_mean</td><td>5.9987</td><td class="hl-red">1.9798</td><td class="hl-amber">−67.0%</td></tr>
+<tr><td class="l">overlap_factor_p99</td><td>6</td><td class="hl-red">2</td><td>−66.7%</td></tr>
+<tr><td class="l">L0 文件数</td><td>6</td><td class="hl-red">17</td><td class="hl-red">+183.3%</td></tr>
+<tr><td class="l">compaction_read (MB)</td><td>145,339.75</td><td class="hl-red">387,052.77</td><td class="hl-red">+166.3% (2.66×)</td></tr>
+<tr><td class="l">吞吐 (ops/s)</td><td>58,522</td><td class="hl-red">21,808</td><td class="hl-red">−62.74%</td></tr>
+<tr><td class="l">point_query_l0_files_checked_mean</td><td>5.9987</td><td>1.9798</td><td>−67.0%</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="charts">
+<h2 style="color:#fff;font-size:18px;margin:24px 0 4px;border-bottom:1px solid var(--line);padding-bottom:8px">4. 图表</h2>
+<div class="cols2">
+<div class="chart"><img src="charts/exp1_overlap_baseline_vs_intervention.svg" alt="overlap baseline vs intervention"><div class="cap">① overlap baseline vs intervention（zipfian + uniform）。zipfian 5.9987→1.9798（−67%，未达 ≤1.2）；uniform 6.9994→0.2343（−96.7%，达标）</div></div>
+<div class="chart"><img src="charts/exp1_throughput_baseline_vs_intervention.svg" alt="throughput baseline vs intervention"><div class="cap">② 吞吐 baseline vs intervention。zipfian 58,522→21,808（−62.74%）；uniform 23,311→7,273（−68.81%）</div></div>
+<div class="chart"><img src="charts/exp1_per_rep_intervention_overlap.svg" alt="per-rep intervention overlap"><div class="cap">③ 逐 rep 干预 overlap。zipfian run1=1.998 FAIL / run2=1.980 FAIL / <span style="color:#34d399">run3=0.988 PASS</span> / <span style="color:#34d399">uniform=0.234 PASS</span>。绿色=达标，红色=未达标，虚线=1.2 目标</div></div>
+<div class="chart"><img src="charts/exp1_l0_file_count.svg" alt="L0 file count"><div class="cap">④ L0 文件数 baseline vs intervention。zipfian 6→17（+183%）；uniform 7→2（−71%）。intervention zipfian 中位数 17 为 L0 文件数暴涨主因</div></div>
+</div>
+<div class="note">说明：本机 matplotlib 不可用，故按约束降级——用纯 Python 标准库生成 <b>SVG 矢量图表</b>，浏览器原生支持 <code>&lt;img&gt;</code> 渲染，结构等同 PNG。生成脚本：<code>charts/gen_exp1_charts.py</code>。</div>
+</section>
+
+<section class="card">
+<h2>5. 验收核对（逐项引用数值）</h2>
+<h3>zipfian:0.99（3 次中位数，主结论）</h3>
+<table>
+<thead><tr><th class="l">验收项</th><th>计算值</th><th>阈值</th><th>判定</th></tr></thead>
+<tbody>
+<tr><td class="l">V1 baseline overlap ≥ 2.0</td><td>5.9987 ≥ 2.0</td><td>≥2.0</td><td class="hl-green">PASS</td></tr>
+<tr><td class="l">V2 intervention overlap ≤ 1.2</td><td>1.9798 > 1.2</td><td>≤1.2</td><td class="hl-red">FAIL</td></tr>
+<tr><td class="l">V3 compaction 读降 ≥ 40%</td><td>(145339.75−387052.77)/145339.75 × 100 = −166.3%</td><td>≥40%</td><td class="hl-red">FAIL</td></tr>
+<tr><td class="l">V4 吞吐回退 ≤ 5%</td><td>(58522−21808)/58522 × 100 = 62.74%</td><td>≤5%</td><td class="hl-red">FAIL</td></tr>
+</tbody>
+</table>
+<p style="font-size:13px">4 项中 3 项 FAIL，1 项 PASS ⇒ <span class="hl-red"><b>整体 FAIL</b></span>（与 exp1_report.json.failures_or_na 一致）。</p>
+
+<h3>达标证据（部分 rep / 分布）</h3>
+<table>
+<thead><tr><th class="l">条件</th><th>数值</th><th>判定</th></tr></thead>
+<tbody>
+<tr><td class="l">zipfian run3 overlap ≤ 1.2</td><td>0.98773 ≤ 1.2</td><td class="hl-green">PASS</td></tr>
+<tr><td class="l">uniform overlap ≤ 1.2</td><td>0.23429 ≤ 1.2</td><td class="hl-green">PASS</td></tr>
+<tr><td class="l">zipfian overlap 下降幅度</td><td>−67.0%（5.9987→1.9798）</td><td>显著但未达标</td></tr>
+<tr><td class="l">uniform overlap 下降幅度</td><td>−96.7%（6.9994→0.2343）</td><td class="hl-green">达标</td></tr>
+</tbody>
+</table>
+<div class="warn"><b>根因分析：</b>flush 时分区每次 flush 发射 16 SST → L0 文件数增长 16×（中位数 17 vs 6）→ compaction 读增 2.66×（更多 L0→L1 事件）+ level0_slowdown_writes stall（run3: 2281 delays + 728 stops, stall.micros 2958s vs baseline 836s = 3.5×）→ 吞吐回退 62.74%。</div>
+</section>
+
+<section class="card" id="conclusion">
+<h2>6. 结论</h2>
+<div class="alt"><b>1. flush 时分区（回退方案）不可行</b>：L0 文件数暴涨 16× → stall → 吞吐回退 62.74%。三项验收（overlap/compaction读/吞吐）均 FAIL。</div>
+<div class="alt"><b>2. 主方案 PartitionedMemTable 的必要性</b>：写入时路由到 P 子表，各独立 flush 每次 1 SST，从根本上避免 L0 文件数暴涨。因集成复杂度超标未尝试，但本实验的负面结果证明其设计方向正确。</div>
+<div class="alt"><b>3. ZeroFlush L0 文件数管理挑战</b>（负面结果有研究价值）：任何增加 L0 文件数（每次 flush >1 SST）的方案都会触发 level0_slowdown_writes stall。ZeroFlush 的 L0 管理策略必须控制 L0 文件数增长速率。</div>
+<div class="alt"><b>4. P_recommend = 16</b>：run3 zipfian=0.99 + uniform=0.23 达标证据支持 P=16；增大 P 会加剧 L0 stall（根因是 compaction lag 而非分区数不足）。</div>
+<div class="alt"><b>5. 分区本身有效</b>：overlap 在所有分布和 rep 中均显著下降（zipfian −67%、uniform −96.7%），但受 compaction lag 限制。</div>
+</section>
+
+<section class="card" id="risk">
+<h2>7. 风险与局限</h2>
+<ul>
+<li><b>回退方案非主方案</b>：flush 时分区的固有缺陷（每次 flush 16 SST → L0 文件数暴涨 → stall）为主方案 PartitionedMemTable 所无。FAIL 结论仅针对回退方案，不等同于主方案不可行。</li>
+<li><b>uniform 单点非中位数</b>：uniform 仅 1 rep（运行时长约 zipfian 2.5×），达标为单点证据。zipfian 3 rep 中位数为主结论。</li>
+<li><b>LOG 覆盖致 L0→L1 特定口径仅 run3</b>：overlap_probe 打开 DB 覆盖 LOG，仅 run3 LOG_fillrandom 手动保存。baseline L0→L1 特定口径不可用，使用全层级 ticker 代理。</li>
+<li><b>主方案未尝试</b>：PartitionedMemTable 因集成复杂度超标（前任未完成）未在本实验实现。主方案可行性需后续实验验证。</li>
+<li><b>powersave 调频器</b>：绝对吞吐偏低，但 overlap 下降幅度/compaction 读比率/stall 倍数为相对比较，结论稳健。</li>
+</ul>
+</section>
+
+<section class="card">
+<h2>8. 原始数据引用路径</h2>
+<div class="kv">
+<b>权威报告</b><span><code>exp_design/pre_experiment/report/exp1_report.json</code></span>
+<b>原始数据</b><span><code>output/pre_exp/exp1/raw/</code>（8 个 run 目录：stdout/stderr/LOG/LOG_fillrandom/overlap_probe.json/compact_read_bytes.txt）</span>
+<b>stall 数据</b><span><code>intervention_zipfian_vs1024/run3/LOG_fillrandom</code>（手动保存）</span>
+<b>补丁</b><span><code>exp_design/pre_experiment/code/exp1_l0_overlap/patches/0001-flush-partition.patch</code> + <code>0002-zipfian.patch</code></span>
+<b>图表脚本</b><span><code>exp_design/pre_experiment/report/charts/gen_exp1_charts.py</code></span>
+<b>图表</b><span><code>exp_design/pre_experiment/report/charts/exp1_*.svg</code>（4 张）</span>
+<b>冻结配置</b><span><code>exp_design/pre_experiment/code/exp0_flush_cost/workload_config.json</code></span>
+</div>
+</section>
+
+<footer>本页全部数值严格取自 exp1_report.json，禁止伪造或估算 · 生成于 2026-08-05 · 任务 #9 阶段性成果</footer>
+
+</div>
+</body>
+</html>

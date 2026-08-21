@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -65,11 +66,9 @@ rocksdb::Status DecodeZfRecord(const char* data, size_t len, ZfRecordHeader* h,
 uint32_t ZfRecordLength(uint32_t key_len, uint32_t val_len);
 
 // ---------------------------------------------------------------------------
-// ZFPROPS：ZeroFlush 持久化元数据（位于 zfwal/ZFPROPS）
+// ZFPROPS v1：ZeroFlush 持久化元数据（位于 zfwal/ZFPROPS）
 //
-// 目的：保护跨重启的 ZeroFlush 配置一致性。当前唯一字段是 partitions
-// （用于 §4.5 PartitionsMismatchRejected 测试场景）。
-// 16B 二进制布局（小端）：
+// v1 16B 定长布局（小端）：
 //   magic  (4B) = 'ZFP1' = 0x3150465A
 //   version(4B) = 1
 //   partitions (4B)
@@ -86,10 +85,58 @@ struct ZfProps {
 };
 static_assert(sizeof(ZfProps) == kZfPropsSize, "ZfProps must be 16 bytes");
 
-// 编码 ZFPROPS 到 out（固定 16B）。
+// 编码 ZFPROPS v1 到 out（固定 16B）。
 void EncodeZfProps(uint32_t partitions, std::string* out);
 
-// 解码 + 校验 ZFPROPS。返回 OK 表示 magic/version/crc 全部通过。
+// 解码 + 校验 ZFPROPS v1。返回 OK 表示 magic/version/crc 全部通过。
 rocksdb::Status DecodeZfProps(const char* data, size_t len, ZfProps* out);
+
+// ---------------------------------------------------------------------------
+// ZFPROPS v2（M3.1）：变长格式，支持 routing_mode / comparator / 边界表
+//
+// 布局（小端）：
+//   magic 'ZFP2'(4B) | format_version=2 (4B) | routing_mode(1B) | pad(3B)
+//   comparator_name_len(4B) | comparator_name(...)
+//   table_count(4B)
+//     ┌ per table: version(4B) | partitions(4B)
+//     │            part_ids: P × 4B
+//     │            boundary_count(4B) = P-1
+//     │              ┌ per boundary: len(4B) | bytes(...)
+//     └ …
+//   current_version(4B)
+//   crc32c(4B)   // 覆盖前面全部字节
+// ---------------------------------------------------------------------------
+constexpr uint32_t kZfPropsMagicV2 = 0x3250465A;  // 'ZFP2'
+constexpr uint32_t kZfPropsV2FixedSize = 32;  // magic+version+rmode+pad+cnameLen
+                                              // +tableCount + curVer + crc
+
+// 每个 table 在 ZFPROPS v2 中的信息。
+struct ZfPropsTableInfo {
+  uint32_t version;
+  uint32_t partitions;
+  std::vector<uint32_t> part_ids;       // P 个全局 id
+  std::vector<std::string> boundaries;  // P-1 个分隔键（空向量 = hash 或无边界）
+};
+
+// v2 解码结果。
+struct ZfPropsV2 {
+  uint32_t magic;                     // kZfPropsMagicV2
+  uint32_t format_version;            // 2
+  uint8_t routing_mode;               // 0=kHash, 1=kStatic, 2=kSampled
+  std::string comparator_name;
+  std::vector<ZfPropsTableInfo> tables;
+  uint32_t current_version;           // 当前使用的 table version
+  uint32_t crc;
+};
+
+// 编码 ZFPROPS v2。写入必须原子（tmp → rename）。
+rocksdb::Status EncodeZfPropsV2(uint8_t routing_mode,
+                                const std::string& comparator_name,
+                                const std::vector<ZfPropsTableInfo>& tables,
+                                uint32_t current_version, std::string* out);
+
+// 自动检测 v1 / v2。v1 被包装为 v2 结构（routing_mode=0, comparator 未知）。
+rocksdb::Status DecodeZfPropsAuto(const char* data, size_t len,
+                                  ZfPropsV2* out);
 
 }  // namespace zeroflush
