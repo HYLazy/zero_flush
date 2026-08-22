@@ -1,0 +1,41 @@
+{
+  "variant": "W3",
+  "cmd": "/home/embed/hyl/metadata_offload/source/rocksdb-zeroflush/build/db_bench --benchmarks=fillrandom --db=/tmp/zf_prof_db_W3 --num=8000000 --key_size=16 --value_size=256 --threads=16 --writes=500000 --compression_type=none --disable_wal=false --histogram=true --statistics=true --cache_size=8388608 --write_buffer_size=268435456 --max_background_jobs=16 --stats_interval_seconds=30 --stats_per_interval=1 --zeroflush --zf_partitions=64 --zf_materialize_parallelism=1 --level0_slowdown_writes_trigger=64 --level0_stop_writes_trigger=72",
+  "started": "2026-08-21 18:55:23",
+  "timeout": false,
+  "wall_sec": 734.3,
+  "rc": 0,
+  "bench": "fillrandom",
+  "us_per_op": 1467.228,
+  "ops_per_sec": 10899,
+  "seconds": 733.977,
+  "operations": 8000000,
+  "mb_per_s": 2.8,
+  "p50": 3.56,
+  "p75": 3.92,
+  "p99": 11.13,
+  "p999": 20.58,
+  "p9999": 28.39,
+  "zf_props": {
+    "epochs_sealed": 8.0,
+    "epochs_materialized": 8.0,
+    "epochs_reclaimed": 8.0,
+    "live_wal_bytes": 252509700.0,
+    "sealed_wal_bytes": 0.0,
+    "materialize_micros": 85550509.0,
+    "materialize_sort_micros": 12014508.0,
+    "sealed_read_count": 0.0,
+    "sealed_cache_miss": 0.0,
+    "recovery_count": 0.0,
+    "partition_skew": 1.0209,
+    "install_direct_base": 1.0,
+    "base_merge_count": 0.0,
+    "base_merge_rewritten_bytes": 0.0
+  },
+  "db_size_bytes": 1705634090,
+  "db_dir": "/tmp/zf_prof_db_W3",
+  "log_files": [
+    "/tmp/zf_prof_db_W3/LOG"
+  ],
+  "perf_note": "perf_event_paranoid=4，perf record 不可用，已跳过"
+}

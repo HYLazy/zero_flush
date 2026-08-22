@@ -525,6 +525,8 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
     sampler_->Sample(key);
   }
   return add_s;
+}
+
 // M4.3a：封存时冻结全部分区索引（全局 epoch 粒度；M4.3c 改单分区触发）。
 void ZeroFlushContext::FreezeIndexes(
     const std::vector<std::pair<uint32_t, uint32_t>>& gens) {

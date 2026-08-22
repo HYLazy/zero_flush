@@ -140,6 +140,7 @@ class ZeroFlushContext {
   PartitionedWalManager* wal() { return wal_.get(); }
   const ZeroFlushOptions& options() const { return zfo_; }
   const std::string& wal_dir() const { return wal_dir_; }
+
   // M4.3：终态路径开关（false = 分区索引路径）。
   bool use_global_index() const { return zfo_.zf_global_index; }
 

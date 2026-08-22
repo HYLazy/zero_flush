@@ -1,0 +1,26 @@
+{
+  "variant": "W0",
+  "cmd": "/home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench --benchmarks=fillrandom --db=/tmp/zf_prof_db_W0 --num=8000000 --key_size=16 --value_size=256 --threads=16 --writes=500000 --compression_type=none --disable_wal=false --histogram=true --statistics=true --cache_size=8388608 --write_buffer_size=268435456 --max_background_jobs=16 --stats_interval_seconds=30 --stats_per_interval=1",
+  "started": "2026-08-21 18:30:48",
+  "timeout": false,
+  "wall_sec": 8.0,
+  "rc": 0,
+  "bench": "fillrandom",
+  "us_per_op": 15.449,
+  "ops_per_sec": 1031788,
+  "seconds": 7.754,
+  "operations": 8000000,
+  "mb_per_s": 267.6,
+  "p50": 13.67,
+  "p75": 17.15,
+  "p99": 29.26,
+  "p999": 69.16,
+  "p9999": 208.58,
+  "zf_props": {},
+  "db_size_bytes": 2107523925,
+  "db_dir": "/tmp/zf_prof_db_W0",
+  "log_files": [
+    "/tmp/zf_prof_db_W0/LOG"
+  ],
+  "perf_note": "perf_event_paranoid=4，perf record 不可用，已跳过"
+}

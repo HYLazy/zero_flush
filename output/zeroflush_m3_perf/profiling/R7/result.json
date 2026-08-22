@@ -1,0 +1,41 @@
+{
+  "variant": "R7",
+  "cmd": "/home/embed/hyl/metadata_offload/source/rocksdb-zeroflush/build/db_bench --benchmarks=fillrandom --db=/tmp/zf_prof_db_R7 --num=8000000 --key_size=16 --value_size=256 --threads=16 --writes=500000 --compression_type=none --disable_wal=false --histogram=true --statistics=true --cache_size=8388608 --write_buffer_size=268435456 --max_background_jobs=16 --stats_interval_seconds=30 --stats_per_interval=1 --zeroflush --zf_partitions=64 --zf_materialize_parallelism=8 --level0_slowdown_writes_trigger=64 --level0_stop_writes_trigger=72 --zf_routing=align_l1 --zf_base_merge --zf_partitions=16 --subcompactions=8",
+  "started": "2026-08-22 18:09:04",
+  "timeout": false,
+  "wall_sec": 74.8,
+  "rc": 0,
+  "bench": "fillrandom",
+  "us_per_op": 143.725,
+  "ops_per_sec": 111311,
+  "seconds": 71.87,
+  "operations": 8000000,
+  "mb_per_s": 28.9,
+  "p50": 4.07,
+  "p75": 5.18,
+  "p99": 9.59,
+  "p999": 15.16,
+  "p9999": 29.0,
+  "zf_props": {
+    "epochs_sealed": 11.0,
+    "epochs_materialized": 10.0,
+    "epochs_reclaimed": 10.0,
+    "live_wal_bytes": 22241100.0,
+    "sealed_wal_bytes": 268436700.0,
+    "materialize_micros": 27787960.0,
+    "materialize_sort_micros": 17995257.0,
+    "sealed_read_count": 0.0,
+    "sealed_cache_miss": 0.0,
+    "recovery_count": 0.0,
+    "partition_skew": 4.7208,
+    "install_direct_base": 4.0,
+    "base_merge_count": 0.0,
+    "base_merge_rewritten_bytes": 0.0
+  },
+  "db_size_bytes": 1977759259,
+  "db_dir": "/tmp/zf_prof_db_R7",
+  "log_files": [
+    "/tmp/zf_prof_db_R7/LOG"
+  ],
+  "perf_note": "perf_event_paranoid=4，perf record 不可用，已跳过"
+}

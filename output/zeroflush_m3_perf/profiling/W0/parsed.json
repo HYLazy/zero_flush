@@ -1,0 +1,116 @@
+{
+  "summary": {
+    "variant": "W0",
+    "wall_sec": 8.0,
+    "ops_per_sec": 1031788,
+    "mb_per_s": 267.6,
+    "p50_us": 13.67,
+    "p99_us": 29.26,
+    "zf_props": {},
+    "db_size_gb": 1.96,
+    "epochs_materialized": 0,
+    "materialize_total_us": 0,
+    "materialize_max_us": 0,
+    "materialize_files_total": 0,
+    "compaction_jobs": 3,
+    "compaction_wall_us": 5376050,
+    "compaction_cpu_us": 4290765,
+    "compaction_out_gb": 1.13,
+    "compaction_subcompactions": [
+      1
+    ],
+    "l0_stop_lines": 2,
+    "stall_dump_final_s": 0.084,
+    "write_mb_s_intervals": [],
+    "duration_s": 8.0,
+    "cpu_cores_avg": 16.06,
+    "disk_wr_mb_s_avg": 370.7,
+    "threads_max": 34
+  },
+  "materialize": [],
+  "compactions": [
+    {
+      "time_micros": 1787308253049039,
+      "job": 4,
+      "wall_us": 1940182,
+      "cpu_us": 1479485,
+      "level": 1,
+      "files": 7,
+      "out_bytes": 445360021,
+      "subcompactions": 1,
+      "l0_after": 2
+    },
+    {
+      "time_micros": 1787308256414324,
+      "job": 18,
+      "wall_us": 70605,
+      "cpu_us": 70590,
+      "level": 0,
+      "files": 1,
+      "out_bytes": 22449411,
+      "subcompactions": 1,
+      "l0_after": 6
+    },
+    {
+      "time_micros": 1787308256414655,
+      "job": 10,
+      "wall_us": 3365263,
+      "cpu_us": 2740690,
+      "level": 1,
+      "files": 12,
+      "out_bytes": 744884490,
+      "subcompactions": 1,
+      "l0_after": 6
+    }
+  ],
+  "flushes": [
+    {
+      "time_micros": 1787308250277731,
+      "job": 2,
+      "l0": 1,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787308251105790,
+      "job": 3,
+      "l0": 2,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787308252032909,
+      "job": 5,
+      "l0": 3,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787308252870750,
+      "job": 6,
+      "l0": 4,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787308253806964,
+      "job": 9,
+      "l0": 3,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787308254573215,
+      "job": 11,
+      "l0": 4,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787308255540108,
+      "job": 14,
+      "l0": 5,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787308256343411,
+      "job": 16,
+      "l0": 6,
+      "imm": 0
+    }
+  ]
+}
