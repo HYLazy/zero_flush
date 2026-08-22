@@ -29,6 +29,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class MemTable;  // M4.1c：WriteGroup::zf_mem（ZF parallel 共享目标 mem）
+
 class WriteThread {
  public:
   enum State : uint8_t {
@@ -91,6 +93,10 @@ class WriteThread {
     Status status;
     std::atomic<size_t> running;
     size_t size = 0;
+    // M4.1c（ZF parallel）：leader 在 DB mutex 内捕获并 Ref 的目标
+    // memtable，组内全部 writer（含 follower）插入到同一 mem；组最后
+    // 完成者 Unref。非 ZF 组恒为 nullptr。
+    MemTable* zf_mem = nullptr;
 
     struct Iterator {
       Writer* writer;

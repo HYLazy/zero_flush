@@ -838,13 +838,26 @@ DEFINE_bool(zeroflush, false,
 DEFINE_int32(zf_partitions, 64,
              "Number of ZeroFlush partitions (P). Only used when --zeroflush "
              "is true.");
+DEFINE_int32(zf_materialize_parallelism, 8,
+             "ZeroFlush materialization worker count (K). Only used when "
+             "--zeroflush is true.");
 DEFINE_string(zf_routing, "hash",
+             "ZeroFlush routing mode: hash | static | sampled. Sampled learns "
+             "range boundaries from the first epoch, enabling direct install "
+             "below L0. Only used when --zeroflush is true.");
 DEFINE_string(zf_static_boundaries, "",
              "Comma-separated ascending boundary keys for --zf_routing=static "
+             "(count must be zf_partitions - 1).");
 DEFINE_bool(zf_base_merge, false,
+            "ZeroFlush M3.3: fuse materialization into base level (merge with "
+            "overlapping base-level files) instead of falling back to L0.");
 DEFINE_int64(zf_partition_target_mb, 64,
+             "ZeroFlush per-partition WAL seal target in MB.");
 DEFINE_int64(zf_epoch_target_mb, 256,
+             "ZeroFlush epoch seal target (sum of all partitions) in MB.");
 DEFINE_double(zf_merge_ratio, 0.25,
+              "ZeroFlush base-merge trigger ratio: sealed bytes / base-level "
+              "overlap bytes must exceed this to fuse (else fall back to L0).");
 
 DEFINE_bool(use_existing_keys, false,
             "If true, uses existing keys in the DB, "
@@ -4175,6 +4188,31 @@ class Benchmark {
     if (FLAGS_statistics) {
       fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
     }
+    if (FLAGS_zeroflush && db_.db != nullptr) {
+      static const char* zf_props[] = {
+          "epochs_sealed",
+          "epochs_materialized",
+          "epochs_reclaimed",
+          "live_wal_bytes",
+          "sealed_wal_bytes",
+          "materialize_micros",
+          "materialize_sort_micros",
+          "sealed_read_count",
+          "sealed_cache_miss",
+          "recovery_count",
+          "partition_skew",
+          "install_direct_base",
+          "install_fallback_l0",
+          "base_merge_count",
+          "base_merge_rewritten_bytes"};
+      fprintf(stdout, "ZEROFLUSH PROPERTIES:\n");
+      for (const char* p : zf_props) {
+        std::string v;
+        if (db_.db->GetProperty("rocksdb.zeroflush." + std::string(p), &v)) {
+          fprintf(stdout, "zf.%s : %s\n", p, v.c_str());
+        }
+      }
+    }
     if (FLAGS_simcache_size >= 0) {
       fprintf(
           stdout, "SIMULATOR CACHE STATISTICS:\n%s\n",
@@ -5420,19 +5458,44 @@ class Benchmark {
       // 分区 WAL 写入 wal_dir/zfwal/ 子目录，跳过原生 WAL 与 MemTable flush。
       zeroflush::ZeroFlushOptions zfo;
       zfo.partitions = static_cast<uint32_t>(FLAGS_zf_partitions);
+      zfo.materialize_parallelism = static_cast<uint32_t>(
+          FLAGS_zf_materialize_parallelism);
+      // M4.0：路由 / 融合归并 / 封存阈值接线（默认值 = ZeroFlushOptions
+      // 内置默认，不传 flag 行为与 M3 完全一致）。
       if (FLAGS_zf_routing == "hash") {
+        zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kHash;
       } else if (FLAGS_zf_routing == "static") {
+        zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
         if (!FLAGS_zf_static_boundaries.empty()) {
           const std::string& b = FLAGS_zf_static_boundaries;
+          size_t start = 0;
+          while (true) {
+            size_t comma = b.find(',', start);
+            if (comma == std::string::npos) {
+              zfo.static_boundaries.push_back(b.substr(start));
+              break;
+            }
+            zfo.static_boundaries.push_back(b.substr(start, comma - start));
+            start = comma + 1;
+          }
+        }
       } else if (FLAGS_zf_routing == "sampled") {
+        zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kSampled;
                 FLAGS_zf_routing.c_str());
+        ErrorExit();
+      }
       zfo.merge_into_base_level = FLAGS_zf_base_merge;
       if (FLAGS_zf_partition_target_mb > 0) {
+        zfo.partition_target_bytes =
             static_cast<uint64_t>(FLAGS_zf_partition_target_mb) * 1024 * 1024;
+      }
       if (FLAGS_zf_epoch_target_mb > 0) {
+        zfo.epoch_target_bytes =
             static_cast<uint64_t>(FLAGS_zf_epoch_target_mb) * 1024 * 1024;
+      }
       if (FLAGS_zf_merge_ratio > 0) {
         zfo.base_merge_min_ratio = FLAGS_zf_merge_ratio;
+      }
       s = zeroflush::Open(options, zfo, db_name, &db->db_owner);
       if (s.ok()) {
         db->db = db->db_owner.get();

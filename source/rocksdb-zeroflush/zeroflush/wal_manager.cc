@@ -176,8 +176,12 @@ bool WalScanner::Next(ZfRecordHeader* h, rocksdb::Slice* key,
 
 PartitionedWalManager::PartitionedWalManager(rocksdb::Env* env,
                                              const std::string& dir,
-                                             uint32_t partitions)
-    : env_(env), dir_(dir), partitions_(partitions) {
+                                             uint32_t partitions,
+                                             uint64_t partition_target_bytes)
+    : env_(env),
+      dir_(dir),
+      partitions_(partitions),
+      partition_target_bytes_(partition_target_bytes) {
   parts_.reserve(partitions);
   for (uint32_t i = 0; i < partitions; ++i) {
     auto p = std::unique_ptr<Partition>(new Partition());
@@ -390,14 +394,10 @@ rocksdb::Status PartitionedWalManager::Append(uint32_t part,
         "ZF Append: unknown partition " + std::to_string(part));
   }
   Partition* p = it->second.get();
-  rocksdb::MutexLock l(&p->mu);
 
-  // 延迟打开写句柄（首次 Append 时创建文件）
-  rocksdb::Status s = EnsureOpenForWrite(p);
-  if (!s.ok()) {
-    return s;
-  }
-
+  // M4.1d：锁外编码（thread_local 缓冲复用，热路径避免每记录一次 string
+  // 分配；并发下各线程独立 scratch）。分区锁内只做 memcpy + 计数，
+  // 缩短临界区——并行写路径下 p->mu 是分区级串行点。
   ZfRecordHeader h;
   h.magic = kZfMagic;
   h.cf_id = 0;
@@ -406,12 +406,31 @@ rocksdb::Status PartitionedWalManager::Append(uint32_t part,
   h.key_len = static_cast<uint32_t>(key.size());
   h.val_len = static_cast<uint32_t>(value.size());
   h.seq = seq;
+  thread_local std::string zf_append_scratch;
+  zf_append_scratch.clear();
+  EncodeZfRecord(h, key, value, &zf_append_scratch);
 
-  std::string rec;
-  EncodeZfRecord(h, key, value, &rec);
+  rocksdb::MutexLock l(&p->mu);
+
+  // 延迟打开写句柄（首次 Append 时创建文件）
+  rocksdb::Status s = EnsureOpenForWrite(p);
+  if (!s.ok()) {
+    return s;
+  }
+
   const uint64_t offset = p->total_size;
-  p->buf.append(rec);
-  p->total_size += rec.size();
+  p->buf.append(zf_append_scratch);
+  p->total_size += zf_append_scratch.size();
+  // M4.1a：维护 O(1) 封存判定计数（Append 在 p->mu 内，原子仅供锁外读）。
+  const uint64_t active = p->active_bytes.fetch_add(
+                              zf_append_scratch.size(),
+                              std::memory_order_relaxed) +
+                          zf_append_scratch.size();
+  total_active_bytes_.fetch_add(zf_append_scratch.size(),
+                                std::memory_order_relaxed);
+  if (active >= partition_target_bytes_) {
+    any_over_target_.store(true, std::memory_order_relaxed);
+  }
 
   // 缓冲达到 4KB 边界即刷盘（对齐非强制，记录可跨界）。
   if (p->buf.size() >= 4096) {
@@ -511,6 +530,10 @@ FreezeResult PartitionedWalManager::Freeze(uint32_t part) {
   p->flushed_size = 0;
   p->total_size = 0;
   p->buf.clear();
+  // M4.1a：维护 O(1) 封存判定计数——旧代活跃字节归还给总计数；
+  // 清零分区计数与超限标志（新代从 0 起，超限由后续 Append 重新置位）。
+  total_active_bytes_.fetch_sub(old_sealed_size, std::memory_order_relaxed);
+  p->active_bytes.store(0, std::memory_order_relaxed);
   OpenGen(p).PermitUncheckedError();
   ROCKS_LOG_DEBUG(info_log_,
                   "ZeroFlush Freeze: part=%u done, new_gen=%u releasing "

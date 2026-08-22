@@ -1136,14 +1136,26 @@ Status DBImpl::WriteImpl(
       PERF_TIMER_STOP(write_pre_and_post_process_time);
       PERF_TIMER_FOR_WAIT_GUARD(write_memtable_time);
 
-      ColumnFamilyMemTablesImpl column_family_memtables(
-          versions_->GetColumnFamilySet());
-      w.status = WriteBatchInternal::InsertInto(
-          &w, w.sequence, &column_family_memtables, &flush_scheduler_,
-          &trim_history_scheduler_,
-          write_options.ignore_missing_column_families, 0 /*log_number*/, this,
-          true /*concurrent_memtable_writes*/, seq_per_batch_, w.batch_cnt,
-          batch_per_txn_, write_options.memtable_insert_hint_per_batch);
+      if (zf_ctx_ != nullptr) {
+        // M4.1c：ZF 并行 follower——本 writer 的 batch → 分区 WAL + Slim
+        // 跳表（绝不能走原生 InsertInto：那会把真实 value 写进 Slim
+        // MemTableRep 且不写分区 WAL，数据只存内存，进程退出即丢失）。
+        // mem 由 leader 在锁内捕获并 Ref（write_group.zf_mem），组最后
+        // 完成者统一 Unref。
+        assert(w.write_group != nullptr);
+        w.status = zf_ctx_->InsertWriterToPartitionWal(
+            &w, w.write_group->zf_mem, write_options);
+      } else {
+        ColumnFamilyMemTablesImpl column_family_memtables(
+            versions_->GetColumnFamilySet());
+        w.status = WriteBatchInternal::InsertInto(
+            &w, w.sequence, &column_family_memtables, &flush_scheduler_,
+            &trim_history_scheduler_,
+            write_options.ignore_missing_column_families, 0 /*log_number*/,
+            this, true /*concurrent_memtable_writes*/, seq_per_batch_,
+            w.batch_cnt, batch_per_txn_,
+            write_options.memtable_insert_hint_per_batch);
+      }
 
       PERF_TIMER_START(write_pre_and_post_process_time);
     }
@@ -1166,6 +1178,13 @@ Status DBImpl::WriteImpl(
         versions_->SetLastSequence(last_sequence);
       } else {
         HandleMemTableInsertFailure(w.status);
+      }
+      // M4.1c：ZF parallel 组完成（follower 是 last worker），释放 leader
+      // 在锁内捕获的 mem 引用。
+      auto* zf_write_group = w.write_group;
+      if (zf_write_group != nullptr && zf_write_group->zf_mem != nullptr) {
+        zf_write_group->zf_mem->Unref();
+        zf_write_group->zf_mem = nullptr;
       }
       write_thread_.ExitAsBatchGroupFollower(&w);
     }
@@ -1303,8 +1322,9 @@ Status DBImpl::WriteImpl(
     // assumed to be true.  Rule 3 is checked for each batch.  We could
     // relax rules 2 if we could prevent write batches from referring
     // more than once to a particular key.
-    bool parallel = zf_ctx_ == nullptr &&
-                    immutable_db_options_.allow_concurrent_memtable_write &&
+    // M4.1c：ZF 也走 parallel（SlimMemTableRep 已支持并发插入）——写组
+    // follower 并行执行分区 WAL 追加 + 跳表插入，消除组串行天花板。
+    bool parallel = immutable_db_options_.allow_concurrent_memtable_write &&
                     write_group.size > 1;
     size_t total_count = 0;
     size_t valid_batches = 0;
@@ -1501,6 +1521,12 @@ Status DBImpl::WriteImpl(
           // 后一直不释放，导致 BG flush 和 reader 永远拿不到 mutex（死锁）。
           // 修复：在 ShouldSeal 检查前获取 mutex，在 WriteGroupToPartitionWal
           // 完成后释放。
+          // M4.1c：临界区瘦身——mutex 内只做 O(1) ShouldSeal 检查、条件封存
+          // 与 mem 捕获（mem_ 为 plain 指针，锁外读取有数据竞争）；WAL 追加
+          // + Slim MemTable 索引插入移到锁外（多个写组 leader 并发执行，
+          // 分区 WAL 由 p->mu 保护、跳表由 InlineSkipList 并发插入保护）。
+          // zf_mem->Ref()：防组处理期间该 mem 被切换为 imm 后 flush 完成
+          // 析构（写组协议不持有 SuperVersion）。
           ColumnFamilyData* cfd = GetDefaultColumnFamily();
           assert(cfd != nullptr);
           mutex_.Lock();
@@ -1517,6 +1543,9 @@ Status DBImpl::WriteImpl(
             // 物化排队（imm 里的 mem 已被原生 flush scheduler 接管）
             MaybeScheduleFlushOrCompaction();
           }
+          ROCKSDB_NAMESPACE::MemTable* zf_mem = cfd->mem();
+          zf_mem->Ref();
+          mutex_.Unlock();
           // ZeroFlush 写路径：跳过 WriteBatchInternal::InsertInto（原生
           // MemTable 更新），改为分区 WAL 追加 + Slim MemTable 索引插入。
           // M3.0 R3：WriteGroupToPartitionWal 只写不 sync（fsync 不在
@@ -1525,11 +1554,11 @@ Status DBImpl::WriteImpl(
           // SyncWAL 对齐，见 M3_DESIGN.md §9）。
           std::vector<uint32_t> zf_touched;
           w.status = zf_ctx_->WriteGroupToPartitionWal(
-              write_group, current_sequence, cfd, &zf_touched);
-          mutex_.Unlock();
+              write_group, current_sequence, zf_mem, &zf_touched);
           if (w.status.ok() && write_options.sync && !zf_touched.empty()) {
             w.status = zf_ctx_->SyncTouchedPartitions(zf_touched);
           }
+          zf_mem->Unref();
           // M3.0 R4：调试输出改用 ROCKS_LOG_DEBUG（仅 use_logger 时生效，
           // 见 M3_DESIGN.md §13）；默认 info_log 为 nullptr 时零开销。
           if (zf_ctx_->options().use_logger) {
@@ -1546,6 +1575,30 @@ Status DBImpl::WriteImpl(
               0 /*recovery_log_number*/, this, seq_per_batch_, batch_per_txn_);
         }
       } else {
+        // M4.1c：parallel 路径（ZF 与原生共用）。ZF 的封存触发必须在
+        // DB mutex 内执行——进入本分支时未持锁，先取锁做 O(1) ShouldSeal
+        // 检查与条件封存，并在锁内捕获+Ref 目标 mem（写入 write_group，
+        // 组内全部 writer 共享；组最后完成者 Unref——锁外取 mem 指针存在
+        // 切 imm 后 flush 析构的竞态窗口，必须锁内捕获）。
+        if (zf_ctx_ != nullptr) {
+          ColumnFamilyData* cfd = GetDefaultColumnFamily();
+          assert(cfd != nullptr);
+          mutex_.Lock();
+          if (zf_ctx_->ShouldSeal()) {
+            status = zf_ctx_->SealEpochAndSwitch(this, cfd);
+            if (!status.ok()) {
+              error_handler_.SetBGError(status,
+                  BackgroundErrorReason::kMemTable);
+              w.status = status;
+              mutex_.Unlock();
+              return status;
+            }
+            MaybeScheduleFlushOrCompaction();
+          }
+          write_group.zf_mem = cfd->mem();
+          write_group.zf_mem->Ref();
+          mutex_.Unlock();
+        }
         write_group.last_sequence = last_sequence;
         write_thread_.LaunchParallelMemTableWriters(&write_group);
         in_parallel_group = true;
@@ -1553,16 +1606,22 @@ Status DBImpl::WriteImpl(
         // Each parallel follower is doing each own writes. The leader should
         // also do its own.
         if (w.ShouldWriteToMemtable()) {
-          ColumnFamilyMemTablesImpl column_family_memtables(
-              versions_->GetColumnFamilySet());
-          assert(w.sequence == current_sequence);
-          w.status = WriteBatchInternal::InsertInto(
-              &w, w.sequence, &column_family_memtables, &flush_scheduler_,
-              &trim_history_scheduler_,
-              write_options.ignore_missing_column_families, 0 /*log_number*/,
-              this, true /*concurrent_memtable_writes*/, seq_per_batch_,
-              w.batch_cnt, batch_per_txn_,
-              write_options.memtable_insert_hint_per_batch);
+          if (zf_ctx_ != nullptr) {
+            // ZF 并行插入：本 writer 的 batch → 分区 WAL + Slim 跳表。
+            w.status = zf_ctx_->InsertWriterToPartitionWal(
+                &w, write_group.zf_mem, write_options);
+          } else {
+            ColumnFamilyMemTablesImpl column_family_memtables(
+                versions_->GetColumnFamilySet());
+            assert(w.sequence == current_sequence);
+            w.status = WriteBatchInternal::InsertInto(
+                &w, w.sequence, &column_family_memtables, &flush_scheduler_,
+                &trim_history_scheduler_,
+                write_options.ignore_missing_column_families, 0 /*log_number*/,
+                this, true /*concurrent_memtable_writes*/, seq_per_batch_,
+                w.batch_cnt, batch_per_txn_,
+                write_options.memtable_insert_hint_per_batch);
+          }
         }
       }
       if (seq_used != nullptr) {
@@ -1646,6 +1705,12 @@ Status DBImpl::WriteImpl(
         }
       }
       HandleMemTableInsertFailure(w.status);
+    }
+    // M4.1c：ZF parallel 组完成（leader 是 last worker），释放锁内捕获的
+    // mem 引用（follower last 时在 follower 段释放，二者互斥）。
+    if (write_group.zf_mem != nullptr) {
+      write_group.zf_mem->Unref();
+      write_group.zf_mem = nullptr;
     }
     write_thread_.ExitAsBatchGroupLeader(write_group, status);
   }

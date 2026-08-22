@@ -23,8 +23,10 @@
 namespace zeroflush {
 
 // M1 实现与 SkipListRep 相同（InlineSkipList 后端）。
-// 注意：不启用并发插入（IsInsertConcurrentlySupported() = false），
-// 写路径由 WriteGroup leader 串行执行。
+// M4.1b：启用并发插入（IsInsertConcurrentlySupported() = true）——写组
+// leader 在 DB mutex 外执行 WAL 追加 + 索引插入，多个写组可并发插入同一
+// memtable；InlineSkipList 支持并发插入 + 并发读（物化/flush 读 imm 期间
+// 仍可能有写组向该 mem 补插，见 M4_DESIGN.md §M4.1）。
 class SlimMemTableRep : public ROCKSDB_NAMESPACE::MemTableRep {
  public:
   SlimMemTableRep(const ROCKSDB_NAMESPACE::MemTableRep::KeyComparator& compare,
@@ -35,6 +37,8 @@ class SlimMemTableRep : public ROCKSDB_NAMESPACE::MemTableRep {
                                         char** buf) override;
   void Insert(ROCKSDB_NAMESPACE::KeyHandle handle) override;
   bool InsertKey(ROCKSDB_NAMESPACE::KeyHandle handle) override;
+  void InsertConcurrently(ROCKSDB_NAMESPACE::KeyHandle handle) override;
+  bool InsertKeyConcurrently(ROCKSDB_NAMESPACE::KeyHandle handle) override;
   bool Contains(const char* key) const override;
   size_t ApproximateMemoryUsage() override;
   ROCKSDB_NAMESPACE::MemTableRep::Iterator* GetIterator(
@@ -96,8 +100,8 @@ class SlimMemTableRepFactory : public ROCKSDB_NAMESPACE::MemTableRepFactory {
     return new SlimMemTableRep(compare, allocator, slice_transform);
   }
 
-  // M1：写路径由 leader 串行执行，不支持并发 memtable 插入。
-  bool IsInsertConcurrentlySupported() const override { return false; }
+  // M4.1b：并发插入由写组 leader 在 DB mutex 外执行（多组并发）。
+  bool IsInsertConcurrentlySupported() const override { return true; }
 };
 
 }  // namespace zeroflush

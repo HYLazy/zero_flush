@@ -339,6 +339,15 @@ bool MemTable::ShouldFlushNow() {
 void MemTable::UpdateFlushState() {
   auto state = flush_state_.load(std::memory_order_relaxed);
   if (state == FLUSH_NOT_REQUESTED && ShouldFlushNow()) {
+    // M4.1c：ZF 模式下 mem 满不触发原生 flush——value 已持久于分区 WAL，
+    // memtable 仅是索引，封存（切 mem + 物化）由写路径的 ShouldSeal 驱动；
+    // 原生 flush 会产生无 zf epoch 的 imm，物化路径报 Corruption
+    // （"immutable memtable without epoch in zf flush"）。并行写路径下
+    // 多个写组可同时向同一 mem 插入，mem 可能短暂越过封存边界，此抑制
+    // 是并发正确性的必要防线（数据安全不受影响：WAL 已持久）。
+    if (zf_ctx_ != nullptr) {
+      return;
+    }
     // ignore CAS failure, because that means somebody else requested
     // a flush
     flush_state_.compare_exchange_strong(state, FLUSH_REQUESTED,

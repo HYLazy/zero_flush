@@ -24,6 +24,8 @@ namespace ROCKSDB_NAMESPACE {
 class ColumnFamilyData;
 class DBImpl;
 class Env;
+class MemTable;
+struct MemTablePostProcessInfo;
 struct ReadOptions;
 struct WriteOptions;
 }  // namespace ROCKSDB_NAMESPACE
@@ -71,6 +73,8 @@ struct ZeroFlushOptions {
   // M3.3 触发比：封存字节 / 待重写 base-level 字节 ≥ 该值才融合，否则落 L0
   double base_merge_min_ratio = 0.25;
   uint32_t l0_fallback_tolerance = 0;    // 允许的 L0 回落文件数（超出告警）
+
+  // ---- M4.3 终态 ----
 };
 
 class ZeroFlushContext {
@@ -82,18 +86,29 @@ class ZeroFlushContext {
   // 创建 wal_dir/zfwal 并打开分区写文件。
   ROCKSDB_NAMESPACE::Status Open();
 
-  // ---- 写路径（WriteGroup leader 调用，串行）----
+  // ---- 写路径（WriteGroup leader 调用）----
   // 将 write_group 中全部 batch 的记录写入分区 WAL 并插入 Slim MemTable
   // （替代 WriteGroupToWAL + WriteBatchInternal::InsertInto）。
   // seq 区间 [first_seq, first_seq + 已写记录数 - 1] 由调用方保证全局连续。
   // M3.0 R3：本方法只写不 sync；实际触达分区由 touched 输出，sync 由
   // 调用方在释放 DB mutex 后通过 SyncTouchedPartitions 执行（避免持锁
   // fsync，见 M3_DESIGN.md §9）。
+  // M4.1c：在调用方 DB mutex 之外执行（多个写组 leader 并发插入同一
+  // memtable）。mem 由调用方在锁内捕获并 Ref，组内全部记录进该 mem——
+  // 即使中途该 mem 被切为 imm，插入仍合法（InlineSkipList 并发插入），
+  // 且本组 seq 更早，Get 先查 active 后查 imm 语义正确。
   ROCKSDB_NAMESPACE::Status WriteGroupToPartitionWal(
       ROCKSDB_NAMESPACE::WriteThread::WriteGroup& wg,
       ROCKSDB_NAMESPACE::SequenceNumber first_seq,
-      ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
-      std::vector<uint32_t>* touched);
+      ROCKSDB_NAMESPACE::MemTable* mem, std::vector<uint32_t>* touched);
+
+  // M4.1c：单个 writer 的并行插入（parallel 路径，follower/leader 各执行
+  // 自己的 batch）。seq 已由调用方在锁内分配（w->sequence）；mem 由调用
+  // 方捕获并 Ref（锁外读 cfd->mem() 与原生 parallel 一致）。
+  // 内部完成本 writer 的 BatchPostProcess（计数 + UpdateFlushState）。
+  ROCKSDB_NAMESPACE::Status InsertWriterToPartitionWal(
+      ROCKSDB_NAMESPACE::WriteThread::Writer* w,
+      ROCKSDB_NAMESPACE::MemTable* mem, const ROCKSDB_NAMESPACE::WriteOptions& write_options);
 
   // M3.0 R3：fdatasync 指定分区（必须在不持 DB mutex 时调用）。
   ROCKSDB_NAMESPACE::Status SyncTouchedPartitions(
@@ -118,10 +133,13 @@ class ZeroFlushContext {
   uint32_t Route(const ROCKSDB_NAMESPACE::Slice& user_key) const;
 
   // 单条记录：分区 WAL 追加 + Slim MemTable 索引插入（ZfBatchHandler 调用）。
+  // M4.1c：并发插入路径（allow_concurrent=true），ppi 按 mem 累计，组
+  // 收尾由调用方（WriteGroupToPartitionWal）统一 BatchPostProcess。
   ROCKSDB_NAMESPACE::Status AddRecord(
-      ROCKSDB_NAMESPACE::ColumnFamilyData* cfd, const ROCKSDB_NAMESPACE::Slice& key,
+      ROCKSDB_NAMESPACE::MemTable* mem, const ROCKSDB_NAMESPACE::Slice& key,
       const ROCKSDB_NAMESPACE::Slice& value, ROCKSDB_NAMESPACE::ValueType type,
-      ROCKSDB_NAMESPACE::SequenceNumber seq);
+      ROCKSDB_NAMESPACE::SequenceNumber seq,
+      ROCKSDB_NAMESPACE::MemTablePostProcessInfo* ppi);
 
   // ---- M2 新增：Epoch 管理 ----
 
@@ -135,6 +153,7 @@ class ZeroFlushContext {
   ROCKSDB_NAMESPACE::Status SealEpochAndSwitch(
       ROCKSDB_NAMESPACE::DBImpl* impl,
       ROCKSDB_NAMESPACE::ColumnFamilyData* cfd);
+
 
   // 释放一个 epoch 的封存文件引用。引用归零时由 SealedFileCache 排队
   // 等待 PurgeSealedFiles() unlink，并返回该 epoch 的封存字节
@@ -218,6 +237,7 @@ class ZeroFlushContext {
   std::unique_ptr<class PartitionTableSet> tables_;
   const ROCKSDB_NAMESPACE::Comparator* ucmp_ = nullptr;  // user comparator
   std::unique_ptr<class KeySampler> sampler_;  // kSampled 学习期采样器
+  // ---- M4.3 终态 ----
   // ---- M3.2 物化状态与统计 ----
   // 物化按序推进（imm FIFO 单后台线程）；由 FlushJob 成功后更新。
   std::atomic<uint64_t> last_materialized_epoch_{0};

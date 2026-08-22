@@ -1494,8 +1494,164 @@ void TestSampledBoundariesConverge() {
 // ---------------------------------------------------------------------------
 // 用例 35 (M4.0-35): SampledLearningEpochEndToEnd — kSampled 学习期端到端。
 // 学习期 epoch 1 用 hash 路由写入、封存时学习并安装边界表 v1；epoch 2 起
+// 用 v1 范围路由写入。回归背景（2026-08-21 修复）：SealedEpoch.table_version
+// 曾被误标为 1，epoch 1 物化用学习后边界对 hash 路由记录做范围断言，报
+// "materialized range outside table bounds" 崩溃。断言：epoch 1 物化不炸、
+// epochs_materialized == epochs_sealed（≥2）、物化后与重开后全量 key 可读。
+// ---------------------------------------------------------------------------
 void TestSampledLearningEpochEndToEnd() {
   const char* tag = "SampledLearningEpochEndToEnd(M4.0-35)";
+  std::string dbname = std::string(kDbBase) + "sampled_e2e";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 8;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kSampled;
+  zfo.partition_target_bytes = 8 << 10;  // 8KB：小阈值保证 ≥2 个 epoch
+  zfo.epoch_target_bytes = 8 << 10;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+
+  // 3 个 epoch 的随机键（学习边界来自真实键分布；同 key 重复写以最后值为准）。
+  std::map<std::string, std::string> written;
+  std::mt19937_64 rng(20260821);
+  char k[24], v[96];
+  for (int e = 0; e < 3; ++e) {
+    for (int i = 0; i < 100; ++i) {
+      uint64_t r = rng() % 1000000;
+      snprintf(k, sizeof(k), "k%08lu", (unsigned long)r);
+      ::memset(v, 'A' + (e % 26), 90);
+      v[90] = '\0';
+      s = db->Put(rocksdb::WriteOptions(), rocksdb::Slice(k, strlen(k)),
+                  rocksdb::Slice(v, 90));
+      if (!s.ok()) {
+        ReportResult(tag, false, "put: " + s.ToString());
+        CleanDB(dbname);
+        return;
+      }
+      written[k] = std::string(v, 90);
+    }
+  }
+
+  if (!WaitAllMaterialized(db.get())) {
+    DumpDbLogTail(dbname);
+    ReportResult(tag, false,
+                 "materialization did not finish; sealed=" +
+                     std::to_string(ZfMetric(db.get(), "epochs_sealed")) +
+                     " materialized=" +
+                     std::to_string(ZfMetric(db.get(), "epochs_materialized")));
+    CleanDB(dbname);
+    return;
+  }
+  const uint64_t sealed = ZfMetric(db.get(), "epochs_sealed");
+  const uint64_t mater = ZfMetric(db.get(), "epochs_materialized");
+  if (sealed < 2 || mater != sealed) {
+    ReportResult(tag, false, "sealed=" + std::to_string(sealed) +
+                                 " materialized=" + std::to_string(mater));
+    CleanDB(dbname);
+    return;
+  }
+
+  // 物化后全量可读（含学习期 hash 写入的 epoch 1 数据）。
+  std::string val;
+  for (const auto& kv : written) {
+    s = db->Get(rocksdb::ReadOptions(), kv.first, &val);
+    if (!s.ok() || val != kv.second) {
+      ReportResult(tag, false, "get after materialize: " + kv.first + " -> " +
+                                   s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+
+  // 重开：ZFPROPS v2 持久化学习表与路由模式，重放后全量可读。
+  db.reset();
+  std::unique_ptr<rocksdb::DB> db2;
+  s = zeroflush::Open(MakeOptions(), zfo, dbname, &db2);
+  if (!s.ok()) {
+    ReportResult(tag, false, "reopen: " + s.ToString());
+    CleanDB(dbname);
+    return;
+  }
+  for (const auto& kv : written) {
+    s = db2->Get(rocksdb::ReadOptions(), kv.first, &val);
+    if (!s.ok() || val != kv.second) {
+      ReportResult(tag, false, "get after reopen: " + kv.first + " -> " +
+                                   s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+  db2.reset();
+
+  ReportResult(tag, true,
+               "sealed=" + std::to_string(sealed) +
+                   " keys=" + std::to_string(written.size()));
+  CleanDB(dbname);
+}
+
+// ---------------------------------------------------------------------------
+      }
+      written[k] = std::string(v, 90);
+    }
+  }
+
+  if (!WaitAllMaterialized(db.get())) {
+    DumpDbLogTail(dbname);
+    ReportResult(tag, false, "materialization did not finish; sealed=" +
+                                 std::to_string(ZfMetric(db.get(), "epochs_sealed")) +
+                                 " materialized=" +
+                                 std::to_string(ZfMetric(db.get(), "epochs_materialized")));
+    CleanDB(dbname);
+    return;
+  }
+
+  const uint64_t sealed = ZfMetric(db.get(), "epochs_sealed");
+
+  // 物化后全量可读（含 hash 首轮写入的数据）。
+  std::string val;
+  for (const auto& kv : written) {
+    s = db->Get(rocksdb::ReadOptions(), kv.first, &val);
+    if (!s.ok() || val != kv.second) {
+      ReportResult(tag, false, "get after materialize: " + kv.first + " -> " +
+                                   s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+
+  // 重开：ZFPROPS 持久化对齐表与路由模式，重放后全量可读。
+  db.reset();
+  std::unique_ptr<rocksdb::DB> db2;
+  s = zeroflush::Open(MakeOptions(), zfo, dbname, &db2);
+  if (!s.ok()) {
+    ReportResult(tag, false, "reopen: " + s.ToString());
+    CleanDB(dbname);
+    return;
+  }
+  for (const auto& kv : written) {
+    s = db2->Get(rocksdb::ReadOptions(), kv.first, &val);
+    if (!s.ok() || val != kv.second) {
+      ReportResult(tag, false, "get after reopen: " + kv.first + " -> " +
+                                   s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+  db2.reset();
+
+  ReportResult(tag, true,
+               "sealed=" + std::to_string(sealed) +
+                   " keys=" + std::to_string(written.size()));
+  CleanDB(dbname);
+}
+
+// ---------------------------------------------------------------------------
 // 用例 19 (M3.1-19): NonBytewiseComparator — 非字节序比较器下
 // PartitionTable::Create + Route + RangeOf 互为逆（I6）。
 // ---------------------------------------------------------------------------

@@ -31,12 +31,17 @@ namespace {
 // M2.3-2：touched_ 收集本 batch 实际触达的分区分区 ID，sync 阶段只
 // fsync 这些分区（替代原 M1 的 SyncAll 全分区 fsync，64x 提升 sync=true
 // 的吞吐）。
+// M4.1c：本 handler 在 DB mutex 之外执行（写组 leader 锁外插入）。mem_
+// 由调用方在锁内捕获并 Ref；post_map_ 按 mem 累计 MemTablePostProcessInfo
+// （并发插入路径必须提供 ppi），组收尾统一 BatchPostProcess。
 class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
  public:
-  ZfBatchHandler(ZeroFlushContext* ctx, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
+  ZfBatchHandler(ZeroFlushContext* ctx, ROCKSDB_NAMESPACE::MemTable* mem,
                  ROCKSDB_NAMESPACE::SequenceNumber* seq,
-                 std::unordered_set<uint32_t>* touched)
-      : ctx_(ctx), cfd_(cfd), seq_(seq), touched_(touched) {}
+                 std::unordered_set<uint32_t>* touched,
+                 std::map<ROCKSDB_NAMESPACE::MemTable*,
+                          ROCKSDB_NAMESPACE::MemTablePostProcessInfo>* post_map)
+      : ctx_(ctx), mem_(mem), seq_(seq), touched_(touched), post_map_(post_map) {}
 
   ROCKSDB_NAMESPACE::Status PutCF(uint32_t column_family_id,
                                   const ROCKSDB_NAMESPACE::Slice& key,
@@ -45,8 +50,9 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
       return ROCKSDB_NAMESPACE::Status::NotSupported(
           "ZeroFlush M1: multi column family not supported");
     }
-    ROCKSDB_NAMESPACE::Status s =
-        ctx_->AddRecord(cfd_, key, value, ROCKSDB_NAMESPACE::kTypeValue, *seq_);
+    ROCKSDB_NAMESPACE::Status s = ctx_->AddRecord(
+        mem_, key, value, ROCKSDB_NAMESPACE::kTypeValue, *seq_,
+        &(*post_map_)[mem_]);
     if (s.ok() && touched_ != nullptr) {
       touched_->insert(ctx_->Route(key));
     }
@@ -61,8 +67,9 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
           "ZeroFlush M1: multi column family not supported");
     }
     ROCKSDB_NAMESPACE::Slice empty;
-    ROCKSDB_NAMESPACE::Status s =
-        ctx_->AddRecord(cfd_, key, empty, ROCKSDB_NAMESPACE::kTypeDeletion, *seq_);
+    ROCKSDB_NAMESPACE::Status s = ctx_->AddRecord(
+        mem_, key, empty, ROCKSDB_NAMESPACE::kTypeDeletion, *seq_,
+        &(*post_map_)[mem_]);
     if (s.ok() && touched_ != nullptr) {
       touched_->insert(ctx_->Route(key));
     }
@@ -79,7 +86,8 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
     }
     ROCKSDB_NAMESPACE::Slice empty;
     ROCKSDB_NAMESPACE::Status s = ctx_->AddRecord(
-        cfd_, key, empty, ROCKSDB_NAMESPACE::kTypeSingleDeletion, *seq_);
+        mem_, key, empty, ROCKSDB_NAMESPACE::kTypeSingleDeletion, *seq_,
+        &(*post_map_)[mem_]);
     if (s.ok() && touched_ != nullptr) {
       touched_->insert(ctx_->Route(key));
     }
@@ -107,9 +115,11 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
 
  private:
   ZeroFlushContext* ctx_;
-  ROCKSDB_NAMESPACE::ColumnFamilyData* cfd_;
+  ROCKSDB_NAMESPACE::MemTable* mem_;
   ROCKSDB_NAMESPACE::SequenceNumber* seq_;
   std::unordered_set<uint32_t>* touched_;
+  std::map<ROCKSDB_NAMESPACE::MemTable*,
+           ROCKSDB_NAMESPACE::MemTablePostProcessInfo>* post_map_;
 };
 
 }  // namespace
@@ -122,7 +132,8 @@ ZeroFlushContext::ZeroFlushContext(const ZeroFlushOptions& zfo,
                                    const std::string& wal_dir,
                                    ROCKSDB_NAMESPACE::Env* env)
     : zfo_(zfo), wal_dir_(wal_dir), env_(env) {
-  wal_.reset(new PartitionedWalManager(env_, wal_dir_, zfo_.partitions));
+  wal_.reset(new PartitionedWalManager(env_, wal_dir_, zfo_.partitions,
+                                       zfo_.partition_target_bytes));
   // M2：封存代文件缓存（持 wal_dir_，LRU 由 max_open_sealed_files 控制）。
   sealed_cache_.reset(new SealedFileCache(env_, wal_dir_,
                                           zfo_.max_open_sealed_files,
@@ -134,18 +145,47 @@ ZeroFlushContext::~ZeroFlushContext() = default;
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::Open() { return wal_->Open(); }
 
 bool ZeroFlushContext::ShouldSeal() const {
-  // 主触发：全分区活跃字节合计 ≥ epoch_target_bytes。
-  // 副触发：任一分区 ≥ partition_target_bytes（防倾斜）。
-  // M3.1：遍历实际的 part_id 集合而非 [0, P)。
-  uint64_t sum = 0, max_one = 0;
-  const auto part_ids = wal_->AllPartitionIds();
-  for (uint32_t pid : part_ids) {
-    const uint64_t sz = wal_->ActiveSize(pid);
-    sum += sz;
-    if (sz > max_one) max_one = sz;
+  // M4.1a：O(1) 判定——总活跃字节与超限标志均由 Append/Freeze 以 relaxed
+  // atomic 维护，写路径不再每写组遍历全部 P 分区（实测 ~0.3us×P 开销）。
+  // 主触发：全分区活跃字节合计 ≥ epoch_target_bytes（原子读）。
+  // 副触发：任一分区 ≥ partition_target_bytes（Append 时置位，防倾斜）。
+  return wal_->TotalActiveBytes() >= zfo_.epoch_target_bytes ||
+         wal_->AnyPartitionOverTarget();
+}
+
   }
-  return sum >= zfo_.epoch_target_bytes ||
-         max_one >= zfo_.partition_target_bytes;
+  // 桶聚合：目标分区数 = zfo_.partitions；L1 文件数 ≤ 目标时每文件一桶。
+  // 桶边界 = 桶末文件的 largest user key——精确落在文件边界上，保证
+  // 物化输出的 L0 文件键范围 ⊆ 单个 L1 文件范围（L0→L1 1:1 归并）。
+  std::vector<std::string> boundaries;
+  const uint32_t target = std::max<uint32_t>(1, zfo_.partitions);
+  if (static_cast<size_t>(target) >= l1.size()) {
+    for (size_t i = 0; i + 1 < l1.size(); ++i) {
+      boundaries.push_back(l1[i]->largest.user_key().ToString());
+    }
+  } else {
+    uint64_t total = 0;
+    for (const auto* f : l1) {
+      total += f->fd.GetFileSize();
+    }
+    const uint64_t target_bytes = total / target;
+    uint64_t acc = 0;
+    for (size_t i = 0; i < l1.size(); ++i) {
+      acc += l1[i]->fd.GetFileSize();
+      if (acc >= target_bytes && i + 1 < l1.size() &&
+          boundaries.size() + 1 < target) {
+        boundaries.push_back(l1[i]->largest.user_key().ToString());
+        acc = 0;
+      }
+    }
+  }
+  if (boundaries.empty()) {
+    return false;  // 单文件 L1 无法形成分区边界。
+  }
+  // 层内文件键范围严格升序 → boundaries 升序（PartitionTable::Create 校验）。
+  return PartitionTable::Create(tables_->current_version() + 1,
+                                std::move(boundaries), ucmp_, out)
+      .ok();
 }
 
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
@@ -179,8 +219,14 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
     se.total_bytes += fr.sealed_bytes;
     (void)fr.sealed_path;  // SealedFileCache 自行重算
   }
+  // M4.1a：全部封存完成，清超限标志（新代从 0 起，超限由后续 Append
+  // 重新置位；不清会在下一写组触发一次多余的 ShouldSeal→空封存）。
+  wal_->ClearOverTargetFlag();
   // M3.1：kSampled 模式：首个 epoch 封存时从采样器学习边界并安装新表。
+  // 注意：本 epoch 的记录是用 hash 表（version 0）写的（M3_DESIGN §5.2
   // 步骤 3），se.table_version 必须保持 0——物化用它取回 hash 表并跳过
+  // 范围断言；若错误地标成新表版本，物化会拿学习后的边界对 hash 路由
+  // 的记录做范围断言，必然报 "materialized range outside table bounds"。
   if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
       sampler_ && tables_ && tables_->current_version() == 0 &&
       epoch == 1 && !sampler_->empty()) {
@@ -192,9 +238,11 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
       if (cps.ok()) {
         tables_->InstallNewVersion(std::move(new_table));
         // 学习期 epoch 1 用 hash 写入：se.table_version 保持 0（上方初始化
+        // 值），仅后续 epoch 使用 version 1。
       }
     }
     sampler_->Clear();
+  }
   }
   // Step 2：登记到 SealedFileCache（refcount=1）。M3.0 R1：若存在恢复期
   // 孤儿代（Recover 时 AddRecoveryGens 登记），会在同一持锁窗口内被收养
@@ -392,9 +440,10 @@ uint32_t ZeroFlushContext::Route(const ROCKSDB_NAMESPACE::Slice& user_key) const
 }
 
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
-    ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
-    const ROCKSDB_NAMESPACE::Slice& key, const ROCKSDB_NAMESPACE::Slice& value,
-    ROCKSDB_NAMESPACE::ValueType type, ROCKSDB_NAMESPACE::SequenceNumber seq) {
+    ROCKSDB_NAMESPACE::MemTable* mem, const ROCKSDB_NAMESPACE::Slice& key,
+    const ROCKSDB_NAMESPACE::Slice& value, ROCKSDB_NAMESPACE::ValueType type,
+    ROCKSDB_NAMESPACE::SequenceNumber seq,
+    ROCKSDB_NAMESPACE::MemTablePostProcessInfo* ppi) {
   // 1) 路由 + 分区 WAL 追加（value 的唯一持久副本）
   const uint32_t part = Route(key);
   WalRecordRef ref;
@@ -403,7 +452,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
   if (!s.ok()) {
     return s;
   }
-  // 2) Slim MemTable 索引插入（只写元数据，不复制 value）
+  // 2) 索引插入
   SlimLocator loc;
   loc.part_id = ref.part_id;
   loc.gen = ref.gen;
@@ -412,11 +461,10 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
                                            sizeof(loc));
   // kv_prot_info = nullptr：M1 关闭 protection（写入选项已在上层拒绝
   // protection_bytes_per_key > 0 的路径）。
-  rocksdb::Status add_s = cfd->mem()->Add(seq, type, key, loc_slice,
-                                         /*kv_prot_info=*/nullptr,
-                                         /*allow_concurrent=*/false,
-                                         /*post_process_info=*/nullptr,
-                                         /*hint=*/nullptr);
+  rocksdb::Status add_s = mem->Add(seq, type, key, loc_slice,
+                                   /*kv_prot_info=*/nullptr,
+                                   /*allow_concurrent=*/true, ppi,
+                                   /*hint=*/nullptr);
   // M3.1：kSampled 模式下记录采样（仅 epoch 1 学习期）。
   if (add_s.ok() && zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
       sampler_ && epoch_counter_.load() == 0) {
@@ -428,28 +476,61 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::WriteGroupToPartitionWal(
     ROCKSDB_NAMESPACE::WriteThread::WriteGroup& wg,
     ROCKSDB_NAMESPACE::SequenceNumber first_seq,
-    ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
-    std::vector<uint32_t>* touched) {
+    ROCKSDB_NAMESPACE::MemTable* mem, std::vector<uint32_t>* touched) {
   ROCKSDB_NAMESPACE::SequenceNumber seq = first_seq;
   // M2.3-2：收集触达分区。write group leader 串行处理所有 writer，
   // handler 在 Put/Delete 时把 part_id 记入 touched（去重）。
   std::unordered_set<uint32_t> touched_set;
+  // M4.1c：并发插入的 post-process 累计（按 mem，本组恒 1 个）。
+  std::map<ROCKSDB_NAMESPACE::MemTable*,
+           ROCKSDB_NAMESPACE::MemTablePostProcessInfo>
+      post_map;
   for (auto* writer : wg) {
     assert(writer != nullptr);
     if (!writer->ShouldWriteToMemtable()) {
       continue;
     }
-    ZfBatchHandler handler(this, cfd, &seq, &touched_set);
+    ZfBatchHandler handler(this, mem, &seq, &touched_set, &post_map);
     ROCKSDB_NAMESPACE::Status s = writer->batch->Iterate(&handler);
     if (!s.ok()) {
       return s;
     }
+  }
+  // 组收尾：应用 post-process（num_entries/data_size 计数 + UpdateFlushState，
+  // 触发 mem 满时的 flush 调度）。与原生 MemTableInserter::PostProcess 同构。
+  for (auto& entry : post_map) {
+    entry.first->BatchPostProcess(entry.second);
   }
   // M3.0 R3：sync 移出本方法（与 DB mutex 解耦，见 M3_DESIGN.md §9）。
   // 本方法只负责追加 + 索引；调用方在释放 DB mutex 后按 touched 分区
   // 调 SyncTouchedPartitions 做 fdatasync。
   if (touched != nullptr) {
     touched->assign(touched_set.begin(), touched_set.end());
+  }
+  return ROCKSDB_NAMESPACE::Status::OK();
+}
+
+ROCKSDB_NAMESPACE::Status ZeroFlushContext::InsertWriterToPartitionWal(
+    ROCKSDB_NAMESPACE::WriteThread::Writer* w,
+    ROCKSDB_NAMESPACE::MemTable* mem,
+    const ROCKSDB_NAMESPACE::WriteOptions& write_options) {
+  assert(w != nullptr);
+  ROCKSDB_NAMESPACE::SequenceNumber seq = w->sequence;
+  std::unordered_set<uint32_t> touched_set;
+  std::map<ROCKSDB_NAMESPACE::MemTable*,
+           ROCKSDB_NAMESPACE::MemTablePostProcessInfo>
+      post_map;
+  ZfBatchHandler handler(this, mem, &seq, &touched_set, &post_map);
+  ROCKSDB_NAMESPACE::Status s = w->batch->Iterate(&handler);
+  if (!s.ok()) {
+    return s;
+  }
+  for (auto& entry : post_map) {
+    entry.first->BatchPostProcess(entry.second);
+  }
+  if (write_options.sync && !touched_set.empty()) {
+    std::vector<uint32_t> touched(touched_set.begin(), touched_set.end());
+    return SyncTouchedPartitions(touched);
   }
   return ROCKSDB_NAMESPACE::Status::OK();
 }
@@ -637,8 +718,11 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
         "ZeroFlush: materialize memory bound exceeded (K * "
         "partition_target_bytes must be <= 4 * write_buffer_size)");
   }
-  // SlimMemTableRep 不支持并发 memtable 写入
-  zf_opt.allow_concurrent_memtable_write = false;
+  // M4.1c：SlimMemTableRep 已支持并发 memtable 写入（InlineSkipList
+  // InsertConcurrently + ConcurrentArena），放开 allow_concurrent_memtable_write
+  // 使写组走 parallel 路径（follower 并行插入，消除 M4.1 剖析发现的
+  // 写组串行天花板）。pipelin 与 ZF 写路径仍不兼容，保持关闭。
+  zf_opt.allow_concurrent_memtable_write = true;
   // pipelined_write 与 ZF 写路径不兼容（WriteGroup leader 串行）
   zf_opt.enable_pipelined_write = false;
   // M3.2：物化按序前提（§6.2）——单后台 flush 线程。多 flush 线程并发时
@@ -757,8 +841,7 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
         uint8_t persisted_mode = decoded.routing_mode;
         if (persisted_mode != static_cast<uint8_t>(zfo.routing_mode) &&
             !(persisted_mode == 0 &&
-              zfo.routing_mode == ZeroFlushOptions::RoutingMode::kSampled)) {
-          // kHash→kSampled 是安全的（学习期用 hash 写），其余不匹配应拒绝。
+              (zfo.routing_mode == ZeroFlushOptions::RoutingMode::kSampled ||
           return ROCKSDB_NAMESPACE::Status::InvalidArgument(
               "ZeroFlush: ZFPROPS routing_mode mismatch");
         }

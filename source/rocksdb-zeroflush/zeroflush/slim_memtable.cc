@@ -56,6 +56,14 @@ bool SlimMemTableRep::InsertKey(KeyHandle handle) {
   return skip_list_.Insert(static_cast<char*>(handle));
 }
 
+void SlimMemTableRep::InsertConcurrently(KeyHandle handle) {
+  skip_list_.InsertConcurrently(static_cast<char*>(handle));
+}
+
+bool SlimMemTableRep::InsertKeyConcurrently(KeyHandle handle) {
+  return skip_list_.InsertConcurrently(static_cast<char*>(handle));
+}
+
 bool SlimMemTableRep::Contains(const char* key) const {
   return skip_list_.Contains(key);
 }

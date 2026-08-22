@@ -82,7 +82,7 @@ class WalScanner {
 class PartitionedWalManager {
  public:
   PartitionedWalManager(rocksdb::Env* env, const std::string& dir,
-                        uint32_t partitions);
+                        uint32_t partitions, uint64_t partition_target_bytes);
   ~PartitionedWalManager();
   
     // 关闭时刷新所有分区缓冲并同步到磁盘。
@@ -102,6 +102,20 @@ class PartitionedWalManager {
 
   // 活跃分区的逻辑大小（含未刷盘缓冲），用于封存大小上限判断。
   uint64_t ActiveSize(uint32_t part) const;
+
+  // M4.1a：O(1) 封存判定聚合计数。
+  // Append 成功以 relaxed atomic 累加；Freeze 时按旧代字节扣减/清零。
+  uint64_t TotalActiveBytes() const {
+    return total_active_bytes_.load(std::memory_order_relaxed);
+  }
+  // 任一分区活跃字节 ≥ partition_target_bytes（Append 时置位，Freeze 清零）。
+  bool AnyPartitionOverTarget() const {
+    return any_over_target_.load(std::memory_order_relaxed);
+  }
+  // 封存全部分区后调用：清超限标志（新代从 0 起，超限由后续 Append 重新置位）。
+  void ClearOverTargetFlag() {
+    any_over_target_.store(false, std::memory_order_relaxed);
+  }
 
   // 封存：刷盘缓冲、关闭旧代文件、开新代文件。返回旧代信息。
   // 修 D2：分代字段已重置，新代从 0 写起。
@@ -169,6 +183,9 @@ class PartitionedWalManager {
     std::string buf;          // 未刷盘记录缓冲
     uint64_t flushed_size = 0;  // 已刷盘字节数
     uint64_t total_size = 0;    // 逻辑大小 = flushed + buf
+    // M4.1a：活跃字节的并发计数（Append 累加 / Freeze 清零），供
+    // ShouldSeal 的 O(1) 副触发与 ActiveSize 无锁读取。
+    std::atomic<uint64_t> active_bytes{0};
     uint32_t gen = 0;
   };
 
@@ -182,7 +199,12 @@ class PartitionedWalManager {
   rocksdb::Env* env_;
   std::string dir_;
   uint32_t partitions_;  // 初始 P 值（实际分区数由 parts_.size() 反映）
+  // M4.1a：单分区封存阈值（Append 时置位 any_over_target_ 用）。
+  uint64_t partition_target_bytes_;
   std::unordered_map<uint32_t, std::unique_ptr<Partition>> parts_;
+  // M4.1a：O(1) 封存判定聚合计数（见 TotalActiveBytes/AnyPartitionOverTarget）。
+  std::atomic<uint64_t> total_active_bytes_{0};
+  std::atomic<bool> any_over_target_{false};
   // M3.0 R4：M2 遗留 bug——该成员从未初始化（构造器未赋值）。
   // 现默认 nullptr（ROCKS_LOG_* 安全），由 SetInfoLog 接线。
   rocksdb::Logger* info_log_ = nullptr;
