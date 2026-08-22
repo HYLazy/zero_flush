@@ -146,6 +146,7 @@ class ZeroFlushContext {
 
   // M4.3a：分区索引（终态 L0 索引；Open 时创建，需要 internal comparator）。
   PartitionIndexSet* index_set() { return index_set_.get(); }
+  const PartitionIndexSet* index_set() const { return index_set_.get(); }
 
   // M4.3a：封存时冻结全部分区索引（全局 epoch 粒度；M4.3c 改单分区）。
   void FreezeIndexes(const std::vector<std::pair<uint32_t, uint32_t>>& gens);
@@ -188,6 +189,14 @@ class ZeroFlushContext {
   // 目标分区选择：超限（≥ partition_target）优先，否则活跃字节最大。
   // 必须持 DB mutex；由写路径 leader 在 ShouldSeal() 时调用。
   ROCKSDB_NAMESPACE::Status FreezeOnePartition(
+      ROCKSDB_NAMESPACE::DBImpl* impl,
+      ROCKSDB_NAMESPACE::ColumnFamilyData* cfd);
+
+  // M4.3d-1：批次封存——一次 epoch 冻结多个分区（超限分区优先，补充最大
+  // 分区至批次上限），物化作业数 = 批次频率（避免单分区小作业的物化
+  // 串行开销），同时保留"分区满即换代"的及时性（WAL 不再增长）。
+  // 必须持 DB mutex；由写路径 leader 在 ShouldSeal() 时调用（终态路径）。
+  ROCKSDB_NAMESPACE::Status FreezeBatchPartitions(
       ROCKSDB_NAMESPACE::DBImpl* impl,
       ROCKSDB_NAMESPACE::ColumnFamilyData* cfd);
 

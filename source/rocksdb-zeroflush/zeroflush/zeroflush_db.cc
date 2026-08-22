@@ -527,6 +527,77 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
   return add_s;
 }
 
+// M4.3d-1：批次封存——一次 epoch 冻结多个分区（超限优先，补充最大分区
+// 至批次上限）。物化按 gens 循环（现有 ZfMaterializeJob 支持多分区并行
+// 分片）——作业数 = 批次数，消除单分区小作业的固定开销。
+ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeBatchPartitions(
+    ROCKSDB_NAMESPACE::DBImpl* impl,
+    ROCKSDB_NAMESPACE::ColumnFamilyData* cfd) {
+  assert(impl != nullptr);
+  assert(cfd != nullptr);
+  // 必须在 write thread 持 DB mutex 下调用。
+  // ---- 选批次：超限分区优先 + 补充最大分区 ----
+  const uint32_t kMaxBatch = 4;  // 批次分区数上限（调优参数）
+  std::vector<uint32_t> batch;
+  uint64_t batch_bytes = 0;
+  const auto ids = wal_->AllPartitionIds();
+  for (uint32_t p : ids) {
+    const uint64_t sz = wal_->ActiveSize(p);
+    if (sz >= zfo_.partition_target_bytes) {
+      batch.push_back(p);
+      batch_bytes += sz;
+    }
+  }
+  if (batch.size() < kMaxBatch && batch_bytes < zfo_.epoch_target_bytes) {
+    // 补充最大分区（未超限的），直到批次上限或字节目标。
+    std::vector<std::pair<uint64_t, uint32_t>> rest;
+    for (uint32_t p : ids) {
+      if (std::find(batch.begin(), batch.end(), p) != batch.end()) {
+        continue;
+      }
+      const uint64_t sz = wal_->ActiveSize(p);
+      if (sz > 0) {
+        rest.emplace_back(sz, p);
+      }
+    }
+    std::sort(rest.begin(), rest.end(), std::greater<>());
+    for (const auto& [sz, p] : rest) {
+      if (batch.size() >= kMaxBatch ||
+          batch_bytes >= zfo_.epoch_target_bytes) {
+        break;
+      }
+      batch.push_back(p);
+      batch_bytes += sz;
+    }
+  }
+  if (batch.empty()) {
+    wal_->ClearOverTargetFlag();
+    return ROCKSDB_NAMESPACE::Status::OK();  // 无数据可封存
+  }
+  // ---- 一次 epoch 冻结整批 ----
+  const uint64_t epoch = epoch_counter_.fetch_add(1) + 1;
+  SealedEpoch se;
+  se.epoch = epoch;
+  se.table_version = tables_ ? tables_->current_version() : 0;
+  for (uint32_t p : batch) {
+    const FreezeResult fr = wal_->Freeze(p);
+    index_set_->Freeze(p, fr.old_gen);
+    if (fr.sealed_bytes > 0) {
+      se.gens.emplace_back(p, fr.old_gen);
+      se.part_bytes[p] = fr.sealed_bytes;
+      se.total_bytes += fr.sealed_bytes;
+    }
+  }
+  wal_->ClearOverTargetFlag();
+  sealed_cache_->AddEpochWithRecoveryAdoption(se);
+  // 空 mem 切换 → imm → FlushJob 触发该 epoch 的物化（多分区 gens）。
+  ROCKSDB_NAMESPACE::MemTable* old_mem = cfd->mem();
+  if (old_mem != nullptr) {
+    old_mem->SetZfEpoch(epoch);
+  }
+  return impl->ZfSwitchMemtable(cfd);
+}
+
 // M4.3c：终态路径的单分区封存。目标分区：超限（≥ partition_target）优先，
 // 否则取活跃字节最大者（epoch_target 全局触发时按最大分区分批收敛）。
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeOnePartition(
