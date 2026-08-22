@@ -34,6 +34,7 @@ namespace zeroflush {
 
 class PartitionTable;  // M4.2b：BuildL1AlignedTable 输出（完整定义在
                        // partition_table.h，此处仅前向声明）
+class PartitionIndexSet;  // M4.3：终态分区索引（partition_index.h）
 class PartitionedWalManager;
 struct SealedEpoch;
 
@@ -83,6 +84,10 @@ struct ZeroFlushOptions {
   uint32_t l0_fallback_tolerance = 0;    // 允许的 L0 回落文件数（超出告警）
 
   // ---- M4.3 终态 ----
+  // true = 旧路径（MemTable 外壳，M4.1 行为）；false = 终态路径（分区索引
+  // PartitionIndexSet，绕开 MemTable）。M4.3a 默认 true 保持回归稳定，
+  // M4.3d 全部完成后翻转并删除旧路径。
+  bool zf_global_index = true;
 };
 
 class ZeroFlushContext {
@@ -135,6 +140,21 @@ class ZeroFlushContext {
   PartitionedWalManager* wal() { return wal_.get(); }
   const ZeroFlushOptions& options() const { return zfo_; }
   const std::string& wal_dir() const { return wal_dir_; }
+  // M4.3：终态路径开关（false = 分区索引路径）。
+  bool use_global_index() const { return zfo_.zf_global_index; }
+
+  // M4.3a：分区索引（终态 L0 索引；Open 时创建，需要 internal comparator）。
+  PartitionIndexSet* index_set() { return index_set_.get(); }
+
+  // M4.3a：封存时冻结全部分区索引（全局 epoch 粒度；M4.3c 改单分区）。
+  void FreezeIndexes(const std::vector<std::pair<uint32_t, uint32_t>>& gens);
+  // M4.3a：物化完成（epoch 回收）时释放该 epoch 的 frozen 索引。
+  void ReleaseFrozenIndexes(uint64_t epoch);
+  // M4.3a：Get 查分区索引（替代 mem/imm 链）。命中返回 true（含 tombstone）。
+  bool GetFromPartitionIndex(const ROCKSDB_NAMESPACE::Slice& user_key,
+                             ROCKSDB_NAMESPACE::SequenceNumber snapshot,
+                             ROCKSDB_NAMESPACE::Status* s,
+                             std::string* value) const;
 
   // 路由：M1 用 key 哈希取模（确定性，同 key 同分区 → 正确性不变式成立）；
   // M3.1 由 PartitionTable 的边界二分接替。
@@ -254,6 +274,7 @@ class ZeroFlushContext {
   const ROCKSDB_NAMESPACE::Comparator* ucmp_ = nullptr;  // user comparator
   std::unique_ptr<class KeySampler> sampler_;  // kSampled 学习期采样器
   // ---- M4.3 终态 ----
+  std::unique_ptr<class PartitionIndexSet> index_set_;  // 分区索引（L0 索引）
   // ---- M3.2 物化状态与统计 ----
   // 物化按序推进（imm FIFO 单后台线程）；由 FlushJob 成功后更新。
   std::atomic<uint64_t> last_materialized_epoch_{0};

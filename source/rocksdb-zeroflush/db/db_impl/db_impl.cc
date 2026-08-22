@@ -2988,8 +2988,29 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     }
   };
   if (!skip_memtable) {
-    // Get value associated with key
-    if (get_impl_options.get_value) {
+    // M4.3a：终态路径——Get 查分区索引（替代 mem/imm 链；未命中继续走
+    // 原生 SST 查找）。仅 zf 且未启用全局索引（zf_global_index=false）时。
+    const auto* zf_ctx = cfd->GetZfCtx().get();
+    if (zf_ctx != nullptr && !zf_ctx->use_global_index()) {
+      if (get_impl_options.get_value) {
+        const ROCKSDB_NAMESPACE::Slice user_key = lkey.user_key();
+        // snapshot seq 从 LookupKey 的 internal key 尾部解码
+        // （LookupKey 无公开 sequence() 访问器）。
+        const ROCKSDB_NAMESPACE::Slice ik = lkey.internal_key();
+        const ROCKSDB_NAMESPACE::SequenceNumber snap =
+            ROCKSDB_NAMESPACE::DecodeFixed64(ik.data() + ik.size() - 8) >> 8;
+        if (zf_ctx->GetFromPartitionIndex(user_key, snap, &s,
+                                          get_impl_options.value
+                                              ? get_impl_options.value->GetSelf()
+                                              : nullptr)) {
+          done = true;
+          maybe_resolve_memtable_value();
+          RecordTick(stats_, MEMTABLE_HIT);
+        }
+      }
+      // get_value=false（Merge 操作数等）在终态路径暂不支持——M4.3 范围
+      // 不含 Merge（M3.4 未做），直接落 SST 查找（NotFound 语义正确）。
+    } else if (get_impl_options.get_value) {
       if (sv->mem->Get(lkey,
                        get_impl_options.value
                            ? get_impl_options.value->GetSelf()

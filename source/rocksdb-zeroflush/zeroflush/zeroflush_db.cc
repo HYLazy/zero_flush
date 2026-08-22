@@ -16,6 +16,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/write_batch.h"
 #include "util/hash.h"
+#include "zeroflush/partition_index.h"
 #include "zeroflush/partition_table.h"
 #include "zeroflush/sealed_file_cache.h"
 #include "zeroflush/slim_memtable.h"
@@ -232,6 +233,9 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
   // M4.1a：全部封存完成，清超限标志（新代从 0 起，超限由后续 Append
   // 重新置位；不清会在下一写组触发一次多余的 ShouldSeal→空封存）。
   wal_->ClearOverTargetFlag();
+  // M4.3a：终态路径——封存时冻结全部分区索引（active → frozen 链）。
+  // 只冻结确有数据的分区（se.gens 只登记 sealed_bytes>0 的分区）。
+  FreezeIndexes(se.gens);
   // M3.1：kSampled 模式：首个 epoch 封存时从采样器学习边界并安装新表。
   // 注意：本 epoch 的记录是用 hash 表（version 0）写的（M3_DESIGN §5.2
   // 步骤 3），se.table_version 必须保持 0——物化用它取回 hash 表并跳过
@@ -286,6 +290,12 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
 }
 
 uint64_t ZeroFlushContext::ReleaseEpoch(uint64_t epoch) {
+  // M4.3a：终态路径——imm 析构（物化完成）时释放该 epoch 的 frozen 索引
+  // （数据已进 SST，Get 走原生 SST 查找）。须在 SealedFileCache unlink
+  // （WAL 删除）之前——ReleaseEpoch 内先释放索引再归还缓存引用。
+  if (!use_global_index()) {
+    ReleaseFrozenIndexes(epoch);
+  }
   if (sealed_cache_ != nullptr) {
     return sealed_cache_->ReleaseEpoch(epoch);
   }
@@ -482,6 +492,27 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
   loc.wal_offset = ref.offset;
   const ROCKSDB_NAMESPACE::Slice loc_slice(reinterpret_cast<const char*>(&loc),
                                            sizeof(loc));
+  if (!use_global_index()) {
+    // M4.3a：终态路径——写分区索引（跳表，无 MemTable 外壳）。
+    // 数据源仍是 WAL（AddRecord 先 Append）；分区索引提供未封存/未物化
+    // 窗口的读。封存时冻结（FreezeIndexes），物化完成时释放
+    // （ReleaseFrozenIndexes）——frozen 索引指向封存 WAL（SealedFileCache
+    // 可读），物化后数据进 SST、Get 走原生 SST 查找。
+    std::string ik;
+    ik.reserve(key.size() + 8);
+    ik.append(key.data(), key.size());
+    ROCKSDB_NAMESPACE::PutFixed64(
+        &ik, ROCKSDB_NAMESPACE::PackSequenceAndType(
+                 seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(type)));
+    index_set_->Insert(part, ik, loc_slice);
+    // M3.1：kSampled 模式下记录采样（仅 epoch 1 学习期）。
+    if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
+        sampler_ && epoch_counter_.load() == 0) {
+      sampler_->Sample(key);
+    }
+    return ROCKSDB_NAMESPACE::Status::OK();
+  }
+  // 旧路径（兼容开关 zf_global_index=true）：MemTable 外壳（M4.1c 并发路径）。
   // kv_prot_info = nullptr：M1 关闭 protection（写入选项已在上层拒绝
   // protection_bytes_per_key > 0 的路径）。
   rocksdb::Status add_s = mem->Add(seq, type, key, loc_slice,
@@ -494,6 +525,54 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
     sampler_->Sample(key);
   }
   return add_s;
+// M4.3a：封存时冻结全部分区索引（全局 epoch 粒度；M4.3c 改单分区触发）。
+void ZeroFlushContext::FreezeIndexes(
+    const std::vector<std::pair<uint32_t, uint32_t>>& gens) {
+  if (use_global_index()) {
+    return;  // 旧路径：mem/imm 链承载索引，无需分区索引
+  }
+  for (const auto& [part, gen] : gens) {
+    // 换代后新代号 = gen + 1（wal_manager::Freeze 内 ++p->gen）。
+    index_set_->Freeze(part, gen + 1);
+  }
+}
+
+// M4.3a：物化完成（epoch 回收）时释放该 epoch 的 frozen 索引。
+// 数据已进 SST，Get 走原生 SST 查找；索引释放回收内存。
+void ZeroFlushContext::ReleaseFrozenIndexes(uint64_t epoch) {
+  if (use_global_index()) {
+    return;
+  }
+  SealedEpoch se;
+  if (!GetSealedEpoch(epoch, &se)) {
+    return;
+  }
+  for (const auto& [part, gen] : se.gens) {
+    index_set_->ReleaseFrozen(part, gen);
+  }
+}
+
+// M4.3a：Get 查分区索引（替代 mem/imm 链）。
+// 命中返回 true（含 tombstone：type 为 Deletion 时置 NotFound）；未命中
+// 返回 false（调用方继续走原生 SST 查找）。
+bool ZeroFlushContext::GetFromPartitionIndex(
+    const ROCKSDB_NAMESPACE::Slice& user_key,
+    ROCKSDB_NAMESPACE::SequenceNumber snapshot,
+    ROCKSDB_NAMESPACE::Status* s, std::string* value) const {
+  const uint32_t part = Route(user_key);
+  ROCKSDB_NAMESPACE::Slice loc;
+  ROCKSDB_NAMESPACE::ValueType type;
+  ROCKSDB_NAMESPACE::SequenceNumber seq;
+  if (!index_set_->Get(part, user_key, snapshot, &loc, &type, &seq)) {
+    return false;
+  }
+  if (type == ROCKSDB_NAMESPACE::kTypeDeletion ||
+      type == ROCKSDB_NAMESPACE::kTypeSingleDeletion) {
+    *s = ROCKSDB_NAMESPACE::Status::NotFound();
+    return true;
+  }
+  *s = ReadValue(loc, value);
+  return true;
 }
 
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::WriteGroupToPartitionWal(
@@ -695,14 +774,28 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
       loc.wal_offset = scanner.offset() - ZfRecordLength(h.key_len, h.val_len);
       const ROCKSDB_NAMESPACE::Slice loc_slice(
           reinterpret_cast<const char*>(&loc), sizeof(loc));
-      s = cfd->mem()->Add(h.seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(h.type),
-                          key, loc_slice,
-                          /*kv_prot_info=*/nullptr,
-                          /*allow_concurrent=*/false,
-                          /*post_process_info=*/nullptr,
-                          /*hint=*/nullptr);
-      if (!s.ok()) {
-        return s;
+      if (!use_global_index()) {
+        // M4.3a：终态路径——重建分区索引（活跃 WAL 的全部代；locator 指向
+        // 持久 WAL）。索引 gen 字段不参与查找（Get 查 active+frozen 链），
+        // 仅 frozen 索引按 gen 释放——恢复的活跃索引不释放，无碍。
+        std::string ik;
+        ik.reserve(key.size() + 8);
+        ik.append(key.data(), key.size());
+        ROCKSDB_NAMESPACE::PutFixed64(
+            &ik, ROCKSDB_NAMESPACE::PackSequenceAndType(
+                     h.seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(h.type)));
+        index_set_->Insert(part, ik, loc_slice);
+      } else {
+        s = cfd->mem()->Add(
+            h.seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(h.type), key,
+            loc_slice,
+            /*kv_prot_info=*/nullptr,
+            /*allow_concurrent=*/false,
+            /*post_process_info=*/nullptr,
+            /*hint=*/nullptr);
+        if (!s.ok()) {
+          return s;
+        }
       }
       if (h.seq > max_seq) {
         max_seq = h.seq;
@@ -786,6 +879,11 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
         "ZeroFlush: default column family missing");
   }
   const auto* ucmp = cfd->user_comparator();
+  // M4.3a：终态路径——创建分区索引（跳表比较器 = internal comparator）。
+  if (!zfo.zf_global_index) {
+    ctx->index_set_.reset(
+        new PartitionIndexSet(ZfKeyComparator(cfd->internal_comparator())));
+  }
   ctx->set_ucmp(ucmp);
   // 创建 PartitionTableSet。
   auto table_set = std::unique_ptr<PartitionTableSet>(new PartitionTableSet());
