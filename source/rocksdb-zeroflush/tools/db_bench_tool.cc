@@ -5481,6 +5481,12 @@ class Benchmark {
         }
       } else if (FLAGS_zf_routing == "sampled") {
         zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kSampled;
+      } else if (FLAGS_zf_routing == "align_l1") {
+        // M4.2b：每 epoch 封存时按 L1 文件边界重新对齐分区
+        // （compaction 感知分区，L0/L1 1:1 归并可并行）。
+        zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+      } else {
+        fprintf(stderr, "Unknown --zf_routing: %s (hash|static|sampled|align_l1)\n",
                 FLAGS_zf_routing.c_str());
         ErrorExit();
       }

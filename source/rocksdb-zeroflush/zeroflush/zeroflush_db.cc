@@ -153,6 +153,16 @@ bool ZeroFlushContext::ShouldSeal() const {
          wal_->AnyPartitionOverTarget();
 }
 
+bool ZeroFlushContext::BuildL1AlignedTable(
+    ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
+    std::shared_ptr<PartitionTable>* out) const {
+  assert(cfd != nullptr);
+  assert(out != nullptr);
+  // REQUIRES: DB mutex held（cfd->current()）。
+  const auto* vstorage = cfd->current()->storage_info();
+  const auto& l1 = vstorage->LevelFiles(1);
+  if (l1.empty()) {
+    return false;  // L1 为空：无法对齐，调用方保持当前表。
   }
   // 桶聚合：目标分区数 = zfo_.partitions；L1 文件数 ≤ 目标时每文件一桶。
   // 桶边界 = 桶末文件的 largest user key——精确落在文件边界上，保证
@@ -243,6 +253,19 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
     }
     sampler_->Clear();
   }
+  // M4.2b：kAlignL1 模式——每 epoch 封存时按当前 L1 文件边界重新对齐
+  // 分区（compaction 感知分区）。语义与 kSampled 学习期一致：
+  // 本 epoch 的记录用旧表写入（se.table_version 保持旧版本，物化按旧表
+  // 断言）；新表经 InstallNewVersion 生效，供下一 epoch 写入使用。
+  // L1 为空（空库/首轮，数据尚在 L0 未归并）或无法形成边界时保持当前
+  // 表，下一 epoch 重试——收敛路径：hash 写（L0 交错回落）→ L0→L1
+  // 归并出有序 L1 → 对齐表生效 → 后续 epoch 输出与 L1 1:1 对齐。
+  if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kAlignL1 &&
+      tables_) {
+    std::shared_ptr<PartitionTable> new_table;
+    if (BuildL1AlignedTable(cfd, &new_table)) {
+      tables_->InstallNewVersion(std::move(new_table));
+    }
   }
   // Step 2：登记到 SealedFileCache（refcount=1）。M3.0 R1：若存在恢复期
   // 孤儿代（Recover 时 AddRecoveryGens 登记），会在同一持锁窗口内被收养
@@ -842,6 +865,9 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
         if (persisted_mode != static_cast<uint8_t>(zfo.routing_mode) &&
             !(persisted_mode == 0 &&
               (zfo.routing_mode == ZeroFlushOptions::RoutingMode::kSampled ||
+               zfo.routing_mode == ZeroFlushOptions::RoutingMode::kAlignL1))) {
+          // kHash→kSampled/kAlignL1 是安全的（两者首轮均用 hash 写），
+          // 其余不匹配应拒绝。
           return ROCKSDB_NAMESPACE::Status::InvalidArgument(
               "ZeroFlush: ZFPROPS routing_mode mismatch");
         }

@@ -32,6 +32,8 @@ struct WriteOptions;
 
 namespace zeroflush {
 
+class PartitionTable;  // M4.2b：BuildL1AlignedTable 输出（完整定义在
+                       // partition_table.h，此处仅前向声明）
 class PartitionedWalManager;
 struct SealedEpoch;
 
@@ -59,6 +61,12 @@ struct ZeroFlushOptions {
     kHash = 0,        // M2 行为：Hash(user_key) % P（兼容既有 DB）
     kStatic = 1,      // 用户提供 P-1 个分隔键
     kSampled = 2,     // 首个 epoch 用 hash，封存时采样学习边界后固定
+    // M4.2b：每 epoch 封存时按 L1 层 SST 文件边界重新对齐分区（compaction
+    // 感知分区）。物化输出的 L0 文件键范围 ⊆ 单个 L1 文件范围 → L0→L1
+    // compaction 1:1 归并、可并行（配合 subcompactions 无读放大）。
+    // 本 epoch 数据用旧表写入（se.table_version 保持旧版本），新表给
+    // 下一 epoch 使用——与 kSampled 学习期同语义。L1 为空时保持当前表。
+    kAlignL1 = 3,
   };
   RoutingMode routing_mode = RoutingMode::kHash;
   std::vector<std::string> static_boundaries;   // kStatic：升序，size == P-1
@@ -154,6 +162,14 @@ class ZeroFlushContext {
       ROCKSDB_NAMESPACE::DBImpl* impl,
       ROCKSDB_NAMESPACE::ColumnFamilyData* cfd);
 
+  // M4.2b：按当前 L1 层 SST 文件边界构建对齐分区表（compaction 感知分区）。
+  // 桶聚合：目标分区数 = zfo_.partitions；L1 文件数 ≤ 目标时每文件一桶；
+  // 桶边界 = 桶末文件的 largest user key（精确文件边界 → L0/L1 1:1 对齐）。
+  // L1 为空或无法形成边界时返回 false（调用方保持当前表）。
+  // REQUIRES: DB mutex held（cfd->current() 访问）。
+  bool BuildL1AlignedTable(
+      ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
+      std::shared_ptr<PartitionTable>* out) const;
 
   // 释放一个 epoch 的封存文件引用。引用归零时由 SealedFileCache 排队
   // 等待 PurgeSealedFiles() unlink，并返回该 epoch 的封存字节

@@ -1596,6 +1596,44 @@ void TestSampledLearningEpochEndToEnd() {
 }
 
 // ---------------------------------------------------------------------------
+// 用例 37 (M4.2b-37): AlignL1Boundaries — kAlignL1 端到端。
+// 每 epoch 封存时按 L1 文件边界重新对齐分区。验证：多 epoch 写入 +
+// 物化不崩（范围断言通过）、物化后与重开后全量 key 可读。
+// ---------------------------------------------------------------------------
+void TestAlignL1Boundaries() {
+  const char* tag = "AlignL1Boundaries(M4.2b-37)";
+  std::string dbname = std::string(kDbBase) + "align_l1";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+  zfo.partition_target_bytes = 8 << 10;  // 8KB：小阈值保证 ≥3 个 epoch
+  zfo.epoch_target_bytes = 8 << 10;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+
+  // 4 个 epoch 的随机键（kAlignL1 首轮 hash 写 → L0→L1 后对齐表生效）。
+  std::map<std::string, std::string> written;
+  std::mt19937_64 rng(20260822);
+  char k[24], v[96];
+  for (int e = 0; e < 4; ++e) {
+    for (int i = 0; i < 100; ++i) {
+      uint64_t r = rng() % 1000000;
+      snprintf(k, sizeof(k), "k%08lu", (unsigned long)r);
+      ::memset(v, 'A' + (e % 26), 90);
+      v[90] = '\0';
+      s = db->Put(rocksdb::WriteOptions(), rocksdb::Slice(k, strlen(k)),
+                  rocksdb::Slice(v, 90));
+      if (!s.ok()) {
+        ReportResult(tag, false, "put: " + s.ToString());
+        CleanDB(dbname);
+        return;
       }
       written[k] = std::string(v, 90);
     }
@@ -2729,6 +2767,7 @@ int main(int argc, char** argv) {
   run("StaticBoundariesRoute",        TestStaticBoundariesRoute);
   run("SampledBoundariesConverge",    TestSampledBoundariesConverge);
   run("SampledLearningEpochEndToEnd", TestSampledLearningEpochEndToEnd);
+  run("AlignL1Boundaries",            TestAlignL1Boundaries);
   run("NonBytewiseComparator",        TestNonBytewiseComparator);
   run("PartitionOutputsDisjoint",     TestPartitionOutputsDisjoint);
   run("ComparatorNameMismatchRejected", TestComparatorNameMismatchRejected);
