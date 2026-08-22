@@ -183,6 +183,14 @@ class ZeroFlushContext {
       ROCKSDB_NAMESPACE::DBImpl* impl,
       ROCKSDB_NAMESPACE::ColumnFamilyData* cfd);
 
+  // M4.3c：终态路径的单分区封存——仅冻结目标分区（WAL 换代 + 索引冻结 +
+  // 单分区 epoch 登记 + 空 mem 切换触发物化），其余分区写入不受影响。
+  // 目标分区选择：超限（≥ partition_target）优先，否则活跃字节最大。
+  // 必须持 DB mutex；由写路径 leader 在 ShouldSeal() 时调用。
+  ROCKSDB_NAMESPACE::Status FreezeOnePartition(
+      ROCKSDB_NAMESPACE::DBImpl* impl,
+      ROCKSDB_NAMESPACE::ColumnFamilyData* cfd);
+
   // M4.2b：按当前 L1 层 SST 文件边界构建对齐分区表（compaction 感知分区）。
   // 桶聚合：目标分区数 = zfo_.partitions；L1 文件数 ≤ 目标时每文件一桶；
   // 桶边界 = 桶末文件的 largest user key（精确文件边界 → L0/L1 1:1 对齐）。

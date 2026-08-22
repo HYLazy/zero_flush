@@ -527,6 +527,57 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
   return add_s;
 }
 
+// M4.3c：终态路径的单分区封存。目标分区：超限（≥ partition_target）优先，
+// 否则取活跃字节最大者（epoch_target 全局触发时按最大分区分批收敛）。
+ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeOnePartition(
+    ROCKSDB_NAMESPACE::DBImpl* impl,
+    ROCKSDB_NAMESPACE::ColumnFamilyData* cfd) {
+  assert(impl != nullptr);
+  assert(cfd != nullptr);
+  // 必须在 write thread 持 DB mutex 下调用。
+  // ---- 选目标分区 ----
+  uint32_t target = UINT32_MAX;
+  uint64_t max_bytes = 0;
+  for (uint32_t p : wal_->AllPartitionIds()) {
+    const uint64_t sz = wal_->ActiveSize(p);
+    if (sz >= zfo_.partition_target_bytes) {
+      target = p;  // 超限优先（单分区满即触发）
+      max_bytes = sz;
+      break;
+    }
+    if (sz > max_bytes) {
+      max_bytes = sz;
+      target = p;
+    }
+  }
+  if (target == UINT32_MAX || max_bytes == 0) {
+    wal_->ClearOverTargetFlag();
+    return ROCKSDB_NAMESPACE::Status::OK();  // 无数据可封存
+  }
+  // ---- 单分区冻结 ----
+  const uint64_t epoch = epoch_counter_.fetch_add(1) + 1;
+  const FreezeResult fr = wal_->Freeze(target);
+  index_set_->Freeze(target, fr.old_gen);
+  SealedEpoch se;
+  se.epoch = epoch;
+  se.table_version = tables_ ? tables_->current_version() : 0;
+  if (fr.sealed_bytes > 0) {
+    se.gens.emplace_back(target, fr.old_gen);
+    se.part_bytes[target] = fr.sealed_bytes;
+    se.total_bytes = fr.sealed_bytes;
+  }
+  // 清超限标志：该分区已换代（新代从 0 起）；其他分区超限由 Append 的
+  // 原子检查重新置位（自愈，最多延迟一个写组）。
+  wal_->ClearOverTargetFlag();
+  sealed_cache_->AddEpochWithRecoveryAdoption(se);
+  // 空 mem 切换 → imm → FlushJob 触发该 epoch 的物化（单分区 gens）。
+  ROCKSDB_NAMESPACE::MemTable* old_mem = cfd->mem();
+  if (old_mem != nullptr) {
+    old_mem->SetZfEpoch(epoch);
+  }
+  return impl->ZfSwitchMemtable(cfd);
+}
+
 // M4.3a：封存时冻结全部分区索引（全局 epoch 粒度；M4.3c 改单分区触发）。
 void ZeroFlushContext::FreezeIndexes(
     const std::vector<std::pair<uint32_t, uint32_t>>& gens) {
