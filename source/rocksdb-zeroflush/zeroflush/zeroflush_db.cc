@@ -180,6 +180,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
     (void)fr.sealed_path;  // SealedFileCache 自行重算
   }
   // M3.1：kSampled 模式：首个 epoch 封存时从采样器学习边界并安装新表。
+  // 步骤 3），se.table_version 必须保持 0——物化用它取回 hash 表并跳过
   if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
       sampler_ && tables_ && tables_->current_version() == 0 &&
       epoch == 1 && !sampler_->empty()) {
@@ -190,7 +191,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
           1, std::move(boundaries), ucmp_, &new_table);
       if (cps.ok()) {
         tables_->InstallNewVersion(std::move(new_table));
-        se.table_version = 1;
+        // 学习期 epoch 1 用 hash 写入：se.table_version 保持 0（上方初始化
       }
     }
     sampler_->Clear();

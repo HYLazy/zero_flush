@@ -838,6 +838,13 @@ DEFINE_bool(zeroflush, false,
 DEFINE_int32(zf_partitions, 64,
              "Number of ZeroFlush partitions (P). Only used when --zeroflush "
              "is true.");
+DEFINE_string(zf_routing, "hash",
+DEFINE_string(zf_static_boundaries, "",
+             "Comma-separated ascending boundary keys for --zf_routing=static "
+DEFINE_bool(zf_base_merge, false,
+DEFINE_int64(zf_partition_target_mb, 64,
+DEFINE_int64(zf_epoch_target_mb, 256,
+DEFINE_double(zf_merge_ratio, 0.25,
 
 DEFINE_bool(use_existing_keys, false,
             "If true, uses existing keys in the DB, "
@@ -5413,6 +5420,19 @@ class Benchmark {
       // 分区 WAL 写入 wal_dir/zfwal/ 子目录，跳过原生 WAL 与 MemTable flush。
       zeroflush::ZeroFlushOptions zfo;
       zfo.partitions = static_cast<uint32_t>(FLAGS_zf_partitions);
+      if (FLAGS_zf_routing == "hash") {
+      } else if (FLAGS_zf_routing == "static") {
+        if (!FLAGS_zf_static_boundaries.empty()) {
+          const std::string& b = FLAGS_zf_static_boundaries;
+      } else if (FLAGS_zf_routing == "sampled") {
+                FLAGS_zf_routing.c_str());
+      zfo.merge_into_base_level = FLAGS_zf_base_merge;
+      if (FLAGS_zf_partition_target_mb > 0) {
+            static_cast<uint64_t>(FLAGS_zf_partition_target_mb) * 1024 * 1024;
+      if (FLAGS_zf_epoch_target_mb > 0) {
+            static_cast<uint64_t>(FLAGS_zf_epoch_target_mb) * 1024 * 1024;
+      if (FLAGS_zf_merge_ratio > 0) {
+        zfo.base_merge_min_ratio = FLAGS_zf_merge_ratio;
       s = zeroflush::Open(options, zfo, db_name, &db->db_owner);
       if (s.ok()) {
         db->db = db->db_owner.get();

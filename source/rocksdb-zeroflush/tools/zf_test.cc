@@ -1492,6 +1492,10 @@ void TestSampledBoundariesConverge() {
 }
 
 // ---------------------------------------------------------------------------
+// 用例 35 (M4.0-35): SampledLearningEpochEndToEnd — kSampled 学习期端到端。
+// 学习期 epoch 1 用 hash 路由写入、封存时学习并安装边界表 v1；epoch 2 起
+void TestSampledLearningEpochEndToEnd() {
+  const char* tag = "SampledLearningEpochEndToEnd(M4.0-35)";
 // 用例 19 (M3.1-19): NonBytewiseComparator — 非字节序比较器下
 // PartitionTable::Create + Route + RangeOf 互为逆（I6）。
 // ---------------------------------------------------------------------------
@@ -2568,6 +2572,7 @@ int main(int argc, char** argv) {
   // ---- M3.1 新增 ----
   run("StaticBoundariesRoute",        TestStaticBoundariesRoute);
   run("SampledBoundariesConverge",    TestSampledBoundariesConverge);
+  run("SampledLearningEpochEndToEnd", TestSampledLearningEpochEndToEnd);
   run("NonBytewiseComparator",        TestNonBytewiseComparator);
   run("PartitionOutputsDisjoint",     TestPartitionOutputsDisjoint);
   run("ComparatorNameMismatchRejected", TestComparatorNameMismatchRejected);
