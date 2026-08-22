@@ -26,6 +26,8 @@
 #include "memtable/inlineskiplist.h"
 #include "memory/concurrent_arena.h"
 #include "rocksdb/memtablerep.h"
+#include "table/internal_iterator.h"
+#include "table/merging_iterator.h"
 #include "util/coding.h"
 #include "zeroflush/wal_format.h"  // SlimLocator
 
@@ -157,7 +159,10 @@ class PartitionIndex {
   ROCKSDB_NAMESPACE::InlineSkipList<ZfKeyComparator> list_;
   std::atomic<uint64_t> mem_bytes_{0};
   std::atomic<bool> frozen_{false};
+  friend class PartitionIndexIterator;  // M4.3d-3：迭代器访问跳表
 };
+
+class PartitionIndexIterator;  // M4.3d-3：前向声明（定义在文件尾）
 
 // 全部分区索引集合（终态 L0 索引）。
 class PartitionIndexSet {
@@ -281,6 +286,15 @@ class PartitionIndexSet {
     }
   }
 
+  // M4.3d-3：迭代器支持——遍历全部分区的 active + frozen 索引，
+  // 为每个索引构造 PartitionIndexIterator 加入归并构建器。
+  // value 解析（ReadValue）由迭代器按需执行（照抄 MemTableIterator zf 分支）。
+  // 定义见文件尾（PartitionIndexIterator 之后）。
+  void AddIterators(
+      ROCKSDB_NAMESPACE::MergeIteratorBuilder* builder,
+      const std::function<ROCKSDB_NAMESPACE::Status(const ROCKSDB_NAMESPACE::Slice&, std::string*)>& read_value,
+      ROCKSDB_NAMESPACE::Arena* arena) const;
+
  private:
   ZfKeyComparator cmp_;
   mutable std::mutex mu_;  // 保护 map 与 frozen 链（写路径热路径不持锁：
@@ -292,5 +306,104 @@ class PartitionIndexSet {
       frozen_;
   std::atomic<uint64_t> total_mem_bytes_{0};
 };
+
+// M4.3d-3：分区索引的 InternalIterator（终态 L0 窗口的迭代器）。
+// key = 条目内 internal key；value = 按 locator 定点读 WAL（read_value
+// 回调，ZeroFlushContext::ReadValue 语义——与 MemTableIterator zf 分支一致）。
+class PartitionIndexIterator : public ROCKSDB_NAMESPACE::InternalIterator {
+ public:
+  // 持 shared_ptr：AddIterators 返回后索引可能被 ReleaseFrozen 释放
+  // （物化完成），迭代器必须延长索引生命周期（与 SuperVersion 语义一致）。
+  PartitionIndexIterator(
+      std::shared_ptr<const PartitionIndex> idx,
+      const std::function<ROCKSDB_NAMESPACE::Status(const ROCKSDB_NAMESPACE::Slice&, std::string*)>& read_value)
+      : idx_(std::move(idx)), iter_(&idx_->list_), read_value_(read_value) {}
+
+  bool Valid() const override { return iter_.Valid(); }
+  void SeekToFirst() override { iter_.SeekToFirst(); }
+  void SeekToLast() override { iter_.SeekToLast(); }
+  void Next() override {
+    assert(Valid());
+    iter_.Next();
+  }
+  void Prev() override {
+    assert(Valid());
+    iter_.Prev();
+  }
+  void Seek(const ROCKSDB_NAMESPACE::Slice& target) override {
+    // target 是 internal key（8B seq/type 尾）——编码为长度前缀格式后 Seek。
+    std::string encoded;
+    ROCKSDB_NAMESPACE::PutVarint32(
+        &encoded, static_cast<uint32_t>(target.size()));
+    encoded.append(target.data(), target.size());
+    iter_.Seek(encoded.data());
+  }
+  void SeekForPrev(const ROCKSDB_NAMESPACE::Slice& target) override {
+    std::string encoded;
+    ROCKSDB_NAMESPACE::PutVarint32(
+        &encoded, static_cast<uint32_t>(target.size()));
+    encoded.append(target.data(), target.size());
+    iter_.SeekForPrev(encoded.data());
+  }
+  ROCKSDB_NAMESPACE::Slice key() const override {
+    assert(Valid());
+    return ROCKSDB_NAMESPACE::GetLengthPrefixedSlice(iter_.key());
+  }
+  ROCKSDB_NAMESPACE::Slice value() const override {
+    assert(Valid());
+    const char* entry = iter_.key();
+    uint32_t ik_size = 0;
+    const char* loc_pos = ROCKSDB_NAMESPACE::GetVarint32Ptr(
+        entry, entry + 5, &ik_size);
+    loc_pos += ik_size;
+    const ROCKSDB_NAMESPACE::Slice loc =
+        ROCKSDB_NAMESPACE::GetLengthPrefixedSlice(loc_pos);
+    value_buf_.clear();
+    if (!read_value_(loc, &value_buf_).ok()) {
+      value_buf_.clear();  // 定点读失败视为损坏：返回空 value
+    }
+    return ROCKSDB_NAMESPACE::Slice(value_buf_);
+  }
+  ROCKSDB_NAMESPACE::Status status() const override {
+    return ROCKSDB_NAMESPACE::Status::OK();
+  }
+  bool IsKeyPinned() const override { return true; }
+  bool IsValuePinned() const override { return false; }
+
+ private:
+  std::shared_ptr<const PartitionIndex> idx_;
+  ROCKSDB_NAMESPACE::InlineSkipList<ZfKeyComparator>::Iterator iter_;
+  // 按值持有（lambda 生命周期归迭代器——引用会悬垂导致崩溃）
+  std::function<ROCKSDB_NAMESPACE::Status(const ROCKSDB_NAMESPACE::Slice&, std::string*)> read_value_;
+  mutable std::string value_buf_;
+};
+
+inline void PartitionIndexSet::AddIterators(
+    ROCKSDB_NAMESPACE::MergeIteratorBuilder* builder,
+    const std::function<ROCKSDB_NAMESPACE::Status(const ROCKSDB_NAMESPACE::Slice&, std::string*)>& read_value,
+    ROCKSDB_NAMESPACE::Arena* arena) const {
+  // 收集全部索引（active + frozen 链，全部分区）——拷贝 shared_ptr 保护
+  // 释放竞态。
+  std::vector<std::shared_ptr<PartitionIndex>> all;
+  {
+    std::lock_guard<std::mutex> l(mu_);
+    for (const auto& [part, chain] : frozen_) {
+      for (const auto& idx : chain) {
+        all.push_back(idx);
+      }
+    }
+    for (const auto& [part, idx] : active_) {
+      all.push_back(idx);
+    }
+  }
+  for (const auto& idx : all) {
+    if (arena != nullptr) {
+      void* mem = arena->AllocateAligned(sizeof(PartitionIndexIterator));
+      builder->AddIterator(new (mem) PartitionIndexIterator(idx, read_value));
+    } else {
+      builder->AddIterator(new PartitionIndexIterator(idx, read_value));
+    }
+  }
+}
 
 }  // namespace zeroflush

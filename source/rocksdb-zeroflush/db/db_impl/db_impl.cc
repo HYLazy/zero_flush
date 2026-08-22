@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "db/arena_wrapped_db_iter.h"
+#include "zeroflush/partition_index.h"
 #include "db/attribute_group_iterator_impl.h"
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
@@ -2381,35 +2382,47 @@ InternalIterator* DBImpl::NewInternalIterator(
       !read_options.total_order_seek && prefix_extractor != nullptr,
       read_options.iterate_upper_bound);
   // Collect iterator for mutable memtable
-  auto mem_iter = super_version->mem->NewIterator(
-      read_options, super_version->GetSeqnoToTimeMapping(), arena,
-      super_version->mutable_cf_options.prefix_extractor.get(),
-      /*for_flush=*/false);
+  // M4.3d-3：终态路径——分区索引迭代器替代 mem/imm 链（未 compact 窗口
+  // 的数据在分区索引 + WAL；SST 链在下方原样保留）。
   Status s;
-  if (!read_options.ignore_range_deletions) {
-    std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;
-    auto range_del_iter = super_version->mem->NewRangeTombstoneIterator(
-        read_options, sequence, false /* immutable_memtable */);
-    if (range_del_iter == nullptr || range_del_iter->empty()) {
-      delete range_del_iter;
-    } else {
-      mem_tombstone_iter = std::make_unique<TruncatedRangeDelIterator>(
-          std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
-          &cfd->ioptions().internal_comparator, nullptr /* smallest */,
-          nullptr /* largest */);
-    }
-    merge_iter_builder.AddPointAndTombstoneIterator(
-        mem_iter, std::move(mem_tombstone_iter));
+  const auto* zf_ctx = cfd->GetZfCtx().get();
+  if (zf_ctx != nullptr && !zf_ctx->use_global_index()) {
+    auto read_value =
+        [zf_ctx](const ROCKSDB_NAMESPACE::Slice& loc, std::string* out) {
+          return zf_ctx->ReadValue(loc, out);
+        };
+    zf_ctx->index_set()->AddIterators(&merge_iter_builder, read_value, arena);
+    // ZF 不支持 range tombstone（M3.4 未做）：跳过 tombstone 链。
   } else {
-    merge_iter_builder.AddIterator(mem_iter);
-  }
-
-  // Collect all needed child iterators for immutable memtables
-  if (s.ok()) {
-    super_version->imm->AddIterators(
-        read_options, super_version->GetSeqnoToTimeMapping(),
+    auto mem_iter = super_version->mem->NewIterator(
+        read_options, super_version->GetSeqnoToTimeMapping(), arena,
         super_version->mutable_cf_options.prefix_extractor.get(),
-        &merge_iter_builder, !read_options.ignore_range_deletions);
+        /*for_flush=*/false);
+    if (!read_options.ignore_range_deletions) {
+      std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;
+      auto range_del_iter = super_version->mem->NewRangeTombstoneIterator(
+          read_options, sequence, false /* immutable_memtable */);
+      if (range_del_iter == nullptr || range_del_iter->empty()) {
+        delete range_del_iter;
+      } else {
+        mem_tombstone_iter = std::make_unique<TruncatedRangeDelIterator>(
+            std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
+            &cfd->ioptions().internal_comparator, nullptr /* smallest */,
+            nullptr /* largest */);
+      }
+      merge_iter_builder.AddPointAndTombstoneIterator(
+          mem_iter, std::move(mem_tombstone_iter));
+    } else {
+      merge_iter_builder.AddIterator(mem_iter);
+    }
+
+    // Collect all needed child iterators for immutable memtables
+    if (s.ok()) {
+      super_version->imm->AddIterators(
+          read_options, super_version->GetSeqnoToTimeMapping(),
+          super_version->mutable_cf_options.prefix_extractor.get(),
+          &merge_iter_builder, !read_options.ignore_range_deletions);
+    }
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::NewInternalIterator:StatusCallback", &s);
   if (s.ok()) {
