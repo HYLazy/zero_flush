@@ -80,8 +80,12 @@
 
 | 优先级 | 工作项 | 内容 | 状态 |
 |--------|--------|------|------|
-| **P3（最高）** | ZF 物化路径优化 | ① 顺序读 WAL（当前 `ReadValue` 逐条随机定点读）② 物化流水线化/并行化（当前 `ZfMaterializeAllEpochs` 单线程，CPU time ≈ wall time 实证）③ 减少从 64 分区读回 value 的开销 | 待开发 |
-| P2 | 配置调优复测 | `--cache_size` 8MB→256MB+、启用 lz4、disable_wal 对照实验、readrandom 前等 compaction 队列清空（消除时序干扰） | 待执行 |
+| **M4.0（已完成 ✅ 2026-08-21）** | 范围路由启用 + 终态收益预演 | db_bench 接线（`--zf_routing/--zf_base_merge/--zf_partition_target_mb` 等）；**修复 kSampled 学习期 `table_version` 误标 bug + 新增用例 35（27/27 PASS）**；2.2GB 实测：**R3（sampled+融合+P=16）12,082 ops/s（+11% vs hash）、零停写、L1 重写 2.62GB 优于 hash（2.99GB）**；P=64 时融合因批量太小退化（L1 重写 4.4×、94 次停写）——**批量参数是融合归并生效的关键旋钮**。50GB R4 验证后台运行中。详见 `zeroflush/M4_DESIGN.md` §M4.0 | 验收：50GB R4 写放大 vs 0.70 |
+| **M4.1（已完成 ✅ 2026-08-21）** | 写路径去串行化（原 P3-A） | O(1) ShouldSeal + SlimMemTableRep 并发化 + parallel 两分支注入（follower 并行插 WAL+跳表）+ 锁外编码；**修复 4 个 bug**（parallel follower 走原生 InsertInto 丢数据、Ref UAF、原生 flush 触发无 epoch imm、kSampled table_version）；27/27 回归。实测：**micro 110K+ ops/s、R3 全量 38.1K（3.2×）、P50 138us（9.3×）**；全量剩余瓶颈=L0 消费端（compaction 全程争抢）→ M4.3 | 验收达成（micro ≥100K + 全量 ≥3×） |
+| M4.2 | 物化输入侧换跳表序 | imm 跳表区间遍历免排序 + WAL 段整读缓冲（剖析实测排序占物化耗时大头）；此输入侧即终态 L0→L1 输入侧 | 待开发 |
+| M4.3 | 每分区 memtable + 全局 epoch 拆除（终态主体） | WAL 即 L0、永不物化：每分区跳表（无锁插入）、每分区 freeze→compact→释放、背压改跳表内存预算、Get/Iterator 每分区化（最大手术） | 待开发 |
+| M4.4 | 读路径巩固 + 基准定稿 | P2 稳态复测重查读优势归因（"SST 只存 locator"解释已证伪）、value cache 可选、50GB 终态 vs 原生全量基准 | 待开发 |
+| P2 | 配置调优复测 | 并入 M4.4（剖析证明触发器类调参对写吞吐零效果） | 待执行 |
 | — | **写入吞吐目标** | 相同参数（50GB/16 线程/zf_partitions=64）同负载下，fillrandom 吞吐**接近或超过原生**（当前慢 16~37 倍：vs256 3,387 vs 124,125 ops/s；vs1024 1,919 vs 30,255 ops/s） | 目标 |
 | — | **读取性能巩固目标** | 保持 **vs256 读快 8 倍**（96,554 vs 11,599 ops/s，已达成）；**vs1024 读快 4 倍**（当前受 fill 后 compaction 积压干扰仅 4,115 ops/s，需优化至 ~120K ops/s） | 目标 |
 | M3.4 | API 完备性 | 多列族 / Merge / DeleteRange 支持（m34-1~m34-7） | 待启动 |
@@ -93,6 +97,7 @@
 
 > 完整数据：`output/zeroflush_m3_perf/benchmark_native.json` / `benchmark_zeroflush.json` / `report.html`
 > 深度分析：`source/rocksdb-zeroflush/benchmark_analysis_report.md`
+> **写路径剖析（2026-08-21）**：`output/zeroflush_m3_perf/profiling/profiling_report.md` —— 2.2GB 四变体对照 + 微实验，主瓶颈定位为写路径 DB mutex 全序列化（非物化/非停写），P3 优先级已据此修订
 > 条件：50GB 逻辑数据、16 线程、key 16B、无压缩、WAL 开启、cache 8MB、write buffer 256MB
 
 ### 4.1 Fillrandom（写路径）
