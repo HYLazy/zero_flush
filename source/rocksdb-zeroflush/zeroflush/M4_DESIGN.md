@@ -506,14 +506,14 @@ L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现�
 封存 WAL 移交 recovery 集合、下个 epoch 收养后多代合并）——**回归破坏
 （13/34）二次回滚**（保留 M4.5 的 upper_conflict 删除；回归 34/34 恢复）。
 
-**调试发现（2026-08-23 二次）**：kSkip 后数据在 frozen 索引 + recovery WAL，
-`AddIterators` 显示索引全在（9 个：frozen 5 + active 4），但**迭代器遍历缺
-key**（如 fr0000000000-0002 缺失，共 ~56 条）——根因指向
-**PartitionIndexIterator 与 MergingIterator 的归并交互**（多 frozen 索引
-归并丢数据）或 **p0 的 frozen 索引跳表遍历**（SeekToFirst 从 0003 开始而非
-0000）。**下一步调试方向**：PartitionIndexIterator::SeekToFirst/Next 与
-归并排序一致性；p0 多代（g0/g1/g2）索引的 key 分布验证。攒批仍是 50GB
-根治方向。
+**调试结论（2026-08-23 三次，最小复现）**：新增用例 45
+（MultiGenFrozenIterator，纯 PartitionIndexSet 单元）——**多代 frozen +
+key 交错（4 分区 × 3 代 × 8 key）的归并遍历 96/96 PASS**，归并层（
+PartitionIndexIterator + MergingIterator）无 bug。攒批丢 key 的根因
+**不在归并层**，指向**物化安装的 SuperVersion 刷新与 frozen 释放/迭代器
+快照的时序**（迭代器创建时 sv 不含新 SST 且 frozen 已释放的窗口）。
+修复方向：迭代器/Get 的"未 compact 窗口"与 sv 快照的一致性协调（或
+攒批的替代路径）。攒批仍为 50GB 根治方向，时序协调为下一步。
 
 ### 后续（M4 之后）
 

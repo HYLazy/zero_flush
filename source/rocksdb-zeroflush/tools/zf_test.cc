@@ -39,6 +39,10 @@
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
+#include "db/dbformat.h"
+#include "memory/arena.h"
+#include "table/merging_iterator.h"
+#include "zeroflush/partition_index.h"
 #include "zeroflush/partition_table.h"
 #include "zeroflush/wal_format.h"
 #include "zeroflush/zeroflush_db.h"
@@ -2165,6 +2169,72 @@ void TestSteadyStateControlledL0() {
   CleanDB(dbname);
 }
 
+
+// ---------------------------------------------------------------------------
+// 用例 45 (M4.5b-45): MultiGenFrozenIterator — 多代 frozen 索引的迭代器
+// 归并最小复现（不经 DB：直接构造 PartitionIndexSet 多代 frozen + active，
+// 验证 AddIterators 归并遍历不丢 key——M4.5b 攒批可见性问题的复现单元）。
+// ---------------------------------------------------------------------------
+void TestMultiGenFrozenIterator() {
+  const char* tag = "MultiGenFrozenIterator(M4.5b-45)";
+  const auto* ucmp = rocksdb::BytewiseComparator();
+  rocksdb::InternalKeyComparator icmp(ucmp);
+  zeroflush::ZfKeyComparator cmp(icmp);
+  zeroflush::PartitionIndexSet set(cmp);
+
+  // helper：internal key（user key + seq）
+  auto mkik = [](const std::string& user, uint64_t seq) {
+    std::string ik = user;
+    rocksdb::PutFixed64(&ik, rocksdb::PackSequenceAndType(
+                                 seq, rocksdb::kTypeValue));
+    return ik;
+  };
+  // locator 占位（迭代器 value 读不触发——read_value 返回空）
+  zeroflush::SlimLocator loc{};
+  const rocksdb::Slice loc_slice(reinterpret_cast<const char*>(&loc),
+                                 sizeof(loc));
+
+  // 4 分区 × 2 代 frozen + active，key 交错（模拟 hash 路由下分区键交错）：
+  // part p 拥有 key 集 { i % 4 == p }（fr0000000000 在 p0、0001 在 p1…）。
+  // 每代每分区 8 个 key → 总条目 = 4 分区 × 3 代 × 8 = 96（同 key 3 版本）。
+  char k[16];
+  for (int g = 0; g < 3; ++g) {
+    for (int p = 0; p < 4; ++p) {
+      for (int i = p; i < 32; i += 4) {
+        snprintf(k, sizeof(k), "fr%08d", i);
+        set.Insert(static_cast<uint32_t>(p), static_cast<uint32_t>(g),
+                   mkik(k, 300 - g * 100 - i), loc_slice);
+      }
+    }
+    if (g < 2) {
+      for (int p = 0; p < 4; ++p) {
+        set.Freeze(static_cast<uint32_t>(p), static_cast<uint32_t>(g + 1));
+      }
+    }
+  }
+
+  // 迭代器归并遍历计数（期望 4×3×8 = 96）
+  rocksdb::Arena arena;
+  rocksdb::MergeIteratorBuilder builder(&icmp, &arena);
+  auto read_value = [](const rocksdb::Slice&, std::string* out) {
+    out->clear();
+    return rocksdb::Status::OK();
+  };
+  set.AddIterators(&builder, read_value, &arena);
+  auto iter = builder.Finish(nullptr);
+  iter->SeekToFirst();
+  int n = 0;
+  for (; iter->Valid(); iter->Next()) {
+    ++n;
+  }
+  if (n != 96) {
+    ReportResult(tag, false,
+                 "iter count " + std::to_string(n) + " != 96");
+    return;
+  }
+  ReportResult(tag, true, "count=96");
+}
+
 // ---------------------------------------------------------------------------
 // 用例 19 (M3.1-19): NonBytewiseComparator — 非字节序比较器下
 // PartitionTable::Create + Route + RangeOf 互为逆（I6）。
@@ -3251,6 +3321,7 @@ int main(int argc, char** argv) {
   run("MemoryBudgetBackpressure",     TestMemoryBudgetBackpressure);
   run("ParallelPartitionCompact",     TestParallelPartitionCompact);
   run("SteadyStateControlledL0",      TestSteadyStateControlledL0);
+  run("MultiGenFrozenIterator",        TestMultiGenFrozenIterator);
   run("NonBytewiseComparator",        TestNonBytewiseComparator);
   run("PartitionOutputsDisjoint",     TestPartitionOutputsDisjoint);
   run("ComparatorNameMismatchRejected", TestComparatorNameMismatchRejected);
