@@ -519,6 +519,21 @@ L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现�
   刷新，或迭代器侧以 frozen 索引为准的窗口合并）
 - kSkip 攒批三次回滚（回归 35/35 恢复）；攒批仍为 50GB 根治方向
 
+### M3.4 API 完备（尝试后回滚，2026-08-23）
+
+**实现进度**（回滚至干净状态，35/35 恢复）：
+- **写路径已完成并验证**：MergeCF → AddRecord(kTypeMerge)、DeleteRangeCF → 专用分区
+  （kRangeDelPartId，Append 自动创建）、range-del 覆盖查询（PartitionIndex
+  GetRangeDelCover/CheckRangeDelCover）、Get 的 Merge operand 累积
+  （merge_context 接入）
+- **读语义调试中发现两个问题（回滚原因）**：
+  1. Merge 的 Get 返回最后一个 operand（'op4'）而非合并结果——FullMerge
+     链路（SST Get 的 MergeHelper 与 ZF 分支的 merge_context 交互）未闭环
+  2. DeleteRange 用例的 out-of-range key 值比较失败（val 长度/字节差异——
+     用例或读路径待查）
+- **下次实现要点**：Merge 的 Get 需确认 SST Get（Version::Get 的 MergeHelper）
+  与 ZF 分支 operand 的合并时序；DeleteRange 的 val 字节比对（ReadValue 长度）
+
 ### 后续（M4 之后）
 
 - M3.4 API 完备（多 CF/Merge/DeleteRange）在终态架构上实施——M3_DESIGN §9 的设计在每分区模型下仍然适用，多 CF = 每 CF 一套 PartitionTable，共享物理分区
