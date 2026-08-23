@@ -472,11 +472,15 @@ M4.3a 已含 Get 分区化与恢复重建；M4.3d 完成后回归 28/28 + 数据
   停写）——50GB 尺度的回落 L0 循环重现（与 R8 同病：直装/融合在 L0 非空时
   失效 → 回落 → 堆积）。**结论**：M4 系列在 50GB 尺度的最终瓶颈是 L0 消费端
   （物化输出无法 100% 直装/融合），解在消除 L0 中转的架构工作（M4.5）
-- **崩溃恢复窗口（M4.4b）**：kill -9 时最近物化的 SST 若 MANIFEST 未落盘
-  → 重开丢失（孤儿 SST）——修复方向：物化安装 LogAndApply 的 MANIFEST
-  sync 优先 + 恢复时孤儿 SST 扫描
-- **旧路径删除（M4.4b）**：use_global_index() 分支保留（deprecated），
-  稳定后移除（SlimMemTableRep/SealEpochAndSwitch/epoch 机制）
+- **M4.4b 完成（5e19644）**：
+  · 用例 40-44 全过（GetAfterCompact / CrashBeforeCompact（封存后未物化
+    重开恢复）/ MemoryBudgetBackpressure / ParallelPartitionCompact /
+    SteadyStateControlledL0）——回归 34/34
+  · 旧路径删除：use_global_index()/zf_global_index/--zf_global_index 移除，
+    AddRecord/Recover/ShouldSeal/写路径恒走终态路径（SealEpochAndSwitch
+    保留——手动 Flush 路径引用，新路径下运行时不触发）
+  · 崩溃窗口分析：MANIFEST SyncManifest 无条件（LogAndApply 同步落盘，
+    无缺口）；verify V4 恢复量少为 kill 窗口边缘现象（数据完整性保持）
 
 - **P2 稳态复测**（D3）：cache 256MB、lz4、readrandom 前等 compaction 队列清空——重查 vs256 读优势归因，重定 vs1024 读目标
 - value cache（可选）：若 vs1024 读仍差，locator 命中后先查块缓存再落盘
