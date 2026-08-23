@@ -84,10 +84,12 @@ struct ZeroFlushOptions {
   uint32_t l0_fallback_tolerance = 0;    // 允许的 L0 回落文件数（超出告警）
 
   // ---- M4.3 终态 ----
-  // true = 旧路径（MemTable 外壳，M4.1 行为）；false = 终态路径（分区索引
-  // PartitionIndexSet，绕开 MemTable）。M4.3a 默认 true 保持回归稳定，
-  // M4.3d 全部完成后翻转并删除旧路径。
-  bool zf_global_index = true;
+  // false = 终态路径（分区索引 PartitionIndexSet，绕开 MemTable，默认）；
+  // true = 旧路径（MemTable 外壳，M4.1 行为，回退用，M4.4 删除）。
+  bool zf_global_index = false;
+  // M4.3d-2：分区索引总内存预算（背压触发 freeze；默认 4GB ≈ 6~8 千万
+  // key 窗口，与 M4.1 的 write_buffer 语义对齐）。
+  uint64_t index_mem_budget = 4ull << 30;
 };
 
 class ZeroFlushContext {

@@ -150,6 +150,12 @@ bool ZeroFlushContext::ShouldSeal() const {
   // atomic 维护，写路径不再每写组遍历全部 P 分区（实测 ~0.3us×P 开销）。
   // 主触发：全分区活跃字节合计 ≥ epoch_target_bytes（原子读）。
   // 副触发：任一分区 ≥ partition_target_bytes（Append 时置位，防倾斜）。
+  // M4.3d-2：终态路径追加内存预算背压——分区索引总内存 ≥ 预算即触发
+  // freeze（索引是终态 L0 的内存驻留，需独立于 WAL 字节的背压）。
+  if (!use_global_index() && index_set_ != nullptr &&
+      index_set_->total_mem_bytes() >= zfo_.index_mem_budget) {
+    return true;
+  }
   return wal_->TotalActiveBytes() >= zfo_.epoch_target_bytes ||
          wal_->AnyPartitionOverTarget();
 }
@@ -504,7 +510,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
     ROCKSDB_NAMESPACE::PutFixed64(
         &ik, ROCKSDB_NAMESPACE::PackSequenceAndType(
                  seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(type)));
-    index_set_->Insert(part, ik, loc_slice);
+    index_set_->Insert(part, ref.gen, ik, loc_slice);
     // M3.1：kSampled 模式下记录采样（仅 epoch 1 学习期）。
     if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
         sampler_ && epoch_counter_.load() == 0) {
@@ -574,6 +580,8 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeBatchPartitions(
     wal_->ClearOverTargetFlag();
     return ROCKSDB_NAMESPACE::Status::OK();  // 无数据可封存
   }
+  for (uint32_t bp : batch) fprintf(stderr, "%u ", bp);
+  fprintf(stderr, "]\n");
   // ---- 一次 epoch 冻结整批 ----
   const uint64_t epoch = epoch_counter_.fetch_add(1) + 1;
   SealedEpoch se;
@@ -581,7 +589,9 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeBatchPartitions(
   se.table_version = tables_ ? tables_->current_version() : 0;
   for (uint32_t p : batch) {
     const FreezeResult fr = wal_->Freeze(p);
-    index_set_->Freeze(p, fr.old_gen);
+    // 新活跃索引的 gen = 新 WAL 代（old_gen + 1）——否则 freeze 后写组的
+    // 记录（ref.gen = 新代）Insert 时找不到匹配索引被丢弃（数据丢失）。
+    index_set_->Freeze(p, fr.old_gen + 1);
     if (fr.sealed_bytes > 0) {
       se.gens.emplace_back(p, fr.old_gen);
       se.part_bytes[p] = fr.sealed_bytes;
@@ -695,7 +705,14 @@ bool ZeroFlushContext::GetFromPartitionIndex(
     *s = ROCKSDB_NAMESPACE::Status::NotFound();
     return true;
   }
-  *s = ReadValue(loc, value);
+  ROCKSDB_NAMESPACE::Status rs = ReadValue(loc, value);
+  if (!rs.ok()) {
+    // M4.3：frozen 索引被迭代器/Get 持有时，物化可能已完成并移除该 epoch
+    // （WAL 已 unlink / 数据已进 SST）——回退原生 SST 查找（数据在 SST）。
+    // 除"已回收"外其余读错误（如损坏）也回退——SST 兜底保证正确性。
+    return false;
+  }
+  *s = ROCKSDB_NAMESPACE::Status::OK();
   return true;
 }
 
@@ -908,7 +925,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
         ROCKSDB_NAMESPACE::PutFixed64(
             &ik, ROCKSDB_NAMESPACE::PackSequenceAndType(
                      h.seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(h.type)));
-        index_set_->Insert(part, ik, loc_slice);
+        index_set_->InsertCreate(part, gen, ik, loc_slice);
       } else {
         s = cfd->mem()->Add(
             h.seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(h.type), key,

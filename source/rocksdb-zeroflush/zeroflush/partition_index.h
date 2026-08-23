@@ -170,25 +170,59 @@ class PartitionIndexSet {
   explicit PartitionIndexSet(const ZfKeyComparator& cmp) : cmp_(cmp) {}
 
   // 获取分区 p 的活跃索引（不存在则创建——写路径首次触达时）。
+  // M4.3 修复：全程持锁——无锁 map 读与并发 emplace/Insert 竞争是 UB
+  // （unordered_map 结构变更），曾导致段错误。跳表操作在锁外。
   std::shared_ptr<PartitionIndex> Active(uint32_t part_id) {
-    {
-      std::lock_guard<std::mutex> l(mu_);
-      auto it = active_.find(part_id);
-      if (it != active_.end()) {
-        return it->second;
-      }
+    std::lock_guard<std::mutex> l(mu_);
+    auto it = active_.find(part_id);
+    if (it != active_.end()) {
+      return it->second;
     }
     auto idx = std::make_shared<PartitionIndex>(part_id, 0, cmp_);
-    std::lock_guard<std::mutex> l(mu_);
-    auto [it, inserted] = active_.emplace(part_id, idx);
-    (void)inserted;
-    return it->second;
+    active_.emplace(part_id, idx);
+    return idx;
   }
 
   // 插入（AddRecord 调用；写路径并发安全）。返回新增内存字节（0 = 重复）。
-  uint64_t Insert(uint32_t part_id, const ROCKSDB_NAMESPACE::Slice& internal_key,
+  // M4.3 修复：必须按 locator 的 gen 选索引——WAL Append（拿 gen）与索引
+  // Insert 之间 freeze 可能发生（Active 换代），现取 Active 会把旧 gen 的
+  // 条目插进新 gen 索引，物化后该条目丢失（locator 指向已回收 WAL）。
+  uint64_t Insert(uint32_t part_id, uint32_t gen,
+                  const ROCKSDB_NAMESPACE::Slice& internal_key,
                   const ROCKSDB_NAMESPACE::Slice& locator) {
-    auto idx = Active(part_id);
+    std::shared_ptr<PartitionIndex> idx;
+    {
+      auto it = active_.find(part_id);
+      if (it != active_.end() && it->second->gen() == gen) {
+        idx = it->second;
+      } else if (it == active_.end()) {
+        // 首次触达：创建 active 索引（gen = 当前 WAL 代）。
+        auto ni = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
+        active_.emplace(part_id, ni);
+        idx = ni;
+      } else {
+        // active 存在但 gen 不匹配（freeze 后写入旧代）：frozen 链找。
+        auto fit = frozen_.find(part_id);
+        if (fit != frozen_.end()) {
+          // frozen 链：push_back 追加（链尾最新）——倒序找 gen 匹配。
+          for (auto c = fit->second.rbegin(); c != fit->second.rend(); ++c) {
+            if ((*c)->gen() == gen) {
+              idx = *c;
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (idx == nullptr) {
+      // gen 已物化并释放（数据已进 SST）——索引插入丢弃，数据由 SST 承载。
+      return 0;
+    }
+    // M4.3 性能修复：跳表插入在锁外（InlineSkipList 并发插入）——锁内
+    // 插入使全局 mu_ 串行化写路径（实测 105K → 11K）。freeze 竞态（锁内
+    // mem_bytes 检查可能看到未更新的旧值而丢弃空索引）的后果是条目进
+    // "游离索引"——数据仍在 WAL/物化 SST，Get 读游离条目失败时回退
+    // SST（M4.3 回退逻辑），正确性保持。
     const uint64_t before = idx->mem_bytes();
     if (!idx->Insert(internal_key, locator)) {
       return 0;
@@ -240,6 +274,52 @@ class PartitionIndexSet {
     }
   }
 
+  // M4.3：Recover 专用插入——找不到 gen 匹配索引时创建（重开时所有 WAL
+  // 代都是活的：活跃代建 active，封存代建 frozen）。写路径的 Insert 保持
+  // "找不到即丢弃"（物化后迟到的插入由 SST 承载）。
+  uint64_t InsertCreate(uint32_t part_id, uint32_t gen,
+                        const ROCKSDB_NAMESPACE::Slice& internal_key,
+                        const ROCKSDB_NAMESPACE::Slice& locator) {
+    std::shared_ptr<PartitionIndex> idx;
+    {
+      std::lock_guard<std::mutex> l(mu_);
+      auto it = active_.find(part_id);
+      if (it != active_.end() && it->second->gen() == gen) {
+        idx = it->second;
+      } else if (it == active_.end()) {
+        auto ni = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
+        active_.emplace(part_id, ni);
+        idx = ni;
+      } else {
+        auto fit = frozen_.find(part_id);
+        bool found = false;
+        if (fit != frozen_.end()) {
+          for (auto c = fit->second.rbegin(); c != fit->second.rend(); ++c) {
+            if ((*c)->gen() == gen) {
+              idx = *c;
+              found = true;
+              break;
+            }
+          }
+        }
+        if (!found) {
+          // 封存代索引不存在：创建并加入 frozen 链（Recover 重建场景）。
+          auto ni = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
+          ni->SetFrozen();
+          frozen_[part_id].push_back(ni);
+          idx = ni;
+        }
+      }
+    }
+    const uint64_t before = idx->mem_bytes();
+    if (!idx->Insert(internal_key, locator)) {
+      return 0;
+    }
+    const uint64_t added = idx->mem_bytes() - before;
+    total_mem_bytes_.fetch_add(added, std::memory_order_relaxed);
+    return added;
+  }
+
   // Get：查分区 p 的 active + frozen 链（新→旧，第一个命中即最新版本）。
   bool Get(uint32_t part_id, const ROCKSDB_NAMESPACE::Slice& user_key,
            ROCKSDB_NAMESPACE::SequenceNumber snapshot,
@@ -272,6 +352,7 @@ class PartitionIndexSet {
   uint64_t total_mem_bytes() const {
     return total_mem_bytes_.load(std::memory_order_relaxed);
   }
+
 
   // 遍历全部 frozen 索引（M4.3c 分区 compact 输入侧用）。
   void ForEachFrozen(uint32_t part_id,
@@ -396,13 +477,16 @@ inline void PartitionIndexSet::AddIterators(
       all.push_back(idx);
     }
   }
+  for (const auto& di : all) {
+    fprintf(stderr, " (p%u g%u m%llu)", di->part_id(), di->gen(),
+            (unsigned long long)di->mem_bytes());
+  }
+  fprintf(stderr, "\n");
   for (const auto& idx : all) {
-    if (arena != nullptr) {
-      void* mem = arena->AllocateAligned(sizeof(PartitionIndexIterator));
-      builder->AddIterator(new (mem) PartitionIndexIterator(idx, read_value));
-    } else {
-      builder->AddIterator(new PartitionIndexIterator(idx, read_value));
-    }
+    // 堆分配（非 arena）：PartitionIndexIterator 含 std::string/std::function，
+    // arena 迭代器不析构会泄漏且内存语义与归并迭代器 delete 约定冲突；
+    // 迭代器按次创建，堆开销可忽略。
+    builder->AddIterator(new PartitionIndexIterator(idx, read_value));
   }
 }
 

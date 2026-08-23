@@ -756,8 +756,10 @@ void TestFreezeReopen() {
   }
 
   // 写完后应有 200 条（迭代器正确）
-  if (CountViaIterator(db.get()) != 200) {
-    ReportResult(tag, false, "iter after write != 200");
+  const int64_t cnt_after_write = CountViaIterator(db.get());
+  if (cnt_after_write != 200) {
+    ReportResult(tag, false,
+                 "iter after write != 200 (got " + std::to_string(cnt_after_write) + ")");
     return;
   }
 

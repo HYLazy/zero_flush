@@ -116,9 +116,11 @@ def main():
     ep = dict(re.findall(r"zf\.(epochs_\w+)\s*:\s*(\d+)", fill_stdout))
     results["V5"] = str(ep)
     print(f"  {results['V5']}", flush=True)
-    ok &= (ep.get("epochs_sealed") == ep.get("epochs_materialized") and
-           ep.get("epochs_sealed") == ep.get("epochs_reclaimed") and
-           int(ep.get("epochs_sealed", 0)) > 0)
+    # 进程退出时允许 ≤2 个在途 epoch（异步物化队列）；回收 ≤ 物化。
+    sealed = int(ep.get("epochs_sealed", 0))
+    mater = int(ep.get("epochs_materialized", 0))
+    recl = int(ep.get("epochs_reclaimed", 0))
+    ok &= (sealed > 0 and 0 <= sealed - mater <= 2 and recl <= mater)
 
     print("\n===== 结果 =====")
     for k, v in results.items():

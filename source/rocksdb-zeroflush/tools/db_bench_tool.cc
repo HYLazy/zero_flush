@@ -858,9 +858,9 @@ DEFINE_int64(zf_epoch_target_mb, 256,
 DEFINE_double(zf_merge_ratio, 0.25,
               "ZeroFlush base-merge trigger ratio: sealed bytes / base-level "
               "overlap bytes must exceed this to fuse (else fall back to L0).");
-DEFINE_bool(zf_global_index, true,
+DEFINE_bool(zf_global_index, false,
             "M4.3 terminal path: false = partition index (PartitionIndexSet, "
-            "no MemTable shell); true = legacy global memtable path.");
+            "no MemTable shell, default); true = legacy global memtable path.");
 
 DEFINE_bool(use_existing_keys, false,
             "If true, uses existing keys in the DB, "
