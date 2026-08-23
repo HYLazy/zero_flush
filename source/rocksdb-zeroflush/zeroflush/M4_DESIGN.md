@@ -463,7 +463,17 @@ M4.3a 已含 Get 分区化与恢复重建；M4.3d 完成后回归 28/28 + 数据
 - 实测：2.2GB **105.7K ops/s**（R14，旧路径 R7 111K 差距 <5%）、零停写、P50 128us、
   数据完整性 V1-V5 PASS（V4 崩溃恢复窗口恢复量少留 M4.4）
 
-### M4.4 读路径巩固与基准定稿（~1 周）
+### M4.4 读路径巩固与基准定稿（进行中 ✅ 2026-08-23）
+
+- 用例 38/39 已补（回归 30/30）；用例 40-44 后续补
+- 读路径复测（P2）：cache 256MB → readrandom 166K ops/s（8MB 的 +14%）、
+  命中率 63.1% ≈ 期望——读路径无回退
+- 50GB 终态验收（R15）后台运行中
+- **崩溃恢复窗口（M4.4b）**：kill -9 时最近物化的 SST 若 MANIFEST 未落盘
+  → 重开丢失（孤儿 SST）——修复方向：物化安装 LogAndApply 的 MANIFEST
+  sync 优先 + 恢复时孤儿 SST 扫描
+- **旧路径删除（M4.4b）**：use_global_index() 分支保留（deprecated），
+  稳定后移除（SlimMemTableRep/SealEpochAndSwitch/epoch 机制）
 
 - **P2 稳态复测**（D3）：cache 256MB、lz4、readrandom 前等 compaction 队列清空——重查 vs256 读优势归因，重定 vs1024 读目标
 - value cache（可选）：若 vs1024 读仍差，locator 命中后先查块缓存再落盘
