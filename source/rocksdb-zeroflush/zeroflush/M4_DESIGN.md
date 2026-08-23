@@ -506,14 +506,18 @@ L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现�
 封存 WAL 移交 recovery 集合、下个 epoch 收养后多代合并）——**回归破坏
 （13/34）二次回滚**（保留 M4.5 的 upper_conflict 删除；回归 34/34 恢复）。
 
-**调试结论（2026-08-23 三次，最小复现）**：新增用例 45
-（MultiGenFrozenIterator，纯 PartitionIndexSet 单元）——**多代 frozen +
-key 交错（4 分区 × 3 代 × 8 key）的归并遍历 96/96 PASS**，归并层（
-PartitionIndexIterator + MergingIterator）无 bug。攒批丢 key 的根因
-**不在归并层**，指向**物化安装的 SuperVersion 刷新与 frozen 释放/迭代器
-快照的时序**（迭代器创建时 sv 不含新 SST 且 frozen 已释放的窗口）。
-修复方向：迭代器/Get 的"未 compact 窗口"与 sv 快照的一致性协调（或
-攒批的替代路径）。攒批仍为 50GB 根治方向，时序协调为下一步。
+**调试结论（2026-08-23 三次）**：
+- 最小复现（用例 45）：多 frozen + key 交错归并 96/96 PASS——**归并层无 bug**
+- **DebugCountEach（逐索引独立遍历）**：攒批场景索引内容**完整**（144 条
+  全在：p0 g0/g1/g2 + 其他分区的 g1/g2）——**丢的 key 在 SST 侧**（迭代器
+  164 = 索引 144 + SST 仅 ~20，而物化的 p1/p2/p3 g0 应有 ~56 条）
+- **根因锁定**：**迭代器创建时的 SuperVersion 与物化安装的竞态**——迭代器
+  拿到旧 sv（不含新安装的 SST）时，物化的 frozen 索引已被释放（ReleaseFrozen）
+  → 该分区数据不可见（计数波动 144/164 证实竞态）
+- **修复方向**：迭代器/Get 的"未 compact 窗口"与 sv 快照的一致性——物化
+  安装后、ReleaseFrozen 前确保迭代器可见（如：frozen 释放延迟到 sv 确认
+  刷新，或迭代器侧以 frozen 索引为准的窗口合并）
+- kSkip 攒批三次回滚（回归 35/35 恢复）；攒批仍为 50GB 根治方向
 
 ### 后续（M4 之后）
 

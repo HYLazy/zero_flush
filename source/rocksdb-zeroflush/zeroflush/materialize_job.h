@@ -144,6 +144,7 @@ class ZfMaterializeJob {
 
 
 
+
  private:
   // 阶段 0（持锁）产生的分区决策，供阶段 1 worker 与阶段 2 安装消费。
   struct PartitionPlan {
