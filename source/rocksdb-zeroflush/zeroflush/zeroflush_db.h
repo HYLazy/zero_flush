@@ -149,6 +149,10 @@ class ZeroFlushContext {
   void FreezeIndexes(const std::vector<std::pair<uint32_t, uint32_t>>& gens);
   // M4.3a：物化完成（epoch 回收）时释放该 epoch 的 frozen 索引。
   void ReleaseFrozenIndexes(uint64_t epoch);
+  // M4.5b：跳过分区的封存 WAL 移交 recovery（攒批——下个 epoch 收养后
+  // 多代合并物化）。由 FlushJob 在物化完成后、epoch 回收前调用。
+  void HandOffSkippedToRecovery(
+      uint64_t epoch, const std::vector<std::pair<uint32_t, uint32_t>>& gens);
   // M4.3a：Get 查分区索引（替代 mem/imm 链）。命中返回 true（含 tombstone）。
   bool GetFromPartitionIndex(const ROCKSDB_NAMESPACE::Slice& user_key,
                              ROCKSDB_NAMESPACE::SequenceNumber snapshot,

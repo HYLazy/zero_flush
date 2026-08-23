@@ -641,6 +641,26 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeOnePartition(
   return impl->ZfSwitchMemtable(cfd);
 }
 
+// M4.5b：跳过分区的封存 WAL 移交 recovery 集合（攒批）。
+void ZeroFlushContext::HandOffSkippedToRecovery(
+    uint64_t epoch, const std::vector<std::pair<uint32_t, uint32_t>>& gens) {
+  if (sealed_cache_ == nullptr || gens.empty()) {
+    return;
+  }
+  // 取该 epoch 的 per-partition 封存字节（ratio 攒批合并用）。
+  SealedEpoch se;
+  std::unordered_map<uint32_t, uint64_t> part_bytes;
+  if (GetSealedEpoch(epoch, &se)) {
+    for (const auto& [part, gen] : gens) {
+      auto pb = se.part_bytes.find(part);
+      if (pb != se.part_bytes.end()) {
+        part_bytes[part] = pb->second;
+      }
+    }
+  }
+  sealed_cache_->HandOffSkippedToRecovery(epoch, gens, part_bytes);
+}
+
 // M4.3a：封存时冻结全部分区索引（全局 epoch 粒度；M4.3c 改单分区触发）。
 void ZeroFlushContext::FreezeIndexes(
     const std::vector<std::pair<uint32_t, uint32_t>>& gens) {

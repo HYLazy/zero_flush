@@ -252,6 +252,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::Run() {
     } else {
       o.level = PickInstallLevel(o.meta.smallest, o.meta.largest);
       if (o.level == 0) {
+        // 回落 L0（M4.5b 攒批已回滚：kSkip 破坏数据可见性，调试中）。
         ctx_->install_fallback_l0_.fetch_add(1, std::memory_order_relaxed);
       } else {
         ctx_->install_direct_base_.fetch_add(1, std::memory_order_relaxed);
@@ -382,7 +383,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     }
 
     // 被批内前序注册标记的文件必须由批内融合输出覆盖（last_batch 为
-    // kMergeBase），否则 B 侧缺数据 → 安全降级 kFallback。
+    // kMergeBase），否则 B 侧缺数据 → 安全降级 kSkip（攒批）。
     if (batch_skipped &&
         (last_batch == nullptr ||
          last_batch->decision != MaterializeDecision::kMergeBase)) {
@@ -703,7 +704,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   }
 
   // seq 前置断言（§7.4）：A 侧全部记录必须比 B 侧任何记录新。
-  // 孤儿代 epoch 已在 PlanLocked 降级 kFallback；此处做运行时防御。
+  // 孤儿代 epoch 已在 PlanLocked 降级 kSkip；此处做运行时防御。
   uint64_t max_b_seq = 0;
   for (const ROCKSDB_NAMESPACE::FileMetaData* f : overlap_all) {
     max_b_seq = std::max(max_b_seq, f->fd.largest_seqno);

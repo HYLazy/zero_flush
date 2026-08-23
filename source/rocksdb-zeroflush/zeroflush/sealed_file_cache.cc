@@ -45,8 +45,14 @@ void SealedFileCache::AddEpochWithRecoveryAdoption(const SealedEpoch& e,
     }
     merged.total_bytes += recovery_bytes_;
     merged.has_adopted_orphans = true;
+    // M4.5b：合并 recovery 的 per-partition 字节（攒批后融合 ratio
+    // 计算含全部待物化代）。
+    for (const auto& [part, bytes] : recovery_part_bytes_) {
+      merged.part_bytes[part] += bytes;
+    }
     recovery_gens_.clear();
     recovery_bytes_ = 0;
+    recovery_part_bytes_.clear();
   }
   merged.sealed_at_micros = env_->NowMicros();
   epochs_.emplace(merged.epoch, merged);
@@ -63,6 +69,39 @@ void SealedFileCache::AddRecoveryGens(
     recovery_gens_.emplace(MakeFileKey(part, gen));
   }
   recovery_bytes_ += total_bytes;
+}
+
+void SealedFileCache::HandOffSkippedToRecovery(
+    uint64_t epoch, const std::vector<std::pair<uint32_t, uint32_t>>& gens,
+    const std::unordered_map<uint32_t, uint64_t>& part_bytes) {
+  rocksdb::MutexLock l(&mu_);
+  // 1) 从 epoch 移除跳过的 gens（ReleaseEpoch 不再 unlink 它们）。
+  auto eit = epochs_.find(epoch);
+  if (eit != epochs_.end()) {
+    auto& egens = eit->second.gens;
+    egens.erase(
+        std::remove_if(egens.begin(), egens.end(),
+                       [&gens](const std::pair<uint32_t, uint32_t>& g) {
+                         return std::find(gens.begin(), gens.end(), g) !=
+                                gens.end();
+                       }),
+        egens.end());
+    for (const auto& [part, gen] : gens) {
+      auto pb = eit->second.part_bytes.find(part);
+      if (pb != eit->second.part_bytes.end()) {
+        eit->second.total_bytes -= pb->second;
+        eit->second.part_bytes.erase(pb);
+      }
+    }
+  }
+  // 2) 移交 recovery（可读、不回收；per-part 字节供收养时 ratio 合并）。
+  for (const auto& [part, gen] : gens) {
+    recovery_gens_.emplace(MakeFileKey(part, gen));
+  }
+  for (const auto& [part, bytes] : part_bytes) {
+    recovery_part_bytes_[part] += bytes;
+    recovery_bytes_ += bytes;
+  }
 }
 
 uint64_t SealedFileCache::ReleaseEpoch(uint64_t epoch) {

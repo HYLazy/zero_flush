@@ -57,6 +57,7 @@ class ZeroFlushContext;
 //  - kDirect：base 层无重叠文件 → 单文件 + PickInstallLevel（可能直装）；
 //  - kMergeBase：融合归并 → 与 base 层重叠文件归并，输出直装 base 层；
 //  - kFallback：不融合（互斥冲突/比例不足/孤儿代）→ 单文件 + PickInstallLevel。
+// M4.5b 攒批（kSkip）已回滚——数据可见性破坏，调试中（见 M4_DESIGN.md）。
 enum class MaterializeDecision : uint8_t { kDirect, kMergeBase, kFallback };
 
 // 一个分区的物化输出：目标安装层 + FileMetaData + 融合归并元信息。
@@ -141,6 +142,7 @@ class ZfMaterializeJob {
 
   // 本 epoch 排序累计耗时（微秒），计入 zf.materialize_sort_micros。
   uint64_t sort_micros() const { return sort_micros_; }
+
 
  private:
   // 阶段 0（持锁）产生的分区决策，供阶段 1 worker 与阶段 2 安装消费。

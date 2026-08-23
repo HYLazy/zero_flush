@@ -83,6 +83,14 @@ class SealedFileCache {
   void AddRecoveryGens(const std::vector<std::pair<uint32_t, uint32_t>>& gens,
                        uint64_t total_bytes);
 
+  // M4.5b 攒批：把指定 gens 从 epoch 中移除并移交 recovery 集合（可读、
+  // 不回收）——物化跳过（kSkip）的分区数据保留在磁盘，待下个 epoch
+  // 收养后多代合并物化。part_bytes 为该分区的封存字节（收养时合并进
+  // 新 epoch 的 ratio 计算）。
+  void HandOffSkippedToRecovery(uint64_t epoch,
+                                const std::vector<std::pair<uint32_t, uint32_t>>& gens,
+                                const std::unordered_map<uint32_t, uint64_t>& part_bytes);
+
   // 释放一个 epoch 的引用。引用归零时把文件名移入 pending_unlink_，
   // 并返回该 epoch 的封存字节（用于物化统计）；未找到或未归零返回 0。
   // reclaim_sealed_files == false 时只减引用不入队。
@@ -144,6 +152,9 @@ class SealedFileCache {
   // 由 Recover() 登记，由 AddEpochWithRecoveryAdoption 收养（并入 epoch）。
   std::unordered_set<ZfFileKey> recovery_gens_;
   uint64_t recovery_bytes_ = 0;
+  // M4.5b：recovery 集合的 per-partition 字节（收养时合并进 part_bytes，
+  // 供攒批后的融合 ratio 计算）。
+  std::unordered_map<uint32_t, uint64_t> recovery_part_bytes_;
 
   // 累计封存字节（统计用）
   uint64_t sealed_bytes_ = 0;
