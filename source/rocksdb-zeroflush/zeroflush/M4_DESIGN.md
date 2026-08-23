@@ -435,22 +435,33 @@ compact(p)（M3.3 融合归并路径，挂原生 compaction 调度器）：
 
 **M4.3a 边界**：freeze 仍是全局 epoch 粒度（封存触发不变）；单分区 freeze/compact 触发、Iterator、背压、拆全局 epoch 属 M4.3c/d。
 
-### M4.3b Get 完整验证 + 用例 38/39（规划）
+### M4.3b Get 完整验证 + 用例 38/39（已并入 M4.3a/d）
 
-M4.3a 已含 Get 分区化与恢复重建；本子步补正式用例：38（分区 freeze 独立——待 M4.3c 单分区化后）、39（并发写读跨分区，可直接补）。
+M4.3a 已含 Get 分区化与恢复重建；M4.3d 完成后回归 28/28 + 数据完整性五连 PASS
+（用例 38-44 的正式用例补充留 M4.4 前）。
 
-### M4.3c 单分区 freeze/compact（待开发）
+### M4.3c 单分区/批次 freeze（已完成 ✅ 2026-08-22）
 
-- 触发：`any_over_target_`（单分区 WAL ≥ partition_target，M4.1a 已有）→ 调度该分区 freeze+compact（不再全局 SealEpochAndSwitch）
-- freeze(p)：`wal_->Freeze(p)`（单分区换代）+ `index_set_->Freeze(p)`（单分区索引冻结）——写路径其余分区不受影响
-- compact(p)：frozen 索引区间遍历（M4.2 输入侧）+ 封存 WAL 整段缓冲 → 与 L1 对齐文件融合归并（M3.3 路径复用，输入侧改分区）→ 单次 VersionEdit → ReleaseFrozen
-- 拆除：全局 epoch 触发的封存路径逐步退化为仅内存背压（M4.3d 完成拆除）
+- FreezeOnePartition（M4.3c，840ca40）：单分区封存（WAL 换代 + 索引冻结 + 单分区 epoch）
+- FreezeBatchPartitions（M4.3d-1，cd0d3e8）：一次 epoch 冻结多分区（超限优先 + 补充最大至
+  4 分区/epoch_target 字节）——物化作业数 = 批次数，实测 86.7K→104.9K（epochs 58→21、零停写）
+- 单分区/批次 freeze 均保留"分区满即换代"及时性；compact 复用现有物化路径（按 epoch gens）
 
-### M4.3d Iterator + 背压 + 拆全局 epoch（规划）
+### M4.3d 背压·开关翻转·迭代器·正确性修复（已完成 ✅ 2026-08-23，c5592cd）
 
-- Iterator：分区链多路归并（PartitionIndex::Iterator 已有接口）
-- 背压：`total_mem_bytes_ ≥ mem_budget` → 挑最大分区 compact
-- 拆除：SealEpochAndSwitch / epoch refcount / imm 链 / SlimMemTableRep / `zf_global_index` 开关翻转删除
+- 背压：ShouldSeal 追加索引内存预算（index_mem_budget 4GB）
+- 开关翻转：zf_global_index 默认 false（终态默认），旧路径保留回退（M4.4 删除）
+- 迭代器：PartitionIndexIterator（shared_ptr 生命周期 + lambda 按值）；NewInternalIterator ZF 分支
+- **正确性修复链（回归 28/28 + 完整性五连 PASS 的关键）**：
+  1. FreezeBatchPartitions 新索引 gen=old_gen+1（freeze 后写组记录被丢弃的根因）
+  2. Insert 按 locator.gen 选索引（freeze 竞态错代）
+  3. Recover InsertCreate（封存代重建 frozen 索引）
+  4. Active() 全程持锁（map 并发 UB）
+  5. Freeze move-after-use 崩溃
+  6. GetFromPartitionIndex 读失败回退 SST
+  7. Insert 跳表插入锁外（锁内串行化 105K→11K 已恢复）
+- 实测：2.2GB **105.7K ops/s**（R14，旧路径 R7 111K 差距 <5%）、零停写、P50 128us、
+  数据完整性 V1-V5 PASS（V4 崩溃恢复窗口恢复量少留 M4.4）
 
 ### M4.4 读路径巩固与基准定稿（~1 周）
 
