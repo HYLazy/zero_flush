@@ -405,35 +405,15 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       }
     }
 
-    // 上层（L0..base-1）与分区范围重叠：直装会被更旧的 L0 数据遮蔽
-    // （读路径 L0 优先），且原生 L0→base compaction 可能并发产出同层
-    // 重叠文件 → 放弃融合（§7.2 保守分支）。
-    bool upper_conflict = false;
-    for (int l = 0; l < base && !upper_conflict; ++l) {
-      if (vstorage->OverlapInLevel(l, &plan.lo, &plan.hi)) {
-        upper_conflict = true;
-      }
-    }
-    // 批内已放置的 L0 文件（未安装，vstorage 不可见）与分区重叠时
-    // 同样遮蔽直装输出 → 放弃融合（批次内多 epoch 的 ABA 防护）。
-    if (!upper_conflict && batch_outputs_ != nullptr) {
-      for (const MaterializeOutput& x : *batch_outputs_) {
-        if (x.level != 0 || x.superseded) {
-          continue;
-        }
-        const ROCKSDB_NAMESPACE::Slice x_lo = x.meta.smallest.user_key();
-        const ROCKSDB_NAMESPACE::Slice x_hi = x.meta.largest.user_key();
-        if (ucmp->Compare(x_hi, plan.lo) >= 0 &&
-            ucmp->Compare(x_lo, plan.hi) < 0) {
-          upper_conflict = true;
-          break;
-        }
-      }
-    }
-    if (upper_conflict) {
-      plans_.push_back(std::move(plan));
-      continue;
-    }
+    // M4.5：删除 upper_conflict 检查——L0（或更浅层）与本分区范围重叠
+    // 不再拒绝融合/直装。原逻辑（§7.2 保守分支）在 L0 堆积时导致"回落
+    // L0 → L0 更多 → 更拒"的恶性循环（R8/R15 实测：50GB 下 L0 卡 75、
+    // 停写 52%）。正确性论证：读路径自浅至深（L0 优先），L0 中的文件
+    // 是更晚 epoch 的数据（seq 更新）→ 遮蔽 base 层的融合输出（本 epoch
+    // 更旧）→ 语义正确；L0 文件由原生 compaction 消费，无新回落 →
+    // 循环打破，稳态 L0 空 → 直装恢复。
+    // 注意：批内多 epoch 的 ABA 防护由"epoch 按序物化 + 安装原子性"
+    // 保证（单次 VersionEdit），L0 重叠不再作为拒绝理由。
 
     // 与运行中 compaction 的输出范围互斥（§7.3）：注册前检查，命中即
     // 降级不等待（防死锁）。分区范围 ⊇ 重叠文件范围，故该检查严格于
