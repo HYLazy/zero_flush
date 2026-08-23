@@ -252,7 +252,6 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::Run() {
     } else {
       o.level = PickInstallLevel(o.meta.smallest, o.meta.largest);
       if (o.level == 0) {
-        // 回落 L0（M4.5b 攒批已回滚：kSkip 破坏数据可见性，调试中）。
         ctx_->install_fallback_l0_.fetch_add(1, std::memory_order_relaxed);
       } else {
         ctx_->install_direct_base_.fetch_add(1, std::memory_order_relaxed);

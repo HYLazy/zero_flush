@@ -482,6 +482,11 @@ inline void PartitionIndexSet::AddIterators(
             (unsigned long long)di->mem_bytes());
   }
   fprintf(stderr, "\n");
+  for (const auto& di : all) {
+    fprintf(stderr, " (p%u g%u m%llu f%d)", di->part_id(), di->gen(),
+            (unsigned long long)di->mem_bytes(), di->frozen() ? 1 : 0);
+  }
+  fprintf(stderr, "\n");
   for (const auto& idx : all) {
     // 堆分配（非 arena）：PartitionIndexIterator 含 std::string/std::function，
     // arena 迭代器不析构会泄漏且内存语义与归并迭代器 delete 约定冲突；

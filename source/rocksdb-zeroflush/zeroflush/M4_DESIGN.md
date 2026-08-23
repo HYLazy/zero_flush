@@ -502,11 +502,18 @@ M4.3a 已含 Get 分区化与恢复重建；M4.3d 完成后回归 28/28 + 数据
 upper_conflict 删除打破了"L0 重叠拒绝"的放大器，但 **ratio 拒绝 → 回落 →
 L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现。
 
-**M4.5b（攒批物化，尝试后回滚）**：实现 kSkip（ratio 拒绝分区不产出、
+**M4.5b（攒批物化，二次尝试后回滚）**：实现 kSkip（ratio 拒绝分区不产出、
 封存 WAL 移交 recovery 集合、下个 epoch 收养后多代合并）——**回归破坏
-（13/34 失败：迭代器计数少 + Get NotFound）已回滚**（保留 M4.5 的
-upper_conflict 删除）。根因待查（kSkip 后 frozen 索引 + recovery WAL 的
-可见性链路）。攒批仍是 50GB 根治方向，调试留后续。
+（13/34）二次回滚**（保留 M4.5 的 upper_conflict 删除；回归 34/34 恢复）。
+
+**调试发现（2026-08-23 二次）**：kSkip 后数据在 frozen 索引 + recovery WAL，
+`AddIterators` 显示索引全在（9 个：frozen 5 + active 4），但**迭代器遍历缺
+key**（如 fr0000000000-0002 缺失，共 ~56 条）——根因指向
+**PartitionIndexIterator 与 MergingIterator 的归并交互**（多 frozen 索引
+归并丢数据）或 **p0 的 frozen 索引跳表遍历**（SeekToFirst 从 0003 开始而非
+0000）。**下一步调试方向**：PartitionIndexIterator::SeekToFirst/Next 与
+归并排序一致性；p0 多代（g0/g1/g2）索引的 key 分布验证。攒批仍是 50GB
+根治方向。
 
 ### 后续（M4 之后）
 
