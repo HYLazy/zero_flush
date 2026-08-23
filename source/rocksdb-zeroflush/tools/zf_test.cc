@@ -1691,6 +1691,157 @@ void TestAlignL1Boundaries() {
   CleanDB(dbname);
 }
 
+
+// ---------------------------------------------------------------------------
+// 用例 38 (M4.3-38): PartitionFreezeIndependent — 分区独立 freeze。
+// 触发分区 0 的 freeze（批次冻结）后，其余分区持续写入不被阻塞；
+// freeze 前后全量数据可读（迭代器 + Get）。
+// ---------------------------------------------------------------------------
+void TestPartitionFreezeIndependent() {
+  const char* tag = "PartitionFreezeIndependent(M4.3-38)";
+  std::string dbname = std::string(kDbBase) + "pfreeze_indep";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+  zfo.partition_target_bytes = 4 << 10;  // 4KB：小阈值，写入中频繁 freeze
+  zfo.epoch_target_bytes = 4 << 10;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+
+  // 写入 800 条（每分区 ~200 条 → 多次分区 freeze），freeze 后继续写。
+  std::map<std::string, std::string> written;
+  std::mt19937_64 rng(20260823);
+  char k[24], v[96];
+  for (int i = 0; i < 800; ++i) {
+    uint64_t r = rng() % 1000000;
+    snprintf(k, sizeof(k), "k%08lu", (unsigned long)r);
+    ::memset(v, 'A' + (i % 26), 90);
+    v[90] = '\0';
+    s = db->Put(rocksdb::WriteOptions(), rocksdb::Slice(k, strlen(k)),
+                rocksdb::Slice(v, 90));
+    if (!s.ok()) {
+      ReportResult(tag, false, "put@" + std::to_string(i) + ": " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+    written[k] = std::string(v, 90);
+  }
+
+  // 等待全部 epoch 物化（freeze 后的数据进 SST 或索引——迭代器应全量）。
+  if (!WaitAllMaterialized(db.get())) {
+    ReportResult(tag, false, "materialization did not finish");
+    CleanDB(dbname);
+    return;
+  }
+
+  // 迭代器全量 + Get 全对。
+  if (CountViaIterator(db.get()) != static_cast<int64_t>(written.size())) {
+    ReportResult(tag, false, "iter count mismatch");
+    CleanDB(dbname);
+    return;
+  }
+  std::string val;
+  for (const auto& kv : written) {
+    s = db->Get(rocksdb::ReadOptions(), kv.first, &val);
+    if (!s.ok() || val != kv.second) {
+      ReportResult(tag, false,
+                   "get " + kv.first + " -> " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+
+  ReportResult(tag, true,
+               "keys=" + std::to_string(written.size()));
+  CleanDB(dbname);
+}
+
+// ---------------------------------------------------------------------------
+// 用例 39 (M4.3-39): ConcurrentPartitionWriteRead — 多线程并发写读跨分区。
+// ---------------------------------------------------------------------------
+void TestConcurrentPartitionWriteRead() {
+  const char* tag = "ConcurrentPartitionWriteRead(M4.3-39)";
+  std::string dbname = std::string(kDbBase) + "conc_part";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 8;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+  zfo.partition_target_bytes = 8 << 10;
+  zfo.epoch_target_bytes = 8 << 10;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+
+  // 4 线程 × 250 条并发写（跨分区随机键），完成后全量 Get 验证。
+  constexpr int kThreads = 4;
+  constexpr int kPerThread = 250;
+  std::map<std::string, std::string> written;
+  std::mutex mu;
+  std::atomic<bool> failed{false};
+  std::vector<std::thread> threads;
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t]() {
+      std::mt19937_64 rng(1000 + t);
+      char k[24], v[96];
+      for (int i = 0; i < kPerThread; ++i) {
+        uint64_t r = rng() % 1000000;
+        snprintf(k, sizeof(k), "k%08lu", (unsigned long)r);
+        ::memset(v, 'a' + (t % 26), 90);
+        v[90] = '\0';
+        auto ps = db->Put(rocksdb::WriteOptions(), rocksdb::Slice(k, strlen(k)),
+                          rocksdb::Slice(v, 90));
+        if (!ps.ok()) {
+          failed.store(true);
+          return;
+        }
+        std::lock_guard<std::mutex> l(mu);
+        written[k] = std::string(v, 90);
+      }
+    });
+  }
+  for (auto& th : threads) {
+    th.join();
+  }
+  if (failed.load()) {
+    ReportResult(tag, false, "concurrent put failed");
+    CleanDB(dbname);
+    return;
+  }
+
+  if (!WaitAllMaterialized(db.get())) {
+    ReportResult(tag, false, "materialization did not finish");
+    CleanDB(dbname);
+    return;
+  }
+
+  // 全量 Get 验证（跨分区读）。
+  std::string val;
+  for (const auto& kv : written) {
+    s = db->Get(rocksdb::ReadOptions(), kv.first, &val);
+    if (!s.ok() || val != kv.second) {
+      ReportResult(tag, false, "get " + kv.first + " -> " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+
+  ReportResult(tag, true,
+               "keys=" + std::to_string(written.size()));
+  CleanDB(dbname);
+}
+
 // ---------------------------------------------------------------------------
 // 用例 19 (M3.1-19): NonBytewiseComparator — 非字节序比较器下
 // PartitionTable::Create + Route + RangeOf 互为逆（I6）。
@@ -2770,6 +2921,8 @@ int main(int argc, char** argv) {
   run("SampledBoundariesConverge",    TestSampledBoundariesConverge);
   run("SampledLearningEpochEndToEnd", TestSampledLearningEpochEndToEnd);
   run("AlignL1Boundaries",            TestAlignL1Boundaries);
+  run("PartitionFreezeIndependent",   TestPartitionFreezeIndependent);
+  run("ConcurrentPartitionWriteRead", TestConcurrentPartitionWriteRead);
   run("NonBytewiseComparator",        TestNonBytewiseComparator);
   run("PartitionOutputsDisjoint",     TestPartitionOutputsDisjoint);
   run("ComparatorNameMismatchRejected", TestComparatorNameMismatchRejected);
