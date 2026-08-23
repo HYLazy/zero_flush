@@ -1531,11 +1531,9 @@ Status DBImpl::WriteImpl(
           assert(cfd != nullptr);
           mutex_.Lock();
           if (zf_ctx_->ShouldSeal()) {
-            // M4.3c：终态路径单分区封存（仅冻结目标分区，其余分区不受
-            // 影响）；旧路径保留全局 epoch 封存。
-            status = zf_ctx_->use_global_index()
-                         ? zf_ctx_->SealEpochAndSwitch(this, cfd)
-                         : zf_ctx_->FreezeBatchPartitions(this, cfd);
+            // M4.3c/d：终态路径批次封存（一次 epoch 冻结多分区）。
+            // M4.4b：旧路径（全局 epoch 封存）已移除。
+            status = zf_ctx_->FreezeBatchPartitions(this, cfd);
             if (!status.ok()) {
               // 封存失败：把 BG 错误挂上，写路径短路返回。
               error_handler_.SetBGError(status,
@@ -1589,10 +1587,8 @@ Status DBImpl::WriteImpl(
           assert(cfd != nullptr);
           mutex_.Lock();
           if (zf_ctx_->ShouldSeal()) {
-            // M4.3c：终态路径单分区封存（parallel 分支同款分支）。
-            status = zf_ctx_->use_global_index()
-                         ? zf_ctx_->SealEpochAndSwitch(this, cfd)
-                         : zf_ctx_->FreezeBatchPartitions(this, cfd);
+            // M4.3c/d：终态路径批次封存（parallel 分支同款）。
+            status = zf_ctx_->FreezeBatchPartitions(this, cfd);
             if (!status.ok()) {
               error_handler_.SetBGError(status,
                   BackgroundErrorReason::kMemTable);

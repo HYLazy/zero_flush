@@ -31,6 +31,9 @@
 #include <string>
 #include <sys/stat.h>
 #include <thread>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <unordered_set>
 
 #include "rocksdb/db.h"
@@ -1842,6 +1845,326 @@ void TestConcurrentPartitionWriteRead() {
   CleanDB(dbname);
 }
 
+
+// ---------------------------------------------------------------------------
+// 用例 40 (M4.3-40): GetAfterCompact — compact（物化）后 Get 正确性。
+// ---------------------------------------------------------------------------
+void TestGetAfterCompact() {
+  const char* tag = "GetAfterCompact(M4.3-40)";
+  std::string dbname = std::string(kDbBase) + "get_after_compact";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 8;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+  zfo.partition_target_bytes = 4 << 10;
+  zfo.epoch_target_bytes = 4 << 10;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  std::map<std::string, std::string> written;
+  std::mt19937_64 rng(20260824);
+  char k[24], v[96];
+  for (int i = 0; i < 600; ++i) {
+    uint64_t r = rng() % 1000000;
+    snprintf(k, sizeof(k), "k%08lu", (unsigned long)r);
+    ::memset(v, 'A' + (i % 26), 90);
+    v[90] = '\0';
+    s = db->Put(rocksdb::WriteOptions(), rocksdb::Slice(k, strlen(k)),
+                rocksdb::Slice(v, 90));
+    if (!s.ok()) {
+      ReportResult(tag, false, "put: " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+    written[k] = std::string(v, 90);
+  }
+  // 物化完成（数据进 SST）。
+  if (!WaitAllMaterialized(db.get())) {
+    ReportResult(tag, false, "materialization did not finish");
+    CleanDB(dbname);
+    return;
+  }
+  std::string val;
+  for (const auto& kv : written) {
+    s = db->Get(rocksdb::ReadOptions(), kv.first, &val);
+    if (!s.ok() || val != kv.second) {
+      ReportResult(tag, false, "get: " + kv.first + " -> " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+  // 重开后仍全对。
+  db.reset();
+  std::unique_ptr<rocksdb::DB> db2;
+  s = zeroflush::Open(MakeOptions(), zfo, dbname, &db2);
+  if (!s.ok()) {
+    ReportResult(tag, false, "reopen: " + s.ToString());
+    CleanDB(dbname);
+    return;
+  }
+  for (const auto& kv : written) {
+    s = db2->Get(rocksdb::ReadOptions(), kv.first, &val);
+    if (!s.ok() || val != kv.second) {
+      ReportResult(tag, false, "get after reopen: " + kv.first);
+      CleanDB(dbname);
+      return;
+    }
+  }
+  db2.reset();
+  ReportResult(tag, true, "keys=" + std::to_string(written.size()));
+  CleanDB(dbname);
+}
+
+// ---------------------------------------------------------------------------
+// 用例 41 (M4.3-41): CrashBeforeCompact — 封存后未物化即"崩溃"（不等待
+// 物化直接关闭），重开后封存代 WAL 恢复。真实 fork 与 RocksDB 全局线程池
+// 不兼容（子进程物化不执行），此处用"写入触发 freeze 后立即 Close"模拟
+// 崩溃窗口（Close 只 flush 活跃缓冲，不物化已封存代——重开时封存代 WAL
+// 在，Recover 重建索引恢复数据）。
+// ---------------------------------------------------------------------------
+void TestCrashBeforeCompact() {
+  const char* tag = "CrashBeforeCompact(M4.3-41)";
+  std::string dbname = std::string(kDbBase) + "crash_pre_compact";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 8;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+  zfo.partition_target_bytes = 4 << 10;
+  zfo.epoch_target_bytes = 4 << 10;
+
+  // 写入（触发 freeze 产生封存代）后立即关闭（不等物化）。
+  std::map<std::string, std::string> written;
+  {
+    std::unique_ptr<rocksdb::DB> db;
+    auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+    if (!s.ok()) {
+      ReportResult(tag, false, "open: " + s.ToString());
+      return;
+    }
+    std::mt19937_64 rng(42);
+    char k[24], v[96];
+    for (int i = 0; i < 150; ++i) {
+      uint64_t r = rng() % 1000000;
+      snprintf(k, sizeof(k), "k%08lu", (unsigned long)r);
+      ::memset(v, 'B' + (i % 26), 90);
+      v[90] = '\0';
+      auto ps = db->Put(rocksdb::WriteOptions(), rocksdb::Slice(k, strlen(k)),
+                        rocksdb::Slice(v, 90));
+      if (!ps.ok()) {
+        ReportResult(tag, false, "put: " + ps.ToString());
+        CleanDB(dbname);
+        return;
+      }
+      written[k] = std::string(v, 90);
+    }
+    // 立即关闭（不等待物化——模拟崩溃窗口：封存代 WAL 保留在磁盘）。
+  }
+
+  // 重开：Recover 重建索引（封存代 + 活跃代 WAL），全量 Get。
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "reopen: " + s.ToString());
+    CleanDB(dbname);
+    return;
+  }
+  std::string val;
+  for (const auto& kv : written) {
+    s = db->Get(rocksdb::ReadOptions(), kv.first, &val);
+    if (!s.ok() || val != kv.second) {
+      ReportResult(tag, false,
+                   "get after crash reopen: " + kv.first + " -> " +
+                       s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+  ReportResult(tag, true, "keys=" + std::to_string(written.size()));
+  CleanDB(dbname);
+}
+
+// ---------------------------------------------------------------------------
+// 用例 42 (M4.3-42): MemoryBudgetBackpressure — 索引内存预算触发 freeze。
+// ---------------------------------------------------------------------------
+void TestMemoryBudgetBackpressure() {
+  const char* tag = "MemoryBudgetBackpressure(M4.3-42)";
+  std::string dbname = std::string(kDbBase) + "mem_budget";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 8;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+  zfo.partition_target_bytes = 128u << 20;  // 128MB：WAL 阈值不触发（且过
+                                            // K*partition_target <= 4*write_buffer 校验）
+  zfo.epoch_target_bytes = 128u << 20;
+  zfo.index_mem_budget = 8 << 10;           // 8KB：极小预算 → 内存触发（写入 ~15KB 必超）
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  std::map<std::string, std::string> written;
+  std::mt19937_64 rng(7);
+  char k[24], v[96];
+  for (int i = 0; i < 500; ++i) {
+    uint64_t r = rng() % 1000000;
+    snprintf(k, sizeof(k), "k%08lu", (unsigned long)r);
+    ::memset(v, 'C' + (i % 26), 90);
+    v[90] = '\0';
+    s = db->Put(rocksdb::WriteOptions(), rocksdb::Slice(k, strlen(k)),
+                rocksdb::Slice(v, 90));
+    if (!s.ok()) {
+      ReportResult(tag, false, "put: " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+    written[k] = std::string(v, 90);
+  }
+  // 内存预算应触发多次 freeze（epochs_sealed > 0）。
+  const uint64_t sealed = ZfMetric(db.get(), "epochs_sealed");
+  if (sealed == 0) {
+    ReportResult(tag, false, "no freeze triggered by memory budget");
+    CleanDB(dbname);
+    return;
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    ReportResult(tag, false, "materialization did not finish");
+    CleanDB(dbname);
+    return;
+  }
+  std::string val;
+  for (const auto& kv : written) {
+    s = db->Get(rocksdb::ReadOptions(), kv.first, &val);
+    if (!s.ok() || val != kv.second) {
+      ReportResult(tag, false, "get: " + kv.first + " -> " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+  ReportResult(tag, true,
+               "sealed=" + std::to_string(sealed) +
+                   " keys=" + std::to_string(written.size()));
+  CleanDB(dbname);
+}
+
+// ---------------------------------------------------------------------------
+// 用例 43 (M4.3-43): ParallelPartitionCompact — 多分区并行物化正确性。
+// ---------------------------------------------------------------------------
+void TestParallelPartitionCompact() {
+  const char* tag = "ParallelPartitionCompact(M4.3-43)";
+  std::string dbname = std::string(kDbBase) + "par_compact";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 16;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+  zfo.partition_target_bytes = 4 << 10;
+  zfo.epoch_target_bytes = 4 << 10;
+  zfo.materialize_parallelism = 8;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  std::map<std::string, std::string> written;
+  std::mt19937_64 rng(2026);
+  char k[24], v[96];
+  for (int i = 0; i < 1000; ++i) {
+    uint64_t r = rng() % 1000000;
+    snprintf(k, sizeof(k), "k%08lu", (unsigned long)r);
+    ::memset(v, 'D' + (i % 26), 90);
+    v[90] = '\0';
+    s = db->Put(rocksdb::WriteOptions(), rocksdb::Slice(k, strlen(k)),
+                rocksdb::Slice(v, 90));
+    if (!s.ok()) {
+      ReportResult(tag, false, "put: " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+    written[k] = std::string(v, 90);
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    ReportResult(tag, false, "materialization did not finish");
+    CleanDB(dbname);
+    return;
+  }
+  std::string val;
+  for (const auto& kv : written) {
+    s = db->Get(rocksdb::ReadOptions(), kv.first, &val);
+    if (!s.ok() || val != kv.second) {
+      ReportResult(tag, false, "get: " + kv.first + " -> " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+  ReportResult(tag, true, "keys=" + std::to_string(written.size()));
+  CleanDB(dbname);
+}
+
+// ---------------------------------------------------------------------------
+// 用例 44 (M4.3-44): SteadyStateControlledL0 — 持续写入 L0 文件数受控。
+// 回落 L0 循环（M4.5 消除）前，L0 文件数须受控（≤ 2×stop 阈值）。
+// ---------------------------------------------------------------------------
+void TestSteadyStateControlledL0() {
+  const char* tag = "SteadyStateControlledL0(M4.3-44)";
+  std::string dbname = std::string(kDbBase) + "steady_l0";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 8;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+  zfo.partition_target_bytes = 4 << 10;
+  zfo.epoch_target_bytes = 4 << 10;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  std::mt19937_64 rng(99);
+  char k[24], v[96];
+  for (int i = 0; i < 800; ++i) {
+    uint64_t r = rng() % 1000000;
+    snprintf(k, sizeof(k), "k%08lu", (unsigned long)r);
+    ::memset(v, 'E' + (i % 26), 90);
+    v[90] = '\0';
+    s = db->Put(rocksdb::WriteOptions(), rocksdb::Slice(k, strlen(k)),
+                rocksdb::Slice(v, 90));
+    if (!s.ok()) {
+      ReportResult(tag, false, "put: " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    ReportResult(tag, false, "materialization did not finish");
+    CleanDB(dbname);
+    return;
+  }
+  // L0 文件数受控（回落 L0 循环消除前，M4.5 验收恒 0）。
+  std::string prop;
+  db->GetProperty("rocksdb.num-files-at-level0", &prop);
+  const int l0 = atoi(prop.c_str());
+  if (l0 > 64) {
+    ReportResult(tag, false, "L0 files uncontrolled: " + std::to_string(l0));
+    CleanDB(dbname);
+    return;
+  }
+  ReportResult(tag, true, "l0_files=" + std::to_string(l0));
+  CleanDB(dbname);
+}
+
 // ---------------------------------------------------------------------------
 // 用例 19 (M3.1-19): NonBytewiseComparator — 非字节序比较器下
 // PartitionTable::Create + Route + RangeOf 互为逆（I6）。
@@ -2923,6 +3246,11 @@ int main(int argc, char** argv) {
   run("AlignL1Boundaries",            TestAlignL1Boundaries);
   run("PartitionFreezeIndependent",   TestPartitionFreezeIndependent);
   run("ConcurrentPartitionWriteRead", TestConcurrentPartitionWriteRead);
+  run("GetAfterCompact",              TestGetAfterCompact);
+  run("CrashBeforeCompact",           TestCrashBeforeCompact);
+  run("MemoryBudgetBackpressure",     TestMemoryBudgetBackpressure);
+  run("ParallelPartitionCompact",     TestParallelPartitionCompact);
+  run("SteadyStateControlledL0",      TestSteadyStateControlledL0);
   run("NonBytewiseComparator",        TestNonBytewiseComparator);
   run("PartitionOutputsDisjoint",     TestPartitionOutputsDisjoint);
   run("ComparatorNameMismatchRejected", TestComparatorNameMismatchRejected);

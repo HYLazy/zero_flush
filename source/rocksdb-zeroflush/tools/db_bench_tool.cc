@@ -858,9 +858,6 @@ DEFINE_int64(zf_epoch_target_mb, 256,
 DEFINE_double(zf_merge_ratio, 0.25,
               "ZeroFlush base-merge trigger ratio: sealed bytes / base-level "
               "overlap bytes must exceed this to fuse (else fall back to L0).");
-DEFINE_bool(zf_global_index, false,
-            "M4.3 terminal path: false = partition index (PartitionIndexSet, "
-            "no MemTable shell, default); true = legacy global memtable path.");
 
 DEFINE_bool(use_existing_keys, false,
             "If true, uses existing keys in the DB, "
@@ -5505,8 +5502,6 @@ class Benchmark {
       if (FLAGS_zf_merge_ratio > 0) {
         zfo.base_merge_min_ratio = FLAGS_zf_merge_ratio;
       }
-      // M4.3：终态路径开关（false = 分区索引，绕开 MemTable）。
-      zfo.zf_global_index = FLAGS_zf_global_index;
       s = zeroflush::Open(options, zfo, db_name, &db->db_owner);
       if (s.ok()) {
         db->db = db->db_owner.get();

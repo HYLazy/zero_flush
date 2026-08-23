@@ -84,11 +84,9 @@ struct ZeroFlushOptions {
   uint32_t l0_fallback_tolerance = 0;    // 允许的 L0 回落文件数（超出告警）
 
   // ---- M4.3 终态 ----
-  // false = 终态路径（分区索引 PartitionIndexSet，绕开 MemTable，默认）；
-  // true = 旧路径（MemTable 外壳，M4.1 行为，回退用，M4.4 删除）。
-  bool zf_global_index = false;
   // M4.3d-2：分区索引总内存预算（背压触发 freeze；默认 4GB ≈ 6~8 千万
-  // key 窗口，与 M4.1 的 write_buffer 语义对齐）。
+  // key 窗口，与 M4.1 的 write_buffer 语义对齐）。M4.4b：旧路径
+  // （zf_global_index/MemTable 外壳）已移除。
   uint64_t index_mem_budget = 4ull << 30;
 };
 
@@ -142,9 +140,6 @@ class ZeroFlushContext {
   PartitionedWalManager* wal() { return wal_.get(); }
   const ZeroFlushOptions& options() const { return zfo_; }
   const std::string& wal_dir() const { return wal_dir_; }
-
-  // M4.3：终态路径开关（false = 分区索引路径）。
-  bool use_global_index() const { return zfo_.zf_global_index; }
 
   // M4.3a：分区索引（终态 L0 索引；Open 时创建，需要 internal comparator）。
   PartitionIndexSet* index_set() { return index_set_.get(); }

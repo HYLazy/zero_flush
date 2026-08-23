@@ -2386,7 +2386,7 @@ InternalIterator* DBImpl::NewInternalIterator(
   // 的数据在分区索引 + WAL；SST 链在下方原样保留）。
   Status s;
   const auto* zf_ctx = cfd->GetZfCtx().get();
-  if (zf_ctx != nullptr && !zf_ctx->use_global_index()) {
+  if (zf_ctx != nullptr) {
     auto read_value =
         [zf_ctx](const ROCKSDB_NAMESPACE::Slice& loc, std::string* out) {
           return zf_ctx->ReadValue(loc, out);
@@ -3004,7 +3004,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     // M4.3a：终态路径——Get 查分区索引（替代 mem/imm 链；未命中继续走
     // 原生 SST 查找）。仅 zf 且未启用全局索引（zf_global_index=false）时。
     const auto* zf_ctx = cfd->GetZfCtx().get();
-    if (zf_ctx != nullptr && !zf_ctx->use_global_index()) {
+    if (zf_ctx != nullptr) {
       if (get_impl_options.get_value) {
         const ROCKSDB_NAMESPACE::Slice user_key = lkey.user_key();
         // snapshot seq 从 LookupKey 的 internal key 尾部解码

@@ -152,7 +152,7 @@ bool ZeroFlushContext::ShouldSeal() const {
   // 副触发：任一分区 ≥ partition_target_bytes（Append 时置位，防倾斜）。
   // M4.3d-2：终态路径追加内存预算背压——分区索引总内存 ≥ 预算即触发
   // freeze（索引是终态 L0 的内存驻留，需独立于 WAL 字节的背压）。
-  if (!use_global_index() && index_set_ != nullptr &&
+  if (index_set_ != nullptr &&
       index_set_->total_mem_bytes() >= zfo_.index_mem_budget) {
     return true;
   }
@@ -296,12 +296,10 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
 }
 
 uint64_t ZeroFlushContext::ReleaseEpoch(uint64_t epoch) {
-  // M4.3a：终态路径——imm 析构（物化完成）时释放该 epoch 的 frozen 索引
-  // （数据已进 SST，Get 走原生 SST 查找）。须在 SealedFileCache unlink
-  // （WAL 删除）之前——ReleaseEpoch 内先释放索引再归还缓存引用。
-  if (!use_global_index()) {
-    ReleaseFrozenIndexes(epoch);
-  }
+  // M4.3a：imm 析构（物化完成）时释放该 epoch 的 frozen 索引（数据已进
+  // SST，Get 走原生 SST 查找）。须在 SealedFileCache unlink（WAL 删除）
+  // 之前——ReleaseEpoch 内先释放索引再归还缓存引用。
+  ReleaseFrozenIndexes(epoch);
   if (sealed_cache_ != nullptr) {
     return sealed_cache_->ReleaseEpoch(epoch);
   }
@@ -498,39 +496,25 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
   loc.wal_offset = ref.offset;
   const ROCKSDB_NAMESPACE::Slice loc_slice(reinterpret_cast<const char*>(&loc),
                                            sizeof(loc));
-  if (!use_global_index()) {
-    // M4.3a：终态路径——写分区索引（跳表，无 MemTable 外壳）。
-    // 数据源仍是 WAL（AddRecord 先 Append）；分区索引提供未封存/未物化
-    // 窗口的读。封存时冻结（FreezeIndexes），物化完成时释放
-    // （ReleaseFrozenIndexes）——frozen 索引指向封存 WAL（SealedFileCache
-    // 可读），物化后数据进 SST、Get 走原生 SST 查找。
-    std::string ik;
-    ik.reserve(key.size() + 8);
-    ik.append(key.data(), key.size());
-    ROCKSDB_NAMESPACE::PutFixed64(
-        &ik, ROCKSDB_NAMESPACE::PackSequenceAndType(
-                 seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(type)));
-    index_set_->Insert(part, ref.gen, ik, loc_slice);
-    // M3.1：kSampled 模式下记录采样（仅 epoch 1 学习期）。
-    if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
-        sampler_ && epoch_counter_.load() == 0) {
-      sampler_->Sample(key);
-    }
-    return ROCKSDB_NAMESPACE::Status::OK();
-  }
-  // 旧路径（兼容开关 zf_global_index=true）：MemTable 外壳（M4.1c 并发路径）。
-  // kv_prot_info = nullptr：M1 关闭 protection（写入选项已在上层拒绝
-  // protection_bytes_per_key > 0 的路径）。
-  rocksdb::Status add_s = mem->Add(seq, type, key, loc_slice,
-                                   /*kv_prot_info=*/nullptr,
-                                   /*allow_concurrent=*/true, ppi,
-                                   /*hint=*/nullptr);
+  // M4.3a/4.4b：终态路径——写分区索引（跳表，无 MemTable 外壳）。
+  // 数据源仍是 WAL（AddRecord 先 Append）；分区索引提供未封存/未物化
+  // 窗口的读。封存时冻结（FreezeIndexes），物化完成时释放
+  // （ReleaseFrozenIndexes）——frozen 索引指向封存 WAL（SealedFileCache
+  // 可读），物化后数据进 SST、Get 走原生 SST 查找。M4.4b：旧路径
+  // （MemTable 外壳）已移除。
+  std::string ik;
+  ik.reserve(key.size() + 8);
+  ik.append(key.data(), key.size());
+  ROCKSDB_NAMESPACE::PutFixed64(
+      &ik, ROCKSDB_NAMESPACE::PackSequenceAndType(
+               seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(type)));
+  index_set_->Insert(part, ref.gen, ik, loc_slice);
   // M3.1：kSampled 模式下记录采样（仅 epoch 1 学习期）。
-  if (add_s.ok() && zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
+  if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
       sampler_ && epoch_counter_.load() == 0) {
     sampler_->Sample(key);
   }
-  return add_s;
+  return ROCKSDB_NAMESPACE::Status::OK();
 }
 
 // M4.3d-1：批次封存——一次 epoch 冻结多个分区（超限优先，补充最大分区
@@ -580,8 +564,6 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeBatchPartitions(
     wal_->ClearOverTargetFlag();
     return ROCKSDB_NAMESPACE::Status::OK();  // 无数据可封存
   }
-  for (uint32_t bp : batch) fprintf(stderr, "%u ", bp);
-  fprintf(stderr, "]\n");
   // ---- 一次 epoch 冻结整批 ----
   const uint64_t epoch = epoch_counter_.fetch_add(1) + 1;
   SealedEpoch se;
@@ -662,9 +644,6 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeOnePartition(
 // M4.3a：封存时冻结全部分区索引（全局 epoch 粒度；M4.3c 改单分区触发）。
 void ZeroFlushContext::FreezeIndexes(
     const std::vector<std::pair<uint32_t, uint32_t>>& gens) {
-  if (use_global_index()) {
-    return;  // 旧路径：mem/imm 链承载索引，无需分区索引
-  }
   for (const auto& [part, gen] : gens) {
     // 换代后新代号 = gen + 1（wal_manager::Freeze 内 ++p->gen）。
     index_set_->Freeze(part, gen + 1);
@@ -674,9 +653,6 @@ void ZeroFlushContext::FreezeIndexes(
 // M4.3a：物化完成（epoch 回收）时释放该 epoch 的 frozen 索引。
 // 数据已进 SST，Get 走原生 SST 查找；索引释放回收内存。
 void ZeroFlushContext::ReleaseFrozenIndexes(uint64_t epoch) {
-  if (use_global_index()) {
-    return;
-  }
   SealedEpoch se;
   if (!GetSealedEpoch(epoch, &se)) {
     return;
@@ -915,29 +891,16 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
       loc.wal_offset = scanner.offset() - ZfRecordLength(h.key_len, h.val_len);
       const ROCKSDB_NAMESPACE::Slice loc_slice(
           reinterpret_cast<const char*>(&loc), sizeof(loc));
-      if (!use_global_index()) {
-        // M4.3a：终态路径——重建分区索引（活跃 WAL 的全部代；locator 指向
-        // 持久 WAL）。索引 gen 字段不参与查找（Get 查 active+frozen 链），
-        // 仅 frozen 索引按 gen 释放——恢复的活跃索引不释放，无碍。
-        std::string ik;
-        ik.reserve(key.size() + 8);
-        ik.append(key.data(), key.size());
-        ROCKSDB_NAMESPACE::PutFixed64(
-            &ik, ROCKSDB_NAMESPACE::PackSequenceAndType(
-                     h.seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(h.type)));
-        index_set_->InsertCreate(part, gen, ik, loc_slice);
-      } else {
-        s = cfd->mem()->Add(
-            h.seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(h.type), key,
-            loc_slice,
-            /*kv_prot_info=*/nullptr,
-            /*allow_concurrent=*/false,
-            /*post_process_info=*/nullptr,
-            /*hint=*/nullptr);
-        if (!s.ok()) {
-          return s;
-        }
-      }
+      // M4.3a/4.4b：终态路径——重建分区索引（活跃 WAL 的全部代；locator
+      // 指向持久 WAL）。索引 gen 字段不参与查找（Get 查 active+frozen 链），
+      // 仅 frozen 索引按 gen 释放——恢复的活跃索引不释放，无碍。
+      std::string ik;
+      ik.reserve(key.size() + 8);
+      ik.append(key.data(), key.size());
+      ROCKSDB_NAMESPACE::PutFixed64(
+          &ik, ROCKSDB_NAMESPACE::PackSequenceAndType(
+                   h.seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(h.type)));
+      index_set_->InsertCreate(part, gen, ik, loc_slice);
       if (h.seq > max_seq) {
         max_seq = h.seq;
       }
@@ -1020,11 +983,10 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
         "ZeroFlush: default column family missing");
   }
   const auto* ucmp = cfd->user_comparator();
-  // M4.3a：终态路径——创建分区索引（跳表比较器 = internal comparator）。
-  if (!zfo.zf_global_index) {
-    ctx->index_set_.reset(
-        new PartitionIndexSet(ZfKeyComparator(cfd->internal_comparator())));
-  }
+  // M4.3a：创建分区索引（跳表比较器 = internal comparator）。M4.4b：
+  // 终态路径为唯一路径（旧路径移除）。
+  ctx->index_set_.reset(
+      new PartitionIndexSet(ZfKeyComparator(cfd->internal_comparator())));
   ctx->set_ucmp(ucmp);
   // 创建 PartitionTableSet。
   auto table_set = std::unique_ptr<PartitionTableSet>(new PartitionTableSet());
