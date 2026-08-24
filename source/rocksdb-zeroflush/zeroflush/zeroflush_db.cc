@@ -371,6 +371,8 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(base_merge_count());
   } else if (prop == "rocksdb.zeroflush.base_merge_rewritten_bytes") {
     *value = std::to_string(base_merge_rewritten_bytes());
+  } else if (prop == "rocksdb.zeroflush.skip_count") {
+    *value = std::to_string(skip_count());
   } else {
     return false;
   }
@@ -464,6 +466,10 @@ uint64_t ZeroFlushContext::base_merge_count() const {
 
 uint64_t ZeroFlushContext::base_merge_rewritten_bytes() const {
   return base_merge_rewritten_bytes_.load(std::memory_order_relaxed);
+}
+
+uint64_t ZeroFlushContext::skip_count() const {
+  return skip_count_.load(std::memory_order_relaxed);
 }
 
 uint32_t ZeroFlushContext::pending_epochs(

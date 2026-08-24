@@ -502,29 +502,57 @@ M4.3a 已含 Get 分区化与恢复重建；M4.3d 完成后回归 28/28 + 数据
 upper_conflict 删除打破了"L0 重叠拒绝"的放大器，但 **ratio 拒绝 → 回落 →
 L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现。
 
-**M4.5b（攒批物化，二次尝试后回滚）**：实现 kSkip（ratio 拒绝分区不产出、
-封存 WAL 移交 recovery 集合、下个 epoch 收养后多代合并）——**回归破坏
-（13/34）二次回滚**（保留 M4.5 的 upper_conflict 删除；回归 34/34 恢复）。
+**M4.5b（攒批物化，已完成 ✅ 2026-08-24）**：kSkip——ratio 拒绝的分区
+不产出（不回落 L0），封存 WAL 移交 skip 集合（可读、不回收），下个 epoch
+封存时收养（多代合并物化 + part_bytes 并入 ratio 计算）。
 
-**调试结论（2026-08-23 三次）**：
-- 最小复现（用例 45）：多 frozen + key 交错归并 96/96 PASS——**归并层无 bug**
-- **DebugCountEach（逐索引独立遍历）**：攒批场景索引内容**完整**（144 条
-  全在：p0 g0/g1/g2 + 其他分区的 g1/g2）——**丢的 key 在 SST 侧**（迭代器
-  164 = 索引 144 + SST 仅 ~20，而物化的 p1/p2/p3 g0 应有 ~56 条）
-- **根因锁定**：**迭代器创建时的 SuperVersion 与物化安装的竞态**——迭代器
-  拿到旧 sv（不含新安装的 SST）时，物化的 frozen 索引已被释放（ReleaseFrozen）
-  → 该分区数据不可见（计数波动 144/164 证实竞态）
-- **修复方向**：迭代器/Get 的"未 compact 窗口"与 sv 快照的一致性——物化
-  安装后、ReleaseFrozen 前确保迭代器可见（如：frozen 释放延迟到 sv 确认
-  刷新，或迭代器侧以 frozen 索引为准的窗口合并）
-- **2026-08-24 深挖结论**：物化安装链路完整（TryInstallMemtableFlushResults
-  → LogAndApply → BackgroundCallFlush 的 InstallSuperVersionAndScheduleWork
-  → imm 析构 → ReleaseFrozen——顺序正确，sv 刷新先于 frozen 释放）。
-  缺口的精确窗口（迭代器 164 = 索引 144 + SST 20，而物化的 56 条应全在）
-  需 kSkip 重应用 + 迭代器创建时 sv/frozen 快照的运行时逐层打印定位。
-  **下一步（独立会话）**：kSkip 重应用 → 迭代器创建时打印
-  （GetSuperVersion 的 current 文件数 vs frozen 链）→ 定位缺口的精确交错。
-- kSkip 攒批三次回滚（回归 35/35 恢复）；攒批仍为 50GB 根治方向
+**实现（git 核查结论：三次"回滚"期间 kSkip 从未有真实实现**——9bcf035^
+与 M4.5 基线零代码差异，HandOff 基础设施在"回滚"提交中才加入；当时
+"13/34 失败"与"SV 时序缺口"基于混乱的工作区状态，不可考）：
+
+1. **决策**（materialize_job.cc PlanLocked）：两处降级改为 kSkip——
+   ① ratio 拒绝（sealed/overlap < base_merge_min_ratio）；
+   ② batch_skipped 无批内融合输出兜底。
+   约束 `kMaxSkipGenerations=2`：该分区待物化代 ≥ 2（含收养跳过代）时
+   强制物化（防永不收敛——攒一代即强制落地，兜底回落 L0）。
+   非融合模式（merge_into_base_level=false）不攒批（无融合目标）。
+   孤儿收养 epoch（has_adopted_orphans）中非孤儿分区同样攒批（避免
+   孤儿回落 L0 后遮蔽链导致的连锁回落）。
+2. **移交**（Run 尾部）：`HandOffSkippedToRecovery(epoch, skipped_gens)`——
+   被跳过 gens 从 epoch 移除（ReleaseEpoch 不 unlink 其 WAL、ReleaseFrozen
+   Indexes 不释放其索引）→ 数据留在 frozen 索引 + 封存 WAL 保持可读
+   （SealedFileCache::Get 对 skip 集合放行）。必须在 Run 返回前完成
+   （imm 析构 → ReleaseEpoch 之前），否则 WAL unlink + 索引释放 = 数据丢失。
+3. **收养**（AddEpochWithRecoveryAdoption）：skip 集合并入新 epoch 的
+   gens（多代合并物化）+ part_bytes（ratio 用合并字节）+ 置
+   `has_adopted_skips`（区别于崩溃孤儿 `has_adopted_orphans` 的保守语义：
+   kSkip 跳过代 seq 连续可融合，崩溃孤儿 seq 可能交错须保守）。
+4. **读路径**：Get/迭代器经 locator 读跳过代 WAL（skip 集合可读）；
+   崩溃恢复：跳过代在磁盘（未 unlink）→ Recover 孤儿检测登记为恢复期
+   孤儿（保守处理，正确性安全——重开后首个收养 epoch 孤儿分区强制物化
+   回落，L0 由 compaction 消费）。
+5. **D5 修复（wal_manager.cc Open）**：重开后残留活跃代字节未同步进
+   total_active_bytes_/active_bytes → Freeze 减法多减 → 计数下溢 →
+   ShouldSeal 恒真 → 每写组封存风暴（M4.5b-48 实测 500 条写 441 epoch）。
+   修复：Open() 把残留字节同步进两个计数（残留数据在首次写组即封存物化）。
+
+**验证**：
+- 用例 48（SkipBatchMaterialize）端到端：skip>0、阶段 1 零回落零 L0、
+  中途重开（孤儿恢复）数据完整、重开后 kSkip 恢复、最终重开全对；
+  全量回归 38/38。
+- 2.2GB（R3 同参，sampled+merge+P=16）：**133.9K ops/s（R16 104.6K，
+  +28%）、回落到落 79→31（-61%）、skip 172 次**——ratio 拒绝的回落
+  被攒批替代，L0 堆积与 compaction 争抢消除。
+- 50GB（R21，同 R20 参）：验收中（目标：完整跑通 + 停写 < 247）。
+
+**历史记录（2026-08-23 三次尝试，已归档）**：
+- 最小复现（用例 45）：多 frozen + key 交错归并 96/96 PASS——归并层无 bug
+- DebugCountEach：索引内容完整（144 条）——"丢 key 在 SST 侧"的结论基于
+  未提交工作区（kSkip 未实现 + 索引误释放的不完整状态），不可复现
+- "SV 时序缺口"实为 kSkip 不完整实现的表象（被跳过 epoch 的 WAL 被
+  ReleaseEpoch unlink + 索引被 ReleaseFrozenIndexes 释放 → 数据丢失），
+  正确闭环（上述 2/3/4）后不存在——迭代器旧 sv 保活 imm → ReleaseFrozen
+  不触发 → 索引与 WAL 完整。
 
 ### M3.4 API 完备（已完成 ✅ 2026-08-24，7c66000）
 

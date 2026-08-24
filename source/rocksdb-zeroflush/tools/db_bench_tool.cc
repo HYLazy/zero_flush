@@ -4204,7 +4204,8 @@ class Benchmark {
           "install_direct_base",
           "install_fallback_l0",
           "base_merge_count",
-          "base_merge_rewritten_bytes"};
+          "base_merge_rewritten_bytes",
+          "skip_count"};
       fprintf(stdout, "ZEROFLUSH PROPERTIES:\n");
       for (const char* p : zf_props) {
         std::string v;

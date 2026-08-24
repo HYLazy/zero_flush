@@ -45,7 +45,7 @@ RE_MAIN = re.compile(
 RE_PCT = re.compile(
     r"Percentiles:\s*P50:\s*([\d.]+)\s*P75:\s*([\d.]+)\s*P99:\s*([\d.]+)"
     r"\s*P99.9:\s*([\d.]+)\s*P99.99:\s*([\d.]+)")
-RE_ZFPROP = re.compile(r"^zf\.([a-z_]+)\s*:\s*([\d.]+)", re.M)
+RE_ZFPROP = re.compile(r"^zf\.([a-z0-9_]+)\s*:\s*([\d.]+)", re.M)
 
 
 def common_flags(db_dir):

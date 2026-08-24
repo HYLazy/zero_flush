@@ -54,6 +54,25 @@ void SealedFileCache::AddEpochWithRecoveryAdoption(const SealedEpoch& e,
     recovery_bytes_ = 0;
     recovery_part_bytes_.clear();
   }
+  if (!skip_gens_.empty()) {
+    // M4.5b：收养 kSkip 跳过代（攒批）——并入 gens 供多代合并物化、
+    // 并入 part_bytes 供融合 ratio 计算。seq 连续（未崩溃）→ 置
+    // has_adopted_skips（物化可融合），区别于 has_adopted_orphans 的
+    // 保守语义（崩溃孤儿 seq 可能交错）。
+    merged.gens.reserve(merged.gens.size() + skip_gens_.size());
+    for (ZfFileKey k : skip_gens_) {
+      merged.gens.emplace_back(static_cast<uint32_t>(k >> 32),
+                               static_cast<uint32_t>(k));
+    }
+    merged.total_bytes += skip_bytes_;
+    merged.has_adopted_skips = true;
+    for (const auto& [part, bytes] : skip_part_bytes_) {
+      merged.part_bytes[part] += bytes;
+    }
+    skip_gens_.clear();
+    skip_bytes_ = 0;
+    skip_part_bytes_.clear();
+  }
   merged.sealed_at_micros = env_->NowMicros();
   epochs_.emplace(merged.epoch, merged);
   // M3.4：多列族共享同一物理分区文件时 refcount = CF 个数。
@@ -94,13 +113,13 @@ void SealedFileCache::HandOffSkippedToRecovery(
       }
     }
   }
-  // 2) 移交 recovery（可读、不回收；per-part 字节供收养时 ratio 合并）。
+  // 2) 移交 skip 集合（可读、不回收；per-part 字节供收养时 ratio 合并）。
   for (const auto& [part, gen] : gens) {
-    recovery_gens_.emplace(MakeFileKey(part, gen));
+    skip_gens_.emplace(MakeFileKey(part, gen));
   }
   for (const auto& [part, bytes] : part_bytes) {
-    recovery_part_bytes_[part] += bytes;
-    recovery_bytes_ += bytes;
+    skip_part_bytes_[part] += bytes;
+    skip_bytes_ += bytes;
   }
 }
 
@@ -154,8 +173,9 @@ rocksdb::Status SealedFileCache::Get(
   rocksdb::MutexLock l(&mu_);
   // 校验该 gen 仍处于某个 epoch 中（未进入 pending_unlink），或属于
   // 恢复期孤儿代集合（M3.0 R1：Recover 到首次 Seal 之间的读窗口，
-  // M3_DESIGN.md §8.1）。
-  bool valid = recovery_gens_.count(key) == 1;
+  // M3_DESIGN.md §8.1），或属于 kSkip 攒批跳过代（M4.5b：跳过期间
+  // 数据留在封存 WAL，Get/迭代器经 locator 定点读仍需可读）。
+  bool valid = recovery_gens_.count(key) == 1 || skip_gens_.count(key) == 1;
   if (!valid) {
     for (const auto& [e, se] : epochs_) {
       (void)e;

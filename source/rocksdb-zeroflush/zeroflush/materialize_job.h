@@ -56,8 +56,11 @@ class ZeroFlushContext;
 // 分区物化决策（M3_DESIGN.md §7.2/§7.3）：
 //  - kDirect：base 层无重叠文件 → 单文件 + PickInstallLevel（可能直装）；
 //  - kMergeBase：融合归并 → 与 base 层重叠文件归并，输出直装 base 层；
-//  - kFallback：不融合（互斥冲突/比例不足/孤儿代）→ 单文件 + PickInstallLevel。
-enum class MaterializeDecision : uint8_t { kDirect, kMergeBase, kFallback };
+//  - kFallback：不融合（互斥冲突/孤儿代）→ 单文件 + PickInstallLevel；
+//  - kSkip（M4.5b 攒批）：比例不足（批次小不融合）→ 本 epoch 不产出，
+//    封存 WAL 移交 recovery 集合，下个 epoch 收养后多代合并物化（数据
+//    在 frozen 索引 + recovery WAL 保持可读，消除小批次的 L0 回落）。
+enum class MaterializeDecision : uint8_t { kDirect, kMergeBase, kFallback, kSkip };
 
 // 一个分区的物化输出：目标安装层 + FileMetaData + 融合归并元信息。
 struct MaterializeOutput {
@@ -142,10 +145,9 @@ class ZfMaterializeJob {
   // 本 epoch 排序累计耗时（微秒），计入 zf.materialize_sort_micros。
   uint64_t sort_micros() const { return sort_micros_; }
 
-
-
-
  private:
+  // M4.5b：阶段 0 决策为 kSkip 的分区 gens（Run 尾部移交 recovery 集合）。
+  std::vector<std::pair<uint32_t, uint32_t>> skipped_gens_;
   // 阶段 0（持锁）产生的分区决策，供阶段 1 worker 与阶段 2 安装消费。
   struct PartitionPlan {
     uint32_t part_id = 0;
@@ -205,6 +207,13 @@ class ZfMaterializeJob {
   // （含本批次已放置文件，跨 epoch 的 ABA 防护）。
   int PickInstallLevel(const ROCKSDB_NAMESPACE::InternalKey& smallest,
                        const ROCKSDB_NAMESPACE::InternalKey& largest) const;
+
+  // M4.5b：kSkip 攒批的上限——同一分区最多攒一代（≥上限强制物化，
+  // 保证数据最终收敛到 SST，不被 ratio 拒绝无限推迟）。
+  static constexpr uint32_t kMaxSkipGenerations = 2;
+
+  // M4.5b：该分区在本 epoch 的待物化代数（含收养的恢复期孤儿代）。
+  uint32_t PendingGenCount(uint32_t pid) const;
 
   ZeroFlushContext* ctx_;
   uint64_t epoch_;

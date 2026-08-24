@@ -267,6 +267,13 @@ rocksdb::Status PartitionedWalManager::Open() {
     }
     p->flushed_size = sz;
     p->total_size = sz;
+    // 修 D5：残留活跃代字节同步进 O(1) 封存判定计数。此前 total_size
+    // 被设为残留大小而 total_active_bytes_/active_bytes 仍从 0 起，
+    // Freeze 时 fetch_sub(old_sealed_size) 多减残留字节 → 计数下溢 →
+    // ShouldSeal 恒真 → 每写组封存（重开后封存风暴，M4.5b-48 实测）。
+    p->active_bytes.store(sz, std::memory_order_relaxed);
+    total_active_bytes_.fetch_add(sz, std::memory_order_relaxed);
+    // 残留数据在首次写组即触发封存物化（语义正确：遗留 WAL 尽快落地）。
     p->buf.clear();
   }
   return rocksdb::Status::OK();

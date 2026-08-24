@@ -140,7 +140,12 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::Run() {
       if (gens.empty()) {
         continue;
       }
+      // M4.5b：kSkip 攒批分区不物化（数据留在 frozen 索引 + 封存 WAL，
+      // Run 尾部移交 recovery 集合，下个 epoch 收养后多代合并）。
       const PartitionPlan* plan = FindPlan(part_id);
+      if (plan != nullptr && plan->decision == MaterializeDecision::kSkip) {
+        continue;
+      }
       rocksdb::Slice lo, hi;
       // 仅范围路由模式查询分区边界（hash 模式 boundaries_ 为空，且范围
       // 断言本身也跳过 hash 模式；RangeOf 依赖 boundaries_ 会越界）。
@@ -277,6 +282,16 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::Run() {
         mc_.cfd->ioptions().cf_paths, fn, 0);
     mc_.db_options->env->DeleteFile(fname).PermitUncheckedError();
   }
+  // M4.5b：kSkip 分区的封存 WAL 移交 recovery 集合（可读、不 unlink）。
+  // 必须在 Run 返回前完成——返回后 imm 析构触发 ReleaseEpoch，若该
+  // epoch 的 gens 未移除，被跳过的 WAL 会被 unlink 且 frozen 索引被释放
+  // （数据丢失）。HandOff 后 GetSealedEpoch 不再含这些 gens → 索引保留。
+  if (!skipped_gens_.empty()) {
+    ctx_->HandOffSkippedToRecovery(epoch_, skipped_gens_);
+    ROCKS_LOG_INFO(mc_.db_options->info_log,
+                   "[JOB %d] ZeroFlush skipped %zu partition gens (batch)",
+                   mc_.job_context->job_id, skipped_gens_.size());
+  }
   return ROCKSDB_NAMESPACE::Status::OK();
 }
 
@@ -288,6 +303,9 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   // 融合开关（§7.2）：merge_into_base_level 开启、非孤儿代 epoch（§8.1
   // 保守分支，孤儿代 A 侧 seq 与 base 不保证严格递增）、仅范围路由模式
   // （hash 模式分区键集交错，无法判定 base 文件与分区的隶属关系）。
+  // M4.5b：kSkip 跳过代收养不置 has_adopted_orphans（seq 连续，可融合），
+  // 故此处条件无需变化——只有崩溃恢复孤儿（Recover 登记的 recovery_gens_）
+  // 触发保守。
   const bool merge_enabled = ctx_->zfo_.merge_into_base_level &&
                              !se_.has_adopted_orphans && table_ != nullptr &&
                              !table_->IsHashMode();
@@ -302,6 +320,18 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     plan.part_id = pid;
     plan.decision = MaterializeDecision::kDirect;
     if (!merge_enabled) {
+      // M4.5b：融合关闭（用户未开融合或孤儿收养 epoch）时，攒批仍适用
+      // 于"待物化代 < 上限"的分区（数据留在 frozen 索引 + recovery WAL，
+      // 下个 epoch 收养后多代合并）——避免孤儿收养 epoch 全量 kDirect
+      // 物化 → 回落 L0 → 遮蔽链导致后续同分区连锁回落。孤儿分区本身
+      // （待物化代 ≥ 上限）强制物化（kDirect 回落，数据必须落地）。
+      // 用户未开融合（merge_into_base_level=false）时不攒批（无融合
+      // 目标，维持原行为）。
+      if (ctx_->zfo_.merge_into_base_level &&
+          PendingGenCount(pid) < kMaxSkipGenerations) {
+        plan.decision = MaterializeDecision::kSkip;
+        ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      }
       plans_.push_back(std::move(plan));
       continue;
     }
@@ -382,10 +412,14 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     }
 
     // 被批内前序注册标记的文件必须由批内融合输出覆盖（last_batch 为
-    // kMergeBase），否则 B 侧缺数据 → 安全降级 kSkip（攒批）。
+    // kMergeBase），否则 B 侧缺数据 → 安全降级 kSkip（攒批，见下）。
     if (batch_skipped &&
         (last_batch == nullptr ||
          last_batch->decision != MaterializeDecision::kMergeBase)) {
+      if (PendingGenCount(pid) < kMaxSkipGenerations) {
+        plan.decision = MaterializeDecision::kSkip;
+        ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      }
       plans_.push_back(std::move(plan));
       continue;
     }
@@ -400,6 +434,14 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       const double ratio =
           static_cast<double>(sealed) / static_cast<double>(overlap_bytes);
       if (ratio < ctx_->zfo_.base_merge_min_ratio) {
+        // M4.5b：比例不足（批次小不融合）→ kSkip 攒批：不产出 L0 回落
+        // 文件，数据留在 frozen 索引 + 封存 WAL（recovery 集合可读），
+        // 下个 epoch 收养后多代合并一次物化（50GB 回落循环的根治）。
+        // 约束：该分区待物化代 < 上限（防永不收敛——攒一代即强制物化）。
+        if (PendingGenCount(pid) < kMaxSkipGenerations) {
+          plan.decision = MaterializeDecision::kSkip;
+          ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+        }
         plans_.push_back(std::move(plan));
         continue;
       }
@@ -473,7 +515,31 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     plan.compaction = std::move(compaction);
     plans_.push_back(std::move(plan));
   }
+  // M4.5b：收集 kSkip 分区的全部待物化代（含收养孤儿代），供 Run 尾部
+  // 移交 recovery 集合（同一持锁窗口内完成，与收养语义一致）。
+  for (const auto& p : plans_) {
+    if (p.decision != MaterializeDecision::kSkip) {
+      continue;
+    }
+    for (const auto& [part, gen] : se_.gens) {
+      if (part == p.part_id) {
+        skipped_gens_.emplace_back(part, gen);
+      }
+    }
+  }
   return ROCKSDB_NAMESPACE::Status::OK();
+}
+
+// M4.5b：该分区在本 epoch 的待物化代数（含收养的恢复期孤儿代）。
+// kSkip 只允许攒一代（≥上限强制物化），保证数据最终收敛到 SST。
+uint32_t ZfMaterializeJob::PendingGenCount(uint32_t pid) const {
+  uint32_t n = 0;
+  for (const auto& [part, gen] : se_.gens) {
+    if (part == pid) {
+      ++n;
+    }
+  }
+  return n;
 }
 
 void ZfMaterializeJob::FinishPlansLocked() {

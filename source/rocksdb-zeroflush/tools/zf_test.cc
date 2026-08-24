@@ -3399,6 +3399,230 @@ void TestRecoveryEpochMergeIdempotent() {
   ReportResult(tag, true, "reopen merge idempotent");
 }
 
+// ---------------------------------------------------------------------------
+// 用例 48 (M4.5b-48): SkipBatchMaterialize — kSkip 攒批物化端到端。
+// 比例不足（sealed/overlap < base_merge_min_ratio）的 epoch 不回落 L0，
+// 而是跳过物化（数据留在 frozen 索引 + recovery WAL 可读），下个 epoch
+// 收养后多代合并融合。验证：skip_count>0、全程零回落零 L0、Get/迭代器
+// 全对、中途重开（孤儿恢复）与最终重开均完整。
+// ---------------------------------------------------------------------------
+void TestSkipBatchMaterialize() {
+  const char* tag = "SkipBatchMaterialize(M4.5b-48)";
+  std::string dbname = std::string(kDbBase) + "skip_batch";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+  zfo.static_boundaries = {"d", "i", "n"};
+  // 8KB 阈值：每 epoch sealed ≈ 8KB；L1 融合输出随 epoch 累积
+  // （8→16→24→32→40KB），ratio = sealed/overlap 周期跌破 0.25 →
+  // kSkip（原 8KB 场景的回落点，见 TestSteadyStateZeroL0 注释）。
+  zfo.partition_target_bytes = 8 << 10;
+  zfo.epoch_target_bytes = 8 << 10;
+  zfo.merge_into_base_level = true;
+  zfo.base_merge_min_ratio = 0.25;
+
+  const int kRecords = 500;  // 每轮同键覆盖写（值轮换）
+  char k[16], v[128];
+  auto put_round = [&](rocksdb::DB* d, char fill) -> rocksdb::Status {
+    for (int i = 0; i < kRecords; ++i) {
+      snprintf(k, sizeof(k), "fa%010lld", (long long)i);
+      ::memset(v, fill, 100);
+      v[100] = '\0';
+      auto st = d->Put(rocksdb::WriteOptions(), rocksdb::Slice(k, 12),
+                       rocksdb::Slice(v, 100));
+      if (!st.ok()) return st;
+    }
+    return rocksdb::Status::OK();
+  };
+  auto verify = [&](rocksdb::DB* d, char fill, const char* phase) -> bool {
+    if (CountViaIterator(d) != kRecords) {
+      ReportResult(tag, false,
+                   std::string(phase) + " iter=" +
+                       std::to_string(CountViaIterator(d)) +
+                       " != " + std::to_string(kRecords));
+      return false;
+    }
+    std::string got;
+    for (int i = 0; i < kRecords; ++i) {
+      snprintf(k, sizeof(k), "fa%010lld", (long long)i);
+      auto st = d->Get(rocksdb::ReadOptions(), rocksdb::Slice(k, 12), &got);
+      if (!st.ok() || got.size() != 100 || got[0] != fill) {
+        ReportResult(tag, false,
+                     std::string(phase) + " get@" + std::to_string(i) +
+                         (st.ok() ? (" val[0]=" + std::to_string(got[0]))
+                                  : st.ToString()));
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // 阶段 1：写两轮（A、B）→ 物化收敛。期间 ratio 跌破阈值 → kSkip
+  // （不回落 L0）；收养后的 epoch 多代融合直装。核心断言：零回落、
+  // 零 L0、skip 计数 > 0。
+  {
+    std::unique_ptr<rocksdb::DB> db;
+    auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+    if (!s.ok()) {
+      ReportResult(tag, false, "open: " + s.ToString());
+      return;
+    }
+    s = put_round(db.get(), 'A');
+    if (!s.ok()) {
+      ReportResult(tag, false, "put A: " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+    if (!WaitAllMaterialized(db.get())) {
+      DumpDbLogTail(dbname);
+      ReportResult(tag, false, "wait A materialized");
+      CleanDB(dbname);
+      return;
+    }
+    s = put_round(db.get(), 'B');
+    if (!s.ok()) {
+      ReportResult(tag, false, "put B: " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+    if (!WaitAllMaterialized(db.get())) {
+      DumpDbLogTail(dbname);
+      ReportResult(tag, false, "wait B materialized");
+      CleanDB(dbname);
+      return;
+    }
+    // 攒批必须真实发生（比率周期性跌破 0.25 的分区被跳过）。
+    if (ZfMetric(db.get(), "skip_count") == 0) {
+      ReportResult(tag, false, "skip_count == 0 (kSkip never triggered)");
+      CleanDB(dbname);
+      return;
+    }
+    if (ZfMetric(db.get(), "install_fallback_l0") != 0) {
+      DumpDbLogTail(dbname);
+      ReportResult(tag, false,
+                   "install_fallback_l0 != 0 (kSkip failed to replace fallback): "
+                   "skip=" +
+                       std::to_string(ZfMetric(db.get(), "skip_count")) +
+                       " direct=" +
+                       std::to_string(ZfMetric(db.get(), "install_direct_base")) +
+                       " merges=" +
+                       std::to_string(ZfMetric(db.get(), "base_merge_count")) +
+                       " sealed=" +
+                       std::to_string(ZfMetric(db.get(), "epochs_sealed")) +
+                       " materialized=" +
+                       std::to_string(ZfMetric(db.get(), "epochs_materialized")));
+      CleanDB(dbname);
+      return;
+    }
+    if (NumFilesAtLevel(db.get(), 0) != 0) {
+      ReportResult(tag, false, "L0 files != 0 after two rounds");
+      CleanDB(dbname);
+      return;
+    }
+    if (!verify(db.get(), 'B', "phase1")) {
+      CleanDB(dbname);
+      return;
+    }
+    db.reset();  // 阶段 1 结束：kSkip 的 recovery WAL 落盘，重开验证孤儿恢复
+  }
+
+  // 阶段 2：重开（Recover 孤儿检测登记 kSkip 代 → 收养路径）→ 数据完整。
+  {
+    std::unique_ptr<rocksdb::DB> db2;
+    auto s2 = zeroflush::Open(MakeOptions(), zfo, dbname, &db2);
+    if (!s2.ok()) {
+      ReportResult(tag, false, "open#2: " + s2.ToString());
+      return;
+    }
+    if (!verify(db2.get(), 'B', "phase2")) {
+      CleanDB(dbname);
+      return;
+    }
+    // 继续写两轮（C、D）→ 收养后的多代合并物化。重开后首个封存 epoch
+    // 收养恢复期孤儿（Recover 登记的 kSkip 代，无法与崩溃孤儿区分）→
+    // 孤儿分区强制物化（回落有界，L0 遮蔽语义要求后续同分区回落直至
+    // compaction 消费——正确性安全）；孤儿清空后 kSkip 攒批恢复。
+    const uint64_t skip_before = ZfMetric(db2.get(), "skip_count");
+    auto s = put_round(db2.get(), 'C');
+    if (!s.ok()) {
+      ReportResult(tag, false, "put C: " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+    if (!WaitAllMaterialized(db2.get())) {
+      DumpDbLogTail(dbname);
+      ReportResult(tag, false, "wait C materialized");
+      CleanDB(dbname);
+      return;
+    }
+    s = put_round(db2.get(), 'D');
+    if (!s.ok()) {
+      ReportResult(tag, false, "put D: " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+    if (!WaitAllMaterialized(db2.get())) {
+      DumpDbLogTail(dbname);
+      ReportResult(tag, false, "wait D materialized");
+      CleanDB(dbname);
+      return;
+    }
+    // 重开后：孤儿分区强制物化（回落有界）；孤儿清空后 kSkip 恢复
+    // （skip_count 从 0 重新增长）。断言：skip 恢复、回落有界、数据完整。
+    if (ZfMetric(db2.get(), "skip_count") <= skip_before) {
+      DumpDbLogTail(dbname);
+      ReportResult(tag, false,
+                   "kSkip not resumed after orphan adoption: before=" +
+                       std::to_string(skip_before) +
+                       " after=" +
+                       std::to_string(ZfMetric(db2.get(), "skip_count")) +
+                       " sealed=" +
+                       std::to_string(ZfMetric(db2.get(), "epochs_sealed")) +
+                       " materialized=" +
+                       std::to_string(ZfMetric(db2.get(), "epochs_materialized")) +
+                       " fallback=" +
+                       std::to_string(ZfMetric(db2.get(), "install_fallback_l0")));
+      CleanDB(dbname);
+      return;
+    }
+    if (ZfMetric(db2.get(), "install_fallback_l0") > 2) {
+      ReportResult(tag, false,
+                   "fallback after rounds 3-4 > 2 (orphan adoption bound)");
+      CleanDB(dbname);
+      return;
+    }
+    if (NumFilesAtLevel(db2.get(), 0) > 2) {
+      ReportResult(tag, false, "L0 files > 2 after four rounds");
+      CleanDB(dbname);
+      return;
+    }
+    if (!verify(db2.get(), 'D', "phase2")) {
+      CleanDB(dbname);
+      return;
+    }
+    db2.reset();
+  }
+
+  // 阶段 3：最终重开 → 全部数据完整（多代合并已全部物化进 SST）。
+  {
+    std::unique_ptr<rocksdb::DB> db3;
+    auto s3 = zeroflush::Open(MakeOptions(), zfo, dbname, &db3);
+    if (!s3.ok()) {
+      ReportResult(tag, false, "open#3: " + s3.ToString());
+      return;
+    }
+    if (!verify(db3.get(), 'D', "phase3")) {
+      CleanDB(dbname);
+      return;
+    }
+    db3.reset();
+  }
+  CleanDB(dbname);
+  ReportResult(tag, true, "skip-batch zero-L0 end-to-end");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -3473,6 +3697,9 @@ int main(int argc, char** argv) {
   run("SteadyStateZeroL0",          TestSteadyStateZeroL0);
   run("MaterializeVsCompactionRace", TestMaterializeVsCompactionRace);
   run("RecoveryEpochMergeIdempotent", TestRecoveryEpochMergeIdempotent);
+
+  // ---- M4.5b 新增 ----
+  run("SkipBatchMaterialize",       TestSkipBatchMaterialize);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

@@ -287,6 +287,9 @@ class ZeroFlushContext {
   uint64_t base_merge_count() const;
   uint64_t base_merge_rewritten_bytes() const;
 
+  // M4.5b 指标：kSkip 攒批跳过的分区次数（决策时累计）。
+  uint64_t skip_count() const;
+
   ZeroFlushOptions zfo_;
   std::string wal_dir_;       // wal_dir/zfwal
   ROCKSDB_NAMESPACE::Env* env_;
@@ -309,6 +312,8 @@ class ZeroFlushContext {
   // ---- M3.3 融合归并统计 ----
   std::atomic<uint64_t> base_merge_count_{0};       // 融合归并次数（按分区）
   std::atomic<uint64_t> base_merge_rewritten_bytes_{0};  // 被重写 base 字节
+  // ---- M4.5b 攒批统计 ----
+  std::atomic<uint64_t> skip_count_{0};  // kSkip 攒批跳过的分区次数
 };
 
 // 打开 ZeroFlush DB：

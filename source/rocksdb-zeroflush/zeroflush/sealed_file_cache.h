@@ -48,6 +48,10 @@ struct SealedEpoch {
   // M3.0 R1：本 epoch 是否收养了恢复期孤儿代（用于物化期的断言放宽，
   // 见 M3_DESIGN.md §7.4/§8.1）。
   bool has_adopted_orphans = false;
+  // M4.5b：本 epoch 是否收养了 kSkip 跳过代（攒批）。与恢复期孤儿不同，
+  // kSkip 跳过的数据 seq 与本 epoch 连续（未崩溃），可正常融合归并——
+  // 物化决策据此区分保守（崩溃孤儿）与可融合（攒批跳过）收养。
+  bool has_adopted_skips = false;
   // M3.0：封存登记时刻（NowMicros），用于物化耗时统计。
   uint64_t sealed_at_micros = 0;
   // M3.1：该 epoch 写入时使用的 PartitionTable version（用于物化时取回
@@ -150,11 +154,18 @@ class SealedFileCache {
 
   // M3.0 R1：恢复期孤儿代集合（可读、不可回收、不占 refcount）。
   // 由 Recover() 登记，由 AddEpochWithRecoveryAdoption 收养（并入 epoch）。
+  // 崩溃恢复孤儿：seq 与已物化数据可能交错 → 物化期保守（不融合）。
   std::unordered_set<ZfFileKey> recovery_gens_;
   uint64_t recovery_bytes_ = 0;
   // M4.5b：recovery 集合的 per-partition 字节（收养时合并进 part_bytes，
   // 供攒批后的融合 ratio 计算）。
   std::unordered_map<uint32_t, uint64_t> recovery_part_bytes_;
+  // M4.5b：kSkip 攒批跳过代集合（可读、不可回收、不占 refcount）。
+  // 由 HandOffSkippedToRecovery 登记，下个 epoch 封存时收养（多代合并
+  // 物化）。与恢复期孤儿不同：seq 连续 → 可融合归并。
+  std::unordered_set<ZfFileKey> skip_gens_;
+  uint64_t skip_bytes_ = 0;
+  std::unordered_map<uint32_t, uint64_t> skip_part_bytes_;
 
   // 累计封存字节（统计用）
   uint64_t sealed_bytes_ = 0;
