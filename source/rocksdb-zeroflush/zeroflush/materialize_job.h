@@ -166,6 +166,12 @@ class ZfMaterializeJob {
     // 不重叠，二者并存且有序）。指针集合供 Compaction inputs 与 worker。
     std::vector<ROCKSDB_NAMESPACE::FileMetaData*> overlap_all;
     ROCKSDB_NAMESPACE::Slice lo, hi;  // 分区边界（hash 模式为空）
+    // M4.5b-2：孤儿收养 epoch 的强制分区直装替换——物化输出（单文件，
+    // 含该分区全部待物化代）直装 base 层并替换 overlap 文件（DeleteFile
+    // + AddFile），避免回落 L0 触发遮蔽链。与 kMergeBase 的区别：不做
+    // 归并（A/B 侧合并），仅替换（输出范围 ⊇ overlap 文件范围）。
+    bool force_replace = false;
+    int base_level = 0;  // force_replace：目标替换层（PlanLocked 记录）
   };
 
   // 阶段 0（须持 DB mutex）：逐分区做融合归并触发判定（§7.2）并构造/

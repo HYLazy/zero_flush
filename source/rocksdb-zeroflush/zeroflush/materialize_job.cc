@@ -255,11 +255,22 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::Run() {
             o.replaced_file_numbers.end());
       }
     } else {
-      o.level = PickInstallLevel(o.meta.smallest, o.meta.largest);
-      if (o.level == 0) {
-        ctx_->install_fallback_l0_.fetch_add(1, std::memory_order_relaxed);
-      } else {
+      // M4.5b-2：孤儿直装替换——输出直装 base 层并替换 overlap 文件
+      // （安装循环 DeleteFile + AddFile，复用 kMergeBase 的替换安装）。
+      const PartitionPlan* rplan = FindPlan(o.part_id);
+      if (rplan != nullptr && rplan->force_replace) {
+        o.level = rplan->base_level;
+        for (ROCKSDB_NAMESPACE::FileMetaData* r : rplan->overlap) {
+          o.replaced_file_numbers.push_back(r->fd.GetNumber());
+        }
         ctx_->install_direct_base_.fetch_add(1, std::memory_order_relaxed);
+      } else {
+        o.level = PickInstallLevel(o.meta.smallest, o.meta.largest);
+        if (o.level == 0) {
+          ctx_->install_fallback_l0_.fetch_add(1, std::memory_order_relaxed);
+        } else {
+          ctx_->install_direct_base_.fetch_add(1, std::memory_order_relaxed);
+        }
       }
     }
     if (batch_outputs_ != nullptr) {
@@ -315,6 +326,46 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   const ROCKSDB_NAMESPACE::Comparator* ucmp = mc_.cfd->user_comparator();
   const ROCKSDB_NAMESPACE::MutableCFOptions& mcf = *mc_.mutable_cf_options;
 
+  // base 层重叠文件扫描（半开区间 [lo, hi) 相交且完全包含；being_compacted
+  // 冲突检测与批内注册识别）。供融合归并（merge_enabled）与孤儿直装替换
+  // （M4.5b-2）共用。
+  auto scan_overlap = [&](const rocksdb::Slice& lo, const rocksdb::Slice& hi,
+                          std::vector<ROCKSDB_NAMESPACE::FileMetaData*>* out,
+                          uint64_t* out_bytes, bool* ok_out,
+                          bool* batch_skipped_out) {
+    out->clear();
+    *out_bytes = 0;
+    *ok_out = true;
+    *batch_skipped_out = false;
+    for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(base)) {
+      const ROCKSDB_NAMESPACE::Slice f_lo = f->smallest.user_key();
+      const ROCKSDB_NAMESPACE::Slice f_hi = f->largest.user_key();
+      // 相交 ⟺ !(f_hi < lo || f_lo >= hi)。
+      if (ucmp->Compare(f_hi, lo) < 0 || ucmp->Compare(f_lo, hi) >= 0) {
+        continue;
+      }
+      // 完全包含：lo <= f_lo && f_hi < hi；越界文件（分区边界切割）
+      // 无法安全替换 → 放弃。
+      if (ucmp->Compare(f_lo, lo) < 0 || ucmp->Compare(f_hi, hi) >= 0) {
+        *ok_out = false;
+        return;
+      }
+      if (f->being_compacted) {
+        // 若为本批次前序融合注册所标记 → 跳过（由批内链式替换的
+        // last_batch 提供 B 侧覆盖），否则为原生 compaction 冲突 → 降级。
+        if (batch_registered_files_.count(f->fd.GetNumber()) != 0) {
+          *batch_skipped_out = true;
+          continue;
+        }
+        // 原生 compaction 正在使用该文件 → 冲突降级（§7.3 不等待）。
+        *ok_out = false;
+        return;
+      }
+      out->push_back(f);
+      *out_bytes += f->fd.GetFileSize();
+    }
+  };
+
   for (uint32_t pid : part_ids_) {
     PartitionPlan plan;
     plan.part_id = pid;
@@ -324,13 +375,31 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       // 于"待物化代 < 上限"的分区（数据留在 frozen 索引 + recovery WAL，
       // 下个 epoch 收养后多代合并）——避免孤儿收养 epoch 全量 kDirect
       // 物化 → 回落 L0 → 遮蔽链导致后续同分区连锁回落。孤儿分区本身
-      // （待物化代 ≥ 上限）强制物化（kDirect 回落，数据必须落地）。
-      // 用户未开融合（merge_into_base_level=false）时不攒批（无融合
-      // 目标，维持原行为）。
+      // （待物化代 ≥ 上限）必须落地。用户未开融合（merge_into_base_level
+      // =false）时不攒批（无融合目标，维持原行为）。
       if (ctx_->zfo_.merge_into_base_level &&
           PendingGenCount(pid) < kMaxSkipGenerations) {
         plan.decision = MaterializeDecision::kSkip;
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      } else if (ctx_->zfo_.merge_into_base_level && se_.has_adopted_orphans &&
+                 table_ != nullptr && !table_->IsHashMode()) {
+        // M4.5b-2：孤儿收养 epoch 的强制分区直装替换——物化输出（含该
+        // 分区全部待物化代）替换 base 重叠文件（直装 base，不回落）。
+        // 回落会产生 L0 遮蔽链：L0 旧数据（孤儿输出）遮蔽 base 更新的
+        // 融合输出 → 读旧值（R22 实测用例 48 phase2 get 读到 'C'）。
+        // 替换安全性：输出范围 ⊇ overlap 文件范围（全代数据），替换后
+        // base 无重叠且数据最新。
+        table_->RangeOf(pid, &plan.lo, &plan.hi);
+        std::vector<ROCKSDB_NAMESPACE::FileMetaData*> ov;
+        uint64_t ov_bytes = 0;
+        bool ok = true, bskipped = false;
+        scan_overlap(plan.lo, plan.hi, &ov, &ov_bytes, &ok, &bskipped);
+        if (ok && !ov.empty() && !bskipped) {
+          plan.force_replace = true;
+          plan.base_level = base;
+          plan.overlap = std::move(ov);
+          plan.overlap_bytes = ov_bytes;
+        }
       }
       plans_.push_back(std::move(plan));
       continue;
@@ -345,35 +414,8 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     uint64_t overlap_bytes = 0;
     bool ok = true;
     bool batch_skipped = false;
-    for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(base)) {
-      const ROCKSDB_NAMESPACE::Slice f_lo = f->smallest.user_key();
-      const ROCKSDB_NAMESPACE::Slice f_hi = f->largest.user_key();
-      // 相交 ⟺ !(f_hi < lo || f_lo >= hi)。
-      if (ucmp->Compare(f_hi, plan.lo) < 0 ||
-          ucmp->Compare(f_lo, plan.hi) >= 0) {
-        continue;
-      }
-      // 完全包含：lo <= f_lo && f_hi < hi；越界文件（分区边界切割）
-      // 无法安全替换 → 放弃融合。
-      if (ucmp->Compare(f_lo, plan.lo) < 0 ||
-          ucmp->Compare(f_hi, plan.hi) >= 0) {
-        ok = false;
-        break;
-      }
-      if (f->being_compacted) {
-        // 若为本批次前序融合注册所标记 → 跳过（由批内链式替换的
-        // last_batch 提供 B 侧覆盖），否则为原生 compaction 冲突 → 降级。
-        if (batch_registered_files_.count(f->fd.GetNumber()) != 0) {
-          batch_skipped = true;
-          continue;
-        }
-        // 原生 compaction 正在使用该文件 → 冲突降级（§7.3 不等待）。
-        ok = false;
-        break;
-      }
-      overlap.push_back(f);
-      overlap_bytes += f->fd.GetFileSize();
-    }
+    scan_overlap(plan.lo, plan.hi, &overlap, &overlap_bytes, &ok,
+                 &batch_skipped);
     if (!ok) {
       plans_.push_back(std::move(plan));
       continue;
@@ -435,15 +477,21 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           static_cast<double>(sealed) / static_cast<double>(overlap_bytes);
       if (ratio < ctx_->zfo_.base_merge_min_ratio) {
         // M4.5b：比例不足（批次小不融合）→ kSkip 攒批：不产出 L0 回落
-        // 文件，数据留在 frozen 索引 + 封存 WAL（recovery 集合可读），
+        // 文件，数据留在 frozen 索引 + 封存 WAL（skip 集合可读），
         // 下个 epoch 收养后多代合并一次物化（50GB 回落循环的根治）。
-        // 约束：该分区待物化代 < 上限（防永不收敛——攒一代即强制物化）。
+        // 约束：该分区待物化代 < 上限（防永不收敛——攒一代即强制落地）。
         if (PendingGenCount(pid) < kMaxSkipGenerations) {
           plan.decision = MaterializeDecision::kSkip;
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+          plans_.push_back(std::move(plan));
+          continue;
         }
-        plans_.push_back(std::move(plan));
-        continue;
+        // M4.5b-2：攒一代后（待物化代 ≥ 上限）强制融合——无视 ratio，
+        // 物化多代数据直装 base 层。回落会触发 L0 遮蔽链（后续同分区
+        // 直装被 L0 重叠拒绝 → 连锁回落 → L0 堆积 → 停写；R21 实测
+        // 50GB 17 分钟退化至 18K/51% stall）。强制融合的写放大 =
+        // 重写 overlap 一次（~2MB vs 数据 ~300KB），换取零 L0 产出。
+        // fallthrough：继续执行下方融合注册路径（kMergeBase）。
       }
     }
 
