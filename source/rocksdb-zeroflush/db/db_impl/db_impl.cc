@@ -3012,10 +3012,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         const ROCKSDB_NAMESPACE::Slice ik = lkey.internal_key();
         const ROCKSDB_NAMESPACE::SequenceNumber snap =
             ROCKSDB_NAMESPACE::DecodeFixed64(ik.data() + ik.size() - 8) >> 8;
-        if (zf_ctx->GetFromPartitionIndex(user_key, snap, &s,
-                                          get_impl_options.value
-                                              ? get_impl_options.value->GetSelf()
-                                              : nullptr)) {
+        const bool zf_hit = zf_ctx->GetFromPartitionIndex(
+            user_key, snap, &s,
+            get_impl_options.value ? get_impl_options.value->GetSelf()
+                                   : nullptr,
+            &merge_context, cfd->ioptions().merge_operator.get());
+        if (zf_hit) {
           done = true;
           maybe_resolve_memtable_value();
           RecordTick(stats_, MEMTABLE_HIT);

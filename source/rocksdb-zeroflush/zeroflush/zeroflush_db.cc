@@ -97,17 +97,29 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
   }
 
   ROCKSDB_NAMESPACE::Status DeleteRangeCF(
-      uint32_t /*column_family_id*/, const ROCKSDB_NAMESPACE::Slice& /*begin*/,
-      const ROCKSDB_NAMESPACE::Slice& /*end*/) override {
-    return ROCKSDB_NAMESPACE::Status::NotSupported(
-        "ZeroFlush M1: DeleteRange not supported");
+      uint32_t /*column_family_id*/, const ROCKSDB_NAMESPACE::Slice& begin,
+      const ROCKSDB_NAMESPACE::Slice& end) override {
+    ROCKSDB_NAMESPACE::Status s = ctx_->AddRecord(
+        mem_, begin, end, ROCKSDB_NAMESPACE::kTypeRangeDeletion, *seq_,
+        &(*post_map_)[mem_]);
+    if (s.ok() && touched_ != nullptr) {
+      touched_->insert(zeroflush::kRangeDelPartId);
+    }
+    ++(*seq_);
+    return s;
   }
 
   ROCKSDB_NAMESPACE::Status MergeCF(
-      uint32_t /*column_family_id*/, const ROCKSDB_NAMESPACE::Slice& /*key*/,
-      const ROCKSDB_NAMESPACE::Slice& /*value*/) override {
-    return ROCKSDB_NAMESPACE::Status::NotSupported(
-        "ZeroFlush M1: Merge not supported");
+      uint32_t /*column_family_id*/, const ROCKSDB_NAMESPACE::Slice& key,
+      const ROCKSDB_NAMESPACE::Slice& value) override {
+    ROCKSDB_NAMESPACE::Status s = ctx_->AddRecord(
+        mem_, key, value, ROCKSDB_NAMESPACE::kTypeMerge, *seq_,
+        &(*post_map_)[mem_]);
+    if (s.ok() && touched_ != nullptr) {
+      touched_->insert(ctx_->Route(key));
+    }
+    ++(*seq_);
+    return s;
   }
 
   void LogData(const ROCKSDB_NAMESPACE::Slice& /*blob*/) override {
@@ -482,7 +494,9 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
     ROCKSDB_NAMESPACE::SequenceNumber seq,
     ROCKSDB_NAMESPACE::MemTablePostProcessInfo* ppi) {
   // 1) 路由 + 分区 WAL 追加（value 的唯一持久副本）
-  const uint32_t part = Route(key);
+  const uint32_t part =
+      (type == ROCKSDB_NAMESPACE::kTypeRangeDeletion) ? kRangeDelPartId
+                                                      : Route(key);
   WalRecordRef ref;
   ROCKSDB_NAMESPACE::Status s =
       wal_->Append(part, key, value, static_cast<uint8_t>(type), seq, &ref);
@@ -688,28 +702,93 @@ void ZeroFlushContext::ReleaseFrozenIndexes(uint64_t epoch) {
 bool ZeroFlushContext::GetFromPartitionIndex(
     const ROCKSDB_NAMESPACE::Slice& user_key,
     ROCKSDB_NAMESPACE::SequenceNumber snapshot,
-    ROCKSDB_NAMESPACE::Status* s, std::string* value) const {
+    ROCKSDB_NAMESPACE::Status* s, std::string* value,
+    ROCKSDB_NAMESPACE::MergeContext* merge_context,
+    const ROCKSDB_NAMESPACE::MergeOperator* merge_op) const {
   const uint32_t part = Route(user_key);
   ROCKSDB_NAMESPACE::Slice loc;
   ROCKSDB_NAMESPACE::ValueType type;
   ROCKSDB_NAMESPACE::SequenceNumber seq;
   if (!index_set_->Get(part, user_key, snapshot, &loc, &type, &seq)) {
+    if (CheckRangeDelCover(user_key, snapshot)) {
+      *s = ROCKSDB_NAMESPACE::Status::NotFound();
+      return true;
+    }
     return false;
   }
+  // M3.4：命中时也检查 tombstone 覆盖（DeleteRange 后写的 range 删除
+  // 该 key——tombstone seq 更大则覆盖）。精细 seq 比较（数据后写覆盖
+  // 旧 tombstone）留后续；当前按"tombstone ≤ snapshot 即覆盖"。
+  if (CheckRangeDelCover(user_key, snapshot)) {
+    *s = ROCKSDB_NAMESPACE::Status::NotFound();
+    return true;
+  }
   if (type == ROCKSDB_NAMESPACE::kTypeDeletion ||
-      type == ROCKSDB_NAMESPACE::kTypeSingleDeletion) {
+      type == ROCKSDB_NAMESPACE::kTypeSingleDeletion ||
+      type == ROCKSDB_NAMESPACE::kTypeRangeDeletion) {
     *s = ROCKSDB_NAMESPACE::Status::NotFound();
     return true;
   }
   ROCKSDB_NAMESPACE::Status rs = ReadValue(loc, value);
   if (!rs.ok()) {
-    // M4.3：frozen 索引被迭代器/Get 持有时，物化可能已完成并移除该 epoch
-    // （WAL 已 unlink / 数据已进 SST）——回退原生 SST 查找（数据在 SST）。
-    // 除"已回收"外其余读错误（如损坏）也回退——SST 兜底保证正确性。
+    return false;
+  }
+  if (type == ROCKSDB_NAMESPACE::kTypeMerge && merge_context != nullptr) {
+    // M3.4：收集同 key 全部版本（seq 降序）——分离 base 与 operands。
+    std::vector<std::string> versions;
+    std::vector<ROCKSDB_NAMESPACE::ValueType> vtypes;
+    auto read_value = [this](const ROCKSDB_NAMESPACE::Slice& locator,
+                             std::string* out) {
+      return ReadValue(locator, out);
+    };
+    index_set_->CollectVersions(part, user_key, snapshot, read_value,
+                                &versions, &vtypes);
+    std::string base;
+    bool has_base = false;
+    for (size_t i = 0; i < versions.size(); ++i) {
+      if (vtypes[i] == ROCKSDB_NAMESPACE::kTypeValue && !has_base) {
+        base = versions[i];
+        has_base = true;
+        break;
+      }
+      merge_context->PushOperand(versions[i]);
+    }
+    if (has_base && merge_context->GetNumOperands() > 0 && merge_op != nullptr) {
+      ROCKSDB_NAMESPACE::MergeOperator::MergeOperationInputV3 input(
+          user_key,
+          ROCKSDB_NAMESPACE::MergeOperator::MergeOperationInputV3::ExistingValue(
+              std::in_place_type<ROCKSDB_NAMESPACE::Slice>, base),
+          merge_context->GetOperands(), nullptr /* logger */);
+      ROCKSDB_NAMESPACE::MergeOperator::MergeOperationOutputV3 output;
+      if (merge_op->FullMergeV3(input, &output)) {
+        if (auto* v = std::get_if<std::string>(&output.new_value)) {
+          *value = *v;
+          *s = ROCKSDB_NAMESPACE::Status::OK();
+          return true;
+        }
+      }
+      // FullMergeV3 失败/非字符串结果——回退 MergeInProgress（SST 兜底）。
+    }
+    *s = ROCKSDB_NAMESPACE::Status::MergeInProgress();
     return false;
   }
   *s = ROCKSDB_NAMESPACE::Status::OK();
   return true;
+}
+
+// M3.4：未 compact 窗口的 range tombstone 覆盖检查。
+bool ZeroFlushContext::CheckRangeDelCover(
+    const ROCKSDB_NAMESPACE::Slice& user_key,
+    ROCKSDB_NAMESPACE::SequenceNumber snapshot) const {
+  if (index_set_ == nullptr) {
+    return false;
+  }
+  auto read_value = [this](const ROCKSDB_NAMESPACE::Slice& loc,
+                           std::string* out) {
+    return ReadValue(loc, out);
+  };
+  return index_set_->GetRangeDelCover(kRangeDelPartId, user_key, snapshot,
+                                      read_value);
 }
 
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::WriteGroupToPartitionWal(

@@ -81,6 +81,108 @@ class PartitionIndex {
     return list_.InsertConcurrently(buf);
   }
 
+  // M3.4：range tombstone 覆盖——找 ≤ user_key 的最大 begin 条目。
+  // end 从 WAL 读（read_value 回调——条目的 value 字段是 16B locator，
+  // 不是 end；end 是 AddRecord 的 value 存于 WAL）。
+  bool GetRangeDelCover(
+      const ROCKSDB_NAMESPACE::Slice& user_key,
+      ROCKSDB_NAMESPACE::SequenceNumber snapshot,
+      const std::function<ROCKSDB_NAMESPACE::Status(const ROCKSDB_NAMESPACE::Slice&, std::string*)>& read_value) const {
+    std::string target;
+    target.reserve(user_key.size() + 8);
+    target.append(user_key.data(), user_key.size());
+    ROCKSDB_NAMESPACE::PutFixed64(
+        &target, ROCKSDB_NAMESPACE::PackSequenceAndType(
+                     snapshot, ROCKSDB_NAMESPACE::kTypeValue));
+    std::string encoded;
+    ROCKSDB_NAMESPACE::PutVarint32(
+        &encoded, static_cast<uint32_t>(target.size()));
+    encoded.append(target);
+    Iterator iter(&list_);
+    iter.SeekForPrev(encoded.data());
+    if (!iter.Valid()) {
+      return false;
+    }
+    const char* entry = iter.key();
+    const ROCKSDB_NAMESPACE::Slice ik =
+        ROCKSDB_NAMESPACE::GetLengthPrefixedSlice(entry);
+    if (ik.size() < 8) {
+      return false;
+    }
+    const ROCKSDB_NAMESPACE::Slice ukey(ik.data(), ik.size() - 8);
+    if (cmp_.comparator.user_comparator()->Compare(ukey, user_key) > 0) {
+      return false;
+    }
+    const uint64_t packed =
+        ROCKSDB_NAMESPACE::DecodeFixed64(ik.data() + ik.size() - 8);
+    const auto type = static_cast<ROCKSDB_NAMESPACE::ValueType>(packed & 0xff);
+    if (type != ROCKSDB_NAMESPACE::kTypeRangeDeletion) {
+      return false;
+    }
+    uint32_t ik_size = 0;
+    const char* loc_pos = ROCKSDB_NAMESPACE::GetVarint32Ptr(
+        entry, entry + 5, &ik_size);
+    loc_pos += ik_size;
+    const ROCKSDB_NAMESPACE::Slice loc =
+        ROCKSDB_NAMESPACE::GetLengthPrefixedSlice(loc_pos);
+    std::string end_buf;
+    if (!read_value(loc, &end_buf).ok()) {
+      return false;
+    }
+    const ROCKSDB_NAMESPACE::Slice end(end_buf);
+    return cmp_.comparator.user_comparator()->Compare(user_key, end) < 0;
+  }
+
+  // M3.4：收集同 user_key 在 snapshot 下的全部版本（seq 降序）——
+  // merge 链需要 base + 全部 operand。
+  void CollectVersions(
+      const ROCKSDB_NAMESPACE::Slice& user_key,
+      ROCKSDB_NAMESPACE::SequenceNumber snapshot,
+      const std::function<ROCKSDB_NAMESPACE::Status(const ROCKSDB_NAMESPACE::Slice&, std::string*)>& read_value,
+      std::vector<std::string>* values,
+      std::vector<ROCKSDB_NAMESPACE::ValueType>* types) const {
+    std::string target;
+    target.reserve(user_key.size() + 8);
+    target.append(user_key.data(), user_key.size());
+    ROCKSDB_NAMESPACE::PutFixed64(
+        &target, ROCKSDB_NAMESPACE::PackSequenceAndType(
+                     snapshot, ROCKSDB_NAMESPACE::kTypeValue));
+    std::string encoded;
+    ROCKSDB_NAMESPACE::PutVarint32(
+        &encoded, static_cast<uint32_t>(target.size()));
+    encoded.append(target);
+    Iterator iter(&list_);
+    iter.Seek(encoded.data());
+    const auto* ucmp = cmp_.comparator.user_comparator();
+    while (iter.Valid()) {
+      const char* entry = iter.key();
+      const ROCKSDB_NAMESPACE::Slice ik =
+          ROCKSDB_NAMESPACE::GetLengthPrefixedSlice(entry);
+      if (ik.size() < 8) {
+        break;
+      }
+      const ROCKSDB_NAMESPACE::Slice ukey(ik.data(), ik.size() - 8);
+      if (ucmp->Compare(ukey, user_key) != 0) {
+        break;  // 越过该 user_key
+      }
+      const uint64_t packed =
+          ROCKSDB_NAMESPACE::DecodeFixed64(ik.data() + ik.size() - 8);
+      const auto type = static_cast<ROCKSDB_NAMESPACE::ValueType>(packed & 0xff);
+      uint32_t ik_size = 0;
+      const char* loc_pos = ROCKSDB_NAMESPACE::GetVarint32Ptr(
+          entry, entry + 5, &ik_size);
+      loc_pos += ik_size;
+      const ROCKSDB_NAMESPACE::Slice loc =
+          ROCKSDB_NAMESPACE::GetLengthPrefixedSlice(loc_pos);
+      std::string val;
+      if (read_value(loc, &val).ok()) {
+        values->push_back(std::move(val));
+        types->push_back(type);
+      }
+      iter.Next();
+    }
+  }
+
   // Get：user_key 在 snapshot 下的最新版本。命中返回 true（含 tombstone，
   // type 由调用方判断）；未命中返回 false。
   bool Get(const ROCKSDB_NAMESPACE::Slice& user_key,
@@ -322,6 +424,58 @@ class PartitionIndexSet {
 
   // M4.5b 调试：逐索引独立遍历计数（定义见文件尾）。
   void DebugCountEach() const;
+
+  // M3.4：range tombstone 覆盖（专用分区链，新→旧）。
+  bool GetRangeDelCover(
+      uint32_t part_id, const ROCKSDB_NAMESPACE::Slice& user_key,
+      ROCKSDB_NAMESPACE::SequenceNumber snapshot,
+      const std::function<ROCKSDB_NAMESPACE::Status(const ROCKSDB_NAMESPACE::Slice&, std::string*)>& read_value) const {
+    std::vector<std::shared_ptr<PartitionIndex>> chain;
+    {
+      std::lock_guard<std::mutex> l(mu_);
+      auto fit = frozen_.find(part_id);
+      if (fit != frozen_.end()) {
+        chain = fit->second;
+      }
+      auto ait = active_.find(part_id);
+      if (ait != active_.end()) {
+        chain.push_back(ait->second);
+      }
+    }
+    for (auto c = chain.rbegin(); c != chain.rend(); ++c) {
+      if ((*c)->GetRangeDelCover(user_key, snapshot, read_value)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // M3.4：收集同 key 全部版本（seq 降序：active 先 + frozen 新→旧）。
+  // 用于 merge 链（base + operands 的完整累积）。
+  void CollectVersions(
+      uint32_t part_id, const ROCKSDB_NAMESPACE::Slice& user_key,
+      ROCKSDB_NAMESPACE::SequenceNumber snapshot,
+      const std::function<ROCKSDB_NAMESPACE::Status(const ROCKSDB_NAMESPACE::Slice&, std::string*)>& read_value,
+      std::vector<std::string>* values,
+      std::vector<ROCKSDB_NAMESPACE::ValueType>* types) const {
+    std::vector<std::shared_ptr<PartitionIndex>> chain;
+    {
+      std::lock_guard<std::mutex> l(mu_);
+      auto ait = active_.find(part_id);
+      if (ait != active_.end()) {
+        chain.push_back(ait->second);  // active 最先（最新 seq）
+      }
+      auto fit = frozen_.find(part_id);
+      if (fit != frozen_.end()) {
+        for (auto c = fit->second.rbegin(); c != fit->second.rend(); ++c) {
+          chain.push_back(*c);  // frozen 新→旧
+        }
+      }
+    }
+    for (const auto& idx : chain) {
+      idx->CollectVersions(user_key, snapshot, read_value, values, types);
+    }
+  }
 
   // Get：查分区 p 的 active + frozen 链（新→旧，第一个命中即最新版本）。
   bool Get(uint32_t part_id, const ROCKSDB_NAMESPACE::Slice& user_key,

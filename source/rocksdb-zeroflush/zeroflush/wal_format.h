@@ -46,6 +46,9 @@ static_assert(sizeof(ZfRecordHeader) == kZfHeaderSize,
 // 布局 [varint loc_size=16][locator 16B]，与原生 memtable 的
 // [varint val_size][value] 结构完全同构 —— 这样 MemTable::Add/SaveValue/
 // MemTableIterator 的既有解析逻辑无需改变，只需在取值处按 zf 分支解引用。
+// M3.4：range tombstone 专用分区号（不参与路由；覆盖多分区的删除范围）。
+constexpr uint32_t kRangeDelPartId = 0xFFFFFFFEu;
+
 struct SlimLocator {
   uint32_t part_id;   // 所在 WAL 分区
   uint32_t gen;       // 代际（M1 恒为 0，Freeze 后递增）

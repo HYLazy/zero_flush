@@ -202,6 +202,8 @@ class PartitionedWalManager {
   // M4.1a：单分区封存阈值（Append 时置位 any_over_target_ 用）。
   uint64_t partition_target_bytes_;
   std::unordered_map<uint32_t, std::unique_ptr<Partition>> parts_;
+  // M3.4：保护 parts_ map 结构（range-del 分区动态创建与并发 Append/遍历）。
+  mutable rocksdb::port::Mutex parts_mu_;
   // M4.1a：O(1) 封存判定聚合计数（见 TotalActiveBytes/AnyPartitionOverTarget）。
   std::atomic<uint64_t> total_active_bytes_{0};
   std::atomic<bool> any_over_target_{false};

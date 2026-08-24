@@ -39,6 +39,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
+#include "utilities/merge_operators.h"
 #include "db/dbformat.h"
 #include "memory/arena.h"
 #include "table/merging_iterator.h"
@@ -2235,6 +2236,144 @@ void TestMultiGenFrozenIterator() {
   ReportResult(tag, true, "count=96");
 }
 
+
+// ---------------------------------------------------------------------------
+// 用例 46 (M3.4-46): MergeOperandChain — Merge 链跨 epoch，Get 合并正确。
+// ---------------------------------------------------------------------------
+void TestMergeOperandChain() {
+  const char* tag = "MergeOperandChain(M3.4-46)";
+  std::string dbname = std::string(kDbBase) + "merge_chain";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 8;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+  zfo.partition_target_bytes = 4 << 10;
+  zfo.epoch_target_bytes = 4 << 10;
+
+  rocksdb::Options opt = MakeOptions();
+  opt.merge_operator = rocksdb::MergeOperators::CreateStringAppendOperator();
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(opt, zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  const char* key = "mkey00000001";
+  s = db->Put(rocksdb::WriteOptions(), key, "base");
+  if (!s.ok()) {
+    ReportResult(tag, false, "put: " + s.ToString());
+    CleanDB(dbname);
+    return;
+  }
+  for (int i = 0; i < 5; ++i) {
+    s = db->Merge(rocksdb::WriteOptions(), key, "op" + std::to_string(i));
+    if (!s.ok()) {
+      ReportResult(tag, false, "merge@" + std::to_string(i) + ": " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    ReportResult(tag, false, "materialization did not finish");
+    CleanDB(dbname);
+    return;
+  }
+  fprintf(stderr, "[M34] merge-case: direct=%llu fallback=%llu l0=%d\n",
+          (unsigned long long)ZfMetric(db.get(), "install_direct_base"),
+          (unsigned long long)ZfMetric(db.get(), "install_fallback_l0"),
+          (int)NumFilesAtLevel(db.get(), 0));
+  std::string val;
+  s = db->Get(rocksdb::ReadOptions(), key, &val);
+  if (!s.ok() || val != "base,op0,op1,op2,op3,op4") {
+    ReportResult(tag, false, "get merge: '" + val + "' size=" +
+                                 std::to_string(val.size()) + " (" +
+                                 s.ToString() + ")");
+    CleanDB(dbname);
+    return;
+  }
+  ReportResult(tag, true, "merged='" + val + "'");
+  CleanDB(dbname);
+}
+
+// ---------------------------------------------------------------------------
+// 用例 47 (M3.4-47): DeleteRangeAcrossPartitions — 跨分区 DeleteRange。
+// ---------------------------------------------------------------------------
+void TestDeleteRangeAcrossPartitions() {
+  const char* tag = "DeleteRangeAcrossPartitions(M3.4-47)";
+  std::string dbname = std::string(kDbBase) + "delrange";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 8;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+  zfo.partition_target_bytes = 4 << 10;
+  zfo.epoch_target_bytes = 4 << 10;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  char k[16], v[32];
+  for (int i = 0; i < 100; ++i) {
+    snprintf(k, sizeof(k), "k%05d", i);
+    snprintf(v, sizeof(v), "v%05d", i);
+    s = db->Put(rocksdb::WriteOptions(), rocksdb::Slice(k, 8),
+                rocksdb::Slice(v, 6));
+    if (!s.ok()) {
+      ReportResult(tag, false, "put: " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+  }
+  s = db->DeleteRange(rocksdb::WriteOptions(), "k00020", "k00080");
+  if (!s.ok()) {
+    ReportResult(tag, false, "deleterange: " + s.ToString());
+    CleanDB(dbname);
+    return;
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    ReportResult(tag, false, "materialization did not finish");
+    CleanDB(dbname);
+    return;
+  }
+  std::string val;
+  for (int i = 0; i < 100; ++i) {
+    snprintf(k, sizeof(k), "k%05d", i);
+    snprintf(v, sizeof(v), "v%05d", i);
+    const bool in_range = (i >= 20 && i < 80);
+    s = db->Get(rocksdb::ReadOptions(), rocksdb::Slice(k, 8), &val);
+    if (in_range) {
+      if (s.ok()) {
+        ReportResult(tag, false, "range key visible: " + std::string(k));
+        CleanDB(dbname);
+        return;
+      }
+    } else {
+      if (!s.ok() || val != std::string(v, 6)) {
+        std::string hex;
+        for (char ch : val) {
+          char b[4];
+          snprintf(b, sizeof(b), "%02x ", (unsigned char)ch);
+          hex += b;
+        }
+        ReportResult(tag, false,
+                     "out-of-range key wrong: " + std::string(k) +
+                         " val='" + val + "' size=" +
+                         std::to_string(val.size()) + " hex=[" + hex + "] (" +
+                         s.ToString() + ")");
+        CleanDB(dbname);
+        return;
+      }
+    }
+  }
+  ReportResult(tag, true, "range [20,80) deleted, 100 keys checked");
+  CleanDB(dbname);
+}
+
 // ---------------------------------------------------------------------------
 // 用例 19 (M3.1-19): NonBytewiseComparator — 非字节序比较器下
 // PartitionTable::Create + Route + RangeOf 互为逆（I6）。
@@ -3322,6 +3461,8 @@ int main(int argc, char** argv) {
   run("ParallelPartitionCompact",     TestParallelPartitionCompact);
   run("SteadyStateControlledL0",      TestSteadyStateControlledL0);
   run("MultiGenFrozenIterator",        TestMultiGenFrozenIterator);
+  run("MergeOperandChain",              TestMergeOperandChain);
+  run("DeleteRangeAcrossPartitions",    TestDeleteRangeAcrossPartitions);
   run("NonBytewiseComparator",        TestNonBytewiseComparator);
   run("PartitionOutputsDisjoint",     TestPartitionOutputsDisjoint);
   run("ComparatorNameMismatchRejected", TestComparatorNameMismatchRejected);

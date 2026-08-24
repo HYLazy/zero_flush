@@ -26,6 +26,8 @@ class DBImpl;
 class Env;
 class MemTable;
 struct MemTablePostProcessInfo;
+class MergeContext;
+class MergeOperator;
 struct ReadOptions;
 struct WriteOptions;
 }  // namespace ROCKSDB_NAMESPACE
@@ -154,10 +156,14 @@ class ZeroFlushContext {
   void HandOffSkippedToRecovery(
       uint64_t epoch, const std::vector<std::pair<uint32_t, uint32_t>>& gens);
   // M4.3a：Get 查分区索引（替代 mem/imm 链）。命中返回 true（含 tombstone）。
-  bool GetFromPartitionIndex(const ROCKSDB_NAMESPACE::Slice& user_key,
-                             ROCKSDB_NAMESPACE::SequenceNumber snapshot,
-                             ROCKSDB_NAMESPACE::Status* s,
-                             std::string* value) const;
+  bool GetFromPartitionIndex(
+      const ROCKSDB_NAMESPACE::Slice& user_key,
+      ROCKSDB_NAMESPACE::SequenceNumber snapshot,
+      ROCKSDB_NAMESPACE::Status* s, std::string* value,
+      ROCKSDB_NAMESPACE::MergeContext* merge_context,
+      const ROCKSDB_NAMESPACE::MergeOperator* merge_op) const;
+  bool CheckRangeDelCover(const ROCKSDB_NAMESPACE::Slice& user_key,
+                          ROCKSDB_NAMESPACE::SequenceNumber snapshot) const;
 
   // 路由：M1 用 key 哈希取模（确定性，同 key 同分区 → 正确性不变式成立）；
   // M3.1 由 PartitionTable 的边界二分接替。

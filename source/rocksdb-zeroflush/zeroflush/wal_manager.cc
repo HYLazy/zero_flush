@@ -390,8 +390,18 @@ rocksdb::Status PartitionedWalManager::Append(uint32_t part,
                                               WalRecordRef* out) {
   auto it = parts_.find(part);
   if (it == parts_.end()) {
-    return rocksdb::Status::InvalidArgument(
-        "ZF Append: unknown partition " + std::to_string(part));
+    if (part == kRangeDelPartId) {
+      auto np = std::unique_ptr<Partition>(new Partition());
+      np->part_id = part;
+      {
+        rocksdb::MutexLock l(&parts_mu_);
+        parts_[part] = std::move(np);
+      }
+      it = parts_.find(part);
+    } else {
+      return rocksdb::Status::InvalidArgument(
+          "ZF Append: unknown partition " + std::to_string(part));
+    }
   }
   Partition* p = it->second.get();
 
