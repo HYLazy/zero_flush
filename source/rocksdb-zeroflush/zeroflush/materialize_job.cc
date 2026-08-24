@@ -231,6 +231,15 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::Run() {
       // 已提交版本中），故只继承前序的 replaced_file_numbers。
       if (batch_outputs_ != nullptr) {
         const ROCKSDB_NAMESPACE::Comparator* ucmp2 = mc_.cfd->user_comparator();
+        // M4.5b-3：只有融合输出（kMergeBase）能替换批内前序——融合输出
+        // 的 B 侧包含前序输出（批内链式替换，§7.4），范围 ⊇ 前序；
+        // 非融合输出（kDirect/kFallback/force_replace，含 kSkip 收养的
+        // 多代数据）数据内容独立，范围重叠不代表包含 → 标记 superseded
+        // 会误删前序数据（R23 实测：收养输出被后序单代输出替换 → 50GB
+        // 重开后 99% 数据丢失）。
+        if (o.decision != MaterializeDecision::kMergeBase) {
+          continue;
+        }
         for (MaterializeOutput& x : *batch_outputs_) {
           if (x.superseded || x.level != o.level) {
             continue;

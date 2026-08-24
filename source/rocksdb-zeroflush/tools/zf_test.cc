@@ -3422,6 +3422,7 @@ void TestSkipBatchMaterialize() {
   zfo.epoch_target_bytes = 8 << 10;
   zfo.merge_into_base_level = true;
   zfo.base_merge_min_ratio = 0.25;
+  zfo.skip_batching = true;  // M4.5b：本用例显式开启攒批（默认关）
 
   const int kRecords = 500;  // 每轮同键覆盖写（值轮换）
   char k[16], v[128];
