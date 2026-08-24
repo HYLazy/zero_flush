@@ -517,7 +517,22 @@ L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现�
 - **修复方向**：迭代器/Get 的"未 compact 窗口"与 sv 快照的一致性——物化
   安装后、ReleaseFrozen 前确保迭代器可见（如：frozen 释放延迟到 sv 确认
   刷新，或迭代器侧以 frozen 索引为准的窗口合并）
+- **2026-08-24 最终分析**：迭代器计数波动（144/164）证实 sv 时序竞态；
+  缺口在"迭代器获取旧 sv（无新 SST）时物化分区的数据"——frozen 已释放且
+  SST 在旧 sv 不可见。修复需物化安装（LogAndApply+InstallSuperVersion）与
+  ReleaseFrozen 的原子协调。50GB L0 循环（R19 延后至 34GB）根治（攒批）
+  依赖此修复
 - kSkip 攒批三次回滚（回归 35/35 恢复）；攒批仍为 50GB 根治方向
+
+### M3.4 API 完备（已完成 ✅ 2026-08-24，7c66000）
+
+- **Merge**：写（MergeCF → kTypeMerge）+ 读（CollectVersions 累积同 key 全部
+  版本 → 分离 base/operands → FullMergeV3）+ 物化（CompactionIterator 原生
+  merge_helper）——跨 epoch 链正确（用例 46：'base,op0..op4'）
+- **DeleteRange**：写（专用分区 kRangeDelPartId + Append 自动创建 +
+  parts_mu_）+ 读（命中/未命中路径的 tombstone 覆盖，GetRangeDelCover 从
+  WAL 读 end）+ 物化（原生 tombstone）——跨分区覆盖正确（用例 47）
+- 多 CF：保持 NotSupported（后续）；回归 37/37 全绿
 
 ### M3.4 API 完备（尝试后回滚，2026-08-23）
 
