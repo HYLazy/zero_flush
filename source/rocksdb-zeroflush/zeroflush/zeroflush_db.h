@@ -84,6 +84,11 @@ struct ZeroFlushOptions {
   // M3.3 触发比：封存字节 / 待重写 base-level 字节 ≥ 该值才融合，否则落 L0
   double base_merge_min_ratio = 0.25;
   uint32_t l0_fallback_tolerance = 0;    // 允许的 L0 回落文件数（超出告警）
+  // M4.5b：kSkip 攒批物化开关（默认开）。比例不足的分区跳过物化、下个
+  // epoch 收养后多代合并——2.2GB 实测 +28% 吞吐、回落 -61%；50GB 写密集
+  // 下 L0 消费端（compaction）是瓶颈，攒批的物化延迟反致更慢（R21/R22
+  // 实测），基准可关闭以复现 R20 基线（28.8K 完整跑通）。
+  bool skip_batching = true;
 
   // ---- M4.3 终态 ----
   // M4.3d-2：分区索引总内存预算（背压触发 freeze；默认 4GB ≈ 6~8 千万

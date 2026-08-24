@@ -376,8 +376,8 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       // 下个 epoch 收养后多代合并）——避免孤儿收养 epoch 全量 kDirect
       // 物化 → 回落 L0 → 遮蔽链导致后续同分区连锁回落。孤儿分区本身
       // （待物化代 ≥ 上限）必须落地。用户未开融合（merge_into_base_level
-      // =false）时不攒批（无融合目标，维持原行为）。
-      if (ctx_->zfo_.merge_into_base_level &&
+      // =false）或关闭攒批（skip_batching=false）时不攒批（维持原行为）。
+      if (ctx_->zfo_.merge_into_base_level && ctx_->zfo_.skip_batching &&
           PendingGenCount(pid) < kMaxSkipGenerations) {
         plan.decision = MaterializeDecision::kSkip;
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
@@ -458,7 +458,8 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     if (batch_skipped &&
         (last_batch == nullptr ||
          last_batch->decision != MaterializeDecision::kMergeBase)) {
-      if (PendingGenCount(pid) < kMaxSkipGenerations) {
+      if (ctx_->zfo_.skip_batching &&
+          PendingGenCount(pid) < kMaxSkipGenerations) {
         plan.decision = MaterializeDecision::kSkip;
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       }
@@ -478,11 +479,17 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       if (ratio < ctx_->zfo_.base_merge_min_ratio) {
         // M4.5b：比例不足（批次小不融合）→ kSkip 攒批：不产出 L0 回落
         // 文件，数据留在 frozen 索引 + 封存 WAL（skip 集合可读），
-        // 下个 epoch 收养后多代合并一次物化（50GB 回落循环的根治）。
+        // 下个 epoch 收养后多代合并一次物化。
         // 约束：该分区待物化代 < 上限（防永不收敛——攒一代即强制落地）。
-        if (PendingGenCount(pid) < kMaxSkipGenerations) {
+        if (ctx_->zfo_.skip_batching &&
+            PendingGenCount(pid) < kMaxSkipGenerations) {
           plan.decision = MaterializeDecision::kSkip;
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+          plans_.push_back(std::move(plan));
+          continue;
+        }
+        if (!ctx_->zfo_.skip_batching) {
+          // 攒批关闭：维持原行为（kFallback 回落 L0，R20 基线）。
           plans_.push_back(std::move(plan));
           continue;
         }

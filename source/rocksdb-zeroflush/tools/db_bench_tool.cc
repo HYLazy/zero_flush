@@ -851,6 +851,10 @@ DEFINE_string(zf_static_boundaries, "",
 DEFINE_bool(zf_base_merge, false,
             "ZeroFlush M3.3: fuse materialization into base level (merge with "
             "overlapping base-level files) instead of falling back to L0.");
+DEFINE_bool(zf_skip_batching, true,
+            "ZeroFlush M4.5b: kSkip batch materialization (skip low-ratio "
+            "partitions, adopt next epoch for multi-gen merge). Disable for "
+            "write-heavy 50GB baselines (R20 config).");
 DEFINE_int64(zf_partition_target_mb, 64,
              "ZeroFlush per-partition WAL seal target in MB.");
 DEFINE_int64(zf_epoch_target_mb, 256,
@@ -5492,6 +5496,7 @@ class Benchmark {
         ErrorExit();
       }
       zfo.merge_into_base_level = FLAGS_zf_base_merge;
+      zfo.skip_batching = FLAGS_zf_skip_batching;
       if (FLAGS_zf_partition_target_mb > 0) {
         zfo.partition_target_bytes =
             static_cast<uint64_t>(FLAGS_zf_partition_target_mb) * 1024 * 1024;
