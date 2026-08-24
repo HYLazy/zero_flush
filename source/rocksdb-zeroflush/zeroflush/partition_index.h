@@ -422,8 +422,6 @@ class PartitionIndexSet {
     return added;
   }
 
-  // M4.5b 调试：逐索引独立遍历计数（定义见文件尾）。
-  void DebugCountEach() const;
 
   // M3.4：range tombstone 覆盖（专用分区链，新→旧）。
   bool GetRangeDelCover(
@@ -616,37 +614,11 @@ class PartitionIndexIterator : public ROCKSDB_NAMESPACE::InternalIterator {
   mutable std::string value_buf_;
 };
 
-inline void PartitionIndexSet::DebugCountEach() const {
-  std::vector<std::shared_ptr<PartitionIndex>> all;
-  {
-    std::lock_guard<std::mutex> l(mu_);
-    for (const auto& [part, chain] : frozen_) {
-      for (const auto& idx : chain) {
-        all.push_back(idx);
-      }
-    }
-    for (const auto& [part, idx] : active_) {
-      all.push_back(idx);
-    }
-  }
-  for (const auto& idx : all) {
-    PartitionIndexIterator it(idx,
-        [](const ROCKSDB_NAMESPACE::Slice&, std::string* out) {
-          out->clear();
-          return ROCKSDB_NAMESPACE::Status::OK();
-        });
-    int n = 0;
-    for (it.SeekToFirst(); it.Valid(); it.Next()) ++n;
-    fprintf(stderr, " (p%u g%u n%d)", idx->part_id(), idx->gen(), n);
-  }
-  fprintf(stderr, "\n");
-}
 
 inline void PartitionIndexSet::AddIterators(
     ROCKSDB_NAMESPACE::MergeIteratorBuilder* builder,
     const std::function<ROCKSDB_NAMESPACE::Status(const ROCKSDB_NAMESPACE::Slice&, std::string*)>& read_value,
     ROCKSDB_NAMESPACE::Arena* arena) const {
-  DebugCountEach();
   // 收集全部索引（active + frozen 链，全部分区）——拷贝 shared_ptr 保护
   // 释放竞态。
   std::vector<std::shared_ptr<PartitionIndex>> all;
@@ -661,16 +633,6 @@ inline void PartitionIndexSet::AddIterators(
       all.push_back(idx);
     }
   }
-  for (const auto& di : all) {
-    fprintf(stderr, " (p%u g%u m%llu)", di->part_id(), di->gen(),
-            (unsigned long long)di->mem_bytes());
-  }
-  fprintf(stderr, "\n");
-  for (const auto& di : all) {
-    fprintf(stderr, " (p%u g%u m%llu f%d)", di->part_id(), di->gen(),
-            (unsigned long long)di->mem_bytes(), di->frozen() ? 1 : 0);
-  }
-  fprintf(stderr, "\n");
   for (const auto& idx : all) {
     // 堆分配（非 arena）：PartitionIndexIterator 含 std::string/std::function，
     // arena 迭代器不析构会泄漏且内存语义与归并迭代器 delete 约定冲突；

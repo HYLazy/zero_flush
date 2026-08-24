@@ -2280,10 +2280,6 @@ void TestMergeOperandChain() {
     CleanDB(dbname);
     return;
   }
-  fprintf(stderr, "[M34] merge-case: direct=%llu fallback=%llu l0=%d\n",
-          (unsigned long long)ZfMetric(db.get(), "install_direct_base"),
-          (unsigned long long)ZfMetric(db.get(), "install_fallback_l0"),
-          (int)NumFilesAtLevel(db.get(), 0));
   std::string val;
   s = db->Get(rocksdb::ReadOptions(), key, &val);
   if (!s.ok() || val != "base,op0,op1,op2,op3,op4") {
