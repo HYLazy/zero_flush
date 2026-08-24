@@ -1,0 +1,18 @@
+[V1] fillrandom (8M keys, 2.2GB)...
+  rc=0 ops/s=114193 wall=71s
+[V2] 全量读回（同进程）...
+  每线程 found=316608/500000 每线程期望=316060 比值=1.0017 总found≈5065728 总期望=5056964
+[V3] 重开读回（新进程）...
+  found=315560（V2=316608，差 1048 = 抽样波动）
+[V4] 崩溃恢复（写入中途 kill -9）...
+  已 kill（存活 20s 后）
+  崩溃后重开 found=469
+  {'epochs_sealed': '21', 'epochs_materialized': '21', 'epochs_reclaimed': '12'}
+
+===== 结果 =====
+V1: rc=0 ops/s=114193 wall=71s
+V2: 每线程 found=316608/500000 每线程期望=316060 比值=1.0017 总found≈5065728 总期望=5056964
+V3: found=315560（V2=316608，差 1048 = 抽样波动）
+V4: 崩溃后重开 found=469
+V5: {'epochs_sealed': '21', 'epochs_materialized': '21', 'epochs_reclaimed': '12'}
+==== PASS ✅

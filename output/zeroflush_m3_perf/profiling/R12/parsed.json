@@ -1,0 +1,440 @@
+{
+  "summary": {
+    "variant": "R12",
+    "wall_sec": 77.3,
+    "ops_per_sec": 104962,
+    "mb_per_s": 27.2,
+    "p50_us": 134.68,
+    "p99_us": 246.29,
+    "zf_props": {
+      "epochs_sealed": 21.0,
+      "epochs_materialized": 21.0,
+      "epochs_reclaimed": 17.0,
+      "live_wal_bytes": 199238100.0,
+      "sealed_wal_bytes": 0.0,
+      "materialize_micros": 29719964.0,
+      "materialize_sort_micros": 18493653.0,
+      "sealed_read_count": 0.0,
+      "sealed_cache_miss": 0.0,
+      "recovery_count": 0.0,
+      "partition_skew": 1.8207,
+      "install_direct_base": 1.0,
+      "install_fallback_l0": 83.0,
+      "base_merge_count": 0.0,
+      "base_merge_rewritten_bytes": 0.0
+    },
+    "db_size_gb": 1.83,
+    "epochs_materialized": 21,
+    "materialize_total_us": 29342903,
+    "materialize_max_us": 1941736,
+    "materialize_files_total": 84,
+    "compaction_jobs": 10,
+    "compaction_wall_us": 65461453,
+    "compaction_cpu_us": 223935306,
+    "compaction_out_gb": 2.86,
+    "compaction_subcompactions": [
+      1,
+      2,
+      4,
+      5,
+      7,
+      8
+    ],
+    "l0_stop_lines": 0,
+    "stall_dump_final_s": 0.0,
+    "write_mb_s_intervals": [],
+    "duration_s": 76.5,
+    "cpu_cores_avg": 17.49,
+    "disk_wr_mb_s_avg": 89.8,
+    "threads_max": 45
+  },
+  "materialize": [
+    {
+      "end_ts": 1787410258.528227,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 14837204,
+      "micros": 809775
+    },
+    {
+      "end_ts": 1787410260.480491,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 18312265,
+      "micros": 910301
+    },
+    {
+      "end_ts": 1787410262.970901,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 22507975,
+      "micros": 1125976
+    },
+    {
+      "end_ts": 1787410267.328903,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 27422636,
+      "micros": 1941736
+    },
+    {
+      "end_ts": 1787410271.110979,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 20763486,
+      "micros": 1678350
+    },
+    {
+      "end_ts": 1787410274.734192,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 22405421,
+      "micros": 1589841
+    },
+    {
+      "end_ts": 1787410277.910566,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 23184324,
+      "micros": 1389548
+    },
+    {
+      "end_ts": 1787410281.769771,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 23527072,
+      "micros": 1609018
+    },
+    {
+      "end_ts": 1787410285.552823,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 22509658,
+      "micros": 1554958
+    },
+    {
+      "end_ts": 1787410289.130116,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 22908594,
+      "micros": 1376345
+    },
+    {
+      "end_ts": 1787410292.959198,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 23083667,
+      "micros": 1587008
+    },
+    {
+      "end_ts": 1787410296.66888,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 23050552,
+      "micros": 1555510
+    },
+    {
+      "end_ts": 1787410300.316231,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 22816465,
+      "micros": 1260260
+    },
+    {
+      "end_ts": 1787410303.425436,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 22986103,
+      "micros": 1450483
+    },
+    {
+      "end_ts": 1787410306.479151,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 23010070,
+      "micros": 1348765
+    },
+    {
+      "end_ts": 1787410310.029325,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 22983994,
+      "micros": 1514337
+    },
+    {
+      "end_ts": 1787410314.115273,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 22950213,
+      "micros": 1354490
+    },
+    {
+      "end_ts": 1787410318.044922,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 23017782,
+      "micros": 1445329
+    },
+    {
+      "end_ts": 1787410321.063361,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 23050895,
+      "micros": 1357906
+    },
+    {
+      "end_ts": 1787410324.280593,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 22807061,
+      "micros": 1261015
+    },
+    {
+      "end_ts": 1787410327.453327,
+      "epochs": 1,
+      "files": 4,
+      "first_file_bytes": 22840188,
+      "micros": 1221952
+    }
+  ],
+  "compactions": [
+    {
+      "time_micros": 1787410265388060,
+      "job": 4,
+      "wall_us": 4641519,
+      "cpu_us": 8085015,
+      "level": 1,
+      "files": 3,
+      "out_bytes": 132674991,
+      "subcompactions": 2,
+      "l0_after": 4
+    },
+    {
+      "time_micros": 1787410271511043,
+      "job": 7,
+      "wall_us": 6051792,
+      "cpu_us": 16444966,
+      "level": 1,
+      "files": 7,
+      "out_bytes": 222406152,
+      "subcompactions": 4,
+      "l0_after": 8
+    },
+    {
+      "time_micros": 1787410277363589,
+      "job": 9,
+      "wall_us": 5672993,
+      "cpu_us": 28443117,
+      "level": 1,
+      "files": 7,
+      "out_bytes": 406596334,
+      "subcompactions": 7,
+      "l0_after": 4
+    },
+    {
+      "time_micros": 1787410282553870,
+      "job": 13,
+      "wall_us": 5081115,
+      "cpu_us": 14716059,
+      "level": 1,
+      "files": 5,
+      "out_bytes": 226711416,
+      "subcompactions": 4,
+      "l0_after": 8
+    },
+    {
+      "time_micros": 1787410288139977,
+      "job": 15,
+      "wall_us": 5396220,
+      "cpu_us": 28701730,
+      "level": 1,
+      "files": 10,
+      "out_bytes": 402161068,
+      "subcompactions": 7,
+      "l0_after": 4
+    },
+    {
+      "time_micros": 1787410293558345,
+      "job": 19,
+      "wall_us": 5306487,
+      "cpu_us": 19507014,
+      "level": 1,
+      "files": 9,
+      "out_bytes": 276621135,
+      "subcompactions": 5,
+      "l0_after": 8
+    },
+    {
+      "time_micros": 1787410299186581,
+      "job": 21,
+      "wall_us": 5458635,
+      "cpu_us": 33414171,
+      "level": 1,
+      "files": 11,
+      "out_bytes": 440098158,
+      "subcompactions": 7,
+      "l0_after": 4
+    },
+    {
+      "time_micros": 1787410307460592,
+      "job": 25,
+      "wall_us": 8241976,
+      "cpu_us": 7645776,
+      "level": 2,
+      "files": 2,
+      "out_bytes": 120583212,
+      "subcompactions": 1,
+      "l0_after": 16
+    },
+    {
+      "time_micros": 1787410315708722,
+      "job": 28,
+      "wall_us": 7994187,
+      "cpu_us": 56169246,
+      "level": 1,
+      "files": 13,
+      "out_bytes": 672312699,
+      "subcompactions": 8,
+      "l0_after": 8
+    },
+    {
+      "time_micros": 1787410327460431,
+      "job": 31,
+      "wall_us": 11616529,
+      "cpu_us": 10808212,
+      "level": 2,
+      "files": 3,
+      "out_bytes": 172148683,
+      "subcompactions": 1,
+      "l0_after": 24
+    }
+  ],
+  "flushes": [
+    {
+      "time_micros": 1787410258530123,
+      "job": 2,
+      "l0": 3,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410260481976,
+      "job": 3,
+      "l0": 7,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410262972345,
+      "job": 5,
+      "l0": 11,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410267330514,
+      "job": 6,
+      "l0": 8,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410271112439,
+      "job": 8,
+      "l0": 12,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410274735825,
+      "job": 10,
+      "l0": 12,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410277912154,
+      "job": 11,
+      "l0": 8,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410281771269,
+      "job": 14,
+      "l0": 12,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410285554418,
+      "job": 16,
+      "l0": 12,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410289131750,
+      "job": 17,
+      "l0": 8,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410292960932,
+      "job": 20,
+      "l0": 12,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410296670451,
+      "job": 22,
+      "l0": 12,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410300317781,
+      "job": 23,
+      "l0": 8,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410303432185,
+      "job": 26,
+      "l0": 12,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410306480846,
+      "job": 27,
+      "l0": 16,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410310031044,
+      "job": 29,
+      "l0": 20,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410314117016,
+      "job": 30,
+      "l0": 24,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410318046706,
+      "job": 32,
+      "l0": 12,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410321065424,
+      "job": 33,
+      "l0": 16,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410324282288,
+      "job": 34,
+      "l0": 20,
+      "imm": 0
+    },
+    {
+      "time_micros": 1787410327455065,
+      "job": 35,
+      "l0": 24,
+      "imm": 0
+    }
+  ]
+}

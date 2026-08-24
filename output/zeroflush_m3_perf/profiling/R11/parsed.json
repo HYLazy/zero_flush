@@ -1,0 +1,955 @@
+{
+  "summary": {
+    "variant": "R11",
+    "wall_sec": 94.7,
+    "ops_per_sec": 85818,
+    "mb_per_s": 22.3,
+    "p50_us": 136.42,
+    "p99_us": 249.37,
+    "zf_props": {
+      "epochs_sealed": 70.0,
+      "epochs_materialized": 68.0,
+      "epochs_reclaimed": 67.0,
+      "live_wal_bytes": 267407100.0,
+      "sealed_wal_bytes": 63161100.0,
+      "materialize_micros": 155232530.0,
+      "materialize_sort_micros": 15476651.0,
+      "sealed_read_count": 0.0,
+      "sealed_cache_miss": 0.0,
+      "recovery_count": 0.0,
+      "partition_skew": 1.8786,
+      "install_direct_base": 1.0,
+      "install_fallback_l0": 67.0,
+      "base_merge_count": 0.0,
+      "base_merge_rewritten_bytes": 0.0
+    },
+    "db_size_gb": 1.77,
+    "epochs_materialized": 58,
+    "materialize_total_us": 85452354,
+    "materialize_max_us": 2748709,
+    "materialize_files_total": 69,
+    "compaction_jobs": 13,
+    "compaction_wall_us": 77316789,
+    "compaction_cpu_us": 260046454,
+    "compaction_out_gb": 3.44,
+    "compaction_subcompactions": [
+      1,
+      2,
+      3,
+      5,
+      6,
+      7,
+      8
+    ],
+    "l0_stop_lines": 27,
+    "stall_dump_final_s": 0.0,
+    "write_mb_s_intervals": [],
+    "duration_s": 94.1,
+    "cpu_cores_avg": 14.62,
+    "disk_wr_mb_s_avg": 78.5,
+    "threads_max": 42
+  },
+  "materialize": [
+    {
+      "end_ts": 1787409686.283107,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 14978467,
+      "micros": 713167
+    },
+    {
+      "end_ts": 1787409687.012191,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 15774527,
+      "micros": 726282
+    },
+    {
+      "end_ts": 1787409687.847948,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 16736734,
+      "micros": 833162
+    },
+    {
+      "end_ts": 1787409689.296382,
+      "epochs": 2,
+      "files": 2,
+      "first_file_bytes": 17657110,
+      "micros": 1444262
+    },
+    {
+      "end_ts": 1787409690.245874,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 19776399,
+      "micros": 944828
+    },
+    {
+      "end_ts": 1787409691.146024,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 20912691,
+      "micros": 896987
+    },
+    {
+      "end_ts": 1787409692.177761,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 22090680,
+      "micros": 1029315
+    },
+    {
+      "end_ts": 1787409694.198791,
+      "epochs": 2,
+      "files": 2,
+      "first_file_bytes": 23309576,
+      "micros": 2018491
+    },
+    {
+      "end_ts": 1787409695.75233,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26053729,
+      "micros": 1493393
+    },
+    {
+      "end_ts": 1787409697.01179,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 27479812,
+      "micros": 1256894
+    },
+    {
+      "end_ts": 1787409698.411804,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 28940668,
+      "micros": 1397267
+    },
+    {
+      "end_ts": 1787409701.164027,
+      "epochs": 2,
+      "files": 2,
+      "first_file_bytes": 30494610,
+      "micros": 2748709
+    },
+    {
+      "end_ts": 1787409702.898875,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 33707895,
+      "micros": 1677659
+    },
+    {
+      "end_ts": 1787409704.115721,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 23491299,
+      "micros": 1213878
+    },
+    {
+      "end_ts": 1787409705.210176,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 23936948,
+      "micros": 1092519
+    },
+    {
+      "end_ts": 1787409706.326127,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 24404161,
+      "micros": 1114056
+    },
+    {
+      "end_ts": 1787409708.93821,
+      "epochs": 2,
+      "files": 2,
+      "first_file_bytes": 24950081,
+      "micros": 2505491
+    },
+    {
+      "end_ts": 1787409710.188871,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 25751664,
+      "micros": 1191876
+    },
+    {
+      "end_ts": 1787409711.740411,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26406564,
+      "micros": 1549554
+    },
+    {
+      "end_ts": 1787409713.003633,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26415495,
+      "micros": 1205663
+    },
+    {
+      "end_ts": 1787409714.26923,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26709349,
+      "micros": 1263677
+    },
+    {
+      "end_ts": 1787409715.703927,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 27042003,
+      "micros": 1432810
+    },
+    {
+      "end_ts": 1787409718.15848,
+      "epochs": 2,
+      "files": 2,
+      "first_file_bytes": 27168142,
+      "micros": 2301252
+    },
+    {
+      "end_ts": 1787409719.457169,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 27150682,
+      "micros": 1240208
+    },
+    {
+      "end_ts": 1787409720.869888,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 27116830,
+      "micros": 1410797
+    },
+    {
+      "end_ts": 1787409722.341229,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26895061,
+      "micros": 1469224
+    },
+    {
+      "end_ts": 1787409724.620227,
+      "epochs": 2,
+      "files": 2,
+      "first_file_bytes": 26358096,
+      "micros": 2276338
+    },
+    {
+      "end_ts": 1787409725.97054,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26185952,
+      "micros": 1260731
+    },
+    {
+      "end_ts": 1787409727.231197,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26311920,
+      "micros": 1256093
+    },
+    {
+      "end_ts": 1787409728.459715,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26372156,
+      "micros": 1220923
+    },
+    {
+      "end_ts": 1787409729.66979,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26457949,
+      "micros": 1204703
+    },
+    {
+      "end_ts": 1787409732.049728,
+      "epochs": 2,
+      "files": 2,
+      "first_file_bytes": 26572531,
+      "micros": 2377865
+    },
+    {
+      "end_ts": 1787409733.358589,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26786083,
+      "micros": 1254464
+    },
+    {
+      "end_ts": 1787409734.823047,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26690859,
+      "micros": 1462150
+    },
+    {
+      "end_ts": 1787409736.164916,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26745753,
+      "micros": 1339742
+    },
+    {
+      "end_ts": 1787409737.789779,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26705704,
+      "micros": 1588933
+    },
+    {
+      "end_ts": 1787409740.209188,
+      "epochs": 2,
+      "files": 2,
+      "first_file_bytes": 26614451,
+      "micros": 2334632
+    },
+    {
+      "end_ts": 1787409741.628288,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26711526,
+      "micros": 1415418
+    },
+    {
+      "end_ts": 1787409742.874905,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26482051,
+      "micros": 1244459
+    },
+    {
+      "end_ts": 1787409744.069352,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26567516,
+      "micros": 1192373
+    },
+    {
+      "end_ts": 1787409746.37481,
+      "epochs": 2,
+      "files": 2,
+      "first_file_bytes": 26443763,
+      "micros": 2303325
+    },
+    {
+      "end_ts": 1787409747.742082,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26590050,
+      "micros": 1303315
+    },
+    {
+      "end_ts": 1787409749.235657,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26571094,
+      "micros": 1490273
+    },
+    {
+      "end_ts": 1787409750.52951,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26579779,
+      "micros": 1283825
+    },
+    {
+      "end_ts": 1787409752.072223,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26665135,
+      "micros": 1539373
+    },
+    {
+      "end_ts": 1787409753.281738,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26587655,
+      "micros": 1207331
+    },
+    {
+      "end_ts": 1787409754.828622,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26583603,
+      "micros": 1425611
+    },
+    {
+      "end_ts": 1787409757.190131,
+      "epochs": 2,
+      "files": 2,
+      "first_file_bytes": 26620981,
+      "micros": 2359012
+    },
+    {
+      "end_ts": 1787409758.461135,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26711200,
+      "micros": 1266987
+    },
+    {
+      "end_ts": 1787409759.699942,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26543945,
+      "micros": 1236662
+    },
+    {
+      "end_ts": 1787409761.092836,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26548412,
+      "micros": 1390754
+    },
+    {
+      "end_ts": 1787409763.578715,
+      "epochs": 2,
+      "files": 2,
+      "first_file_bytes": 26557170,
+      "micros": 2414685
+    },
+    {
+      "end_ts": 1787409765.187937,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26532197,
+      "micros": 1605006
+    },
+    {
+      "end_ts": 1787409766.346148,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26613359,
+      "micros": 1155783
+    },
+    {
+      "end_ts": 1787409767.552406,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26498868,
+      "micros": 1203774
+    },
+    {
+      "end_ts": 1787409768.945256,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26673620,
+      "micros": 1390647
+    },
+    {
+      "end_ts": 1787409771.026344,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26581235,
+      "micros": 2078748
+    },
+    {
+      "end_ts": 1787409772.380532,
+      "epochs": 1,
+      "files": 1,
+      "first_file_bytes": 26627116,
+      "micros": 1196998
+    }
+  ],
+  "compactions": [
+    {
+      "time_micros": 1787409693635130,
+      "job": 6,
+      "wall_us": 4283372,
+      "cpu_us": 5131767,
+      "level": 1,
+      "files": 3,
+      "out_bytes": 83758950,
+      "subcompactions": 2,
+      "l0_after": 3
+    },
+    {
+      "time_micros": 1787409699024664,
+      "job": 11,
+      "wall_us": 4744870,
+      "cpu_us": 12287788,
+      "level": 1,
+      "files": 4,
+      "out_bytes": 194360875,
+      "subcompactions": 3,
+      "l0_after": 3
+    },
+    {
+      "time_micros": 1787409706437570,
+      "job": 16,
+      "wall_us": 5137086,
+      "cpu_us": 23624067,
+      "level": 1,
+      "files": 9,
+      "out_bytes": 339295417,
+      "subcompactions": 6,
+      "l0_after": 4
+    },
+    {
+      "time_micros": 1787409711554351,
+      "job": 23,
+      "wall_us": 4974842,
+      "cpu_us": 19373358,
+      "level": 1,
+      "files": 5,
+      "out_bytes": 303703658,
+      "subcompactions": 5,
+      "l0_after": 3
+    },
+    {
+      "time_micros": 1787409716487794,
+      "job": 27,
+      "wall_us": 4692122,
+      "cpu_us": 10724103,
+      "level": 1,
+      "files": 5,
+      "out_bytes": 168961787,
+      "subcompactions": 3,
+      "l0_after": 3
+    },
+    {
+      "time_micros": 1787409723412108,
+      "job": 32,
+      "wall_us": 5155863,
+      "cpu_us": 20156228,
+      "level": 1,
+      "files": 6,
+      "out_bytes": 302042340,
+      "subcompactions": 5,
+      "l0_after": 3
+    },
+    {
+      "time_micros": 1787409731508469,
+      "job": 37,
+      "wall_us": 8088700,
+      "cpu_us": 7492119,
+      "level": 2,
+      "files": 2,
+      "out_bytes": 126309780,
+      "subcompactions": 1,
+      "l0_after": 9
+    },
+    {
+      "time_micros": 1787409737306559,
+      "job": 43,
+      "wall_us": 5668220,
+      "cpu_us": 34112019,
+      "level": 1,
+      "files": 9,
+      "out_bytes": 458182996,
+      "subcompactions": 7,
+      "l0_after": 5
+    },
+    {
+      "time_micros": 1787409745240730,
+      "job": 49,
+      "wall_us": 7925510,
+      "cpu_us": 7329722,
+      "level": 2,
+      "files": 2,
+      "out_bytes": 122619823,
+      "subcompactions": 1,
+      "l0_after": 11
+    },
+    {
+      "time_micros": 1787409752446379,
+      "job": 55,
+      "wall_us": 7052245,
+      "cpu_us": 47981217,
+      "level": 1,
+      "files": 12,
+      "out_bytes": 640544107,
+      "subcompactions": 8,
+      "l0_after": 6
+    },
+    {
+      "time_micros": 1787409761058853,
+      "job": 61,
+      "wall_us": 8602234,
+      "cpu_us": 7997678,
+      "level": 2,
+      "files": 2,
+      "out_bytes": 131049582,
+      "subcompactions": 1,
+      "l0_after": 12
+    },
+    {
+      "time_micros": 1787409771003326,
+      "job": 67,
+      "wall_us": 9718544,
+      "cpu_us": 62563478,
+      "level": 1,
+      "files": 14,
+      "out_bytes": 805321260,
+      "subcompactions": 8,
+      "l0_after": 7
+    },
+    {
+      "time_micros": 1787409772278202,
+      "job": 74,
+      "wall_us": 1273181,
+      "cpu_us": 1272910,
+      "level": 2,
+      "files": 1,
+      "out_bytes": 20811932,
+      "subcompactions": 1,
+      "l0_after": 8
+    }
+  ],
+  "flushes": [
+    {
+      "time_micros": 1787409686284811,
+      "job": 2,
+      "l0": 0,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409687013803,
+      "job": 3,
+      "l0": 1,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409687850246,
+      "job": 4,
+      "l0": 2,
+      "imm": 2
+    },
+    {
+      "time_micros": 1787409689298671,
+      "job": 5,
+      "l0": 4,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409690248115,
+      "job": 7,
+      "l0": 5,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409691147432,
+      "job": 8,
+      "l0": 6,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409692179143,
+      "job": 9,
+      "l0": 7,
+      "imm": 2
+    },
+    {
+      "time_micros": 1787409694201278,
+      "job": 10,
+      "l0": 5,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409695753745,
+      "job": 12,
+      "l0": 6,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409697013333,
+      "job": 13,
+      "l0": 7,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409698413525,
+      "job": 14,
+      "l0": 8,
+      "imm": 2
+    },
+    {
+      "time_micros": 1787409701166026,
+      "job": 15,
+      "l0": 5,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409702900370,
+      "job": 17,
+      "l0": 6,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409704117072,
+      "job": 18,
+      "l0": 7,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409705211566,
+      "job": 19,
+      "l0": 8,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409706431218,
+      "job": 20,
+      "l0": 9,
+      "imm": 2
+    },
+    {
+      "time_micros": 1787409708940605,
+      "job": 21,
+      "l0": 6,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409710190299,
+      "job": 24,
+      "l0": 7,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409711742603,
+      "job": 25,
+      "l0": 4,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409713005016,
+      "job": 28,
+      "l0": 5,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409714270595,
+      "job": 29,
+      "l0": 6,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409715855935,
+      "job": 30,
+      "l0": 7,
+      "imm": 2
+    },
+    {
+      "time_micros": 1787409718160466,
+      "job": 31,
+      "l0": 5,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409719458561,
+      "job": 33,
+      "l0": 6,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409720871439,
+      "job": 34,
+      "l0": 7,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409722343007,
+      "job": 35,
+      "l0": 8,
+      "imm": 2
+    },
+    {
+      "time_micros": 1787409724622699,
+      "job": 36,
+      "l0": 5,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409725974536,
+      "job": 38,
+      "l0": 6,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409727237855,
+      "job": 39,
+      "l0": 7,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409728464501,
+      "job": 40,
+      "l0": 8,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409729671293,
+      "job": 41,
+      "l0": 9,
+      "imm": 2
+    },
+    {
+      "time_micros": 1787409732056474,
+      "job": 42,
+      "l0": 11,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409733360278,
+      "job": 44,
+      "l0": 12,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409734824603,
+      "job": 45,
+      "l0": 13,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409736200217,
+      "job": 46,
+      "l0": 14,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409737792298,
+      "job": 47,
+      "l0": 6,
+      "imm": 2
+    },
+    {
+      "time_micros": 1787409740211582,
+      "job": 50,
+      "l0": 8,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409741629883,
+      "job": 51,
+      "l0": 9,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409742876422,
+      "job": 52,
+      "l0": 10,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409744070975,
+      "job": 53,
+      "l0": 11,
+      "imm": 2
+    },
+    {
+      "time_micros": 1787409746377488,
+      "job": 54,
+      "l0": 13,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409747744489,
+      "job": 56,
+      "l0": 14,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409749245115,
+      "job": 57,
+      "l0": 15,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409750531912,
+      "job": 58,
+      "l0": 16,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409752073841,
+      "job": 59,
+      "l0": 17,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409753283304,
+      "job": 60,
+      "l0": 7,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409754830464,
+      "job": 62,
+      "l0": 8,
+      "imm": 2
+    },
+    {
+      "time_micros": 1787409757192773,
+      "job": 63,
+      "l0": 10,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409758462723,
+      "job": 64,
+      "l0": 11,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409759701512,
+      "job": 65,
+      "l0": 12,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409761095653,
+      "job": 66,
+      "l0": 13,
+      "imm": 2
+    },
+    {
+      "time_micros": 1787409763581516,
+      "job": 68,
+      "l0": 15,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409765189718,
+      "job": 69,
+      "l0": 16,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409766347979,
+      "job": 70,
+      "l0": 17,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409767554039,
+      "job": 71,
+      "l0": 18,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409768946966,
+      "job": 72,
+      "l0": 19,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409771029049,
+      "job": 73,
+      "l0": 8,
+      "imm": 1
+    },
+    {
+      "time_micros": 1787409772389632,
+      "job": 75,
+      "l0": 8,
+      "imm": 2
+    }
+  ]
+}
