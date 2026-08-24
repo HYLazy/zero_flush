@@ -517,11 +517,13 @@ L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现�
 - **修复方向**：迭代器/Get 的"未 compact 窗口"与 sv 快照的一致性——物化
   安装后、ReleaseFrozen 前确保迭代器可见（如：frozen 释放延迟到 sv 确认
   刷新，或迭代器侧以 frozen 索引为准的窗口合并）
-- **2026-08-24 最终分析**：迭代器计数波动（144/164）证实 sv 时序竞态；
-  缺口在"迭代器获取旧 sv（无新 SST）时物化分区的数据"——frozen 已释放且
-  SST 在旧 sv 不可见。修复需物化安装（LogAndApply+InstallSuperVersion）与
-  ReleaseFrozen 的原子协调。50GB L0 循环（R19 延后至 34GB）根治（攒批）
-  依赖此修复
+- **2026-08-24 深挖结论**：物化安装链路完整（TryInstallMemtableFlushResults
+  → LogAndApply → BackgroundCallFlush 的 InstallSuperVersionAndScheduleWork
+  → imm 析构 → ReleaseFrozen——顺序正确，sv 刷新先于 frozen 释放）。
+  缺口的精确窗口（迭代器 164 = 索引 144 + SST 20，而物化的 56 条应全在）
+  需 kSkip 重应用 + 迭代器创建时 sv/frozen 快照的运行时逐层打印定位。
+  **下一步（独立会话）**：kSkip 重应用 → 迭代器创建时打印
+  （GetSuperVersion 的 current 文件数 vs frozen 链）→ 定位缺口的精确交错。
 - kSkip 攒批三次回滚（回归 35/35 恢复）；攒批仍为 50GB 根治方向
 
 ### M3.4 API 完备（已完成 ✅ 2026-08-24，7c66000）
