@@ -596,10 +596,17 @@ L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现�
   期望 63%**（R40，与 R20 的 63.3% 一致）；回归 38/38
 - 2.2GB 无回退（R3 136K）
 
-**已知限制**：多 job 并行（l0_parallelism）在 kSkip 关闭场景未观测到
-num-running-compactions > 1（L0 文件少时单 job + subcompactions 已足够；
-R28 的并行 22 job 是 kSkip 激活场景）——RocksDB Pick 调度的 L0 串行化
-深挖留 M4.7。
+**M4.6b（多 job 并行补全，已完成 ✅ 2026-08-25，a3b57c1）**：
+- 插桩定位：PickQueue（入队 8 生效、无 throttled）→ PickResult（Pick
+  全成功）→ GetLimits 暴露 `max_background_compactions=-1`——配对代码
+  （compactions = jobs - flushes）在 bisect 的 git checkout 恢复时丢失
+  （未提交工作区被 HEAD 覆盖）→ 兼容分支 max(1,-1)=1 → 调度限 1。
+- 重加配对后（R42，50GB）：**55.4K ops/s（R20 +92%）、59.4 分钟、
+  停写 1.2%（R20 47%）、num-running-compactions 4-7、L0 2-12**——
+  多 job 并行 + subcompactions 叠加，L0 接近清空、良性循环达成；
+  重开 63.2% 命中 ≈ 期望（数据完整）。
+- 2.2GB 验证：1s 窗口 25 次 Pick（并行调度生效；L0 文件少时首 job
+  后其余 NULLPTR 为正常 score 行为）。
 
 ### M3.4 API 完备（已完成 ✅ 2026-08-24，7c66000）
 
