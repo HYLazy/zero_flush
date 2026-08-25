@@ -111,9 +111,9 @@ class KeySampler {
                        std::vector<std::string>* boundaries) const;
 
   void Clear();
-  bool empty() const { return samples_.empty(); }
-  uint64_t total_seen() const { return total_seen_; }
-  size_t sample_count() const { return samples_.size(); }
+  bool empty() const;
+  uint64_t total_seen() const;
+  size_t sample_count() const;
 
  private:
   uint32_t sample_every_n_;
@@ -121,6 +121,11 @@ class KeySampler {
   std::vector<std::string> samples_;       // 蓄水池
   uint64_t total_seen_{0};
   uint64_t max_samples_{64 * 1024};   // 上界 64K 条
+  // M4.6c：学习期写路径 16 线程并发 Sample（AddRecord 锁外调用）——
+  // vector 无锁并发写是数据竞争（析构时 string 损坏崩溃：R41/gdb 栈
+  // KeySampler::~KeySampler → vector<string> 析构 → free(垃圾指针)）。
+  // 采样仅 epoch 1 学习期，加锁开销可忽略。
+  mutable rocksdb::port::Mutex mu_;
 };
 
 }  // namespace zeroflush

@@ -172,6 +172,9 @@ KeySampler::KeySampler(uint32_t sample_every_n,
 }
 
 void KeySampler::Sample(const rocksdb::Slice& user_key) {
+  // M4.6c：写路径 16 线程并发调用（AddRecord 锁外）——加锁防 vector
+  // 数据竞争（析构崩溃，见 partition_table.h 注释）。
+  rocksdb::MutexLock l(&mu_);
   ++total_seen_;
   // 步长控制：不是每第 N 条才采样可以减少存储压力。
   if ((total_seen_ - 1) % sample_every_n_ != 0) {
@@ -192,6 +195,7 @@ void KeySampler::Sample(const rocksdb::Slice& user_key) {
 bool KeySampler::BuildBoundaries(
     uint32_t partitions,
     std::vector<std::string>* boundaries) const {
+  rocksdb::MutexLock l(&mu_);
   boundaries->clear();
   if (partitions <= 1) {
     // 单分区不需要边界。
@@ -222,8 +226,24 @@ bool KeySampler::BuildBoundaries(
 }
 
 void KeySampler::Clear() {
+  rocksdb::MutexLock l(&mu_);
   samples_.clear();
   total_seen_ = 0;
+}
+
+bool KeySampler::empty() const {
+  rocksdb::MutexLock l(&mu_);
+  return samples_.empty();
+}
+
+uint64_t KeySampler::total_seen() const {
+  rocksdb::MutexLock l(&mu_);
+  return total_seen_;
+}
+
+size_t KeySampler::sample_count() const {
+  rocksdb::MutexLock l(&mu_);
+  return samples_.size();
 }
 
 }  // namespace zeroflush

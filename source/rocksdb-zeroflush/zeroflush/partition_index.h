@@ -298,10 +298,18 @@ class PartitionIndexSet {
       if (it != active_.end() && it->second->gen() == gen) {
         idx = it->second;
       } else if (it == active_.end()) {
-        // 首次触达：创建 active 索引（gen = 当前 WAL 代）。
-        auto ni = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
-        active_.emplace(part_id, ni);
-        idx = ni;
+        // 首次触达：双检锁内创建——无锁 emplace 在 16 写线程并发首触达
+        // 不同分区时是 unordered_map 数据竞争（rehash 损坏，R41/gdb 栈
+        // _M_find_before_node 读垃圾指针）。
+        std::lock_guard<std::mutex> l(mu_);
+        it = active_.find(part_id);
+        if (it != active_.end()) {
+          idx = it->second;
+        } else {
+          auto ni = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
+          active_.emplace(part_id, ni);
+          idx = ni;
+        }
       } else {
         // active 存在但 gen 不匹配（freeze 后写入旧代）：frozen 链找。
         auto fit = frozen_.find(part_id);
