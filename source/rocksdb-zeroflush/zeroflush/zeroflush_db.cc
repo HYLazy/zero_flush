@@ -4,6 +4,7 @@
 #include "zeroflush/zeroflush_db.h"
 
 #include <cassert>
+#include <fstream>
 #include <unordered_set>
 
 #include "db/column_family.h"
@@ -11,6 +12,7 @@
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_thread.h"
+#include "file/filename.h"
 #include "logging/logging.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -1304,6 +1306,37 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   s = ctx->Recover(impl);
   if (!s.ok()) {
     return s;
+  }
+  // M4.6-2：CURRENT 一致性校验与修复——Open 时 SetCurrentFile 偶发失败
+  // （IO 竞态，R28/R29b 实测 ~40% 触发）使 CURRENT 停留在 NewDB 的初始
+  // manifest（000001），而物化/compaction 编辑写入轮换后的 manifest →
+  // 重开 replay 空版本 → 全部 SST 被 PurgeObsoleteFiles 当孤儿删除 →
+  // 数据不可见（R28 重开命中 0.78%）。此处校验 CURRENT 与活跃 manifest
+  // 文件号，不一致时重写 CURRENT（幂等：一致时零开销；dir 传 nullptr
+  // 跳过目录 fsync，语义与 Open 一致）。
+  {
+    auto* db_impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(opened.get());
+    auto* vs = db_impl->GetVersionSet();
+    const uint64_t mfn = vs->manifest_file_number();
+    std::string cur;
+    const std::string cur_path = dbname + "/CURRENT";
+    std::ifstream cur_ifs(cur_path);
+    if (cur_ifs.good()) {
+      std::getline(cur_ifs, cur);
+      uint64_t cur_mfn = 0;
+      if (sscanf(cur.c_str(), "MANIFEST-%" SCNu64, &cur_mfn) == 1 &&
+          cur_mfn != mfn) {
+        ROCKS_LOG_WARN(zf_opt.info_log,
+                       "[ZeroFlush] CURRENT points to MANIFEST-%" PRIu64
+                       " but active manifest is %" PRIu64
+                       " — rewriting CURRENT",
+                       cur_mfn, mfn);
+        ROCKSDB_NAMESPACE::SetCurrentFile(
+            ROCKSDB_NAMESPACE::WriteOptions(), opt.env->GetFileSystem().get(),
+            dbname, mfn, ROCKSDB_NAMESPACE::Temperature::kUnknown,
+            nullptr /* dir_contains_current_file */);
+      }
+    }
   }
   *db = std::move(opened);
   return ROCKSDB_NAMESPACE::Status::OK();
