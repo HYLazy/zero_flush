@@ -628,6 +628,17 @@ L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现�
 - 2.2GB：+28%（133.9K 基线）、重开 94.2%、无崩溃
 - kSkip 默认开启（ZeroFlushOptions + db_bench flag）；回归 38/38
 
+**M4.6e（物化排序优化，已完成 ✅ 2026-08-26，f4272ed）**：
+- 首版 string 编码键反更慢（R45：684s vs 基线 596s——逐键堆分配/移动
+  抵消 memcmp 收益）→ 连续缓冲 + 偏移视图（无逐键分配）：编码 = 4B
+  大端 user key 长度 + user key + 逆序 ~seq/type（seq 降序 → memcmp
+  升序；低位优先破坏顺序，R3 CompactionIterator 断言验证）
+- 实测：2.2GB sort 14.2s（string 版 -24%）、137.2K 无回退；50GB sort
+  575.9s（基线 -3.4%、string 版 -16%；R46 负载 24 干扰吞吐）、重开
+  63.4% ≈ 期望
+- 收益温和：排序占 wall ~20%、InternalKeyComparator 已较优；非
+  Bytewise 走原路径。回归 38/38
+
 ### M3.4 API 完备（已完成 ✅ 2026-08-24，7c66000）
 
 - **Merge**：写（MergeCF → kTypeMerge）+ 读（CollectVersions 累积同 key 全部
