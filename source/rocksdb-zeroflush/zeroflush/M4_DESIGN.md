@@ -554,6 +554,53 @@ L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现�
   正确闭环（上述 2/3/4）后不存在——迭代器旧 sv 保活 imm → ReleaseFrozen
   不触发 → 索引与 WAL 完整。
 
+### M4.6 L0 消费端并行化（已完成 ✅ 2026-08-25，012242a→7df0a57）
+
+**问题**：R20 实测 50GB 写吞吐 28.8K 的最终瓶颈是 L0/L1 消费端（compaction
+单 job 串行）：L0 稳态 64（slowdown trigger）、停写 247 次、累计 47% 时间。
+
+**四个根因与修复**：
+1. **自动 L0→L1 硬编码 max_subcompactions=0**（compaction_picker_level.cc
+   GetCompaction，RocksDB 上游行为）——subcompactions=16 配置从未生效，
+   R20 全程单 job 串行（141 次采样 num-running-compactions 恒 1）。接线为
+   mutable_db_options_.max_subcompactions。
+2. **ShouldFormSubcompactions 限制 start_level==0**（RocksDB 上游仅 L0→L1
+   支持自动 subcompaction）——R33 实测 L1→L2 的 568 次 compaction 全部
+   sub=1，L1 消费是主线瓶颈（L1 堆积 → L0→L1 被 L1 score 压制 → L0 堆积
+   → 停写 47%）。放开：L1+ 自动 compaction 也按 key 范围切分（与手动
+   CompactRange 同一实现；ZF 的 L1 文件按分区对齐切分安全）。
+3. **单 CF 每轮只入队 1 个 pending compaction**（queued_for_compaction 布尔
+   标志）→ L0 job 串行。改计数语义 + EnqueuePendingCompaction 在 ZF 模式
+   重复入队至 l0_parallelism（默认 8）——每个 BGWorkCompaction 独立
+   PickCompaction，RegisterCompaction 互斥保证分区并行/重叠排除。
+4. **max_background_compactions=-1 被 max(1,-1)=1 截断**（ZF 强制
+   max_background_flushes=1 使 GetBGJobLimits 走兼容分支）+ parallelize
+   依赖写压力信号（无停写时 max_compactions=1）。修复：ZF Open 配对
+   max_background_compactions = jobs - flushes；ZF 模式恒 parallelize。
+
+**附带**：
+- `--zf_l0_parallelism`（默认 8，1 = R20 串行基线）；CURRENT 防御修复
+  （Open 前扫描 MANIFEST-* 校验 CURRENT——RocksDB SetCurrentFile 偶发
+  竞态防御，一致时零开销）
+- **重要澄清**：'kSkip 开启时重开丢数据'（R23 等）为 db_bench 默认
+  DestroyDB 的误判——`--use_existing_db` 重开 100% 命中（R39 实测），
+  数据从未丢失；kSkip 激活时的小规模快速 Close 偶发析构 segfault
+  （~30%，Close 后、数据已提交、不丢数据；50GB 长跑未触发）为 M4.7
+  定位候选
+
+**实测（50GB，R36/R40 同 R20 配置 + M4.6）**：
+- 吞吐 **49.1-49.9K ops/s**（R20 28.8K，**+70%**）；时长 66-67 分钟
+  （R20 114 分钟，**1.7× 快**）
+- 累计停写 10.5-11.0%（R20 47%）；L0 稳态 20-36（R20 64）
+- **数据完整性**：`--use_existing_db` 重开 readrandom **63.4% 命中 ≈
+  期望 63%**（R40，与 R20 的 63.3% 一致）；回归 38/38
+- 2.2GB 无回退（R3 136K）
+
+**已知限制**：多 job 并行（l0_parallelism）在 kSkip 关闭场景未观测到
+num-running-compactions > 1（L0 文件少时单 job + subcompactions 已足够；
+R28 的并行 22 job 是 kSkip 激活场景）——RocksDB Pick 调度的 L0 串行化
+深挖留 M4.7。
+
 ### M3.4 API 完备（已完成 ✅ 2026-08-24，7c66000）
 
 - **Merge**：写（MergeCF → kTypeMerge）+ 读（CollectVersions 累积同 key 全部

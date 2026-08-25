@@ -1,0 +1,20 @@
+{
+  "variant": "R26",
+  "cmd": "/home/embed/hyl/metadata_offload/source/rocksdb-zeroflush/build/db_bench --benchmarks=fillrandom --db=/tmp/zf_prof_db_R26 --num=197379011 --key_size=16 --value_size=256 --threads=16 --writes=12336188 --compression_type=none --disable_wal=false --histogram=true --statistics=true --cache_size=8388608 --write_buffer_size=268435456 --max_background_jobs=16 --stats_interval_seconds=30 --stats_per_interval=1 --zeroflush --zf_partitions=64 --zf_materialize_parallelism=8 --level0_slowdown_writes_trigger=64 --level0_stop_writes_trigger=72 --zf_routing=align_l1 --zf_base_merge --zf_partitions=16 --subcompactions=16 --cache_size=536870912 --max_background_jobs=24",
+  "started": "2026-08-25 09:02:09",
+  "timeout": false,
+  "wall_sec": 682.1,
+  "rc": -15,
+  "p50": 4.41,
+  "p75": 5.5,
+  "p99": 9.84,
+  "p999": 14.48,
+  "p9999": 20.46,
+  "zf_props": {},
+  "db_size_bytes": 14000598504,
+  "db_dir": "/tmp/zf_prof_db_R26",
+  "log_files": [
+    "/tmp/zf_prof_db_R26/LOG"
+  ],
+  "perf_note": "perf_event_paranoid=4，perf record 不可用，已跳过"
+}
