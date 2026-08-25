@@ -934,7 +934,14 @@ bool Compaction::ShouldFormSubcompactions() const {
   }
 
   if (cfd_->ioptions().compaction_style == kCompactionStyleLevel) {
-    return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0;
+    // ZF M4.6：放开 start_level_ == 0 限制——L1+ 自动 compaction 也启用
+    // subcompactions。R33 实测：L1→L2 的 568 次 compaction 全部 sub=1
+    // （RocksDB 上游仅 L0→L1 支持自动 subcompaction），L1 消费是 50GB
+    // 写吞吐的主线瓶颈（L1 堆积 → L0→L1 被 L1 score 压制 → L0 堆积 →
+    // 停写 47%）。ZF 的 L1 文件按分区对齐（范围不相交），子任务按 key
+    // 切分安全；原生路径的 L1+ 重叠输入由 subcompaction 边界对齐处理
+    // （与手动 CompactRange 同一实现）。
+    return output_level_ > 0;
   } else if (cfd_->ioptions().compaction_style == kCompactionStyleUniversal) {
     return number_levels_ > 1 && output_level_ > 0;
   } else {

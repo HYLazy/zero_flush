@@ -1070,6 +1070,38 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   }
 
   // 2) 原生 Open（MANIFEST/VersionSet/SuperVersion 全复用）
+  // M4.6-2：CURRENT 一致性预修复——在原生 Recover 之前。Open/轮换竞态
+  // 会使 CURRENT 偶发停留在旧 manifest（R28/R36 实测：CURRENT→000001
+  // 空，编辑在轮换后的 000005），原生 Recover 读旧 manifest → 空版本 →
+  // 全部 SST 被 PurgeObsoleteFiles 当孤儿删除（重开命中 0.3~35%）。
+  // 修复必须在 Recover 之前（之后修复版本已加载，无效）。扫描
+  // MANIFEST-* 取最新文件号，大于 CURRENT 指向则重写 CURRENT。
+  {
+    std::string cur;
+    uint64_t cur_mfn = 0;
+    std::ifstream cur_ifs(dbname + "/CURRENT");
+    if (cur_ifs.good()) {
+      std::getline(cur_ifs, cur);
+      sscanf(cur.c_str(), "MANIFEST-%" SCNu64, &cur_mfn);
+    }
+    std::vector<std::string> children;
+    auto gc_s = opt.env->GetChildren(dbname, &children);
+    if (gc_s.ok()) {
+      uint64_t max_mfn = 0;
+      for (const auto& f : children) {
+        uint64_t n = 0;
+        if (sscanf(f.c_str(), "MANIFEST-%" SCNu64, &n) == 1) {
+          max_mfn = std::max(max_mfn, n);
+        }
+      }
+      if (max_mfn > cur_mfn) {
+        ROCKSDB_NAMESPACE::SetCurrentFile(
+            ROCKSDB_NAMESPACE::WriteOptions(), opt.env->GetFileSystem().get(),
+            dbname, max_mfn, ROCKSDB_NAMESPACE::Temperature::kUnknown,
+            nullptr /* dir_contains_current_file */);
+      }
+    }
+  }
   std::unique_ptr<ROCKSDB_NAMESPACE::DB> opened;
   ROCKSDB_NAMESPACE::Status s =
       ROCKSDB_NAMESPACE::DB::Open(zf_opt, dbname, &opened);
@@ -1306,37 +1338,6 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   s = ctx->Recover(impl);
   if (!s.ok()) {
     return s;
-  }
-  // M4.6-2：CURRENT 一致性校验与修复——Open 时 SetCurrentFile 偶发失败
-  // （IO 竞态，R28/R29b 实测 ~40% 触发）使 CURRENT 停留在 NewDB 的初始
-  // manifest（000001），而物化/compaction 编辑写入轮换后的 manifest →
-  // 重开 replay 空版本 → 全部 SST 被 PurgeObsoleteFiles 当孤儿删除 →
-  // 数据不可见（R28 重开命中 0.78%）。此处校验 CURRENT 与活跃 manifest
-  // 文件号，不一致时重写 CURRENT（幂等：一致时零开销；dir 传 nullptr
-  // 跳过目录 fsync，语义与 Open 一致）。
-  {
-    auto* db_impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(opened.get());
-    auto* vs = db_impl->GetVersionSet();
-    const uint64_t mfn = vs->manifest_file_number();
-    std::string cur;
-    const std::string cur_path = dbname + "/CURRENT";
-    std::ifstream cur_ifs(cur_path);
-    if (cur_ifs.good()) {
-      std::getline(cur_ifs, cur);
-      uint64_t cur_mfn = 0;
-      if (sscanf(cur.c_str(), "MANIFEST-%" SCNu64, &cur_mfn) == 1 &&
-          cur_mfn != mfn) {
-        ROCKS_LOG_WARN(zf_opt.info_log,
-                       "[ZeroFlush] CURRENT points to MANIFEST-%" PRIu64
-                       " but active manifest is %" PRIu64
-                       " — rewriting CURRENT",
-                       cur_mfn, mfn);
-        ROCKSDB_NAMESPACE::SetCurrentFile(
-            ROCKSDB_NAMESPACE::WriteOptions(), opt.env->GetFileSystem().get(),
-            dbname, mfn, ROCKSDB_NAMESPACE::Temperature::kUnknown,
-            nullptr /* dir_contains_current_file */);
-      }
-    }
   }
   *db = std::move(opened);
   return ROCKSDB_NAMESPACE::Status::OK();
