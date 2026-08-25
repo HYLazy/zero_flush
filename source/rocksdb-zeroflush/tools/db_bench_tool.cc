@@ -851,10 +851,10 @@ DEFINE_string(zf_static_boundaries, "",
 DEFINE_bool(zf_base_merge, false,
             "ZeroFlush M3.3: fuse materialization into base level (merge with "
             "overlapping base-level files) instead of falling back to L0.");
-DEFINE_bool(zf_skip_batching, false,
+DEFINE_bool(zf_skip_batching, true,
             "ZeroFlush M4.5b: kSkip batch materialization (skip low-ratio "
-            "partitions, adopt next epoch for multi-gen merge). Default off "
-            "(matches ZeroFlushOptions; experimental — reopen crash risk).");
+            "partitions, adopt next epoch for multi-gen merge). Default on "
+            "(M4.6c retest: 50GB +8.4%, 2.2GB +28%, data intact).");
 DEFINE_int32(zf_l0_parallelism, 8,
              "ZeroFlush M4.6: parallel L0->L1 compaction jobs per CF "
              "(align_l1 partitions are disjoint ranges, safe to consume in "
