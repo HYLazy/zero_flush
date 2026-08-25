@@ -608,6 +608,17 @@ L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现�
 - 2.2GB 验证：1s 窗口 25 次 Pick（并行调度生效；L0 文件少时首 job
   后其余 NULLPTR 为正常 score 行为）。
 
+**M4.6c（析构 segfault 定位，已完成 ✅ 2026-08-25，ef1cf0e）**：
+- gdb 循环复现（crash_loop：修复前 7 次内必崩；core 被 apport 拦截
+  无 root，改用 gdb -batch 循环）→ 两个数据竞争崩溃栈：
+  ① **KeySampler 析构**（vector<string> 损坏 free 垃圾指针）——
+     kSampled 学习期 16 写线程并发 Sample（AddRecord 锁外）无锁操作
+     vector。修复：全部方法加 mu_ 锁（仅 epoch 1 学习期，开销可忽略）。
+  ② **PartitionIndexSet::Insert**（active_ unordered_map 并发 emplace
+     ——16 线程首触达不同分区 rehash 竞争）。修复：双检锁内创建。
+- 50GB 长跑（align_l1 采样不活跃 + 分区懒创建窗口小）从未触发，但
+  数据竞争是 UB，修复消除隐患。回归 38/38；crash_loop 10/10 无崩溃。
+
 ### M3.4 API 完备（已完成 ✅ 2026-08-24，7c66000）
 
 - **Merge**：写（MergeCF → kTypeMerge）+ 读（CollectVersions 累积同 key 全部
