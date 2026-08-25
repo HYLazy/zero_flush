@@ -72,6 +72,71 @@ std::string MakeInternalKey(const rocksdb::Slice& user_key, uint64_t seq,
   return ik;
 }
 
+// M4.6e：物化排序优化——Bytewise user comparator 时构造"memcmp 可排序"
+// 的编码键（连续缓冲 + 偏移视图，无逐键堆分配——首版 string 编码因
+// 堆分配/移动开销反更慢，R45 实测 684s vs 基线 596s），替代
+// InternalKeyComparator 的逐次比较（每次比较都做 user key 提取 + seq
+// 解码，是物化排序的大头：R42 实测 561s/50GB、占 wall 15.7%）。
+// 编码 = 4B user key 长度（大端，保证变长 key 的"短者小"语义）+ user
+// key 字节 + 8B ~(seq<<8|type)（从最高字节逆序取反，使 seq 降序语义变
+// 为 memcmp 升序——低位优先会导致排序错误，R3 实测 CompactionIterator
+// 顺序断言失败）。比较 = memcmp(pa, pb, min(la,lb))（长度前缀保证
+// 长度序）。非 Bytewise comparator 返回 false（调用方走原路径）。
+bool BuildSortKeys(const std::vector<std::string>& keys,
+                   const rocksdb::Comparator* ucmp, std::string* buf,
+                   std::vector<size_t>* off) {
+  if (ucmp->Name() != rocksdb::BytewiseComparator()->Name()) {
+    return false;
+  }
+  buf->clear();
+  off->clear();
+  off->reserve(keys.size());
+  buf->reserve(keys.size() * 30);
+  for (const auto& ik : keys) {
+    const size_t n = ik.size() - 8;  // user key 长度（尾 8B 为 seq/type）
+    off->push_back(buf->size());
+    buf->push_back(static_cast<char>(n >> 24));
+    buf->push_back(static_cast<char>(n >> 16));
+    buf->push_back(static_cast<char>(n >> 8));
+    buf->push_back(static_cast<char>(n));
+    buf->append(ik.data(), n);
+    // tail 为小端 (seq<<8|type)，数值比较高位优先——memcmp 需高位在前。
+    for (int i = 7; i >= 0; --i) {
+      buf->push_back(~ik[ik.size() - 8 + i]);
+    }
+  }
+  return true;
+}
+
+// M4.6e：按缓冲编码键（memcmp 序）重排 keys/values（string 移动，O(n)），
+// 返回可直接构造"不排序" VectorIterator 的已排序向量。
+void ReorderBySortKeys(std::vector<std::string>* keys,
+                       std::vector<std::string>* values,
+                       const std::string& buf,
+                       const std::vector<size_t>& off) {
+  std::vector<size_t> idx(keys->size());
+  std::iota(idx.begin(), idx.end(), 0);
+  const size_t buf_size = buf.size();
+  std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b) {
+    const char* pa = buf.data() + off[a];
+    const char* pb = buf.data() + off[b];
+    const size_t la = (a + 1 < off.size() ? off[a + 1] : buf_size) - off[a];
+    const size_t lb = (b + 1 < off.size() ? off[b + 1] : buf_size) - off[b];
+    const size_t m = la < lb ? la : lb;
+    const int r = std::memcmp(pa, pb, m);
+    return r < 0 || (r == 0 && la < lb);
+  });
+  std::vector<std::string> sk, sv;
+  sk.reserve(keys->size());
+  sv.reserve(values->size());
+  for (size_t i : idx) {
+    sk.push_back(std::move((*keys)[i]));
+    sv.push_back(std::move((*values)[i]));
+  }
+  *keys = std::move(sk);
+  *values = std::move(sv);
+}
+
 }  // namespace
 
 ZfMaterializeJob::ZfMaterializeJob(
@@ -659,12 +724,19 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
     return ROCKSDB_NAMESPACE::Status::OK();  // 空分区不产出 SST
   }
 
-  // 排序：VectorIterator 构造时按 internal comparator 排 indices。
+  // 排序（M4.6e：Bytewise 时编码排序键 + memcmp 索引排序——InternalKey
+  // Comparator 的逐次解析是物化排序大头；非 Bytewise 走原 VectorIterator
+  // 排序）。
   const uint64_t sort_start = mc_.db_options->clock->NowMicros();
+  std::string sort_buf;
+  std::vector<size_t> sort_off;
+  if (BuildSortKeys(keys, mc_.cfd->user_comparator(), &sort_buf, &sort_off)) {
+    ReorderBySortKeys(&keys, &values, sort_buf, sort_off);
+  }
   std::unique_ptr<ROCKSDB_NAMESPACE::VectorIterator> iter(
       new ROCKSDB_NAMESPACE::VectorIterator(
           std::move(keys), std::move(values),
-          &mc_.cfd->internal_comparator()));
+          sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
   sort_micros_.fetch_add(mc_.db_options->clock->NowMicros() - sort_start,
                          std::memory_order_relaxed);
 
@@ -804,11 +876,17 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
     return ROCKSDB_NAMESPACE::Status::OK();  // 空分区不产出 SST
   }
 
+  // M4.6e：同 MaterializePartition——Bytewise 时编码排序键 + memcmp 重排。
   const uint64_t sort_start = mc_.db_options->clock->NowMicros();
+  std::string sort_buf;
+  std::vector<size_t> sort_off;
+  if (BuildSortKeys(keys, mc_.cfd->user_comparator(), &sort_buf, &sort_off)) {
+    ReorderBySortKeys(&keys, &values, sort_buf, sort_off);
+  }
   std::unique_ptr<ROCKSDB_NAMESPACE::VectorIterator> a_iter(
       new ROCKSDB_NAMESPACE::VectorIterator(
           std::move(keys), std::move(values),
-          &mc_.cfd->internal_comparator()));
+          sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
   sort_micros_.fetch_add(mc_.db_options->clock->NowMicros() - sort_start,
                          std::memory_order_relaxed);
   a_iter->SeekToFirst();
