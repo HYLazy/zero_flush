@@ -3396,10 +3396,11 @@ void DBImpl::NotifyOnBackgroundJobPressureChanged() {
 }
 
 void DBImpl::AddToCompactionQueue(ColumnFamilyData* cfd) {
-  assert(!cfd->queued_for_compaction());
+  // ZF M4.6：允许同 CF 重复入队（L0 多分区并行消费）；原生路径由调用方
+  // 保证单次（EnqueuePendingCompaction 的 queued_for_compaction 检查）。
   cfd->Ref();
   compaction_queue_.push_back(cfd);
-  cfd->set_queued_for_compaction(true);
+  cfd->increment_queued_for_compaction();
   ++unscheduled_compactions_;
 }
 
@@ -3408,7 +3409,7 @@ ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
   auto cfd = *compaction_queue_.begin();
   compaction_queue_.pop_front();
   assert(cfd->queued_for_compaction());
-  cfd->set_queued_for_compaction(false);
+  cfd->decrement_queued_for_compaction();
   return cfd;
 }
 
@@ -3445,7 +3446,7 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(
       continue;
     }
     cfd = first_cfd;
-    cfd->set_queued_for_compaction(false);
+    cfd->decrement_queued_for_compaction();
     break;
   }
   // Add throttled compaction candidates back to queue in the original order.
@@ -3506,6 +3507,17 @@ void DBImpl::EnqueuePendingCompaction(ColumnFamilyData* cfd) {
     TEST_SYNC_POINT_CALLBACK("EnqueuePendingCompaction::cfd",
                              static_cast<void*>(cfd));
     AddToCompactionQueue(cfd);
+  }
+  // ZF M4.6：L0 多分区并行消费——同一 CF 重复入队（计数语义）至
+  // l0_parallelism 上限。每个 BGWorkCompaction 独立 PickCompaction：
+  // RegisterCompaction 的互斥保证不同分区范围并行执行、重叠范围自动
+  // 排除（align_l1 下 16 分区范围不相交）。原生 DB（无 zf ctx）不受影响。
+  const auto* zf_ctx = cfd->GetZfCtx().get();
+  if (zf_ctx != nullptr && cfd->NeedsCompaction()) {
+    const uint32_t limit = zf_ctx->zfo_.l0_parallelism;
+    while (cfd->queued_for_compaction_count() < limit) {
+      AddToCompactionQueue(cfd);
+    }
   }
 }
 

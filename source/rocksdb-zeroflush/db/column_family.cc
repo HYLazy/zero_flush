@@ -639,7 +639,7 @@ ColumnFamilyData::ColumnFamilyData(
       log_number_(0),
       column_family_set_(column_family_set),
       queued_for_flush_(false),
-      queued_for_compaction_(false),
+      queued_for_compaction_(0),
       prev_compaction_needed_bytes_(0),
       allow_2pc_(db_options.allow_2pc),
       last_memtable_id_(0),

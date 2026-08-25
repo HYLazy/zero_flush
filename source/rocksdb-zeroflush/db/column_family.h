@@ -526,9 +526,16 @@ class ColumnFamilyData {
 
   // Protected by DB mutex
   void set_queued_for_flush(bool value) { queued_for_flush_ = value; }
-  void set_queued_for_compaction(bool value) { queued_for_compaction_ = value; }
+  // ZF M4.6：入队计数（同 CF 可多次入队以并行消费 L0 分区；原生语义
+  // 0/1 不变）。
+  void increment_queued_for_compaction() { ++queued_for_compaction_; }
+  void decrement_queued_for_compaction() {
+    assert(queued_for_compaction_ > 0);
+    --queued_for_compaction_;
+  }
   bool queued_for_flush() { return queued_for_flush_; }
-  bool queued_for_compaction() { return queued_for_compaction_; }
+  bool queued_for_compaction() { return queued_for_compaction_ > 0; }
+  uint32_t queued_for_compaction_count() { return queued_for_compaction_; }
 
   static std::pair<WriteStallCondition, WriteStallCause>
   GetWriteStallConditionAndCause(
@@ -717,9 +724,9 @@ class ColumnFamilyData {
   // If true --> this ColumnFamily is currently present in DBImpl::flush_queue_
   bool queued_for_flush_;
 
-  // If true --> this ColumnFamily is currently present in
-  // DBImpl::compaction_queue_
-  bool queued_for_compaction_;
+  // ZF M4.6：该 CF 在 DBImpl::compaction_queue_ 中的入队次数（原生 0/1；
+  // ZF L0 多分区并行消费时可 >1）。
+  uint32_t queued_for_compaction_;
 
   uint64_t prev_compaction_needed_bytes_;
 

@@ -580,7 +580,10 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
                          vstorage_->base_level()),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level_),
       Temperature::kUnknown,
-      /* max_subcompactions */ 0, std::move(grandparents_),
+      // ZF M4.6：自动 L0→L1 也启用 subcompactions（上游硬编码 0 使
+      // max_subcompactions 配置从未生效——R20 实测全程单 job 串行，
+      // L0 稳态 64 的消费瓶颈根因）。子任务按 key 范围切分归并。
+      mutable_db_options_.max_subcompactions, std::move(grandparents_),
       /* earliest_snapshot */ std::nullopt, /* snapshot_checker */ nullptr,
       compaction_reason_,
       /* trim_ts */ "", start_level_score_, l0_files_might_overlap);

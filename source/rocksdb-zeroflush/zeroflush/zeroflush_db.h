@@ -95,6 +95,11 @@ struct ZeroFlushOptions {
   // key 窗口，与 M4.1 的 write_buffer 语义对齐）。M4.4b：旧路径
   // （zf_global_index/MemTable 外壳）已移除。
   uint64_t index_mem_budget = 4ull << 30;
+  // ---- M4.6：L0 消费端并行化 ----
+  // L0→L1 compaction 的同 CF 并行 job 数（EnqueuePendingCompaction 重复
+  // 入队）。align_l1 下 16 分区范围不相交 → 并行消费安全（Register-
+  // Compaction 互斥自动排除重叠）。R20 基线（单 job 串行）= 1。
+  uint32_t l0_parallelism = 8;
 };
 
 class ZeroFlushContext {

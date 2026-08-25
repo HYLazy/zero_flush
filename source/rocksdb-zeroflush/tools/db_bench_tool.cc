@@ -855,6 +855,10 @@ DEFINE_bool(zf_skip_batching, true,
             "ZeroFlush M4.5b: kSkip batch materialization (skip low-ratio "
             "partitions, adopt next epoch for multi-gen merge). Disable for "
             "write-heavy 50GB baselines (R20 config).");
+DEFINE_int32(zf_l0_parallelism, 8,
+             "ZeroFlush M4.6: parallel L0->L1 compaction jobs per CF "
+             "(align_l1 partitions are disjoint ranges, safe to consume in "
+             "parallel). 1 = R20 baseline serial behavior.");
 DEFINE_int64(zf_partition_target_mb, 64,
              "ZeroFlush per-partition WAL seal target in MB.");
 DEFINE_int64(zf_epoch_target_mb, 256,
@@ -5497,6 +5501,8 @@ class Benchmark {
       }
       zfo.merge_into_base_level = FLAGS_zf_base_merge;
       zfo.skip_batching = FLAGS_zf_skip_batching;
+      zfo.l0_parallelism =
+          static_cast<uint32_t>(std::max(1, FLAGS_zf_l0_parallelism));
       if (FLAGS_zf_partition_target_mb > 0) {
         zfo.partition_target_bytes =
             static_cast<uint64_t>(FLAGS_zf_partition_target_mb) * 1024 * 1024;
