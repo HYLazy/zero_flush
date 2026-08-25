@@ -1055,6 +1055,17 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   // M3.2：物化按序前提（§6.2）——单后台 flush 线程。多 flush 线程并发时
   // ZfMaterializeJob 的按序断言不成立（epoch 顺序与 last 推进竞态）。
   zf_opt.max_background_flushes = 1;
+  // M4.6：max_background_flushes=1（非 -1）使 GetBGJobLimits 走"兼容
+  // 分支"（max_compactions = max(1, max_background_compactions)），而
+  // max_background_compactions 默认 -1 → max(1,-1)=1 → L0 并行 job 被
+  // 限制为 1（R41 实测 max_comp=1、num-running-compactions 恒 1——多
+  // job 并行失效的根因；R36/R40 的 49.9K 仅来自单 job 的 subcompactions）。
+  // 显式配对：compactions = jobs - flushes（R27 验证 max_comp=23 后
+  // 连续调度多个 BGWorkCompaction、并行生效）。
+  if (zf_opt.max_background_compactions <= 0) {
+    zf_opt.max_background_compactions =
+        std::max(1, zf_opt.max_background_jobs - 1);
+  }
   // M2.3-1：写流控。设计要求 `max_write_buffer_number = max_pending_epochs + 1`。
   // 原生默认 2 时：第一次封存后 imm=1（无 stall），第二次封存后 imm=2
   // 触发 kStopped → Recalc 创建 StopWriteToken → 第三次写进入 DelayWrite

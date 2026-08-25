@@ -3266,6 +3266,14 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   while (bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_ <
              bg_job_limits.max_compactions &&
          unscheduled_compactions_ > 0) {
+    if (zf_ctx_ != nullptr) {
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                     "[ZF M4.6b] Schedule: max_comp=%d bg_sched=%d "
+                     "unsched=%d low_threads=%d",
+                     bg_job_limits.max_compactions, bg_compaction_scheduled_,
+                     unscheduled_compactions_,
+                     env_->GetBackgroundThreads(Env::Priority::LOW));
+    }
     CompactionArg* ca = new CompactionArg;
     ca->db = this;
     ca->compaction_pri_ = Env::Priority::LOW;
@@ -3285,6 +3293,15 @@ DBImpl::BGJobLimits DBImpl::GetBGJobLimits() const {
   bool parallelize = write_controller_.NeedSpeedupCompaction();
   if (!parallelize && zf_ctx_ != nullptr) {
     parallelize = true;
+  }
+  if (zf_ctx_ != nullptr) {
+    ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                   "[ZF M4.6b] GetLimits: parallelize=%d flushes=%d "
+                   "compactions=%d jobs=%d",
+                   (int)parallelize,
+                   mutable_db_options_.max_background_flushes,
+                   mutable_db_options_.max_background_compactions,
+                   mutable_db_options_.max_background_jobs);
   }
   return GetBGJobLimits(mutable_db_options_.max_background_flushes,
                         mutable_db_options_.max_background_compactions,
@@ -3444,17 +3461,25 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(
   assert(*token == nullptr);
   autovector<ColumnFamilyData*> throttled_candidates;
   ColumnFamilyData* cfd = nullptr;
+  size_t n_throttled = 0;
   while (!compaction_queue_.empty()) {
     auto first_cfd = *compaction_queue_.begin();
     compaction_queue_.pop_front();
     assert(first_cfd->queued_for_compaction());
     if (!RequestCompactionToken(first_cfd, false, token, log_buffer)) {
       throttled_candidates.push_back(first_cfd);
+      ++n_throttled;
       continue;
     }
     cfd = first_cfd;
     cfd->decrement_queued_for_compaction();
     break;
+  }
+  if (zf_ctx_ != nullptr) {
+    ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                   "[ZF M4.6b] PickQueue: got=%d throttled=%zu qsize=%zu",
+                   cfd != nullptr ? 1 : 0, n_throttled,
+                   compaction_queue_.size());
   }
   // Add throttled compaction candidates back to queue in the original order.
   for (auto iter = throttled_candidates.rbegin();
@@ -4194,6 +4219,21 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           mutable_cf_options, mutable_db_options_, job_context->snapshot_seqs,
           job_context->snapshot_checker, log_buffer,
           thread_pri == Env::Priority::BOTTOM /* require_max_output_level */));
+      if (zf_ctx_ != nullptr) {
+        if (c != nullptr) {
+          size_t n_in = 0;
+          for (const auto& in : *c->inputs()) {
+            n_in += in.files.size();
+          }
+          ROCKS_LOG_DEBUG(
+              immutable_db_options_.info_log,
+              "[ZF M4.6b] PickResult: start=%d out=%d nfiles=%zu",
+              (int)c->start_level(), (int)c->output_level(), n_in);
+        } else {
+          ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                          "[ZF M4.6b] PickResult: NULLPTR");
+        }
+      }
       if (thread_pri == Env::Priority::LOW) {
         TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
       } else if (thread_pri == Env::Priority::BOTTOM) {
