@@ -3279,10 +3279,17 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
 
 DBImpl::BGJobLimits DBImpl::GetBGJobLimits() const {
   mutex_.AssertHeld();
+  // ZF M4.6：L0 消费是写吞吐核心路径——ZF 模式恒并行（不依赖写压力
+  // 信号；否则无停写时 NeedSpeedupCompaction=false → max_compactions=1
+  // 使 l0_parallelism 多 job 失效，R24 实测 num-running-compactions 恒 1）。
+  bool parallelize = write_controller_.NeedSpeedupCompaction();
+  if (!parallelize && zf_ctx_ != nullptr) {
+    parallelize = true;
+  }
   return GetBGJobLimits(mutable_db_options_.max_background_flushes,
                         mutable_db_options_.max_background_compactions,
                         mutable_db_options_.max_background_jobs,
-                        write_controller_.NeedSpeedupCompaction());
+                        parallelize);
 }
 
 DBImpl::BGJobLimits DBImpl::GetBGJobLimits(int max_background_flushes,
