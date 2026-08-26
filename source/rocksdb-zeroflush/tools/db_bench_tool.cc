@@ -855,6 +855,9 @@ DEFINE_bool(zf_skip_batching, true,
             "ZeroFlush M4.5b: kSkip batch materialization (skip low-ratio "
             "partitions, adopt next epoch for multi-gen merge). Default on "
             "(M4.6c retest: 50GB +8.4%, 2.2GB +28%, data intact).");
+DEFINE_int64(zf_value_cache_mb, 0,
+             "ZeroFlush M4.7b: value cache size in MB (locator-keyed LRU "
+             "for WAL point reads; 0 = off).");
 DEFINE_int32(zf_l0_parallelism, 8,
              "ZeroFlush M4.6: parallel L0->L1 compaction jobs per CF "
              "(align_l1 partitions are disjoint ranges, safe to consume in "
@@ -5503,6 +5506,10 @@ class Benchmark {
       zfo.skip_batching = FLAGS_zf_skip_batching;
       zfo.l0_parallelism =
           static_cast<uint32_t>(std::max(1, FLAGS_zf_l0_parallelism));
+      if (FLAGS_zf_value_cache_mb > 0) {
+        zfo.value_cache_bytes =
+            static_cast<uint64_t>(FLAGS_zf_value_cache_mb) * 1024 * 1024;
+      }
       if (FLAGS_zf_partition_target_mb > 0) {
         zfo.partition_target_bytes =
             static_cast<uint64_t>(FLAGS_zf_partition_target_mb) * 1024 * 1024;

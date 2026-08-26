@@ -15,6 +15,7 @@
 #include <memory>
 #include <string>
 
+#include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -97,6 +98,11 @@ struct ZeroFlushOptions {
   // key 窗口，与 M4.1 的 write_buffer 语义对齐）。M4.4b：旧路径
   // （zf_global_index/MemTable 外壳）已移除。
   uint64_t index_mem_budget = 4ull << 30;
+  // ---- M4.7b：value cache ----
+  // WAL 定点读的 value 缓存（键 = locator（part,gen,offset）——WAL 段
+  // 不可变，精确命中）。1KB 场景读路径瓶颈（65K vs 原生 312K）的根治。
+  // 0 = 关闭（默认）。
+  uint64_t value_cache_bytes = 0;
   // ---- M4.6：L0 消费端并行化 ----
   // L0→L1 compaction 的同 CF 并行 job 数（EnqueuePendingCompaction 重复
   // 入队）。align_l1 下 16 分区范围不相交 → 并行消费安全（Register-
@@ -315,6 +321,8 @@ class ZeroFlushContext {
   std::unique_ptr<class KeySampler> sampler_;  // kSampled 学习期采样器
   // ---- M4.3 终态 ----
   std::unique_ptr<class PartitionIndexSet> index_set_;  // 分区索引（L0 索引）
+  // M4.7b：value cache（LRU；键 = locator 16B，值 = std::string*）。
+  mutable std::shared_ptr<ROCKSDB_NAMESPACE::Cache> value_cache_;
   // ---- M3.2 物化状态与统计 ----
   // 物化按序推进（imm FIFO 单后台线程）；由 FlushJob 成功后更新。
   std::atomic<uint64_t> last_materialized_epoch_{0};

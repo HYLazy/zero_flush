@@ -14,6 +14,8 @@
 #include "db/write_thread.h"
 #include "file/filename.h"
 #include "logging/logging.h"
+#include "rocksdb/advanced_cache.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/write_batch.h"
@@ -29,6 +31,19 @@ namespace zeroflush {
 using ROCKSDB_NAMESPACE::InfoLogLevel;
 
 namespace {
+
+// M4.7b：value cache 条目释放（Cache 淘汰时删除堆上的 string）与 helper。
+namespace {
+void ValueCacheDeleter(ROCKSDB_NAMESPACE::Cache::ObjectPtr obj,
+                       ROCKSDB_NAMESPACE::MemoryAllocator*) {
+  delete static_cast<std::string*>(obj);
+}
+const ROCKSDB_NAMESPACE::Cache::CacheItemHelper* ValueCacheHelper() {
+  static ROCKSDB_NAMESPACE::Cache::CacheItemHelper h(
+      ROCKSDB_NAMESPACE::CacheEntryRole::kMisc, &ValueCacheDeleter);
+  return &h;
+}
+}  // namespace
 
 // WriteBatch 逐记录回调：路由 → 分区 WAL 追加 → Slim MemTable 插入。
 // M2.3-2：touched_ 收集本 batch 实际触达的分区分区 ID，sync 阶段只
@@ -885,6 +900,16 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
     return ROCKSDB_NAMESPACE::Status::Corruption(
         "ZeroFlush: bad locator size in slim memtable entry");
   }
+  // M4.7b：value cache 命中直接返回（键 = locator——WAL 段不可变，精确）。
+  if (value_cache_ != nullptr) {
+    auto h = value_cache_->Lookup(locator_slice);
+    if (h != nullptr) {
+      auto* sv = static_cast<const std::string*>(value_cache_->Value(h));
+      *out = *sv;
+      value_cache_->Release(h);
+      return ROCKSDB_NAMESPACE::Status::OK();
+    }
+  }
   const SlimLocator* loc =
       reinterpret_cast<const SlimLocator*>(locator_slice.data());
   WalRecordRef ref;
@@ -905,6 +930,10 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
                       ref.part_id, ref.gen, (unsigned long)ref.offset,
                       st.ok() ? "OK" : st.ToString().c_str(), out->size());
     }
+    if (st.ok() && value_cache_ != nullptr) {
+      value_cache_->Insert(locator_slice, new std::string(*out),
+                           ValueCacheHelper(), out->size());
+    }
     return st;
   }
   // 封存代：SealedFileCache.Get 必须已登记（M2.0 D1 修复后必走此路径）。
@@ -916,8 +945,14 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
   rocksdb::Slice val_slice;
   s = PartitionedWalManager::ReadFromSealed(rf.get(), ref, out, &val_slice);
   // ReadFromSealed 已把 value 拷进 *out（buf 形参），val_slice 仅用于引用。
+  if (s.ok() && value_cache_ != nullptr) {
+    value_cache_->Insert(locator_slice, new std::string(*out),
+                         ValueCacheHelper(), out->size());
+  }
   return s;
 }
+
+
 
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* db) {
   std::vector<std::pair<uint32_t, uint32_t>> files;
@@ -1346,6 +1381,10 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   // 默认 nullptr 时 ROCKS_LOG_* 为 no-op）。
   if (zfo.use_logger && zf_opt.info_log != nullptr) {
     ctx->wal()->SetInfoLog(zf_opt.info_log.get());
+  }
+  // M4.7b：value cache（LRU，键 = locator 16B）
+  if (zfo.value_cache_bytes > 0) {
+    ctx->value_cache_ = ROCKSDB_NAMESPACE::NewLRUCache(zfo.value_cache_bytes);
   }
   impl->SetZeroFlushContext(ctx);
 
