@@ -789,3 +789,20 @@ epoch 同时完成（释放时机不变），但 API 与语义已分区化，为
   时数据——决策分布完全一致：fallback 1095/1087、skip 4420/4272、merge 0/0，
   无行为退化）；550/550 epoch 全部物化；重开 readrandom 632991/1000000
   found（63.3%）——与同进程读（63.3%）和 R47e（63.2%）一致，完整性通过
+
+### 6.8 M4.10 深挖发现：批次封存路径的接线缺口（R49）
+
+对比优化中实施「L0 自管」（禁用原生 L0 compaction + 激活 L0 融合）时确认：
+
+1. **M3.1 采样学习 / M4.2b L1 对齐未接入 FreezeBatchPartitions**——SealEpoch
+   AndSwitch（旧路径）有 InstallNewVersion，批次封存路径漏了 → 路由表恒为
+   版本 0 的 hash 表 → merge_enabled=false → 融合从未启用（全部实验的
+   base_merge=0、fallback 大、L0 循环的根因）。
+2. **表切换与 parallel 写竞态**——补上学习后，封存内换表与 parallel follower
+   的 Route 并发 → 同 epoch 数据跨表 → 物化范围断言 Corruption。
+
+修复路线（写组表版本绑定框架已实现、未收敛）：
+   a. 批次封存接入采样学习（merge 启用验证通过）
+   b. 写组绑定表版本（WriteGroup.zf_table_version + RouteWithVersion）
+      + 学习/对齐只在写组边界且分区数恒定（align_l1 不足时采样边界兜底）
+   c. L0 融合激活 → fallback→0（预期写 +20-50%、读的 L0 查找改善）
