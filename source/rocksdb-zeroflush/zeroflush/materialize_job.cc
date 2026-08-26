@@ -250,6 +250,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::ExecutePartition(uint32_t part_id) {
   }
   return (plan != nullptr && plan->decision == MaterializeDecision::kMergeBase)
              ? MaterializeMergePartition(part_id, gens, plan->overlap_all,
+                                         plan->l0_overlap,
                                          plan->compaction.get(), lo, hi)
              : MaterializePartition(part_id, gens, lo, hi);
 }
@@ -274,9 +275,12 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
       o.level = plan->compaction->output_level();
       o.replaced_inputs = plan->overlap;
       o.rewritten_bytes = plan->overlap_bytes;
-      // 替换文件号：existing 重叠文件。
+      // 替换文件号：existing 重叠文件 + M4.9 L0 融合文件（DeleteFile(0)）。
       for (ROCKSDB_NAMESPACE::FileMetaData* r : plan->overlap) {
         o.replaced_file_numbers.push_back(r->fd.GetNumber());
+      }
+      for (ROCKSDB_NAMESPACE::FileMetaData* r : plan->l0_overlap) {
+        o.replaced_l0_file_numbers.push_back(r->fd.GetNumber());
       }
       // 批内链式替换（§7.4 批次内多 epoch）：本输出与同批次前序输出
       // （level 相同、user key 范围重叠）合并后范围 ⊇ 前序 → 前序由本
@@ -536,40 +540,85 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       continue;
     }
 
-    // M4.8 遮蔽防护：L0（及更浅层）有本分区范围的文件 → 直装/融合输出
-    // 会被 L0 遮蔽。M4.5 删除 upper_conflict 的前提是"L0 文件恒比 base
-    // 新"（遮蔽正确）——但回落兜底（gen 上限强制 kDirect/kFallback）会
-    // 产生比 base 新的 L0 文件，随后序直装/融合（更晚 epoch）超越 →
-    // L0 旧遮蔽 base 新 → 读旧值（R48 实测：C 轮回落 L0 遮蔽 D 轮直装
-    // L6 → phase2 get@0 读 'C'）。修复：L0 重叠 → kSkip 等待（不产出
-    // 新 L0，L0 由 compaction 消费后直装恢复——无 M4.5 的"回落→更拒"
-    // 循环）；gen 上限强制 kFallback 回落 L0（L0 内按 file number 新→
-    // 旧查找——读最新，语义正确）。
-    bool l0_shadow = false;
-    for (int l = 0; l < base && !l0_shadow; ++l) {
+    // M4.9 L0 融合：L0（及更浅层）有本分区范围的文件（非 being_compacted、
+    // 完全包含）→ 物化输出合并这些文件（B 侧）后直装 base 并替换 L0
+    // （DeleteFile(0) + AddFile(base)）——L0 恒空、无遮蔽、无 compaction
+    // 压力（打破"fallback → L0 → 回落"循环；R49 实测 1KB/10GB 写 23K vs
+    // 原生 110K，瓶颈即 L0 循环）。约束：L0 文件完全包含于分区范围（范围
+    // 路由下 fallback 输出为单分区文件）；批内无本分区未安装的 L0 输出
+    // （否则本输出不含其数据，替换会丢——等下一批，前序安装后 vstorage
+    // 可见）。
+    std::vector<ROCKSDB_NAMESPACE::FileMetaData*> l0_overlap;
+    bool l0_busy = false;  // L0 有文件但被占用/越界（不可替换）
+    for (int l = 0; l < base && !l0_busy; ++l) {
       for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(l)) {
-        if (f->being_compacted) {
-          continue;  // 消费中——不阻塞（compaction 完成后 L0 清空）
-        }
         const ROCKSDB_NAMESPACE::Slice f_lo = f->smallest.user_key();
         const ROCKSDB_NAMESPACE::Slice f_hi = f->largest.user_key();
-        if (ucmp->Compare(f_hi, plan.lo) >= 0 &&
-            ucmp->Compare(f_lo, plan.hi) < 0) {
-          l0_shadow = true;
+        if (ucmp->Compare(f_hi, plan.lo) < 0 ||
+            ucmp->Compare(f_lo, plan.hi) >= 0) {
+          continue;
+        }
+        // 完全包含（半开区间）：越界文件（分区边界切割）无法安全替换。
+        if (ucmp->Compare(f_lo, plan.lo) < 0 ||
+            ucmp->Compare(f_hi, plan.hi) >= 0) {
+          l0_busy = true;
           break;
         }
+        if (f->being_compacted) {
+          l0_busy = true;
+          break;
+        }
+        l0_overlap.push_back(f);
       }
     }
-    if (l0_shadow) {
-      // M4.8 遮蔽等待：数据留在 frozen 索引 + 封存 WAL（可读、不丢失），
-      // L0 由 compaction 消费后直装恢复。等待上限用「skip 集合字节」而非
-      // gen 计数——L0 遮蔽不是 ratio 拒绝（攒批会随收养累积，gen 上限
-      // 会误触发频繁回落）；字节超阈值（partition_target × 32）才强制
-      // kFallback 回落（L0 增长 → 触发 compaction → 消费 → 直装恢复）。
+    if (!l0_overlap.empty()) {
+      // 批内前序未安装的 L0 输出（level 0）：本输出不含其数据 → 不融合
+      // （等待下一批，前序安装后 vstorage 可见 → 可替换）。
+      bool batch_l0 = false;
+      if (batch_outputs_ != nullptr) {
+        for (auto rit = batch_outputs_->rbegin(); rit != batch_outputs_->rend();
+             ++rit) {
+          if (rit->superseded || rit->level != 0) {
+            continue;
+          }
+          const ROCKSDB_NAMESPACE::Slice x_lo = rit->meta.smallest.user_key();
+          const ROCKSDB_NAMESPACE::Slice x_hi = rit->meta.largest.user_key();
+          if (ucmp->Compare(x_hi, plan.lo) >= 0 &&
+              ucmp->Compare(x_lo, plan.hi) < 0) {
+            batch_l0 = true;
+            break;
+          }
+        }
+      }
+      if (!batch_l0) {
+        // L0 融合：B 侧 = L0 文件 + base overlap（plan.l0_overlap 供归并
+        // 与定层消费）；走下方 kMergeBase 注册路径（跳过 ratio 门槛——
+        // L0 文件存在即合并，否则回落 L0 循环）。
+        plan.l0_overlap = std::move(l0_overlap);
+      } else {
+        // 批内有本分区未安装的 L0 输出（替换会丢其数据）：等待下一批
+        // （前序安装后 vstorage 可见 → 可融合）。与 skip_batching 解耦
+        // ——L0 场景的等待是必要等待（数据留 frozen + WAL 可读），否则
+        // fallback→L0 循环（R49 实测）；skip 字节超阈值才强制回落兜底。
+        const uint64_t shadow_limit =
+            static_cast<uint64_t>(ctx_->zfo_.partition_target_bytes) * 32;
+        if (ctx_->skipped_bytes() < shadow_limit) {
+          plan.decision = MaterializeDecision::kSkip;
+          ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+        } else {
+          plan.decision = MaterializeDecision::kFallback;
+        }
+        plans_.push_back(std::move(plan));
+        continue;
+      }
+    } else if (l0_busy) {
+      // L0 有文件但被 compaction 占用（消费中——替换不安全）/越界：等待
+      // （compaction 消费后 L0 可替换 → 融合恢复）。同上与 skip_batching
+      // 解耦；skip 字节超阈值才强制回落兜底（L0 增长触发 compaction
+      // 消费 → 恢复融合）。
       const uint64_t shadow_limit =
           static_cast<uint64_t>(ctx_->zfo_.partition_target_bytes) * 32;
-      if (ctx_->zfo_.skip_batching &&
-          ctx_->skipped_bytes() < shadow_limit) {
+      if (ctx_->skipped_bytes() < shadow_limit) {
         plan.decision = MaterializeDecision::kSkip;
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       } else {
@@ -606,7 +655,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     }
 
     // overlap 为空且无批内跳过 → existing 无相交文件 → 走直装路径。
-    if (overlap.empty() && !batch_skipped) {
+    if (overlap.empty() && !batch_skipped && plan.l0_overlap.empty()) {
       plans_.push_back(std::move(plan));
       continue;
     }
@@ -628,7 +677,9 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     // 触发比（§7.2）：sealed_bytes / overlap_bytes >= base_merge_min_ratio。
     // overlap 为空时（batch_skipped 场景）跳过比率检查——融合成本已被
     // 前序承担，B 侧全量由 last_batch（融合输出）提供。
-    if (!overlap.empty()) {
+    // M4.9：L0 融合（plan.l0_overlap 非空）跳过 ratio——L0 文件存在即
+    // 合并（否则回落 L0 循环），重写代价 ≤ compaction 消费的代价。
+    if (!overlap.empty() && plan.l0_overlap.empty()) {
       const auto it = se_.part_bytes.find(pid);
       const uint64_t sealed =
           (it != se_.part_bytes.end()) ? it->second : 0;
@@ -693,10 +744,12 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       plan.overlap_all.push_back(&plan.batch_meta_copies.back());
     }
 
-    // 构造 Compaction：inputs[0] 空（level=0）、inputs[1] = overlap_all、
-    // output = base、kFlush。构造即 MarkFilesBeingCompacted(true)。
+    // 构造 Compaction：inputs[0] = L0 融合文件（M4.9；否则空）、
+    // inputs[1] = overlap_all、output = base、kFlush。构造即
+    // MarkFilesBeingCompacted(true)。
     std::vector<ROCKSDB_NAMESPACE::CompactionInputFiles> inputs(2);
     inputs[0].level = 0;
+    inputs[0].files = plan.l0_overlap;
     inputs[1].level = base;
     inputs[1].files = plan.overlap_all;
     auto compaction = std::make_unique<ROCKSDB_NAMESPACE::Compaction>(
@@ -709,7 +762,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
             /* grandparents */,
         std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */,
         ROCKSDB_NAMESPACE::CompactionReason::kFlush, "" /* trim_ts */,
-        -1 /* score */, false /* l0_files_might_overlap */);
+        -1 /* score */, !plan.l0_overlap.empty() /* l0_files_might_overlap */);
     // Proximal level 有效（preclude_last_level_data_seconds 场景）会触发
     // RegisterCompaction 的 debug assert → 放弃融合（保守降级）。
     if (compaction->GetProximalLevel() != ROCKSDB_NAMESPACE::Compaction::kInvalidLevel) {
@@ -928,10 +981,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
 ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
     uint32_t part_id, const std::vector<std::pair<uint32_t, uint32_t>>& gens,
     const std::vector<ROCKSDB_NAMESPACE::FileMetaData*>& overlap_all,
+    const std::vector<ROCKSDB_NAMESPACE::FileMetaData*>& l0_overlap,
     const ROCKSDB_NAMESPACE::Compaction* compaction,
     const ROCKSDB_NAMESPACE::Slice& lo, const ROCKSDB_NAMESPACE::Slice& hi) {
   assert(!gens.empty());
-  assert(!overlap_all.empty());
+  assert(!overlap_all.empty() || !l0_overlap.empty());
   assert(compaction != nullptr);
   const ROCKSDB_NAMESPACE::MutableCFOptions& mcf = *mc_.mutable_cf_options;
 
@@ -1007,6 +1061,9 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   for (const ROCKSDB_NAMESPACE::FileMetaData* f : overlap_all) {
     max_b_seq = std::max(max_b_seq, f->fd.largest_seqno);
   }
+  for (const ROCKSDB_NAMESPACE::FileMetaData* f : l0_overlap) {
+    max_b_seq = std::max(max_b_seq, f->fd.largest_seqno);
+  }
   if (!se_.has_adopted_skips && min_seq <= max_b_seq) {
     return ROCKSDB_NAMESPACE::Status::Corruption(
         "ZF merge partition " + std::to_string(part_id) +
@@ -1023,6 +1080,32 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   // A 侧 VectorIterator 所有权移交给 MergingIterator。
   children.push_back(a_iter.release());
   ROCKSDB_NAMESPACE::Status s;
+  for (const ROCKSDB_NAMESPACE::FileMetaData* f : l0_overlap) {
+    ROCKSDB_NAMESPACE::InternalIterator* it =
+        mc_.cfd->table_cache()->NewIterator(
+            read_options, *mc_.file_options, mc_.cfd->internal_comparator(),
+            *f, nullptr /* range_del_agg */, mcf, nullptr /* table_reader_ptr */,
+            nullptr /* file_read_hist */, ROCKSDB_NAMESPACE::TableReaderCaller::kCompaction,
+            nullptr /* arena */, false /* skip_filters */, 0 /* level */,
+            ROCKSDB_NAMESPACE::MaxFileSizeForL0MetaPin(mcf),
+            nullptr /* smallest_compaction_key */,
+            nullptr /* largest_compaction_key */,
+            false /* allow_unprepared_value */, nullptr /* range_del_read_seqno */,
+            nullptr /* range_del_iter */, false /* maybe_pin_table_handle */,
+            nullptr /* file_open_metadata */);
+    if (!it->status().ok()) {
+      s = it->status();
+      delete it;
+      break;
+    }
+    children.push_back(it);
+  }
+  if (!s.ok()) {
+    for (ROCKSDB_NAMESPACE::InternalIterator* it : children) {
+      delete it;
+    }
+    return s;
+  }
   for (const ROCKSDB_NAMESPACE::FileMetaData* f : overlap_all) {
     ROCKSDB_NAMESPACE::InternalIterator* it =
         mc_.cfd->table_cache()->NewIterator(

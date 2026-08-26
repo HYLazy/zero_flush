@@ -75,6 +75,9 @@ struct MaterializeOutput {
   // kMergeBase：全部被替换文件号（existing + 批内前序融合输出）。
   // 安装循环先对每个文件号 edit_->DeleteFile(level, num) 再 AddFile。
   std::vector<uint64_t> replaced_file_numbers;
+  // M4.9 L0 融合：被替换的 L0 文件号（安装循环 DeleteFile(0, num)——
+  // 与 base 层替换分列，层级不同）。
+  std::vector<uint64_t> replaced_l0_file_numbers;
   // 批内链式替换：本输出已被同批次后序融合输出替代（不安装其文件，
   // 物理文件由替换者 Run() 返回前删除；M3.3 §7.4 批次内多 epoch 互斥）。
   bool superseded = false;
@@ -223,6 +226,11 @@ class ZfMaterializeJob {
     // 归并（A/B 侧合并），仅替换（输出范围 ⊇ overlap 文件范围）。
     bool force_replace = false;
     int base_level = 0;  // force_replace：目标替换层（PlanLocked 记录）
+    // M4.9 L0 融合：L0（及更浅层）与本分区范围重叠的文件（非
+    // being_compacted、完全包含）——物化输出合并这些文件（B 侧）后直装
+    // base 并替换（DeleteFile(0) + AddFile(base)），L0 恒空、无遮蔽、
+    // 无 compaction 压力（打破 fallback→L0→回落 循环）。
+    std::vector<ROCKSDB_NAMESPACE::FileMetaData*> l0_overlap;
   };
 
   // 按 part_id 二分查找阶段 0 的分区决策（plans_ 与 part_ids_ 同序）。
@@ -246,6 +254,7 @@ class ZfMaterializeJob {
       uint32_t part_id,
       const std::vector<std::pair<uint32_t, uint32_t>>& gens,
       const std::vector<ROCKSDB_NAMESPACE::FileMetaData*>& overlap_all,
+      const std::vector<ROCKSDB_NAMESPACE::FileMetaData*>& l0_overlap,
       const ROCKSDB_NAMESPACE::Compaction* compaction,
       const ROCKSDB_NAMESPACE::Slice& lo,
       const ROCKSDB_NAMESPACE::Slice& hi);

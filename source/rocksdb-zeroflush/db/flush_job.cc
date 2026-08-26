@@ -1394,6 +1394,9 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     if (o.superseded) {
       continue;
     }
+    for (uint64_t num : o.replaced_l0_file_numbers) {
+      edit_->DeleteFile(0, num);
+    }
     for (uint64_t num : o.replaced_file_numbers) {
       edit_->DeleteFile(o.level, num);
     }
