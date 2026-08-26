@@ -20,6 +20,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -275,7 +276,7 @@ class PartitionIndexSet {
   // M4.3 修复：全程持锁——无锁 map 读与并发 emplace/Insert 竞争是 UB
   // （unordered_map 结构变更），曾导致段错误。跳表操作在锁外。
   std::shared_ptr<PartitionIndex> Active(uint32_t part_id) {
-    std::lock_guard<std::mutex> l(mu_);
+    std::unique_lock<std::shared_mutex> l(mu_);
     auto it = active_.find(part_id);
     if (it != active_.end()) {
       return it->second;
@@ -301,7 +302,7 @@ class PartitionIndexSet {
         // 首次触达：双检锁内创建——无锁 emplace 在 16 写线程并发首触达
         // 不同分区时是 unordered_map 数据竞争（rehash 损坏，R41/gdb 栈
         // _M_find_before_node 读垃圾指针）。
-        std::lock_guard<std::mutex> l(mu_);
+        std::unique_lock<std::shared_mutex> l(mu_);
         it = active_.find(part_id);
         if (it != active_.end()) {
           idx = it->second;
@@ -347,7 +348,7 @@ class PartitionIndexSet {
   void Freeze(uint32_t part_id, uint32_t new_gen) {
     std::shared_ptr<PartitionIndex> old;
     {
-      std::lock_guard<std::mutex> l(mu_);
+      std::unique_lock<std::shared_mutex> l(mu_);
       auto it = active_.find(part_id);
       if (it != active_.end()) {
         old = it->second;
@@ -360,14 +361,14 @@ class PartitionIndexSet {
     }
     if (old != nullptr && old->mem_bytes() > 0) {
       old->SetFrozen();
-      std::lock_guard<std::mutex> l(mu_);
+      std::unique_lock<std::shared_mutex> l(mu_);
       frozen_[part_id].push_back(std::move(old));  // 新→旧（push_back = 链尾最旧）
     }
   }
 
   // M4.3a：物化完成（epoch 回收）时释放指定 (part, gen) 的 frozen 索引。
   void ReleaseFrozen(uint32_t part_id, uint32_t gen) {
-    std::lock_guard<std::mutex> l(mu_);
+    std::unique_lock<std::shared_mutex> l(mu_);
     auto it = frozen_.find(part_id);
     if (it == frozen_.end()) {
       return;
@@ -392,7 +393,7 @@ class PartitionIndexSet {
                         const ROCKSDB_NAMESPACE::Slice& locator) {
     std::shared_ptr<PartitionIndex> idx;
     {
-      std::lock_guard<std::mutex> l(mu_);
+      std::unique_lock<std::shared_mutex> l(mu_);
       auto it = active_.find(part_id);
       if (it != active_.end() && it->second->gen() == gen) {
         idx = it->second;
@@ -438,7 +439,7 @@ class PartitionIndexSet {
       const std::function<ROCKSDB_NAMESPACE::Status(const ROCKSDB_NAMESPACE::Slice&, std::string*)>& read_value) const {
     std::vector<std::shared_ptr<PartitionIndex>> chain;
     {
-      std::lock_guard<std::mutex> l(mu_);
+      std::shared_lock<std::shared_mutex> l(mu_);
       auto fit = frozen_.find(part_id);
       if (fit != frozen_.end()) {
         chain = fit->second;
@@ -466,7 +467,7 @@ class PartitionIndexSet {
       std::vector<ROCKSDB_NAMESPACE::ValueType>* types) const {
     std::vector<std::shared_ptr<PartitionIndex>> chain;
     {
-      std::lock_guard<std::mutex> l(mu_);
+      std::unique_lock<std::shared_mutex> l(mu_);
       auto ait = active_.find(part_id);
       if (ait != active_.end()) {
         chain.push_back(ait->second);  // active 最先（最新 seq）
@@ -491,7 +492,7 @@ class PartitionIndexSet {
            ROCKSDB_NAMESPACE::SequenceNumber* seq_out) const {
     std::vector<std::shared_ptr<PartitionIndex>> chain;
     {
-      std::lock_guard<std::mutex> l(mu_);
+      std::shared_lock<std::shared_mutex> l(mu_);
       auto fit = frozen_.find(part_id);
       if (fit != frozen_.end()) {
         chain = fit->second;  // 拷贝（shared_ptr 引用计数保护释放竞态）
@@ -520,7 +521,7 @@ class PartitionIndexSet {
   // 遍历全部 frozen 索引（M4.3c 分区 compact 输入侧用）。
   void ForEachFrozen(uint32_t part_id,
                      const std::function<void(const std::shared_ptr<PartitionIndex>&)>& fn) const {
-    std::lock_guard<std::mutex> l(mu_);
+    std::shared_lock<std::shared_mutex> l(mu_);
     auto it = frozen_.find(part_id);
     if (it == frozen_.end()) {
       return;
@@ -541,7 +542,7 @@ class PartitionIndexSet {
 
  private:
   ZfKeyComparator cmp_;
-  mutable std::mutex mu_;  // 保护 map 与 frozen 链（写路径热路径不持锁：
+  mutable std::shared_mutex mu_;  // 保护 map 与 frozen 链（写路径热路径不持锁：
                            // Active() 已用"先无锁读、有锁创建"降低竞争；
                            // Insert 对跳表本身无锁）
   std::unordered_map<uint32_t, std::shared_ptr<PartitionIndex>> active_;
@@ -631,7 +632,7 @@ inline void PartitionIndexSet::AddIterators(
   // 释放竞态。
   std::vector<std::shared_ptr<PartitionIndex>> all;
   {
-    std::lock_guard<std::mutex> l(mu_);
+    std::shared_lock<std::shared_mutex> l(mu_);
     for (const auto& [part, chain] : frozen_) {
       for (const auto& idx : chain) {
         all.push_back(idx);
