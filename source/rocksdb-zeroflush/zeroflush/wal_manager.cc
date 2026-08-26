@@ -318,10 +318,12 @@ uint32_t PartitionedWalManager::ActiveGen(uint32_t part) const {
 rocksdb::Status PartitionedWalManager::ReadFromSealed(
     rocksdb::RandomAccessFile* rf, const WalRecordRef& ref,
     std::string* buf, rocksdb::Slice* value) {
-  // 从已封存文件定点读：先读 header 求长度，再读整条。
-  char scratch[kZfHeaderSize];
+  // 从已封存文件定点读（M4.7b：单次读优化——一次 Read 拉取
+  // kZfHeaderSize + 内联缓冲，覆盖 1KB 级记录的整条；超长记录补读）。
+  constexpr size_t kInlineRead = kZfHeaderSize + 4096;
+  char scratch[kInlineRead];
   rocksdb::Slice result;
-  rocksdb::Status s = rf->Read(ref.offset, kZfHeaderSize, &result, scratch);
+  rocksdb::Status s = rf->Read(ref.offset, kInlineRead, &result, scratch);
   if (!s.ok()) {
     return s;
   }
@@ -332,16 +334,22 @@ rocksdb::Status PartitionedWalManager::ReadFromSealed(
   DecodeKeyValLen(result.data(), &key_len, &val_len);
   uint32_t total = ZfRecordLength(key_len, val_len);
   std::string rec;
-  rec.resize(total);
-  std::memcpy(&rec[0], result.data(), kZfHeaderSize);
-  rocksdb::Slice rest;
-  s = rf->Read(ref.offset + kZfHeaderSize, total - kZfHeaderSize, &rest,
-               &rec[0] + kZfHeaderSize);
-  if (!s.ok()) {
-    return s;
-  }
-  if (rest.size() < total - kZfHeaderSize) {
-    return rocksdb::Status::Corruption("ZF sealed record truncated");
+  if (total <= result.size()) {
+    // 整条在一次 Read 内（1KB 级记录常态）——免第二次 syscall。
+    rec.assign(result.data(), total);
+  } else {
+    // 超长记录：补齐 body。
+    rec.resize(total);
+    std::memcpy(&rec[0], result.data(), result.size());
+    rocksdb::Slice rest;
+    s = rf->Read(ref.offset + result.size(), total - result.size(), &rest,
+                 &rec[0] + result.size());
+    if (!s.ok()) {
+      return s;
+    }
+    if (rest.size() < total - result.size()) {
+      return rocksdb::Status::Corruption("ZF sealed record truncated");
+    }
   }
   ZfRecordHeader h;
   rocksdb::Slice k, v;
