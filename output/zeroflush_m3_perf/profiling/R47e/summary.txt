@@ -1,0 +1,19 @@
+R47e：1KB / 100GB 总写入（num=100M、writes=6.25M/线程，总 100M ops）读写对比
+公平同参：key 16B、value 1024B、16 线程、compression none、WAL 开、
+cache 512MB（ZF 另加 value cache 64MB）、jobs 24；fill 后分开进程读。
+
+fillrandom（总 100GB 写入）：
+  原生 RocksDB : 23,821 ops/s（23.6 MB/s），70 分钟
+  ZeroFlush    : 12,416 ops/s（12.3 MB/s），134 分钟（慢 1.92×）
+  ——两引擎均经历 1KB 深层写放大 compaction 循环（原生 L1+ 单线程、
+    ZF 物化+深层双竞争）；ZF 的物化（40MB/s 级）叠加深层后更慢。
+
+readrandom（1M 次/线程，分开进程物化完成后）：
+  原生 RocksDB : 37,623 ops/s（63.2% 命中）
+  ZeroFlush    : 42,898 ops/s（63.2% 命中）（快 1.14×）
+  ——大 DB 随机读 ZF 反超：SST 只存 key+locator（索引层小、cache 命中
+    高）+ value cache；原生 100GB 的块缓存命中率低。
+
+数据完整性：两引擎命中率均 63.2% ≈ 期望 distinct（一致）。
+对比小规模（2.2GB/1KB）：写 ZF 71.8K 快于原生 43K（小规模物化跟得上）；
+读原生 312K 快于 ZF 119K（小规模 cache 命中差异）——规模效应显著。

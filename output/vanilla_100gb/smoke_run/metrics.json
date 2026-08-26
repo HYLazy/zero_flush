@@ -1,0 +1,1327 @@
+{
+  "meta": {
+    "cmd": {
+      "bin": "/home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench",
+      "cmd": [
+        "/home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench",
+        "--benchmarks=fillrandom",
+        "--db=/tmp/vanilla_db_smoke_run",
+        "--num=4000000",
+        "--key_size=16",
+        "--value_size=1024",
+        "--threads=4",
+        "--writes=1000000",
+        "--compression_type=none",
+        "--disable_wal=false",
+        "--histogram=true",
+        "--statistics=true",
+        "--cache_size=536870912",
+        "--write_buffer_size=268435456",
+        "--max_background_jobs=24",
+        "--subcompactions=16",
+        "--stats_interval_seconds=2",
+        "--stats_per_interval=1"
+      ],
+      "num": 4000000,
+      "value_size": 1024,
+      "threads": 4,
+      "db_dir": "/tmp/vanilla_db_smoke_run",
+      "disk_dev": "nvme0n1p3",
+      "stats_interval_seconds": 2,
+      "timeout_min": 10,
+      "started": "2026-08-25 19:21:57",
+      "hardware": {
+        "cpu_cores": 36,
+        "nproc": 36,
+        "mem_total_kb": 65510020,
+        "kernel": "6.8.0-124-generic"
+      },
+      "note": "vanilla RocksDB 11.2.0, 参数对齐 ZeroFlush R42 去掉 zf flag"
+    },
+    "result": {
+      "cmd": {
+        "bin": "/home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench",
+        "cmd": [
+          "/home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench",
+          "--benchmarks=fillrandom",
+          "--db=/tmp/vanilla_db_smoke_run",
+          "--num=4000000",
+          "--key_size=16",
+          "--value_size=1024",
+          "--threads=4",
+          "--writes=1000000",
+          "--compression_type=none",
+          "--disable_wal=false",
+          "--histogram=true",
+          "--statistics=true",
+          "--cache_size=536870912",
+          "--write_buffer_size=268435456",
+          "--max_background_jobs=24",
+          "--subcompactions=16",
+          "--stats_interval_seconds=2",
+          "--stats_per_interval=1"
+        ],
+        "num": 4000000,
+        "value_size": 1024,
+        "threads": 4,
+        "db_dir": "/tmp/vanilla_db_smoke_run",
+        "disk_dev": "nvme0n1p3",
+        "stats_interval_seconds": 2,
+        "timeout_min": 10,
+        "started": "2026-08-25 19:21:57",
+        "hardware": {
+          "cpu_cores": 36,
+          "nproc": 36,
+          "mem_total_kb": 65510020,
+          "kernel": "6.8.0-124-generic"
+        },
+        "note": "vanilla RocksDB 11.2.0, 参数对齐 ZeroFlush R42 去掉 zf flag"
+      },
+      "started": "2026-08-25 19:21:57",
+      "disk_dev": "nvme0n1p3",
+      "timeout": false,
+      "wall_sec": 79.5,
+      "rc": 0,
+      "samples_rows": 66,
+      "log_files": [
+        "LOG"
+      ],
+      "db_size_bytes": 3447985785,
+      "db_size_gb": 3.21
+    },
+    "t0": {
+      "t0_local": "2026-08-25 19:21:57"
+    },
+    "rocksdb_version": "11.2.0 (vanilla)",
+    "data_sources": {
+      "blocks": 12,
+      "log_events": 106,
+      "log_files": [
+        "/home/embed/hyl/metadata_offload/output/vanilla_100gb/smoke_run/LOG"
+      ],
+      "samples": 65
+    }
+  },
+  "throughput": {
+    "bench": {
+      "us_per_op": 78.481,
+      "ops_per_sec": 50943.0,
+      "seconds": 78.518,
+      "operations": 4000000,
+      "mb_per_s": 50.5
+    },
+    "percentiles": {
+      "p50": 11.88,
+      "p75": 14.39,
+      "p99": 32.53,
+      "p999": 87.39,
+      "p9999": 3938.46
+    }
+  },
+  "wa": {
+    "user_bytes": 4160000000,
+    "user_gb": 3.87,
+    "wal_bytes": 4200884580.0,
+    "flush_bytes": 4069108165.0,
+    "compact_bytes": 7231576487.0,
+    "compact_read_bytes": 8014838845.0,
+    "wa_wal": 1.01,
+    "wa_flush": 0.978,
+    "wa_compact": 1.738,
+    "wa_total_ticker": 3.726,
+    "disk_write_bytes": 16534470656,
+    "wa_device": 3.975,
+    "per_level": {
+      "L0": {
+        "write_gb": 3.8,
+        "read_gb": 0.0,
+        "cnt": 16,
+        "wamp": 1.0,
+        "wr_mb_s": 31.6
+      },
+      "L1": {
+        "write_gb": 3.9,
+        "read_gb": 4.3,
+        "cnt": 5,
+        "wamp": 1.2,
+        "wr_mb_s": 101.3
+      },
+      "L2": {
+        "write_gb": 1.9,
+        "read_gb": 2.1,
+        "cnt": 15,
+        "wamp": 2.0,
+        "wr_mb_s": 14.8
+      }
+    },
+    "per_pair_cnt": {
+      "0->1": 1,
+      "0,1->1": 4,
+      "1,2->2": 31
+    },
+    "per_pair_bytes": {
+      "0->1": 493140987,
+      "0,1->1": 3729407122,
+      "1,2->2": 2167876661
+    },
+    "trivial_move_likely": 1,
+    "per_level_note": "L0 行 Write/Comp(cnt) 含 flush 输出（RocksDB 语义），compaction-only 口径以 per_pair_* 为准",
+    "compact_jobs": 36,
+    "flush_jobs": 16,
+    "flush_tables": 16
+  },
+  "stalls": {
+    "stall_micros": 59193835.0,
+    "stall_sec": 59.194,
+    "stall_cum_sec": 59.194,
+    "stall_cum_pct": 75.5,
+    "stall_reasons": {
+      "cf-l0-file-count-limit-delays-with-ongoing-compaction": 0,
+      "cf-l0-file-count-limit-stops-with-ongoing-compaction": 0,
+      "l0-file-count-limit-delays": 0,
+      "l0-file-count-limit-stops": 0,
+      "memtable-limit-delays": 0,
+      "memtable-limit-stops": 20,
+      "pending-compaction-bytes-delays": 0,
+      "pending-compaction-bytes-stops": 0,
+      "total-delays": 0,
+      "total-stops": 20,
+      "write-buffer-manager-limit-stops": 0
+    },
+    "series": [
+      {
+        "t_s": 2.0,
+        "stall_int_sec": 0.0,
+        "stall_int_pct": 0.0,
+        "total_delays": 0,
+        "total_stops": 0,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "pending_bytes": 0,
+        "running_compactions": 0,
+        "running_flushes": 1
+      },
+      {
+        "t_s": 9.1,
+        "stall_int_sec": 5.632,
+        "stall_int_pct": 111.2,
+        "total_delays": 0,
+        "total_stops": 3,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": 0.47,
+        "pending_bytes": 0,
+        "running_compactions": 1,
+        "running_flushes": 1
+      },
+      {
+        "t_s": 13.4,
+        "stall_int_sec": 3.688,
+        "stall_int_pct": 85.6,
+        "total_delays": 0,
+        "total_stops": 4,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "pending_bytes": 1380123238,
+        "running_compactions": 1,
+        "running_flushes": 1
+      },
+      {
+        "t_s": 15.4,
+        "stall_int_sec": 0.0,
+        "stall_int_pct": 0.0,
+        "total_delays": 0,
+        "total_stops": 4,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "pending_bytes": 172183500,
+        "running_compactions": 1,
+        "running_flushes": 1
+      },
+      {
+        "t_s": 25.6,
+        "stall_int_sec": 8.441,
+        "stall_int_pct": 82.3,
+        "total_delays": 0,
+        "total_stops": 7,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "pending_bytes": 2641723045,
+        "running_compactions": 5,
+        "running_flushes": 1
+      },
+      {
+        "t_s": 39.8,
+        "stall_int_sec": 12.413,
+        "stall_int_pct": 87.8,
+        "total_delays": 0,
+        "total_stops": 11,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "pending_bytes": 3104455276,
+        "running_compactions": 3,
+        "running_flushes": 1
+      },
+      {
+        "t_s": 41.8,
+        "stall_int_sec": 0.0,
+        "stall_int_pct": 0.0,
+        "total_delays": 0,
+        "total_stops": 11,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "pending_bytes": 3104455276,
+        "running_compactions": 1,
+        "running_flushes": 2
+      },
+      {
+        "t_s": 49.1,
+        "stall_int_sec": 6.934,
+        "stall_int_pct": 95.2,
+        "total_delays": 0,
+        "total_stops": 13,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "pending_bytes": 3476707297,
+        "running_compactions": 9,
+        "running_flushes": 2
+      },
+      {
+        "t_s": 51.5,
+        "stall_int_sec": 0.566,
+        "stall_int_pct": 23.6,
+        "total_delays": 0,
+        "total_stops": 14,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "pending_bytes": 4019499640,
+        "running_compactions": 9,
+        "running_flushes": 2
+      },
+      {
+        "t_s": 60.1,
+        "stall_int_sec": 6.851,
+        "stall_int_pct": 79.5,
+        "total_delays": 0,
+        "total_stops": 18,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "pending_bytes": 4156590597,
+        "running_compactions": 4,
+        "running_flushes": 2
+      },
+      {
+        "t_s": 62.2,
+        "stall_int_sec": 0.0,
+        "stall_int_pct": 0.0,
+        "total_delays": 0,
+        "total_stops": 18,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "pending_bytes": 4298808589,
+        "running_compactions": 1,
+        "running_flushes": 1
+      },
+      {
+        "t_s": 78.4,
+        "stall_int_sec": 14.354,
+        "stall_int_pct": 88.6,
+        "total_delays": 0,
+        "total_stops": 20,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "pending_bytes": 4864938498,
+        "running_compactions": 16,
+        "running_flushes": 1
+      }
+    ]
+  },
+  "compaction": {
+    "per_level_cnt": {
+      "L0": 16,
+      "L1": 5,
+      "L2": 15
+    },
+    "per_pair_cnt": {
+      "0->1": 1,
+      "0,1->1": 4,
+      "1,2->2": 31
+    },
+    "per_pair_bytes": {
+      "0->1": 493140987,
+      "0,1->1": 3729407122,
+      "1,2->2": 2167876661
+    },
+    "flush_jobs": 16,
+    "flush_tables": 16,
+    "compact_jobs": 36,
+    "sum_write_gb": 9.7,
+    "sum_read_gb": 6.5,
+    "sum_cnt": 36,
+    "bins_60s": [
+      {
+        "t_s": 0,
+        "flush_jobs": 13,
+        "flush_tables": 14,
+        "compact": {
+          "0->1": 1,
+          "0,1->1": 3,
+          "1,2->2": 15
+        },
+        "compact_bytes": {
+          "0->1": 493140987,
+          "0,1->1": 2328525387,
+          "1,2->2": 1290080149
+        }
+      },
+      {
+        "t_s": 60,
+        "flush_jobs": 3,
+        "flush_tables": 2,
+        "compact": {
+          "0,1->1": 1,
+          "1,2->2": 16
+        },
+        "compact_bytes": {
+          "1,2->2": 877796512,
+          "0,1->1": 1400881735
+        }
+      }
+    ],
+    "series_running": [
+      {
+        "t_s": 2.0,
+        "compactions": 0,
+        "flushes": 1
+      },
+      {
+        "t_s": 9.1,
+        "compactions": 1,
+        "flushes": 1
+      },
+      {
+        "t_s": 13.4,
+        "compactions": 1,
+        "flushes": 1
+      },
+      {
+        "t_s": 15.4,
+        "compactions": 1,
+        "flushes": 1
+      },
+      {
+        "t_s": 25.6,
+        "compactions": 5,
+        "flushes": 1
+      },
+      {
+        "t_s": 39.8,
+        "compactions": 3,
+        "flushes": 1
+      },
+      {
+        "t_s": 41.8,
+        "compactions": 1,
+        "flushes": 2
+      },
+      {
+        "t_s": 49.1,
+        "compactions": 9,
+        "flushes": 2
+      },
+      {
+        "t_s": 51.5,
+        "compactions": 9,
+        "flushes": 2
+      },
+      {
+        "t_s": 60.1,
+        "compactions": 4,
+        "flushes": 2
+      },
+      {
+        "t_s": 62.2,
+        "compactions": 1,
+        "flushes": 1
+      },
+      {
+        "t_s": 78.4,
+        "compactions": 16,
+        "flushes": 1
+      }
+    ]
+  },
+  "bandwidth": {
+    "peak_write_mb_s": null,
+    "peak_bw_note": null,
+    "device_series": [
+      {
+        "t_s": 1.0,
+        "disk_w_mb": 88919260.1,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 98.2,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 11.9,
+        "cpu_pct": 100,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 2.0,
+        "disk_w_mb": 88919612.7,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 352.6,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 41.8,
+        "cpu_pct": 100,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 3.0,
+        "disk_w_mb": 88919909.0,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 296.3,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 90.1,
+        "cpu_pct": 100,
+        "nthreads": 37,
+        "util_pct": null
+      },
+      {
+        "t_s": 4.0,
+        "disk_w_mb": 88920244.5,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 335.5,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 100,
+        "nthreads": 36,
+        "util_pct": null
+      },
+      {
+        "t_s": 5.0,
+        "disk_w_mb": 88920597.8,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 353.3,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 11.0,
+        "nthreads": 34,
+        "util_pct": null
+      },
+      {
+        "t_s": 6.0,
+        "disk_w_mb": 88921180.6,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 582.8,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 6.0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 7.1,
+        "disk_w_mb": 88921289.6,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 99.09,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 95.4,
+        "cpu_pct": 2.7,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 8.1,
+        "disk_w_mb": 88921302.2,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 12.6,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 1.0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 10.0,
+        "disk_w_mb": 88921324.9,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 11.95,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 100,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 11.0,
+        "disk_w_mb": 88921333.8,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 8.9,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 13.5,
+        "disk_w_mb": 88921684.8,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 140.4,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 96.6,
+        "cpu_pct": 100,
+        "nthreads": 40,
+        "util_pct": null
+      },
+      {
+        "t_s": 14.5,
+        "disk_w_mb": 88922316.1,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 631.3,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 100,
+        "nthreads": 40,
+        "util_pct": null
+      },
+      {
+        "t_s": 15.5,
+        "disk_w_mb": 88922574.4,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 258.3,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 83.7,
+        "cpu_pct": 100,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 16.7,
+        "disk_w_mb": 88922875.8,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 251.17,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 86.1,
+        "cpu_pct": 100,
+        "nthreads": 41,
+        "util_pct": null
+      },
+      {
+        "t_s": 17.7,
+        "disk_w_mb": 88922887.0,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 11.2,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 100,
+        "nthreads": 41,
+        "util_pct": null
+      },
+      {
+        "t_s": 18.7,
+        "disk_w_mb": 88922897.9,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 10.9,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0,
+        "nthreads": 41,
+        "util_pct": null
+      },
+      {
+        "t_s": 19.7,
+        "disk_w_mb": 88922908.5,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 10.6,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0,
+        "nthreads": 41,
+        "util_pct": null
+      },
+      {
+        "t_s": 20.7,
+        "disk_w_mb": 88922920.6,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 12.1,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100.0,
+        "cpu_pct": 0,
+        "nthreads": 41,
+        "util_pct": null
+      },
+      {
+        "t_s": 21.7,
+        "disk_w_mb": 88922930.8,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 10.2,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0,
+        "nthreads": 41,
+        "util_pct": null
+      },
+      {
+        "t_s": 22.7,
+        "disk_w_mb": 88923531.6,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 600.8,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 32.0,
+        "nthreads": 40,
+        "util_pct": null
+      },
+      {
+        "t_s": 23.7,
+        "disk_w_mb": 88923885.9,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 354.3,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100.0,
+        "cpu_pct": 19.0,
+        "nthreads": 40,
+        "util_pct": null
+      },
+      {
+        "t_s": 24.9,
+        "disk_w_mb": 88924311.1,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 354.33,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 22.5,
+        "nthreads": 35,
+        "util_pct": null
+      },
+      {
+        "t_s": 25.9,
+        "disk_w_mb": 88924603.7,
+        "disk_r_mb": 17817819.2,
+        "disk_w_mb_s": 292.6,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 83.2,
+        "cpu_pct": 100,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 26.9,
+        "disk_w_mb": 88924614.7,
+        "disk_r_mb": 17817819.3,
+        "disk_w_mb_s": 11.0,
+        "disk_r_mb_s": 0.1,
+        "io_util_pct": 100,
+        "cpu_pct": 100,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 27.9,
+        "disk_w_mb": 88924625.8,
+        "disk_r_mb": 17817819.3,
+        "disk_w_mb_s": 11.1,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 100,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 28.9,
+        "disk_w_mb": 88924635.2,
+        "disk_r_mb": 17817819.3,
+        "disk_w_mb_s": 9.4,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100.0,
+        "cpu_pct": 0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 29.9,
+        "disk_w_mb": 88924644.9,
+        "disk_r_mb": 17817819.3,
+        "disk_w_mb_s": 9.7,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 30.9,
+        "disk_w_mb": 88925209.1,
+        "disk_r_mb": 17817819.3,
+        "disk_w_mb_s": 564.2,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 27.0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 31.9,
+        "disk_w_mb": 88925593.8,
+        "disk_r_mb": 17817819.3,
+        "disk_w_mb_s": 384.7,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 69.0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 33.1,
+        "disk_w_mb": 88926291.4,
+        "disk_r_mb": 17817819.3,
+        "disk_w_mb_s": 581.33,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 97.9,
+        "cpu_pct": 33.3,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 34.2,
+        "disk_w_mb": 88926666.9,
+        "disk_r_mb": 17817819.3,
+        "disk_w_mb_s": 341.36,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 98.5,
+        "cpu_pct": 11.8,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 39.4,
+        "disk_w_mb": 88926737.1,
+        "disk_r_mb": 17817819.3,
+        "disk_w_mb_s": 13.5,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 99.5,
+        "cpu_pct": 0.6,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 40.4,
+        "disk_w_mb": 88927144.8,
+        "disk_r_mb": 17817839.5,
+        "disk_w_mb_s": 407.7,
+        "disk_r_mb_s": 20.2,
+        "io_util_pct": 99.8,
+        "cpu_pct": 100,
+        "nthreads": 44,
+        "util_pct": null
+      },
+      {
+        "t_s": 41.4,
+        "disk_w_mb": 88927523.8,
+        "disk_r_mb": 17817889.1,
+        "disk_w_mb_s": 379.0,
+        "disk_r_mb_s": 49.6,
+        "io_util_pct": 100,
+        "cpu_pct": 100,
+        "nthreads": 44,
+        "util_pct": null
+      },
+      {
+        "t_s": 42.5,
+        "disk_w_mb": 88928139.7,
+        "disk_r_mb": 17817956.5,
+        "disk_w_mb_s": 559.91,
+        "disk_r_mb_s": 61.27,
+        "io_util_pct": 99.7,
+        "cpu_pct": 100,
+        "nthreads": 41,
+        "util_pct": null
+      },
+      {
+        "t_s": 43.5,
+        "disk_w_mb": 88928466.6,
+        "disk_r_mb": 17818001.7,
+        "disk_w_mb_s": 326.9,
+        "disk_r_mb_s": 45.2,
+        "io_util_pct": 100,
+        "cpu_pct": 24.0,
+        "nthreads": 31,
+        "util_pct": null
+      },
+      {
+        "t_s": 44.5,
+        "disk_w_mb": 88928470.0,
+        "disk_r_mb": 17818002.3,
+        "disk_w_mb_s": 3.4,
+        "disk_r_mb_s": 0.6,
+        "io_util_pct": 100,
+        "cpu_pct": 0,
+        "nthreads": 31,
+        "util_pct": null
+      },
+      {
+        "t_s": 45.5,
+        "disk_w_mb": 88928481.0,
+        "disk_r_mb": 17818002.3,
+        "disk_w_mb_s": 11.0,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0,
+        "nthreads": 31,
+        "util_pct": null
+      },
+      {
+        "t_s": 46.5,
+        "disk_w_mb": 88928491.7,
+        "disk_r_mb": 17818002.3,
+        "disk_w_mb_s": 10.7,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0,
+        "nthreads": 31,
+        "util_pct": null
+      },
+      {
+        "t_s": 47.5,
+        "disk_w_mb": 88928500.3,
+        "disk_r_mb": 17818008.7,
+        "disk_w_mb_s": 8.6,
+        "disk_r_mb_s": 6.4,
+        "io_util_pct": 100,
+        "cpu_pct": 3.0,
+        "nthreads": 31,
+        "util_pct": null
+      },
+      {
+        "t_s": 48.5,
+        "disk_w_mb": 88928506.3,
+        "disk_r_mb": 17818011.0,
+        "disk_w_mb_s": 6.0,
+        "disk_r_mb_s": 2.3,
+        "io_util_pct": 100,
+        "cpu_pct": 0.0,
+        "nthreads": 31,
+        "util_pct": null
+      },
+      {
+        "t_s": 49.5,
+        "disk_w_mb": 88929093.0,
+        "disk_r_mb": 17818072.8,
+        "disk_w_mb_s": 586.7,
+        "disk_r_mb_s": 61.8,
+        "io_util_pct": 99.8,
+        "cpu_pct": 100,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 50.5,
+        "disk_w_mb": 88929500.5,
+        "disk_r_mb": 17818114.1,
+        "disk_w_mb_s": 407.5,
+        "disk_r_mb_s": 41.3,
+        "io_util_pct": 100,
+        "cpu_pct": 100,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 51.6,
+        "disk_w_mb": 88929877.5,
+        "disk_r_mb": 17818171.0,
+        "disk_w_mb_s": 342.73,
+        "disk_r_mb_s": 51.73,
+        "io_util_pct": 99.8,
+        "cpu_pct": 100,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 52.7,
+        "disk_w_mb": 88930298.9,
+        "disk_r_mb": 17818218.5,
+        "disk_w_mb_s": 383.09,
+        "disk_r_mb_s": 43.18,
+        "io_util_pct": 100,
+        "cpu_pct": 100,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 53.7,
+        "disk_w_mb": 88930339.5,
+        "disk_r_mb": 17818226.6,
+        "disk_w_mb_s": 40.6,
+        "disk_r_mb_s": 8.1,
+        "io_util_pct": 100,
+        "cpu_pct": 78.0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 54.7,
+        "disk_w_mb": 88930378.6,
+        "disk_r_mb": 17818234.9,
+        "disk_w_mb_s": 39.1,
+        "disk_r_mb_s": 8.3,
+        "io_util_pct": 100,
+        "cpu_pct": 0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 56.5,
+        "disk_w_mb": 88930450.8,
+        "disk_r_mb": 17818245.0,
+        "disk_w_mb_s": 40.11,
+        "disk_r_mb_s": 5.61,
+        "io_util_pct": 97.1,
+        "cpu_pct": 3.3,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 57.5,
+        "disk_w_mb": 88930491.1,
+        "disk_r_mb": 17818253.0,
+        "disk_w_mb_s": 40.3,
+        "disk_r_mb_s": 8.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0.0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 59.0,
+        "disk_w_mb": 88930681.1,
+        "disk_r_mb": 17818277.5,
+        "disk_w_mb_s": 126.67,
+        "disk_r_mb_s": 16.33,
+        "io_util_pct": 100,
+        "cpu_pct": 6.7,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 60.0,
+        "disk_w_mb": 88931020.0,
+        "disk_r_mb": 17818338.6,
+        "disk_w_mb_s": 338.9,
+        "disk_r_mb_s": 61.1,
+        "io_util_pct": 100.0,
+        "cpu_pct": 41.0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 61.0,
+        "disk_w_mb": 88931278.8,
+        "disk_r_mb": 17818393.5,
+        "disk_w_mb_s": 258.8,
+        "disk_r_mb_s": 54.9,
+        "io_util_pct": 81.1,
+        "cpu_pct": 100,
+        "nthreads": 45,
+        "util_pct": null
+      },
+      {
+        "t_s": 62.0,
+        "disk_w_mb": 88931868.0,
+        "disk_r_mb": 17818431.4,
+        "disk_w_mb_s": 589.2,
+        "disk_r_mb_s": 37.9,
+        "io_util_pct": 99.9,
+        "cpu_pct": 100,
+        "nthreads": 44,
+        "util_pct": null
+      },
+      {
+        "t_s": 63.2,
+        "disk_w_mb": 88932373.9,
+        "disk_r_mb": 17818437.0,
+        "disk_w_mb_s": 421.58,
+        "disk_r_mb_s": 4.67,
+        "io_util_pct": 100,
+        "cpu_pct": 100,
+        "nthreads": 44,
+        "util_pct": null
+      },
+      {
+        "t_s": 64.4,
+        "disk_w_mb": 88932639.9,
+        "disk_r_mb": 17818437.1,
+        "disk_w_mb_s": 221.67,
+        "disk_r_mb_s": 0.08,
+        "io_util_pct": 93.4,
+        "cpu_pct": 100,
+        "nthreads": 43,
+        "util_pct": null
+      },
+      {
+        "t_s": 69.7,
+        "disk_w_mb": 88932867.7,
+        "disk_r_mb": 17818437.1,
+        "disk_w_mb_s": 42.98,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 1.5,
+        "nthreads": 43,
+        "util_pct": null
+      },
+      {
+        "t_s": 70.8,
+        "disk_w_mb": 88933555.9,
+        "disk_r_mb": 17818437.1,
+        "disk_w_mb_s": 625.64,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 51.8,
+        "nthreads": 40,
+        "util_pct": null
+      },
+      {
+        "t_s": 72.3,
+        "disk_w_mb": 88934137.1,
+        "disk_r_mb": 17818437.1,
+        "disk_w_mb_s": 387.47,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 11.3,
+        "nthreads": 34,
+        "util_pct": null
+      },
+      {
+        "t_s": 73.3,
+        "disk_w_mb": 88934147.2,
+        "disk_r_mb": 17818437.1,
+        "disk_w_mb_s": 10.1,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0.0,
+        "nthreads": 34,
+        "util_pct": null
+      },
+      {
+        "t_s": 74.3,
+        "disk_w_mb": 88934157.7,
+        "disk_r_mb": 17818437.1,
+        "disk_w_mb_s": 10.5,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0.0,
+        "nthreads": 34,
+        "util_pct": null
+      },
+      {
+        "t_s": 75.3,
+        "disk_w_mb": 88934168.2,
+        "disk_r_mb": 17818437.1,
+        "disk_w_mb_s": 10.5,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0.0,
+        "nthreads": 34,
+        "util_pct": null
+      },
+      {
+        "t_s": 76.3,
+        "disk_w_mb": 88934178.4,
+        "disk_r_mb": 17818437.1,
+        "disk_w_mb_s": 10.2,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 1.0,
+        "nthreads": 31,
+        "util_pct": null
+      },
+      {
+        "t_s": 77.3,
+        "disk_w_mb": 88934189.5,
+        "disk_r_mb": 17818437.1,
+        "disk_w_mb_s": 11.1,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100,
+        "cpu_pct": 0,
+        "nthreads": 31,
+        "util_pct": null
+      },
+      {
+        "t_s": 78.3,
+        "disk_w_mb": 88934748.3,
+        "disk_r_mb": 17818437.1,
+        "disk_w_mb_s": 558.8,
+        "disk_r_mb_s": 0.0,
+        "io_util_pct": 100.0,
+        "cpu_pct": 21.0,
+        "nthreads": 30,
+        "util_pct": null
+      },
+      {
+        "t_s": 79.3,
+        "disk_w_mb": 88935028.6,
+        "disk_r_mb": 17818441.0,
+        "disk_w_mb_s": 280.3,
+        "disk_r_mb_s": 3.9,
+        "io_util_pct": 82.4,
+        "cpu_pct": 100,
+        "nthreads": 25,
+        "util_pct": null
+      }
+    ],
+    "component_series": [
+      {
+        "t_s": 2.0,
+        "flush_int_mb_s": 121.3,
+        "compaction_int_mb_s": 120.64,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "per_level_mb_s": {
+          "L0": 102.4
+        }
+      },
+      {
+        "t_s": 9.1,
+        "flush_int_mb_s": 47.6,
+        "compaction_int_mb_s": 140.76,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": 0.47,
+        "per_level_mb_s": {
+          "L0": 100.4,
+          "L1": 100.4
+        }
+      },
+      {
+        "t_s": 13.4,
+        "flush_int_mb_s": 51.7,
+        "compaction_int_mb_s": 102.05,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "per_level_mb_s": {
+          "L0": 21.8,
+          "L1": 0.0,
+          "L2": 0.0
+        }
+      },
+      {
+        "t_s": 15.4,
+        "flush_int_mb_s": 63.9,
+        "compaction_int_mb_s": 163.77,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "per_level_mb_s": {
+          "L0": 26.9,
+          "L1": 53.9,
+          "L2": 0.0
+        }
+      },
+      {
+        "t_s": 25.6,
+        "flush_int_mb_s": 67.4,
+        "compaction_int_mb_s": 157.14,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "per_level_mb_s": {
+          "L0": 33.2,
+          "L1": 33.2,
+          "L2": 4.7
+        }
+      },
+      {
+        "t_s": 39.8,
+        "flush_int_mb_s": 54.2,
+        "compaction_int_mb_s": 128.61,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "per_level_mb_s": {
+          "L0": 14.3,
+          "L1": 0.0,
+          "L2": 20.0
+        }
+      },
+      {
+        "t_s": 41.8,
+        "flush_int_mb_s": 51.3,
+        "compaction_int_mb_s": 121.79,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "per_level_mb_s": {
+          "L0": 0.0,
+          "L1": 0.0,
+          "L2": 0.0
+        }
+      },
+      {
+        "t_s": 49.1,
+        "flush_int_mb_s": 48.4,
+        "compaction_int_mb_s": 126.69,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "per_level_mb_s": {
+          "L0": 4.5,
+          "L1": 18.2,
+          "L2": 0.0
+        }
+      },
+      {
+        "t_s": 51.5,
+        "flush_int_mb_s": 51.1,
+        "compaction_int_mb_s": 125.42,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "per_level_mb_s": {
+          "L0": 4.3,
+          "L1": 0.0,
+          "L2": 0.0
+        }
+      },
+      {
+        "t_s": 60.1,
+        "flush_int_mb_s": 47.5,
+        "compaction_int_mb_s": 119.55,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "per_level_mb_s": {
+          "L0": 5.5,
+          "L1": 0.0,
+          "L2": 9.1
+        }
+      },
+      {
+        "t_s": 62.2,
+        "flush_int_mb_s": 50.0,
+        "compaction_int_mb_s": 130.44,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "per_level_mb_s": {
+          "L0": 3.5,
+          "L1": 0.0,
+          "L2": 10.6
+        }
+      },
+      {
+        "t_s": 78.4,
+        "flush_int_mb_s": 45.6,
+        "compaction_int_mb_s": 126.53,
+        "ingest_int_mb_s": null,
+        "wal_int_mb_s": null,
+        "per_level_mb_s": {
+          "L0": 6.9,
+          "L1": 17.9,
+          "L2": 0.0
+        }
+      }
+    ],
+    "avg_disk_w_mb_s": 223.3,
+    "max_disk_w_mb_s": 631.3,
+    "avg_util_pct": null,
+    "avg_io_busy_pct": 96.0
+  },
+  "cross_checks": {
+    "flush_bytes_vs_l0_write_gb": -0.01,
+    "compact_bytes_vs_sum_minus_flush_gb": 0.82,
+    "stall_us_vs_cum_sec": -0.0,
+    "pair_bytes_vs_ticker_gb": -0.78
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "bin": "/home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench",
+  "cmd": [
+    "/home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench",
+    "--benchmarks=fillrandom",
+    "--db=/tmp/vanilla_db_smoke_run",
+    "--num=4000000",
+    "--key_size=16",
+    "--value_size=1024",
+    "--threads=4",
+    "--writes=1000000",
+    "--compression_type=none",
+    "--disable_wal=false",
+    "--histogram=true",
+    "--statistics=true",
+    "--cache_size=536870912",
+    "--write_buffer_size=268435456",
+    "--max_background_jobs=24",
+    "--subcompactions=16",
+    "--stats_interval_seconds=2",
+    "--stats_per_interval=1"
+  ],
+  "num": 4000000,
+  "value_size": 1024,
+  "threads": 4,
+  "db_dir": "/tmp/vanilla_db_smoke_run",
+  "disk_dev": "nvme0n1p3",
+  "stats_interval_seconds": 2,
+  "timeout_min": 10,
+  "started": "2026-08-25 19:21:57",
+  "hardware": {
+    "cpu_cores": 36,
+    "nproc": 36,
+    "mem_total_kb": 65510020,
+    "kernel": "6.8.0-124-generic"
+  },
+  "note": "vanilla RocksDB 11.2.0, 参数对齐 ZeroFlush R42 去掉 zf flag"
+}
