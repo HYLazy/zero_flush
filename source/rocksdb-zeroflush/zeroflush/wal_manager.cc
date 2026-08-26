@@ -91,22 +91,11 @@ bool WalScanner::Next(ZfRecordHeader* h, rocksdb::Slice* key,
     status_ = rocksdb::Status::IOError("ZeroFlush: scanner file not open");
     return false;
   }
-  // 缓冲剩余不足 header 时读入 header（覆盖式）
+  // 确保缓冲剩余 ≥ header（不足则整段块读——M4.7，减少 syscall）。
   if (buf_pos_ + kZfHeaderSize > buf_.size()) {
-    buf_.resize(kZfHeaderSize);
-    rocksdb::Slice result;
-    rocksdb::Status s = file_->Read(kZfHeaderSize, &result, &buf_[0]);
-    if (!s.ok()) {
-      if (info_log_ != nullptr) {
-        ROCKSDB_NAMESPACE::Error(info_log_, 
-                        "ZeroFlush: scanner read header failed: %s",
-                        s.ToString().c_str());
-      }
-      status_ = s;
+    if (!Refill()) {
       return false;
     }
-    buf_.resize(result.size());
-    buf_pos_ = 0;
     if (buf_.size() < kZfHeaderSize) {
       // size == 0：干净 EOF（正好落在记录边界）；0 < size < header：
       // 头部被截断——对已封存文件意味着数据丢失，标记 Corruption。
@@ -120,33 +109,19 @@ bool WalScanner::Next(ZfRecordHeader* h, rocksdb::Slice* key,
   const char* p = buf_.data() + buf_pos_;
   uint32_t key_len = 0, val_len = 0;
   DecodeKeyValLen(p, &key_len, &val_len);
-  uint32_t total = ZfRecordLength(key_len, val_len);
+  const uint32_t total = ZfRecordLength(key_len, val_len);
 
-  // 缓冲剩余不足整条记录时读入整条
+  // 确保整条记录在缓冲内（不足则块读；EOF 仍不足 = 尾部截断）。
   if (buf_pos_ + total > buf_.size()) {
-    std::string rec;
-    rec.resize(total);
-    size_t have = buf_.size() - buf_pos_;
-    std::memcpy(&rec[0], buf_.data() + buf_pos_, have);
-    rocksdb::Slice result;
-    rocksdb::Status s = file_->Read(total - have, &result, &rec[0] + have);
-    if (!s.ok()) {
-      if (info_log_ != nullptr) {
-        ROCKSDB_NAMESPACE::Error(info_log_, 
-                        "ZeroFlush: scanner read record failed: %s",
-                        s.ToString().c_str());
-      }
-      status_ = s;
+    if (!Refill()) {
       return false;
     }
-    if (result.size() < total - have) {
+    if (buf_pos_ + total > buf_.size()) {
       // 尾部记录不完整：对已封存文件意味着数据丢失（封存时已完整刷盘）。
       status_ = rocksdb::Status::Corruption(
           "ZeroFlush: truncated record in sealed WAL");
       return false;
     }
-    buf_ = std::move(rec);
-    buf_pos_ = 0;
   }
 
   ZfRecordHeader hdr;
@@ -167,6 +142,32 @@ bool WalScanner::Next(ZfRecordHeader* h, rocksdb::Slice* key,
   if (h) *h = hdr;
   if (key) *key = k;
   if (value) *value = v;
+  return true;
+}
+
+// M4.7：整段块读——压缩未消费缓冲到头部，再读入 kScanChunkSize。
+// 返回 false 仅表示 IO 错误（EOF 通过"读入 0 字节"表达，不置错误）。
+bool WalScanner::Refill() {
+  if (buf_pos_ > 0) {
+    const size_t keep = buf_.size() - buf_pos_;
+    std::memmove(&buf_[0], &buf_[buf_pos_], keep);
+    buf_.resize(keep);
+    buf_pos_ = 0;
+  }
+  const size_t old = buf_.size();
+  buf_.resize(old + kScanChunkSize);
+  rocksdb::Slice result;
+  rocksdb::Status s = file_->Read(kScanChunkSize, &result, &buf_[old]);
+  if (!s.ok()) {
+    if (info_log_ != nullptr) {
+      ROCKSDB_NAMESPACE::Error(info_log_,
+                        "ZeroFlush: scanner read failed: %s",
+                        s.ToString().c_str());
+    }
+    status_ = s;
+    return false;
+  }
+  buf_.resize(old + result.size());
   return true;
 }
 

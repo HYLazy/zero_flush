@@ -74,6 +74,10 @@ class WalScanner {
   size_t buf_pos_ = 0;
   uint64_t offset_ = 0;
   rocksdb::Logger* info_log_;
+  // M4.7：块读——缓冲不足时整段读入（1MB），避免逐条 2 次 Read 的
+  // syscall 开销（1KB 记录 24MB 需 48K 次 Read；块读后 ~24 次）。
+  bool Refill();
+  static constexpr size_t kScanChunkSize = 1 << 20;
   // M3.2：扫描终态。OK = 干净 EOF（或尾部截断）；Corruption/IOError = 中途失败。
   rocksdb::Status status_ = rocksdb::Status::OK();
 };
