@@ -524,12 +524,15 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
   // （ReleaseFrozenIndexes）——frozen 索引指向封存 WAL（SealedFileCache
   // 可读），物化后数据进 SST、Get 走原生 SST 查找。M4.4b：旧路径
   // （MemTable 外壳）已移除。
-  std::string ik;
-  ik.reserve(key.size() + 8);
-  ik.append(key.data(), key.size());
+  // P4：复用 thread_local 编码缓冲（每记录堆分配的 string 是写路径
+  // insert 段（14-18us/op）的固定浪费；Insert 同步完成，缓冲复用安全）。
+  thread_local std::string ik_buf;
+  ik_buf.clear();
+  ik_buf.append(key.data(), key.size());
   ROCKSDB_NAMESPACE::PutFixed64(
-      &ik, ROCKSDB_NAMESPACE::PackSequenceAndType(
-               seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(type)));
+      &ik_buf, ROCKSDB_NAMESPACE::PackSequenceAndType(
+                   seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(type)));
+  const rocksdb::Slice ik(ik_buf);
   index_set_->Insert(part, ref.gen, ik, loc_slice);
   // M3.1：kSampled 模式下记录采样（仅 epoch 1 学习期）。
   if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
@@ -863,6 +866,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::InsertWriterToPartitionWal(
 
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::SyncTouchedPartitions(
     const std::vector<uint32_t>& touched) {
+
   // 精准 fdatasync：仅触达分区。替代原 M1 的 SyncAll（fsync 全 P 分区）。
   // 性能特征：P=64 时单 put 的 sync 成本从 64x fsync 降到 1x。
   for (uint32_t part : touched) {
