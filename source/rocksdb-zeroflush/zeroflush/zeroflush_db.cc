@@ -55,8 +55,7 @@ const ROCKSDB_NAMESPACE::Cache::CacheItemHelper* ValueCacheHelper() {
 class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
  public:
   ZfBatchHandler(ZeroFlushContext* ctx, ROCKSDB_NAMESPACE::MemTable* mem,
-                 ROCKSDB_NAMESPACE::SequenceNumber* seq,
-                 std::unordered_set<uint32_t>* touched,
+                 ROCKSDB_NAMESPACE::SequenceNumber* seq, uint64_t* touched,
                  std::map<ROCKSDB_NAMESPACE::MemTable*,
                           ROCKSDB_NAMESPACE::MemTablePostProcessInfo>* post_map)
       : ctx_(ctx), mem_(mem), seq_(seq), touched_(touched), post_map_(post_map) {}
@@ -72,7 +71,7 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
         mem_, key, value, ROCKSDB_NAMESPACE::kTypeValue, *seq_,
         &(*post_map_)[mem_]);
     if (s.ok() && touched_ != nullptr) {
-      touched_->insert(ctx_->Route(key));
+      *touched_ |= (uint64_t{1} << ctx_->Route(key));
     }
     ++(*seq_);
     return s;
@@ -89,7 +88,7 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
         mem_, key, empty, ROCKSDB_NAMESPACE::kTypeDeletion, *seq_,
         &(*post_map_)[mem_]);
     if (s.ok() && touched_ != nullptr) {
-      touched_->insert(ctx_->Route(key));
+      *touched_ |= (uint64_t{1} << ctx_->Route(key));
     }
     ++(*seq_);
     return s;
@@ -107,7 +106,7 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
         mem_, key, empty, ROCKSDB_NAMESPACE::kTypeSingleDeletion, *seq_,
         &(*post_map_)[mem_]);
     if (s.ok() && touched_ != nullptr) {
-      touched_->insert(ctx_->Route(key));
+      *touched_ |= (uint64_t{1} << ctx_->Route(key));
     }
     ++(*seq_);
     return s;
@@ -120,7 +119,8 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
         mem_, begin, end, ROCKSDB_NAMESPACE::kTypeRangeDeletion, *seq_,
         &(*post_map_)[mem_]);
     if (s.ok() && touched_ != nullptr) {
-      touched_->insert(zeroflush::kRangeDelPartId);
+      // kRangeDelPartId=0xFFFFFFFE 装不进 64 位位图 → 用位 63 映射
+      *touched_ |= (uint64_t{1} << 63);
     }
     ++(*seq_);
     return s;
@@ -133,7 +133,7 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
         mem_, key, value, ROCKSDB_NAMESPACE::kTypeMerge, *seq_,
         &(*post_map_)[mem_]);
     if (s.ok() && touched_ != nullptr) {
-      touched_->insert(ctx_->Route(key));
+      *touched_ |= (uint64_t{1} << ctx_->Route(key));
     }
     ++(*seq_);
     return s;
@@ -147,7 +147,7 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
   ZeroFlushContext* ctx_;
   ROCKSDB_NAMESPACE::MemTable* mem_;
   ROCKSDB_NAMESPACE::SequenceNumber* seq_;
-  std::unordered_set<uint32_t>* touched_;
+  uint64_t* touched_;  // 触达分区位图（分区数 ≤ 64；热路径省 hash）
   std::map<ROCKSDB_NAMESPACE::MemTable*,
            ROCKSDB_NAMESPACE::MemTablePostProcessInfo>* post_map_;
 };
@@ -828,7 +828,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::WriteGroupToPartitionWal(
   ROCKSDB_NAMESPACE::SequenceNumber seq = first_seq;
   // M2.3-2：收集触达分区。write group leader 串行处理所有 writer，
   // handler 在 Put/Delete 时把 part_id 记入 touched（去重）。
-  std::unordered_set<uint32_t> touched_set;
+  uint64_t touched_set = 0;  // 分区位图（M4.9：省每 op hash）
   // M4.1c：并发插入的 post-process 累计（按 mem，本组恒 1 个）。
   std::map<ROCKSDB_NAMESPACE::MemTable*,
            ROCKSDB_NAMESPACE::MemTablePostProcessInfo>
@@ -853,7 +853,13 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::WriteGroupToPartitionWal(
   // 本方法只负责追加 + 索引；调用方在释放 DB mutex 后按 touched 分区
   // 调 SyncTouchedPartitions 做 fdatasync。
   if (touched != nullptr) {
-    touched->assign(touched_set.begin(), touched_set.end());
+    touched->clear();
+    for (uint32_t p = 0; p < 64 && touched_set != 0; ++p) {
+      if (touched_set & (uint64_t{1} << p)) {
+        touched->push_back(p == 63 ? zeroflush::kRangeDelPartId : p);
+        touched_set &= ~(uint64_t{1} << p);
+      }
+    }
   }
   return ROCKSDB_NAMESPACE::Status::OK();
 }
@@ -864,7 +870,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::InsertWriterToPartitionWal(
     const ROCKSDB_NAMESPACE::WriteOptions& write_options) {
   assert(w != nullptr);
   ROCKSDB_NAMESPACE::SequenceNumber seq = w->sequence;
-  std::unordered_set<uint32_t> touched_set;
+  uint64_t touched_set = 0;  // 分区位图（M4.9：省每 op hash）
   std::map<ROCKSDB_NAMESPACE::MemTable*,
            ROCKSDB_NAMESPACE::MemTablePostProcessInfo>
       post_map;
@@ -876,8 +882,14 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::InsertWriterToPartitionWal(
   for (auto& entry : post_map) {
     entry.first->BatchPostProcess(entry.second);
   }
-  if (write_options.sync && !touched_set.empty()) {
-    std::vector<uint32_t> touched(touched_set.begin(), touched_set.end());
+  if (write_options.sync && touched_set != 0) {
+    std::vector<uint32_t> touched;
+    for (uint32_t p = 0; p < 64 && touched_set != 0; ++p) {
+      if (touched_set & (uint64_t{1} << p)) {
+        touched.push_back(p == 63 ? zeroflush::kRangeDelPartId : p);
+        touched_set &= ~(uint64_t{1} << p);
+      }
+    }
     return SyncTouchedPartitions(touched);
   }
   return ROCKSDB_NAMESPACE::Status::OK();
