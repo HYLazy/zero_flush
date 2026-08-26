@@ -95,10 +95,20 @@ class SealedFileCache {
                                 const std::vector<std::pair<uint32_t, uint32_t>>& gens,
                                 const std::unordered_map<uint32_t, uint64_t>& part_bytes);
 
-  // 释放一个 epoch 的引用。引用归零时把文件名移入 pending_unlink_，
-  // 并返回该 epoch 的封存字节（用于物化统计）；未找到或未归零返回 0。
-  // reclaim_sealed_files == false 时只减引用不入队。
+  // 释放一个 epoch 的全部 gens 引用。引用归零（per-gen 计数）时把文件名
+  // 移入 pending_unlink_，并返回该 epoch 的封存字节（用于物化统计）；
+  // 未找到或未归零返回 0。reclaim_sealed_files == false 时只减引用不入队。
+  // M4.8 回收分区化：epoch 引用 = 其全部 (part, gen) 引用之和，WAL 段按
+  // (part, gen) 独立回收（本入口释放全部，等价 ReleaseGens(epoch, 全量)）。
   uint64_t ReleaseEpoch(uint64_t epoch);
+
+  // M4.8 回收分区化：按 (part, gen) 子集独立释放引用——单个 WAL 段的
+  // 引用归零即独立 unlink（无需等 epoch 其他分区物化完成）。全部 gens
+  // 释放后 epoch 完全回收（物化统计/封存字节扣减）。未登记的 gens 幂等
+  // 跳过。返回本次实际 unlink 的字节（epoch 完全回收时为其封存总字节）。
+  uint64_t ReleaseGens(
+      uint64_t epoch,
+      const std::vector<std::pair<uint32_t, uint32_t>>& gens);
 
   // 取 (part, gen) 的只读句柄。LRU 命中直接返回；未命中则打开。
   // gen 不在 epochs_ 中且不在恢复期集合中（即未登记）返回 NotFound。
@@ -115,6 +125,8 @@ class SealedFileCache {
 
   // 统计。
   uint64_t sealed_bytes() const;
+  // M4.8：kSkip 攒批等待集合的字节（L0 遮蔽等待的上限判定用）。
+  uint64_t skipped_bytes() const;
   uint64_t pending_count() const;
   size_t handle_count() const;
   // M3.0：封存代定点读次数 / LRU 未命中次数（打开文件才算 miss）。
@@ -140,8 +152,11 @@ class SealedFileCache {
 
   // epoch → SealedEpoch（持久保留以便 Get 校验）
   std::unordered_map<uint64_t, SealedEpoch> epochs_;
-  // epoch → 引用计数
-  std::unordered_map<uint64_t, uint32_t> refs_;
+  // M4.8 回收分区化：epoch → ((part, gen) → 引用计数)。每 gen 一引
+  // （多列族共享物理文件时每 CF 一引）；某 gen 归零即独立 unlink 该
+  // WAL 段；epoch 的 gen 引用全空 = epoch 完全回收（统计/字节扣减）。
+  std::unordered_map<uint64_t, std::unordered_map<ZfFileKey, uint32_t>>
+      gen_refs_;
 
   // (part, gen) → 已打开句柄
   std::unordered_map<ZfFileKey, std::shared_ptr<rocksdb::RandomAccessFile>>

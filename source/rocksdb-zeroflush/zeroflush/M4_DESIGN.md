@@ -708,3 +708,81 @@ L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现�
 **参考**：[M3_DESIGN.md](M3_DESIGN.md) · [DEVELOPMENT_PROGRESS.md](../DEVELOPMENT_PROGRESS.md) ·
 [写路径剖析报告](../../../output/zeroflush_m3_perf/profiling/profiling_report.md) ·
 `source/gParaKV-GC-pipeline-h2d/`（CSD/GDS 流水线经验，M3.5 复用）
+
+---
+
+## 6. M4.8 迁移路径：分区独立物化（2026-08-25）
+
+### 6.1 目标
+
+物化调度从「epoch 批次串行」（单 flush 线程内 epoch 逐一物化）迁移为「(part, gen)
+分区任务池并行」，配套直装优先决策、同分区 gen 序安装、分区级 WAL 回收。终态对应
+M4.3 本意：epoch 仅是封存批次记录，不承担物化/生命周期/顺序语义。
+
+### 6.2 现状 → 迁移
+
+| 维度 | 现状（M4.7） | 迁移后（M4.8） |
+|------|-------------|---------------|
+| 物化任务 | epoch 批次（≤4 分区/epoch），epoch 间串行 | (part, gen) 任务池，W 个 worker 并行消费全部 epoch 分区 |
+| 决策 | PlanLocked 每 epoch 一次（持锁） | 阶段 0 持锁逐 epoch 按序决策（epoch 序 = gen 序，天然满足同分区按序） |
+| 冲突处理 | being_compacted/边界冲突 → kFallback 回落 L0 | 冲突 → kSkip 等待（gen 上限强制落地兜底）——直装优先 |
+| 按序断言 | epoch ≤ last_materialized+1（全局） | 物化执行无断言（数据独立）；决策/安装按 epoch 序（= 同分区 gen 序） |
+| 回收 | epoch 粒度（ReleaseEpoch） | (part, gen) 粒度（ReleaseGens，epoch 引用 = gens 数） |
+
+### 6.3 正确性论证
+
+- **B 侧依赖**：物化 B 侧 = base 层（已安装版本）+ 批内前序输出。同分区前序
+  epoch 输出未安装时（任务池执行乱序），后序决策在阶段 0 已定——差异仅使
+  「批内链式融合」退化为「kSkip 攒批」（数据不丢，延迟一代，下批收养）。
+- **同层重叠**：批内输出经 batch_outputs_ 定层互斥（PickInstallLevel + 融合
+  替换链），单次 VersionEdit 原子安装，无部分可见。
+- **同分区 gen 序**：阶段 0 按 epoch 序决策（imm FIFO 保证 epoch 升序），
+  安装按决策序 → 同分区 gen 序成立；不同分区安装顺序自由（无重叠）。
+- **直装优先**：base 不可替换（being_compacted/边界冲突）→ 不物化（kSkip 等
+  待下 epoch 收养重试）；gen ≥ kMaxSkipGenerations 强制落地（回落 L0 兜底），
+  保证收敛 + 内存背压（frozen 索引受 max_pending_epochs 流控）。
+
+### 6.4 回收分区化
+
+SealedFileCache 引用计数从 epoch 粒度改为 (part, gen) 粒度：epoch 引用 =
+gens 数，ReleaseGens(epoch, gens 子集) 逐 gen 释放。单 FlushJob 模型下所有
+epoch 同时完成（释放时机不变），但 API 与语义已分区化，为 M4.9 多 FlushJob
+（物化任务脱离 imm 生命周期）铺路。
+
+### 6.5 验收
+
+- 2.2GB fill：install_fallback_l0 → 0（直装优先稳态无回落），install_direct_base 提升
+- 50GB 长跑：完整性（重开 + 计数校验）、吞吐不低于 M4.7 基线
+- 回归 38/38
+
+### 6.6 R48 遮蔽链三连修复（实现期实测）
+
+迁移路径实现后在 SkipBatchMaterialize（M4.5b-48）上暴露三个正确性 bug，
+均为「物化/回收分区化后旧代留存」与「L0 遮蔽」的交互：
+
+1. **kSkip 全代 epoch 的 gen_refs_ 残留**（wait 停滞）：HandOffSkippedToRecovery
+   把跳过 gens 从 epochs_ 移除，但 per-gen 引用（gen_refs_）未清 → epoch 永不
+   "完全回收" → epochs_materialized 计数停滞（sealed=42 materialized=41）。
+   修复：HandOff 同步清 gen_refs_，全空即结算（materialized/耗时/字节）。
+2. **融合 seq 断言过严**（Corruption "A-side seq not newer"）：任务池阶段 0
+   统一决策使"批内链式融合"退化为 kSkip 攒批，收养后的多代合并 A 侧含 base
+   前序更旧的代（全局 min ≤ max）——per-key 版本序仍正确（覆盖写 seq 递增，
+   CompactionIterator 按 per-key + snapshot 归并）。修复：has_adopted_skips
+   （seq 连续未崩溃）场景放行断言；崩溃孤儿（has_adopted_orphans）保持严格。
+3. **L0 遮蔽链**（phase2/3 读旧值 'C'）：
+   - 回落兜底（gen 上限强制 kDirect/kFallback）产生 L0 文件，随后序融合/直装
+     （更晚 epoch）超越 → L0 旧遮蔽 L6 新。修复：决策时检查 L0..base-1 与
+     分区范围重叠（l0_shadow）→ kSkip 等待（字节阈值 partition_target×32 内，
+     不产出新 L0——无 M4.5"回落→更拒"循环）；超限 kFallback 回落 L0（L0 内
+     按 file number 新→旧读最新，正确）。孤儿 force_replace 同样受检。
+   - Recover 的 InsertCreate 把 min_seq 最小的封存代误建为 active（Get 链
+     active 优先）→ 旧代遮蔽新代。修复：Recover 预创建 active（MaxGen），
+     封存代全部走 frozen 链。
+
+### 6.7 验收更新（实测）
+
+- 回归 39/39（含 SkipBatchMaterialize 16 连跑稳定）
+- 2.2GB（R44 同配置缩小：align_l1 + base_merge + P=16）：M4.8 127.7K ops/s
+  与基线 d640c0b 持平（127.3K）；fallback/skip/merge 分布与基线一致
+  （2.2GB 小规模 L1 未对齐成型，融合本不触发——非退化）
+- 50GB（R44 同配置）后台终验中

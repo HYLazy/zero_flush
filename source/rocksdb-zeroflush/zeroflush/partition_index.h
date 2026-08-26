@@ -385,6 +385,22 @@ class PartitionIndexSet {
     }
   }
 
+  // M4.8：确保 active 索引存在且 gen 匹配（Recover 预创建用——防止
+  // InsertCreate 把 min_seq 最小的封存代误建为 active，导致 Get 链中
+  // active（旧代）优先遮蔽新代（R48 phase3 读旧值 'C'））。
+  void EnsureActive(uint32_t part_id, uint32_t gen) {
+    std::unique_lock<std::shared_mutex> l(mu_);
+    auto it = active_.find(part_id);
+    if (it != active_.end()) {
+      if (it->second->gen() != gen) {
+        it->second = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
+      }
+      return;
+    }
+    active_.emplace(part_id,
+                    std::make_shared<PartitionIndex>(part_id, gen, cmp_));
+  }
+
   // M4.3：Recover 专用插入——找不到 gen 匹配索引时创建（重开时所有 WAL
   // 代都是活的：活跃代建 active，封存代建 frozen）。写路径的 Insert 保持
   // "找不到即丢弃"（物化后迟到的插入由 SST 承载）。

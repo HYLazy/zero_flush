@@ -80,6 +80,21 @@ struct MaterializeOutput {
   bool superseded = false;
 };
 
+class ZfMaterializeJob;
+
+// M4.8 迁移路径：分区物化任务（job, part_id）——全局任务池的调度单元。
+// 物化执行从「epoch 批次串行」改为「(part, gen) 任务池并行」：跨 epoch 的
+// 不同分区自由并行，同分区 gen 序由阶段 0 的决策序（epoch 序）保证。
+struct MaterializeTask {
+  ZfMaterializeJob* job = nullptr;
+  uint32_t part_id = 0;
+};
+
+// M4.8：全局分区任务池并行执行。workers 个线程抢任务；任一失败即停其余
+// 并返回首个错误（调用方负责清理各 job 输出与释放 Compaction 注册）。
+ROCKSDB_NAMESPACE::Status RunMaterializeTaskPool(
+    std::vector<MaterializeTask>* tasks, uint32_t workers);
+
 // FlushJob 把自身成员打包进本结构传给 ZfMaterializeJob（避免 20+ 参数构造）。
 struct ZfMaterializeCtx {
   // DB 目录（BuildTable 的文件名/监听器用；VersionSet 无公开 dbname() 访问器）。
@@ -118,7 +133,19 @@ struct ZfMaterializeCtx {
   ROCKSDB_NAMESPACE::CompactionPicker* compaction_picker = nullptr;
 };
 
-// 物化一个 epoch：K 路并行 + 逐文件定层（安装由调用方执行，§6.3 单次 LogAndApply）。
+// 物化一个 epoch：M4.8 起由调用方（ZfMaterializeAllEpochs）按三阶段驱动，
+// 跨 epoch 共享全局任务池并行（原 Run() 的「epoch 内 K 路并行 + epoch 间
+// 串行」升级为「全部 epoch 分区任务统一并行」）：
+//   - PlanLocked()      阶段 0（持 DB mutex）：逐 epoch 按序决策（epoch 序
+//                       = 同分区 gen 序）+ Compaction 注册；
+//   - CollectTasks()    收集本 epoch 的分区任务入全局任务池（kSkip 分区
+//                       不收集）；
+//   - ExecutePartition() 阶段 1（无锁）：执行单个分区任务（可由任意
+//                       worker 线程调用，多 job 并发安全）；
+//   - FinalizeLocked()  阶段 2（持 DB mutex）：定层 + 批内链式替换 +
+//                       释放 Compaction 注册；输出追加 batch_outputs_；
+//   - DeleteOrphanFiles() / HandOffSkipped()：安装前收尾（解锁后调用）。
+// 安装（单次 VersionEdit）与 kSkip 移交由调用方执行。
 class ZfMaterializeJob {
  public:
   // epoch：待物化 epoch 号（= mems_[i]->GetZfEpoch()）。
@@ -126,7 +153,7 @@ class ZfMaterializeJob {
   // table：se.table_version 对应的路由表（范围断言用；hash 模式跳过断言）。
   // batch_outputs：本 FlushJob 批次已放置的输出（跨 epoch 共享，定层时避免
   //   同层重叠，见 M3_DESIGN.md §6.2 的 L0/更浅层检查）；由调用方持有，
-  //   Run() 成功后把本 job 的输出（已定层）追加进去。
+  //   FinalizeLocked() 成功后把本 job 的输出（已定层）追加进去。
   ZfMaterializeJob(ZeroFlushContext* ctx, uint64_t epoch, const SealedEpoch& se,
                    std::shared_ptr<PartitionTable> table,
                    const ZfMaterializeCtx& mc,
@@ -135,15 +162,39 @@ class ZfMaterializeJob {
   ZfMaterializeJob(const ZfMaterializeJob&) = delete;
   ZfMaterializeJob& operator=(const ZfMaterializeJob&) = delete;
 
-  // 执行 K 路并行物化。
-  // 前提：单后台 flush 线程（或按 imm FIFO 串行化）下 epoch 按序物化
-  // （M3_DESIGN.md §6.2）；入口做防御性断言。
-  // 调用方必须释放 DB mutex；Run() 内部在定层阶段重取 DB mutex。
-  // 任一路失败：清理全部已生成的临时 SST 并返回错误；批次输出不追加。
-  ROCKSDB_NAMESPACE::Status Run();
+  uint64_t epoch() const { return epoch_; }
+
+  // 阶段 0（须持 DB mutex）：逐分区做融合归并触发判定（§7.2）并构造/
+  // 注册 Compaction（§7.3）。决策写入 plans_；冲突（being_compacted/
+  // 边界越界）→ 直装优先（M4.8）：kSkip 等待（gen 上限强制落地兜底）。
+  ROCKSDB_NAMESPACE::Status PlanLocked();
+
+  // 阶段 1 任务收集（阶段 0 后调用）：本 epoch 全部待物化分区任务追加到
+  // tasks（kSkip 攒批分区不收集——数据留 frozen 索引 + 封存 WAL）。
+  void CollectTasks(std::vector<MaterializeTask>* tasks);
+
+  // 阶段 1（无锁）：物化一个分区（WalScanner 顺序整读 → 排序 → 范围断言
+  // → BuildTable / 融合归并）。由全局任务池的任意 worker 调用；多 job 的
+  // 分区任务可自由并行（数据独立），同分区 gen 序由决策序保证。
+  ROCKSDB_NAMESPACE::Status ExecutePartition(uint32_t part_id);
+
+  // 阶段 2（须持 DB mutex）：逐文件定层 / 回填融合元信息 / 批内链式替换
+  // / 释放全部已注册 Compaction。输出追加 batch_outputs_。
+  ROCKSDB_NAMESPACE::Status FinalizeLocked();
+
+  // 解锁后收尾：删除批内被替换（superseded）输出的物理文件；kSkip 分区
+  // 的封存 WAL 移交 recovery 集合（可读、不 unlink）。
+  void DeleteOrphanFiles();
+  void HandOffSkipped();
 
   // 本 epoch 排序累计耗时（微秒），计入 zf.materialize_sort_micros。
   uint64_t sort_micros() const { return sort_micros_; }
+
+  // 错误清理（任务池失败时调用）：取走全部已生成输出（调用方删除文件）。
+  void DrainOutputs(std::vector<MaterializeOutput>* out);
+
+  // 阶段 0 失败或任务池失败时释放已注册 Compaction（须持 DB mutex）。
+  void FinishPlansLocked();
 
  private:
   // M4.5b：阶段 0 决策为 kSkip 的分区 gens（Run 尾部移交 recovery 集合）。
@@ -173,15 +224,6 @@ class ZfMaterializeJob {
     bool force_replace = false;
     int base_level = 0;  // force_replace：目标替换层（PlanLocked 记录）
   };
-
-  // 阶段 0（须持 DB mutex）：逐分区做融合归并触发判定（§7.2）并构造/
-  // 注册 Compaction（§7.3）。决策写入 plans_；任一冲突 → kFallback（不等待）。
-  ROCKSDB_NAMESPACE::Status PlanLocked();
-
-  // 阶段 2（须持 DB mutex）：kMergeBase 输出的 replaced_inputs/rewritten_
-  // bytes 回填 + 释放全部已注册 Compaction（Unregister + unmark）。
-  // 安装（AddFile/DeleteFile 进 VersionEdit）由调用方执行。
-  void FinishPlansLocked();
 
   // 按 part_id 二分查找阶段 0 的分区决策（plans_ 与 part_ids_ 同序）。
   // 未找到（理论不可达）返回 nullptr。
@@ -228,15 +270,13 @@ class ZfMaterializeJob {
   ZfMaterializeCtx mc_;
   std::vector<MaterializeOutput>* batch_outputs_;
 
-  // worker 输出收集（out_mu_ 保护；主线程在 join 后读）。
+  // worker 输出收集（out_mu_ 保护；任务池 join 后由阶段 2 读取）。
   mutable ROCKSDB_NAMESPACE::port::Mutex out_mu_;
   std::vector<MaterializeOutput> outputs_;
-  ROCKSDB_NAMESPACE::Status first_error_;
-  std::atomic<bool> stop_{false};
   std::atomic<uint64_t> sort_micros_{0};
 
-  // 批内被替换（superseded）输出的物理文件号；阶段 2 后、Run() 返回前
-  // 删除（从未安装，仅本批内可见；不删会泄漏 SST）。
+  // 批内被替换（superseded）输出的物理文件号；阶段 2 后由
+  // DeleteOrphanFiles() 删除（从未安装，仅本批内可见；不删会泄漏 SST）。
   std::vector<uint64_t> orphan_files_;
 
   // 本批次已注册融合 Compaction 的 existing 文件号（阶段 0 累积）。批内
@@ -247,8 +287,8 @@ class ZfMaterializeJob {
 
   // 本 epoch 待物化分区（se.gens 去重排序；阶段 0 计算）。
   std::vector<uint32_t> part_ids_;
-  // 阶段 0 决策结果（持锁写入，阶段 1/2 只读；Compaction 由 FinishPlansLocked
-  // 在 Run() 返回前释放，worker 无锁期间仅经 compaction 指针做只读查询）。
+  // 阶段 0 决策结果（持锁写入，阶段 1/2 只读；Compaction 由 FinalizeLocked
+  // 释放，worker 无锁期间仅经 compaction 指针做只读查询）。
   std::vector<PartitionPlan> plans_;
 };
 

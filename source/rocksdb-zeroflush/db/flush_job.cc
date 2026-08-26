@@ -1259,9 +1259,16 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   mc.base = base_;
   mc.compaction_picker = cfd_->compaction_picker();
 
-  // 释放锁进入物化（阶段 1 无锁；ZfMaterializeJob::Run 定层阶段重取）。
-  db_mutex_->Unlock();
+  // ---- 阶段 0（持锁）：逐 epoch 按序决策 ----
+  // M4.8 迁移路径：物化调度从「epoch 批次串行」改为「(part, gen) 分区
+  // 任务池并行」。阶段 0 按 epoch 序逐个决策（imm FIFO → mems_ 内 epoch
+  // 升序 = 同分区 gen 序；不同分区决策自由）；阶段 1 全局任务池并行执行
+  // （跨 epoch 不同分区自由并行，同分区 gen 序由决策序保证）；阶段 2 按
+  // 决策序定层、单次 VersionEdit 原子安装。
   const uint64_t last_before = zf_ctx->last_materialized_epoch();
+  std::vector<std::unique_ptr<zeroflush::ZfMaterializeJob>> jobs;
+  uint64_t prev_epoch = last_before;
+  bool first_epoch = true;
   for (ReadOnlyMemTable* m : mems_) {
     const uint64_t epoch = m->GetZfEpoch();
     if (epoch == 0) {
@@ -1269,6 +1276,13 @@ Status FlushJob::ZfMaterializeAllEpochs() {
           "ZeroFlush: immutable memtable without epoch in zf flush");
       break;
     }
+    // M4.8 按序放宽：物化执行乱序自由（分区数据独立，读各自 WAL 段）；
+    // 决策/安装按 epoch 序（= 同分区 gen 序）。首 epoch 允许重试场景
+    // （epoch ≤ last_before：上次批次失败后 imm 保留、last 已回滚）；
+    // 后续 epoch 严格升序（imm FIFO）。
+    assert(first_epoch || epoch == prev_epoch + 1);
+    first_epoch = false;
+    prev_epoch = epoch;
     zeroflush::SealedEpoch se;
     if (!zf_ctx->GetSealedEpoch(epoch, &se)) {
       s = Status::Corruption("ZeroFlush: sealed epoch " + std::to_string(epoch) +
@@ -1277,31 +1291,90 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     }
     std::shared_ptr<zeroflush::PartitionTable> table =
         zf_ctx->tables()->Get(se.table_version);
-    zeroflush::ZfMaterializeJob job(zf_ctx.get(), epoch, se, std::move(table),
-                                    mc,
-                         &zf_batch_outputs_);
-    s = job.Run();
+    jobs.emplace_back(new zeroflush::ZfMaterializeJob(
+        zf_ctx.get(), epoch, se, std::move(table), mc, &zf_batch_outputs_));
+    s = jobs.back()->PlanLocked();
     if (!s.ok()) {
       ROCKS_LOG_WARN(db_options_.info_log,
-                     "[%s] [JOB %d] materialize epoch %" PRIu64 " failed: %s",
+                     "[%s] [JOB %d] plan epoch %" PRIu64 " failed: %s",
                      cfd_->GetName().c_str(), job_context_->job_id, epoch,
                      s.ToString().c_str());
       break;
     }
-    zf_ctx->materialize_sort_micros_.fetch_add(job.sort_micros(),
-                                               std::memory_order_relaxed);
-    // 每成功一个 epoch 即推进 last（下一 epoch 的按序断言依赖它）。
-    zf_ctx->SetLastMaterializedEpoch(epoch);
   }
-  db_mutex_->Lock();
-
   if (!s.ok()) {
-    // 回滚 last 到批次前（本批未完成；下次 flush 重试时按序断言仍成立）。
-    // 单后台 flush 线程（ZF Open 强制 max_background_flushes=1）下无并发
-    // 踩踏；manifest 安装失败由 Run() 的 !s.ok() 分支清理批次文件。
+    // 阶段 0 失败：释放已注册的部分 Compaction（无临时文件产出），
+    // 回滚 last（下次 flush 重试时按序断言仍成立）。持锁返回
+    // （WriteLevel0Table 契约：返回时 DB mutex 由本函数持有）。
+    for (auto& job : jobs) {
+      job->FinishPlansLocked();
+    }
     zf_ctx->SetLastMaterializedEpoch(last_before);
     base_->Unref();  // 配对 PickMemtable 的 base_->Ref()（对齐 WriteLevel0Table）
     return s;
+  }
+  db_mutex_->Unlock();
+
+  // ---- 阶段 1（无锁）：全局分区任务池并行物化 ----
+  std::vector<zeroflush::MaterializeTask> tasks;
+  for (auto& job : jobs) {
+    job->CollectTasks(&tasks);
+  }
+  s = zeroflush::RunMaterializeTaskPool(
+      &tasks, std::max<uint32_t>(1, zf_ctx->zfo_.materialize_parallelism));
+  if (!s.ok()) {
+    // 任务池失败：删除全部已生成的临时 SST，释放 Compaction 注册，
+    // 批次输出不追加，回滚 last（下次 flush 重试时按序断言仍成立）。
+    std::vector<zeroflush::MaterializeOutput> outs;
+    for (auto& job : jobs) {
+      job->DrainOutputs(&outs);
+    }
+    for (const auto& o : outs) {
+      const std::string fname = ROCKSDB_NAMESPACE::TableFileName(
+          cfd_->ioptions().cf_paths, o.meta.fd.GetNumber(),
+          o.meta.fd.GetPathId());
+      db_options_.env->DeleteFile(fname).PermitUncheckedError();
+    }
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "[%s] [JOB %d] materialize %zu partition tasks failed: %s",
+                   cfd_->GetName().c_str(), job_context_->job_id, tasks.size(),
+                   s.ToString().c_str());
+    db_mutex_->Lock();
+    for (auto& job : jobs) {
+      job->FinishPlansLocked();
+    }
+    zf_ctx->SetLastMaterializedEpoch(last_before);
+    base_->Unref();
+    return s;  // 持锁返回（WriteLevel0Table 契约）
+  }
+
+  // ---- 阶段 2（持锁）：逐 job 定层 / 释放注册 / 推进 last ----
+  db_mutex_->Lock();
+  for (auto& job : jobs) {
+    s = job->FinalizeLocked();
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "[%s] [JOB %d] finalize epoch %" PRIu64 " failed: %s",
+                     cfd_->GetName().c_str(), job_context_->job_id,
+                     job->epoch(), s.ToString().c_str());
+      // 阶段 2 失败（理论不可达——定层为纯内存操作）：回滚 last。
+      zf_ctx->SetLastMaterializedEpoch(last_before);
+      base_->Unref();
+      return s;  // 持锁返回（WriteLevel0Table 契约）
+    }
+    zf_ctx->materialize_sort_micros_.fetch_add(job->sort_micros(),
+                                               std::memory_order_relaxed);
+    // 每成功一个 job 即推进 last（语义与迁移前一致；批次失败整体回滚）。
+    zf_ctx->SetLastMaterializedEpoch(job->epoch());
+  }
+  // 收尾（持锁）：删除批内被替换输出的物理文件；kSkip 分区的封存 WAL
+  // 移交 recovery 集合（必须在 imm 出链/ReleaseEpoch 之前完成——否则
+  // 跳过的 WAL 会被 unlink 且 frozen 索引被释放，数据丢失）。
+  for (auto& job : jobs) {
+    job->DeleteOrphanFiles();
+  }
+  for (auto& job : jobs) {
+    job->HandOffSkipped();
   }
 
   // 全部成功：批次输出单次写入 edit_（mems_[0]，满足 TryInstall 的

@@ -249,6 +249,9 @@ class ZeroFlushContext {
   // 已物化/已封存但未回收字节（统计）。
   uint64_t sealed_bytes() const;
 
+  // M4.8：kSkip 攒批等待集合字节（L0 遮蔽等待上限判定）。
+  uint64_t skipped_bytes() const;
+
   // 当前未物化 epoch 数（cfd->imm() 大小）— 用于写流控。
   uint32_t pending_epochs(ROCKSDB_NAMESPACE::ColumnFamilyData* cfd) const;
 

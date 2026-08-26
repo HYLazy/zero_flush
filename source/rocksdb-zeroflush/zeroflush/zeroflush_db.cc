@@ -346,6 +346,10 @@ uint64_t ZeroFlushContext::sealed_bytes() const {
   return sealed_cache_ != nullptr ? sealed_cache_->sealed_bytes() : 0;
 }
 
+uint64_t ZeroFlushContext::skipped_bytes() const {
+  return sealed_cache_ != nullptr ? sealed_cache_->skipped_bytes() : 0;
+}
+
 // ---------------------------------------------------------------------------
 // M3.0：zf.* 统计指标（M3_DESIGN.md §13）
 // ---------------------------------------------------------------------------
@@ -1023,6 +1027,12 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
             [](const FileSortEntry& a, const FileSortEntry& b) {
               return a.min_seq < b.min_seq;
             });
+  // M4.8：预创建活跃索引（MaxGen）——InsertCreate 的"active 缺失即创建"
+  // 会把 sorted 首个（min_seq 最小）封存代误建为 active，Get 链中 active
+  // 优先 → 旧代遮蔽新代（R48 phase3 get@3 读 'C' 而非 'D'）。
+  for (uint32_t p : all_parts) {
+    index_set_->EnsureActive(p, wal_->MaxGen(p, files));
+  }
   for (const auto& entry : sorted) {
     const uint32_t part = entry.part;
     const uint32_t gen = entry.gen;

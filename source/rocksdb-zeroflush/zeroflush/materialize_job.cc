@@ -150,130 +150,119 @@ ZfMaterializeJob::ZfMaterializeJob(
       mc_(mc),
       batch_outputs_(batch_outputs) {}
 
-ROCKSDB_NAMESPACE::Status ZfMaterializeJob::Run() {
-  // 按序断言（单后台 flush 线程 + imm FIFO，M3_DESIGN.md §6.2）：
-  //  - 正常按序：epoch == last + 1；
-  //  - manifest 安装失败回滚后重试：epoch ≤ last（last 已回滚到批次前）。
-  // 多 flush 线程并发由 ZF Open 的 max_background_flushes=1 排除。
-  assert(epoch_ <= ctx_->last_materialized_epoch() + 1);
-  if (se_.gens.empty()) {
+// M4.8 迁移路径：全局分区任务池并行执行（阶段 1）。
+// 跨 job 的分区任务统一并行（数据独立——各分区读自己的 WAL 段，输出互
+// 不依赖）；同分区 gen 序由阶段 0 的决策序（epoch 序）保证，安装序由调用
+// 方保证。任一任务失败 → 停止其余 worker，返回首个错误（调用方清理各
+// job 输出并释放 Compaction 注册）。
+ROCKSDB_NAMESPACE::Status RunMaterializeTaskPool(
+    std::vector<MaterializeTask>* tasks, uint32_t workers) {
+  if (tasks == nullptr || tasks->empty()) {
     return ROCKSDB_NAMESPACE::Status::OK();
   }
-
-  // 分区集合以 se.gens 为准（收养的孤儿代 part 也在其中）。
-  part_ids_.clear();
-  part_ids_.reserve(se_.gens.size());
-  for (const auto& [p, g] : se_.gens) {
-    (void)g;
-    part_ids_.push_back(p);
-  }
-  std::sort(part_ids_.begin(), part_ids_.end());
-  part_ids_.erase(std::unique(part_ids_.begin(), part_ids_.end()),
-                  part_ids_.end());
-
-  // ---- 阶段 0（持 DB mutex）：融合归并触发判定 + Compaction 注册 ----
-  mc_.db_mutex->Lock();
-  ROCKSDB_NAMESPACE::Status s = PlanLocked();
-  if (!s.ok()) {
-    // 阶段 0 失败不产生临时文件；释放已注册的部分 Compaction。
-    FinishPlansLocked();
-    mc_.db_mutex->Unlock();
-    return s;
-  }
-  mc_.db_mutex->Unlock();
-
-  // ---- 阶段 1：K 路并行物化（不持 DB mutex）----
-  const uint32_t K =
-      std::max<uint32_t>(1, ctx_->zfo_.materialize_parallelism);
-  std::vector<std::vector<uint32_t>> shards(K);
-  for (uint32_t i = 0; i < part_ids_.size(); ++i) {
-    shards[i % K].push_back(part_ids_[i]);
-  }
-
-  auto worker = [this, &shards](uint32_t k) {
-    for (uint32_t part_id : shards[k]) {
-      if (stop_.load(std::memory_order_relaxed)) {
-        return;
+  const uint32_t W =
+      std::min<uint32_t>(std::max<uint32_t>(workers, 1), tasks->size());
+  if (W <= 1) {
+    for (const MaterializeTask& t : *tasks) {
+      ROCKSDB_NAMESPACE::Status s = t.job->ExecutePartition(t.part_id);
+      if (!s.ok()) {
+        return s;
       }
-      // 该 part 的全部 gen：正常封存 1 个 + 可能收养的恢复期孤儿代。
-      std::vector<std::pair<uint32_t, uint32_t>> gens;
-      for (const auto& g : se_.gens) {
-        if (g.first == part_id) {
-          gens.push_back(g);
+    }
+    return ROCKSDB_NAMESPACE::Status::OK();
+  }
+  std::atomic<size_t> next{0};
+  std::atomic<bool> stop{false};
+  ROCKSDB_NAMESPACE::port::Mutex err_mu;
+  ROCKSDB_NAMESPACE::Status first_error;
+  auto worker = [&] {
+    while (!stop.load(std::memory_order_relaxed)) {
+      const size_t i = next.fetch_add(1, std::memory_order_relaxed);
+      if (i >= tasks->size()) {
+        break;
+      }
+      const ROCKSDB_NAMESPACE::Status s =
+          (*tasks)[i].job->ExecutePartition((*tasks)[i].part_id);
+      if (!s.ok()) {
+        bool first = false;
+        {
+          rocksdb::MutexLock l(&err_mu);
+          if (first_error.ok()) {
+            first_error = s;
+            first = true;
+          }
         }
-      }
-      if (gens.empty()) {
-        continue;
-      }
-      // M4.5b：kSkip 攒批分区不物化（数据留在 frozen 索引 + 封存 WAL，
-      // Run 尾部移交 recovery 集合，下个 epoch 收养后多代合并）。
-      const PartitionPlan* plan = FindPlan(part_id);
-      if (plan != nullptr && plan->decision == MaterializeDecision::kSkip) {
-        continue;
-      }
-      rocksdb::Slice lo, hi;
-      // 仅范围路由模式查询分区边界（hash 模式 boundaries_ 为空，且范围
-      // 断言本身也跳过 hash 模式；RangeOf 依赖 boundaries_ 会越界）。
-      if (table_ != nullptr && !table_->IsHashMode()) {
-        if (plan != nullptr && plan->decision == MaterializeDecision::kMergeBase) {
-          lo = plan->lo;
-          hi = plan->hi;
-        } else {
-          table_->RangeOf(part_id, &lo, &hi);
-        }
-      }
-      const ROCKSDB_NAMESPACE::Status ss =
-          (plan != nullptr && plan->decision == MaterializeDecision::kMergeBase)
-              ? MaterializeMergePartition(part_id, gens, plan->overlap_all,
-                                          plan->compaction.get(), lo, hi)
-              : MaterializePartition(part_id, gens, lo, hi);
-      if (!ss.ok()) {
-        // 记录首个错误并停掉其余 worker（已产出文件由 Run 统一清理）。
-        bool expected = false;
-        if (stop_.compare_exchange_strong(expected, true)) {
-          rocksdb::MutexLock l(&out_mu_);
-          first_error_ = ss;
+        if (first) {
+          stop.store(true, std::memory_order_relaxed);
         }
         return;
       }
     }
   };
-  std::vector<std::thread> workers;
-  workers.reserve(K);
-  for (uint32_t k = 0; k < K; ++k) {
-    workers.emplace_back(worker, k);
+  std::vector<std::thread> workers_vec;
+  workers_vec.reserve(W);
+  for (uint32_t w = 0; w < W; ++w) {
+    workers_vec.emplace_back(worker);
   }
-  for (auto& t : workers) {
+  for (auto& t : workers_vec) {
     t.join();
   }
+  return first_error;
+}
 
-  // 任一路失败：删除本 job 已生成的全部临时 SST，释放 Compaction 注册，
-  // 批次输出不追加。
-  {
-    rocksdb::MutexLock l(&out_mu_);
-    if (!first_error_.ok()) {
-      std::vector<MaterializeOutput> outs = std::move(outputs_);
-      outputs_.clear();
-      for (auto& o : outs) {
-        const std::string fname = ROCKSDB_NAMESPACE::TableFileName(
-            mc_.cfd->ioptions().cf_paths, o.meta.fd.GetNumber(),
-            o.meta.fd.GetPathId());
-        mc_.db_options->env->DeleteFile(fname).PermitUncheckedError();
-      }
-      mc_.db_mutex->Lock();
-      FinishPlansLocked();
-      mc_.db_mutex->Unlock();
-      return first_error_;
+void ZfMaterializeJob::CollectTasks(std::vector<MaterializeTask>* tasks) {
+  // kSkip 攒批分区不收集（数据留在 frozen 索引 + 封存 WAL，调用方在
+  // imm 出链前 HandOff 移交 recovery 集合，下个 epoch 收养后多代合并）。
+  for (uint32_t pid : part_ids_) {
+    const PartitionPlan* plan = FindPlan(pid);
+    if (plan != nullptr && plan->decision == MaterializeDecision::kSkip) {
+      continue;
+    }
+    tasks->push_back({this, pid});
+  }
+}
+
+ROCKSDB_NAMESPACE::Status ZfMaterializeJob::ExecutePartition(uint32_t part_id) {
+  // 该 part 的全部 gen：正常封存 1 个 + 可能收养的恢复期孤儿/攒批代。
+  std::vector<std::pair<uint32_t, uint32_t>> gens;
+  for (const auto& g : se_.gens) {
+    if (g.first == part_id) {
+      gens.push_back(g);
     }
   }
+  if (gens.empty()) {
+    return ROCKSDB_NAMESPACE::Status::OK();
+  }
+  const PartitionPlan* plan = FindPlan(part_id);
+  if (plan != nullptr && plan->decision == MaterializeDecision::kSkip) {
+    return ROCKSDB_NAMESPACE::Status::OK();  // 双保险（CollectTasks 已过滤）
+  }
+  rocksdb::Slice lo, hi;
+  // 仅范围路由模式查询分区边界（hash 模式 boundaries_ 为空，且范围
+  // 断言本身也跳过 hash 模式；RangeOf 依赖 boundaries_ 会越界）。
+  if (table_ != nullptr && !table_->IsHashMode()) {
+    if (plan != nullptr && plan->decision == MaterializeDecision::kMergeBase) {
+      lo = plan->lo;
+      hi = plan->hi;
+    } else {
+      table_->RangeOf(part_id, &lo, &hi);
+    }
+  }
+  return (plan != nullptr && plan->decision == MaterializeDecision::kMergeBase)
+             ? MaterializeMergePartition(part_id, gens, plan->overlap_all,
+                                         plan->compaction.get(), lo, hi)
+             : MaterializePartition(part_id, gens, lo, hi);
+}
 
-  // ---- 阶段 2：逐文件定层 / 回填融合元信息（须持 DB mutex）----
+ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
+  mc_.db_mutex->AssertHeld();
+  // 逐文件定层 / 回填融合元信息（须持 DB mutex）。调用方保证本 job 的
+  // worker 已 join（任务池完成），outputs_ 无并发写。
   // 关键：本批已定层的文件须立即写入 batch_outputs_——PickInstallLevel 的
   // 批内重叠检查只扫描 batch_outputs_（历史批次 + 本批已放置项）。若攒到
   // 最后统一追加，同批文件互相看不到对方：hash 模式下多个分区文件键范围
   // 交错重叠，会全部直装同一层 → VersionBuilder force_consistency_checks
   // 报 "L6 has overlapping ranges"（对应 M3_DESIGN.md §6.2 批内互斥）。
-  mc_.db_mutex->Lock();
   std::vector<MaterializeOutput> outs = std::move(outputs_);
   for (auto& o : outs) {
     if (o.decision == MaterializeDecision::kMergeBase) {
@@ -292,8 +281,8 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::Run() {
       // 批内链式替换（§7.4 批次内多 epoch）：本输出与同批次前序输出
       // （level 相同、user key 范围重叠）合并后范围 ⊇ 前序 → 前序由本
       // 输出替代：标记 superseded（不安装）、继承其替换文件号、物理
-      // 文件由 Run() 返回前删除。未安装文件无需 DeleteFile（不在任何
-      // 已提交版本中），故只继承前序的 replaced_file_numbers。
+      // 文件由 DeleteOrphanFiles() 删除。未安装文件无需 DeleteFile（不
+      // 在任何已提交版本中），故只继承前序的 replaced_file_numbers。
       if (batch_outputs_ != nullptr) {
         const ROCKSDB_NAMESPACE::Comparator* ucmp2 = mc_.cfd->user_comparator();
         // M4.5b-3：只有融合输出（kMergeBase）能替换批内前序——融合输出
@@ -360,28 +349,52 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::Run() {
     }
   }
   FinishPlansLocked();
-  mc_.db_mutex->Unlock();
-  // 删除批内被替换输出的物理文件（从未安装；持锁 IO 不必要，放解锁后）。
+  return ROCKSDB_NAMESPACE::Status::OK();
+}
+
+void ZfMaterializeJob::DeleteOrphanFiles() {
+  // 批内被替换输出的物理文件（从未安装，仅本批内可见；持锁 IO 不必要，
+  // 由调用方在解锁后调用；不删会泄漏 SST）。
   for (uint64_t fn : orphan_files_) {
     const std::string fname = ROCKSDB_NAMESPACE::TableFileName(
         mc_.cfd->ioptions().cf_paths, fn, 0);
     mc_.db_options->env->DeleteFile(fname).PermitUncheckedError();
   }
+}
+
+void ZfMaterializeJob::HandOffSkipped() {
   // M4.5b：kSkip 分区的封存 WAL 移交 recovery 集合（可读、不 unlink）。
-  // 必须在 Run 返回前完成——返回后 imm 析构触发 ReleaseEpoch，若该
-  // epoch 的 gens 未移除，被跳过的 WAL 会被 unlink 且 frozen 索引被释放
-  // （数据丢失）。HandOff 后 GetSealedEpoch 不再含这些 gens → 索引保留。
+  // 必须在 imm 出链（ReleaseEpoch）前完成——出链时若该 epoch 的 gens
+  // 未移除，被跳过的 WAL 会被 unlink 且 frozen 索引被释放（数据丢失）。
+  // HandOff 后 GetSealedEpoch 不再含这些 gens → 索引保留。
   if (!skipped_gens_.empty()) {
     ctx_->HandOffSkippedToRecovery(epoch_, skipped_gens_);
     ROCKS_LOG_INFO(mc_.db_options->info_log,
                    "[JOB %d] ZeroFlush skipped %zu partition gens (batch)",
                    mc_.job_context->job_id, skipped_gens_.size());
   }
-  return ROCKSDB_NAMESPACE::Status::OK();
+}
+
+void ZfMaterializeJob::DrainOutputs(std::vector<MaterializeOutput>* out) {
+  rocksdb::MutexLock l(&out_mu_);
+  for (auto& o : outputs_) {
+    out->push_back(std::move(o));
+  }
+  outputs_.clear();
 }
 
 ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   mc_.db_mutex->AssertHeld();
+  // 分区集合以 se.gens 为准（收养的孤儿代 part 也在其中）。
+  part_ids_.clear();
+  part_ids_.reserve(se_.gens.size());
+  for (const auto& [p, g] : se_.gens) {
+    (void)g;
+    part_ids_.push_back(p);
+  }
+  std::sort(part_ids_.begin(), part_ids_.end());
+  part_ids_.erase(std::unique(part_ids_.begin(), part_ids_.end()),
+                  part_ids_.end());
   plans_.clear();
   plans_.reserve(part_ids_.size());
 
@@ -468,7 +481,26 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         uint64_t ov_bytes = 0;
         bool ok = true, bskipped = false;
         scan_overlap(plan.lo, plan.hi, &ov, &ov_bytes, &ok, &bskipped);
-        if (ok && !ov.empty() && !bskipped) {
+        // M4.8 遮蔽防护：L0 有本分区范围文件 → 直装替换会被 L0 遮蔽
+        // （L0 文件可能比孤儿输出旧）→ 放弃 force_replace，走默认 kDirect
+        // → PickInstallLevel 回落 L0（L0 内按 file number 新→旧——读
+        // 最新，语义正确）。
+        bool l0_shadow = false;
+        for (int l = 0; l < base && !l0_shadow; ++l) {
+          for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(l)) {
+            if (f->being_compacted) {
+              continue;
+            }
+            const ROCKSDB_NAMESPACE::Slice f_lo = f->smallest.user_key();
+            const ROCKSDB_NAMESPACE::Slice f_hi = f->largest.user_key();
+            if (ucmp->Compare(f_hi, plan.lo) >= 0 &&
+                ucmp->Compare(f_lo, plan.hi) < 0) {
+              l0_shadow = true;
+              break;
+            }
+          }
+        }
+        if (ok && !ov.empty() && !bskipped && !l0_shadow) {
           plan.force_replace = true;
           plan.base_level = base;
           plan.overlap = std::move(ov);
@@ -491,6 +523,58 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     scan_overlap(plan.lo, plan.hi, &overlap, &overlap_bytes, &ok,
                  &batch_skipped);
     if (!ok) {
+      // M4.8 直装优先：base 层不可替换（being_compacted 冲突 / 边界越界）
+      // → 不物化，等待（kSkip 攒批：数据留在 frozen 索引 + 封存 WAL，
+      // 下个 epoch 收养后重试直装）。gen ≥ kMaxSkipGenerations 强制落地
+      // （回落 L0 兜底，保证收敛；内存背压由 max_pending_epochs 流控）。
+      if (ctx_->zfo_.skip_batching &&
+          PendingGenCount(pid) < kMaxSkipGenerations) {
+        plan.decision = MaterializeDecision::kSkip;
+        ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      }
+      plans_.push_back(std::move(plan));
+      continue;
+    }
+
+    // M4.8 遮蔽防护：L0（及更浅层）有本分区范围的文件 → 直装/融合输出
+    // 会被 L0 遮蔽。M4.5 删除 upper_conflict 的前提是"L0 文件恒比 base
+    // 新"（遮蔽正确）——但回落兜底（gen 上限强制 kDirect/kFallback）会
+    // 产生比 base 新的 L0 文件，随后序直装/融合（更晚 epoch）超越 →
+    // L0 旧遮蔽 base 新 → 读旧值（R48 实测：C 轮回落 L0 遮蔽 D 轮直装
+    // L6 → phase2 get@0 读 'C'）。修复：L0 重叠 → kSkip 等待（不产出
+    // 新 L0，L0 由 compaction 消费后直装恢复——无 M4.5 的"回落→更拒"
+    // 循环）；gen 上限强制 kFallback 回落 L0（L0 内按 file number 新→
+    // 旧查找——读最新，语义正确）。
+    bool l0_shadow = false;
+    for (int l = 0; l < base && !l0_shadow; ++l) {
+      for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(l)) {
+        if (f->being_compacted) {
+          continue;  // 消费中——不阻塞（compaction 完成后 L0 清空）
+        }
+        const ROCKSDB_NAMESPACE::Slice f_lo = f->smallest.user_key();
+        const ROCKSDB_NAMESPACE::Slice f_hi = f->largest.user_key();
+        if (ucmp->Compare(f_hi, plan.lo) >= 0 &&
+            ucmp->Compare(f_lo, plan.hi) < 0) {
+          l0_shadow = true;
+          break;
+        }
+      }
+    }
+    if (l0_shadow) {
+      // M4.8 遮蔽等待：数据留在 frozen 索引 + 封存 WAL（可读、不丢失），
+      // L0 由 compaction 消费后直装恢复。等待上限用「skip 集合字节」而非
+      // gen 计数——L0 遮蔽不是 ratio 拒绝（攒批会随收养累积，gen 上限
+      // 会误触发频繁回落）；字节超阈值（partition_target × 32）才强制
+      // kFallback 回落（L0 增长 → 触发 compaction → 消费 → 直装恢复）。
+      const uint64_t shadow_limit =
+          static_cast<uint64_t>(ctx_->zfo_.partition_target_bytes) * 32;
+      if (ctx_->zfo_.skip_batching &&
+          ctx_->skipped_bytes() < shadow_limit) {
+        plan.decision = MaterializeDecision::kSkip;
+        ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      } else {
+        plan.decision = MaterializeDecision::kFallback;
+      }
       plans_.push_back(std::move(plan));
       continue;
     }
@@ -911,12 +995,19 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   }
 
   // seq 前置断言（§7.4）：A 侧全部记录必须比 B 侧任何记录新。
-  // 孤儿代 epoch 已在 PlanLocked 降级 kSkip；此处做运行时防御。
+  //  - 崩溃孤儿代 epoch（has_adopted_orphans）已在 PlanLocked 降级
+  //    kSkip/force_replace，此处做运行时防御（孤儿 seq 与 base 交错
+  //    会破坏快照语义）。
+  //  - M4.8 放宽：kSkip 攒批收养（has_adopted_skips，seq 连续未崩溃）
+  //    的 A 侧可含 base 前序更旧的代——任务池阶段 0 统一决策使"批内
+  //    链式融合"退化为攒批，收养后的多代合并与 base 前序交错（全局
+  //    min ≤ max），但 per-key 版本序仍正确（覆盖写 seq 递增），归并
+  //    由 CompactionIterator 按 per-key seq + snapshot 裁决 → 放行。
   uint64_t max_b_seq = 0;
   for (const ROCKSDB_NAMESPACE::FileMetaData* f : overlap_all) {
     max_b_seq = std::max(max_b_seq, f->fd.largest_seqno);
   }
-  if (min_seq <= max_b_seq) {
+  if (!se_.has_adopted_skips && min_seq <= max_b_seq) {
     return ROCKSDB_NAMESPACE::Status::Corruption(
         "ZF merge partition " + std::to_string(part_id) +
         " A-side seq not newer than B-side (min=" + std::to_string(min_seq) +

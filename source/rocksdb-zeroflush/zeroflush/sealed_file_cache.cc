@@ -75,8 +75,13 @@ void SealedFileCache::AddEpochWithRecoveryAdoption(const SealedEpoch& e,
   }
   merged.sealed_at_micros = env_->NowMicros();
   epochs_.emplace(merged.epoch, merged);
-  // M3.4：多列族共享同一物理分区文件时 refcount = CF 个数。
-  refs_[merged.epoch] = refcount;
+  // M4.8 回收分区化：引用计数从 epoch 粒度改为 (part, gen) 粒度——
+  // 每个 WAL 段一引（M3.4 多列族共享时 refcount = CF 个数），可独立
+  // 回收；epoch 引用 = 其全部 gens 引用之和（全空 = 完全回收）。
+  auto& grefs = gen_refs_[merged.epoch];
+  for (const auto& [part, gen] : merged.gens) {
+    grefs[MakeFileKey(part, gen)] = refcount;
+  }
   sealed_bytes_ += merged.total_bytes;
 }
 
@@ -121,40 +126,102 @@ void SealedFileCache::HandOffSkippedToRecovery(
     skip_part_bytes_[part] += bytes;
     skip_bytes_ += bytes;
   }
+  // M4.8 回收分区化：3) 同步移除 gen_refs_ 中跳过的 gens 引用——跳过代
+  // 由 recovery 集合托管（可读、不回收），不再参与该 epoch 的引用计数
+  // （否则 epoch 永不"完全回收"，物化统计停滞——R48 实测 sealed=42
+  // materialized=41）。若 epoch 的全部 gens 都被跳过，引用集清空 →
+  // epoch 完全回收（统计/封存字节结算，与 ReleaseGens 收尾一致）。
+  auto git = gen_refs_.find(epoch);
+  if (git != gen_refs_.end()) {
+    for (const auto& [part, gen] : gens) {
+      git->second.erase(MakeFileKey(part, gen));
+    }
+    if (git->second.empty()) {
+      gen_refs_.erase(git);
+      auto eit2 = epochs_.find(epoch);
+      if (eit2 != epochs_.end()) {
+        ++materialized_epochs_;
+        materialize_micros_total_ +=
+            env_->NowMicros() - eit2->second.sealed_at_micros;
+        if (reclaim_enabled_) {
+          ++pending_epochs_;
+        }
+        sealed_bytes_ -= eit2->second.total_bytes;
+        epochs_.erase(eit2);
+      }
+    }
+  }
 }
 
 uint64_t SealedFileCache::ReleaseEpoch(uint64_t epoch) {
+  // M4.8：epoch 级入口 = 释放该 epoch 全部 gens（per-gen 独立回收）。
+  // 单 flush 线程下 epoch 物化完成即全量释放，语义与迁移前一致。
+  std::vector<std::pair<uint32_t, uint32_t>> gens;
+  {
+    rocksdb::MutexLock l(&mu_);
+    auto eit = epochs_.find(epoch);
+    if (eit != epochs_.end()) {
+      gens = eit->second.gens;
+    }
+  }
+  return ReleaseGens(epoch, gens);
+}
+
+uint64_t SealedFileCache::ReleaseGens(
+    uint64_t epoch, const std::vector<std::pair<uint32_t, uint32_t>>& gens) {
+  if (gens.empty()) {
+    return 0;
+  }
   uint64_t released_bytes = 0;
   std::vector<std::string> to_unlink;
   {
     rocksdb::MutexLock l(&mu_);
-    auto it = refs_.find(epoch);
-    if (it == refs_.end()) {
-      return 0;
+    auto git = gen_refs_.find(epoch);
+    if (git == gen_refs_.end()) {
+      return 0;  // 未登记或已完全回收
     }
-    if (--(it->second) > 0) {
-      return 0;
-    }
-    refs_.erase(it);
+    auto& grefs = git->second;
     auto eit = epochs_.find(epoch);
-    if (eit == epochs_.end()) {
-      return 0;
-    }
-    released_bytes = eit->second.total_bytes;
-    // M3.0：引用归零 = 该 epoch 已物化完成（old mem 已析构）。累计耗时
-    // 与物化计数；入队 epoch 数供回收统计（reclaim_enabled_ 才真实 unlink）。
-    ++materialized_epochs_;
-    materialize_micros_total_ +=
-        env_->NowMicros() - eit->second.sealed_at_micros;
-    if (reclaim_enabled_) {
-      ++pending_epochs_;
-      to_unlink.reserve(eit->second.gens.size());
-      for (const auto& [part, gen] : eit->second.gens) {
+    for (const auto& [part, gen] : gens) {
+      const ZfFileKey key = MakeFileKey(part, gen);
+      auto rit = grefs.find(key);
+      if (rit == grefs.end()) {
+        continue;  // 已释放（幂等）
+      }
+      if (--(rit->second) > 0) {
+        continue;  // 仍有其他 CF 引用，不回收
+      }
+      grefs.erase(rit);
+      if (reclaim_enabled_) {
         to_unlink.push_back(FileName(part, gen));
       }
+      // 从 epoch 登记中移除该 gen（Get 校验随之失效——文件已入
+      // pending_unlink_）。part_bytes/total_bytes 保持（epoch 完全回收
+      // 时统一扣减；中间态仅影响统计口径，不影响 Get 校验与物化决策
+      // ——该 epoch 剩余 gens 由调用方保证已物化或正被物化）。
+      if (eit != epochs_.end()) {
+        auto& egens = eit->second.gens;
+        egens.erase(
+            std::remove(egens.begin(), egens.end(), std::make_pair(part, gen)),
+            egens.end());
+      }
     }
-    sealed_bytes_ -= eit->second.total_bytes;
-    epochs_.erase(eit);
+    if (grefs.empty()) {
+      // M4.8：epoch 全部 gens 引用归零 = 完全回收。物化耗时/计数与
+      // 封存字节在此时统一结算（与迁移前的 epoch 级语义一致）。
+      gen_refs_.erase(git);
+      if (eit != epochs_.end()) {
+        released_bytes = eit->second.total_bytes;
+        ++materialized_epochs_;
+        materialize_micros_total_ +=
+            env_->NowMicros() - eit->second.sealed_at_micros;
+        if (reclaim_enabled_) {
+          ++pending_epochs_;
+        }
+        sealed_bytes_ -= eit->second.total_bytes;
+        epochs_.erase(eit);
+      }
+    }
   }
   // 锁外追加到 pending_unlink_（避免持锁做 IO）。
   if (!to_unlink.empty()) {
@@ -259,6 +326,11 @@ size_t SealedFileCache::PurgePending() {
 uint64_t SealedFileCache::sealed_bytes() const {
   rocksdb::MutexLock l(&mu_);
   return sealed_bytes_;
+}
+
+uint64_t SealedFileCache::skipped_bytes() const {
+  rocksdb::MutexLock l(&mu_);
+  return skip_bytes_;
 }
 
 uint64_t SealedFileCache::pending_count() const {
