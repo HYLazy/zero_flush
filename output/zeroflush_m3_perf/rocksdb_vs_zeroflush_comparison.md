@@ -160,3 +160,35 @@ fill 后分进程 readrandom（--reads=1,000,000/线程）。
 5. 融合标记文件与原生 compaction 并发断言放宽（debug-only，数据重复不丢）。
 
 **50GB fill 用时**：native 57 分钟（受早期测试竞争拖累）、ZF 65 分钟（无竞争，负载 8-45 波动）。
+
+### 4.1 read 差距受控验证（2026-08-27 晚，负载 ~13 同窗口）
+
+原始 2.1× 差距（74.6K vs 157K）经受控对照修正——157K 测于页缓存热 + 低负载窗口，
+同窗口（负载 13）交替测量：
+
+| 测量 | ops/s | 说明 |
+|---|---|---|
+| ZF 模式读 /tmp/zf50 | 69.4K | ZF 读路径 |
+| 原生模式读 /tmp/zf50 | 80.2K | 同 DB 同页缓存——**ZF 路径纯开销 16%** |
+| 原生模式读 /tmp/native50 | 85.4K | **DB 布局差异仅 6%**（文件 650 vs 569，层分布接近） |
+
+**真实 read 差距 ≈ 1.23×**（85.4/69.4），构成：
+- **ZF 读路径开销 16%**：GetFromPartitionIndex 每 Get 执行（即使数据在 SST）——
+  跳表查询 8.85% CPU（cache miss 主导）+ 链遍历/锁 ~5% + Route 1%；
+- **DB 布局 6%**：文件数略多（650 vs 569）→ 层二分/TableCache 略慢。
+
+perf 证据：ZF 每 op CPU ≈ native 5.2×，其中 Version::Get（SST 查找）73%
+（MaybeReadBlockAndLoadToCache 38% + IndexBlockIter 7.3%）+ GetFromPartitionIndex
+18.5%——但两边每 op block.cache.miss 接近（~2 次）、bytes.read 相同（647B/op）
+→ IO 量相同，差距纯在 CPU 路径。
+
+**read 优化空间（按收益排序）**：
+1. **索引布隆预过滤**（~8-10%）：GetFromPartitionIndex 前按分区布隆快速判断
+   key 是否在活跃段索引（97% 的 key 数据在 SST → 布隆 miss 跳过跳表 ~1.1us/op）；
+   布隆可增量构建（索引只增不删，frozen 释放时丢弃）。
+2. **SST 优先路径**（~5%）：Get 先走原生 SST 查找（数据 98% 在 SST），miss 再查
+   分区索引（活跃段 2% 兜底）——61% 的 Get 省去索引查询；正确性不变（SST miss
+   → 索引命中读 WAL）。
+3. **DB 布局**（~4-6%）：target_file_size_base 调大（64→128MB）减文件数；
+   L0/L1 分区文件尽早合并。
+4. **组合预期**：1.23× → ~1.05-1.08×（接近原生）。
