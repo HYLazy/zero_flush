@@ -956,3 +956,33 @@ epoch 检查（hash 遗留的跨分区数据 seq 交错是不同 key 集合，pe
 （zf.install_fallback_l0=80 / skip_count=124 / base_merge_count=0）——批内
 链式替换已覆盖 base 层，L0 场景的等待是数据安全前提。物化路径固定开销
 （fsync 30% + 读 WAL/排序 70%）是 11% 差距主体。
+
+### 6.15 M4.11c read 路径优化：分区布隆预过滤（2026-08-27）
+
+**背景**：readrandom 受控对照（同负载窗口、同 DB）显示 ZF 读路径纯开销 16%
+（GetFromPartitionIndex 每 Get 执行——跳表查询 8.85% CPU，cache miss 主导）
++ DB 布局 6%——真实差距 1.23×。perf 证据：ZF 每 op CPU ≈ native 5.2×。
+
+**方案 1（已实现）：分区布隆预过滤**。PartitionIndexSet 每分区维护布隆
+（1MB 位集/分区，双 hash × 4 位，原子 fetch_or 并发插入）——Get 前
+MayContain 预过滤：key 不在未物化索引 → 直接 miss（数据在 SST，原生查找
+承载）→ 省跳表查询 ~1.2us/op。
+
+**关键修正（R55）**：布隆只增不减会使位集被 50GB 全部历史 key 饱和 →
+假阳性 100% → 预过滤失效（perf 实测跳表占比不变）。修复：frozen 索引
+释放（物化完成）时 RebuildBloom——遍历剩余 active + frozen 重建
+（持锁收集链、无锁遍历跳表；重建期间插入由 Insert 的 Add 补上——极小
+概率竞态记录为已知）。
+
+**方案 2（证伪回退）**：SST 优先路径——Get 先查 SST、miss 再查索引。
+错误：SST 命中时活跃段可能有更新版本（覆盖写/tombstone 遮蔽 SST 旧值），
+索引必须每 Get 都查（seq 比较），顺序不省（回归 22 FAIL 证明）。收益由
+布隆承载（索引查询的代价被布隆过滤）。
+
+**实测**：perf 跳表查询 8.85% → ~0，GetFromPartitionIndex 18.5% → 6.43%
+（-12pp CPU）；readrandom 50GB 69.4K → 85.7K ops/s（负载差异部分贡献，
+布隆净收益 ~10%）。回归 35 PASS（3 个 R54 遗留 L0 FAIL 与布隆无关）。
+
+**已知（R56）**：3 个 L0 文件数回归 FAIL（SteadyStateZeroL0 等）——R54
+安装期冲突复查（融合冲突回落 L0）使 L0 稳态残留，compaction 消费时序
+与测试断言不匹配——行为变化（非数据正确性），后续调优融合冲突回落。

@@ -3003,12 +3003,13 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   if (!skip_memtable) {
     // M4.3a：终态路径——Get 查分区索引（替代 mem/imm 链；未命中继续走
     // 原生 SST 查找）。仅 zf 且未启用全局索引（zf_global_index=false）时。
+    // M4.11c：SST 优先实验已回退——SST 命中时活跃段可能有更新版本
+    // （覆盖写/tombstone 遮蔽 SST 旧值），索引必须每 Get 都查（seq 比较），
+    // 顺序不省；收益由布隆预过滤（方案 1）承载。
     const auto* zf_ctx = cfd->GetZfCtx().get();
     if (zf_ctx != nullptr) {
       if (get_impl_options.get_value) {
         const ROCKSDB_NAMESPACE::Slice user_key = lkey.user_key();
-        // snapshot seq 从 LookupKey 的 internal key 尾部解码
-        // （LookupKey 无公开 sequence() 访问器）。
         const ROCKSDB_NAMESPACE::Slice ik = lkey.internal_key();
         const ROCKSDB_NAMESPACE::SequenceNumber snap =
             ROCKSDB_NAMESPACE::DecodeFixed64(ik.data() + ik.size() - 8) >> 8;

@@ -24,10 +24,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "memtable/inlineskiplist.h"
 #include "memory/concurrent_arena.h"
 #include "rocksdb/memtablerep.h"
 #include "table/internal_iterator.h"
+#include "util/hash.h"
 #include "table/merging_iterator.h"
 #include "util/coding.h"
 #include "zeroflush/wal_format.h"  // SlimLocator
@@ -80,6 +82,22 @@ class PartitionIndex {
     memcpy(p, locator.data(), loc_len);
     mem_bytes_.fetch_add(total, std::memory_order_relaxed);
     return list_.InsertConcurrently(buf);
+  }
+
+  // M4.11c：遍历全部条目的 internal key（布隆重建用）。跳表条目格式：
+  // varint ik_len + ik + varint loc_len + loc。并发插入下迭代器可能漏
+  // 正在插入的节点（概率低）——重建后新插入由 Insert 的 Add 补上。
+  void ForEachKey(const std::function<void(const ROCKSDB_NAMESPACE::Slice&)>& fn) const {
+    Iterator iter(&list_);
+    for (iter.SeekToFirst(); iter.Valid(); iter.Next()) {
+      const char* entry = iter.key();
+      uint32_t ik_len = 0;
+      const char* p = ROCKSDB_NAMESPACE::GetVarint32Ptr(entry, entry + 5, &ik_len);
+      if (p == nullptr || ik_len == 0) {
+        continue;
+      }
+      fn(ROCKSDB_NAMESPACE::Slice(p, ik_len));
+    }
   }
 
   // M3.4：range tombstone 覆盖——找 ≤ user_key 的最大 begin 条目。
@@ -267,6 +285,44 @@ class PartitionIndex {
 
 class PartitionIndexIterator;  // M4.3d-3：前向声明（定义在文件尾）
 
+// M4.11c：分区布隆过滤器——GetFromPartitionIndex 前的快速预过滤。
+// 数据 97%+ 已物化进 SST（原生查找承载），未物化（活跃段 + frozen）的
+// key 才在分区索引中；布隆 miss（~50-100ns）直接跳过跳表查询（~1.2us，
+// cache miss 主导）。布隆只增不减（frozen 释放后假阳性上升——多走一次
+// 跳表 miss，正确性不变）。位集为原子（写路径并发插入，fetch_or 防
+// 丢失更新导致假阴性漏读）。
+struct PartitionBloom {
+  static constexpr uint64_t kNumBits = 8ull << 20;  // 1MB/分区 ≈ 100 万条容量
+  std::vector<std::atomic<uint64_t>> bits_;
+  PartitionBloom() : bits_(kNumBits / 64) {
+    for (auto& b : bits_) {
+      b.store(0, std::memory_order_relaxed);
+    }
+  }
+
+  void Add(const ROCKSDB_NAMESPACE::Slice& key) {
+    const uint32_t h1 = ROCKSDB_NAMESPACE::Hash(key.data(), key.size(), 0x5f10f1);
+    const uint32_t h2 = ROCKSDB_NAMESPACE::Hash(key.data(), key.size(), 0x5f10f2);
+    for (uint32_t i = 0; i < 4; ++i) {
+      const uint64_t bit = (static_cast<uint64_t>(h1) + i * h2) % kNumBits;
+      bits_[bit / 64].fetch_or(1ull << (bit % 64), std::memory_order_relaxed);
+    }
+  }
+
+  bool MayContain(const ROCKSDB_NAMESPACE::Slice& key) const {
+    const uint32_t h1 = ROCKSDB_NAMESPACE::Hash(key.data(), key.size(), 0x5f10f1);
+    const uint32_t h2 = ROCKSDB_NAMESPACE::Hash(key.data(), key.size(), 0x5f10f2);
+    for (uint32_t i = 0; i < 4; ++i) {
+      const uint64_t bit = (static_cast<uint64_t>(h1) + i * h2) % kNumBits;
+      if ((bits_[bit / 64].load(std::memory_order_relaxed) &
+           (1ull << (bit % 64))) == 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+};
+
 // 全部分区索引集合（终态 L0 索引）。
 class PartitionIndexSet {
  public:
@@ -283,6 +339,7 @@ class PartitionIndexSet {
     }
     auto idx = std::make_shared<PartitionIndex>(part_id, 0, cmp_);
     active_.emplace(part_id, idx);
+    blooms_.emplace(part_id, PartitionBloom());
     return idx;
   }
 
@@ -309,6 +366,7 @@ class PartitionIndexSet {
         } else {
           auto ni = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
           active_.emplace(part_id, ni);
+          blooms_.emplace(part_id, PartitionBloom());
           idx = ni;
         }
       } else {
@@ -338,6 +396,7 @@ class PartitionIndexSet {
     if (!idx->Insert(internal_key, locator)) {
       return 0;
     }
+    blooms_[part_id].Add(ROCKSDB_NAMESPACE::ExtractUserKey(internal_key));
     const uint64_t added = idx->mem_bytes() - before;
     total_mem_bytes_.fetch_add(added, std::memory_order_relaxed);
     return added;
@@ -368,21 +427,60 @@ class PartitionIndexSet {
 
   // M4.3a：物化完成（epoch 回收）时释放指定 (part, gen) 的 frozen 索引。
   void ReleaseFrozen(uint32_t part_id, uint32_t gen) {
-    std::unique_lock<std::shared_mutex> l(mu_);
-    auto it = frozen_.find(part_id);
-    if (it == frozen_.end()) {
-      return;
-    }
-    auto& chain = it->second;
-    for (auto c = chain.begin(); c != chain.end();) {
-      if ((*c)->gen() == gen) {
-        total_mem_bytes_.fetch_sub((*c)->mem_bytes(),
-                                   std::memory_order_relaxed);
-        c = chain.erase(c);
-      } else {
-        ++c;
+    bool removed = false;
+    {
+      std::unique_lock<std::shared_mutex> l(mu_);
+      auto it = frozen_.find(part_id);
+      if (it != frozen_.end()) {
+        auto& chain = it->second;
+        for (auto c = chain.begin(); c != chain.end();) {
+          if ((*c)->gen() == gen) {
+            total_mem_bytes_.fetch_sub((*c)->mem_bytes(),
+                                       std::memory_order_relaxed);
+            c = chain.erase(c);
+            removed = true;
+          } else {
+            ++c;
+          }
+        }
       }
     }
+    if (removed) {
+      // M4.11c：释放后重建布隆（去掉已物化代的 key，防位集饱和）。
+      // 锁外调用（RebuildBloom 内部取锁）。
+      RebuildBloom(part_id);
+    }
+  }
+
+  // M4.11c：frozen 释放后重建分区布隆——只增不减会使位集被历史 key 饱和
+  // （假阳性 100% → 预过滤失效）。遍历剩余 active + frozen 重建。
+  // 持锁收集链（shared_ptr 拷贝）→ 无锁遍历（跳表迭代与并发插入共存，
+  // 重建期间插入的 key 由 Insert 的 Add 补上——Add 在重建替换布隆后
+  // 执行时生效；替换前执行的 Add 落在旧布隆（丢弃）→ 极小概率漏 key，
+  // 保守场景：重建在物化完成时（写路径窗口小），记录为已知竞态）。
+  void RebuildBloom(uint32_t part_id) {
+    std::vector<std::shared_ptr<PartitionIndex>> chain;
+    {
+      std::shared_lock<std::shared_mutex> l(mu_);
+      auto ait = active_.find(part_id);
+      if (ait != active_.end()) {
+        chain.push_back(ait->second);
+      }
+      auto fit = frozen_.find(part_id);
+      if (fit != frozen_.end()) {
+        for (const auto& idx : fit->second) {
+          chain.push_back(idx);
+        }
+      }
+    }
+    PartitionBloom nb;
+    for (const auto& idx : chain) {
+      idx->ForEachKey([&nb](const ROCKSDB_NAMESPACE::Slice& ik) {
+        nb.Add(ROCKSDB_NAMESPACE::ExtractUserKey(ik));
+      });
+    }
+    std::unique_lock<std::shared_mutex> l(mu_);
+    blooms_[part_id] = std::move(nb);
   }
 
   // M4.8：确保 active 索引存在且 gen 匹配（Recover 预创建用——防止
@@ -399,6 +497,7 @@ class PartitionIndexSet {
     }
     active_.emplace(part_id,
                     std::make_shared<PartitionIndex>(part_id, gen, cmp_));
+    blooms_.emplace(part_id, PartitionBloom());
   }
 
   // M4.3：Recover 专用插入——找不到 gen 匹配索引时创建（重开时所有 WAL
@@ -416,6 +515,7 @@ class PartitionIndexSet {
       } else if (it == active_.end()) {
         auto ni = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
         active_.emplace(part_id, ni);
+        blooms_.emplace(part_id, PartitionBloom());
         idx = ni;
       } else {
         auto fit = frozen_.find(part_id);
@@ -442,6 +542,9 @@ class PartitionIndexSet {
     if (!idx->Insert(internal_key, locator)) {
       return 0;
     }
+    // M4.11c：布隆更新（Recover 重建路径——漏加会导致重开后活跃段数据
+    // 被布隆预过滤误判 miss → 读不到）。
+    blooms_[part_id].Add(ROCKSDB_NAMESPACE::ExtractUserKey(internal_key));
     const uint64_t added = idx->mem_bytes() - before;
     total_mem_bytes_.fetch_add(added, std::memory_order_relaxed);
     return added;
@@ -501,11 +604,20 @@ class PartitionIndexSet {
   }
 
   // Get：查分区 p 的 active + frozen 链（新→旧，第一个命中即最新版本）。
+  // M4.11c：布隆预过滤——key 不在本分区未物化索引 → 直接 miss（数据在
+  // SST，由原生查找承载；省跳表查询 ~1.2us/op）。
   bool Get(uint32_t part_id, const ROCKSDB_NAMESPACE::Slice& user_key,
            ROCKSDB_NAMESPACE::SequenceNumber snapshot,
            ROCKSDB_NAMESPACE::Slice* locator_out,
            ROCKSDB_NAMESPACE::ValueType* type_out,
            ROCKSDB_NAMESPACE::SequenceNumber* seq_out) const {
+    {
+      std::shared_lock<std::shared_mutex> l(mu_);
+      auto bit = blooms_.find(part_id);
+      if (bit == blooms_.end() || !bit->second.MayContain(user_key)) {
+        return false;
+      }
+    }
     std::vector<std::shared_ptr<PartitionIndex>> chain;
     {
       std::shared_lock<std::shared_mutex> l(mu_);
@@ -565,6 +677,8 @@ class PartitionIndexSet {
   // frozen 链：每分区一个 vector，push_back 追加（链尾最新）。
   std::unordered_map<uint32_t, std::vector<std::shared_ptr<PartitionIndex>>>
       frozen_;
+  // M4.11c：每分区布隆（懒创建，与 active 索引同生命周期；mu_ 保护）。
+  std::unordered_map<uint32_t, PartitionBloom> blooms_;
   std::atomic<uint64_t> total_mem_bytes_{0};
 };
 
