@@ -1380,6 +1380,24 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   // 全部成功：批次输出单次写入 edit_（mems_[0]，满足 TryInstall 的
   // "i==0 或 edit 为空"约束）。epoch 升序 → file number 升序 → L0 内按
   // file number 新→旧查找顺序正确。
+  // M4.11b：替换删除前查文件当前所在层——阶段 0 决策（PlanLocked）与
+  // 安装之间，L0/L1 文件可能被并发 L0→L1 compaction 移动/消费（R54 实测
+  // "Cannot delete table file #N from level 0 since it is on level 1"）。
+  // 按实际层删除；不在版本中（已被消费）则跳过（数据已由 compaction
+  // 处理）。base_ 为当前版本（持锁），遍历安全。
+  auto DeleteFileIfPresent = [&](uint64_t num, int fallback_level) {
+    (void)fallback_level;
+    const auto* vstorage = base_->storage_info();
+    for (int l = 0; l < vstorage->num_levels(); ++l) {
+      for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(l)) {
+        if (f->fd.GetNumber() == num) {
+          edit_->DeleteFile(l, num);
+          return;
+        }
+      }
+    }
+    // 文件不在版本中：已被 compaction 消费/删除 → 无需删除。
+  };
   for (const auto& o : zf_batch_outputs_) {
     if (o.superseded) {
       continue;
@@ -1395,10 +1413,18 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       continue;
     }
     for (uint64_t num : o.replaced_l0_file_numbers) {
-      edit_->DeleteFile(0, num);
+      DeleteFileIfPresent(num, 0);
     }
     for (uint64_t num : o.replaced_file_numbers) {
-      edit_->DeleteFile(o.level, num);
+      DeleteFileIfPresent(num, o.level);
+    }
+    {
+      const rocksdb::Slice& lk = o.meta.smallest.user_key();
+      const rocksdb::Slice& hk = o.meta.largest.user_key();
+      fprintf(stderr, "ZFDBG-install lvl=%d file=%llu lo=%s hi=%s bytes=%llu part=%u\n",
+              o.level, (unsigned long long)o.meta.fd.GetNumber(),
+              lk.data(), hk.data(),
+              (unsigned long long)o.meta.fd.GetFileSize(), o.part_id);
     }
     edit_->AddFile(o.level, o.meta);
   }

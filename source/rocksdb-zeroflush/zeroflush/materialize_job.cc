@@ -273,6 +273,17 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
       assert(plan != nullptr &&
              plan->decision == MaterializeDecision::kMergeBase);
       o.level = plan->compaction->output_level();
+      // M4.11b：安装前复查 compaction 冲突（同 PickInstallLevel）——冲突
+      // 时回落 L0 且不替换（被占用文件不可删；L1 旧文件保留，数据 ⊇ 输出
+      // 不丢，读走 L0 优先语义正确）。
+      if (mc_.compaction_picker != nullptr &&
+          mc_.compaction_picker->RangeOverlapWithCompaction(
+              o.meta.smallest.user_key(), o.meta.largest.user_key(), o.level)) {
+        o.level = 0;
+        o.replaced_inputs.clear();
+        o.replaced_file_numbers.clear();
+        o.replaced_l0_file_numbers.clear();
+      }
       o.replaced_inputs = plan->overlap;
       o.rewritten_bytes = plan->overlap_bytes;
       // 替换文件号：existing 重叠文件 + M4.9 L0 融合文件（DeleteFile(0)）。
@@ -909,34 +920,39 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
                          std::memory_order_relaxed);
 
   // M4.11：hash 遗留切片判定——必须在构造 VectorIterator（move keys）之前。
-  // epoch 1（se.table_version==0，hash 表写入）的分区数据是全范围交错的
-  // key 集合，单文件输出为全范围 → L0→L1 compaction 合并出全范围 L1 →
-  // 所有后续物化 scan_overlap 越界 → 回落 L0 → 写放大无界（R50 链）。
-  // 按当前表（物化时已安装学习表 v1）RangeOf 切 P 片 → 输出分区范围文件
-  // → L1 保持分区文件 → 直装/融合恢复。
-  const bool slice_oob =
-      se_.table_version == 0 && table_ != nullptr && table_->IsHashMode();
+  // hash 遗留 = 分区数据 key 范围超出分区边界（epoch 1 hash 表写入的全
+  // 范围交错数据；epoch 2+ 未封存分区的遗留数据被后续 epoch 收养物化）。
+  // 单文件输出为全范围 → 直装 L1 与未替换文件重叠（VersionBuilder 一致性
+  // 检查崩溃，R54 实测 5GB）或 L0→L1 compaction 合并出全范围 L1 → 所有
+  // 后续物化 scan_overlap 越界 → 回落 L0 → 写放大无界（R50 链）。按切片
+  // 表 RangeOf 切 P 片 → 输出分区范围文件 → L1 保持分区文件 → 直装/融合
+  // 恢复。切片表：epoch 2+ 用 se 表（与物化分区一致）；epoch 1 用当前表
+  // （封存时已安装学习表 v1）。
+  const ROCKSDB_NAMESPACE::Comparator* ucmp_s = mc_.cfd->user_comparator();
+  const rocksdb::Slice u_smallest = ROCKSDB_NAMESPACE::ExtractUserKey(keys.front());
+  const rocksdb::Slice u_largest = ROCKSDB_NAMESPACE::ExtractUserKey(keys.back());
+  const bool oob_data =
+      (!lo.empty() && ucmp_s->Compare(u_smallest, lo) < 0) ||
+      (!hi.empty() && ucmp_s->Compare(u_largest, hi) >= 0);
+  const bool legacy_hash =
+      table_ != nullptr && table_->IsHashMode() && lo.empty() && hi.empty();
   std::shared_ptr<zeroflush::PartitionTable> slice_table;
-  if (slice_oob) {
+  if (table_ != nullptr && !table_->IsHashMode()) {
+    slice_table = table_;
+  } else {
     slice_table = ctx_->tables()->current();
   }
   const bool do_slice =
-      slice_oob && slice_table != nullptr && !slice_table->IsHashMode() &&
-      slice_table->partitions() > 1 && lo.empty() && hi.empty();
+      (oob_data || legacy_hash) && slice_table != nullptr &&
+      !slice_table->IsHashMode() && slice_table->partitions() > 1;
 
   // 范围断言（仅范围路由模式；hash 模式各分区输出范围可能交错，跳过）。
   // M4.10：学习过的表（se.table_version > 0）的分区可能含 hash 学习期
   // 遗留数据——越界数据回落 L0 承载（读走 L0 全范围查找，正确）→ 跳过
   // Corruption 并计数监控。版本 0（纯 hash 表，无遗留）保持断言。
   if (!do_slice && table_ != nullptr && !table_->IsHashMode()) {
-    const rocksdb::Slice u_smallest =
-        ROCKSDB_NAMESPACE::ExtractUserKey(keys.front());
-    const rocksdb::Slice u_largest =
-        ROCKSDB_NAMESPACE::ExtractUserKey(keys.back());
-    const ROCKSDB_NAMESPACE::Comparator* ucmp = mc_.cfd->user_comparator();
     // [smallest, largest] ⊆ [lo, hi)，lo/hi 空 = -∞/+∞。
-    if ((!lo.empty() && ucmp->Compare(u_smallest, lo) < 0) ||
-        (!hi.empty() && ucmp->Compare(u_largest, hi) >= 0)) {
+    if (oob_data) {
       if (se_.table_version > 0) {
         ctx_->materialize_oob_count_.fetch_add(1, std::memory_order_relaxed);
       } else {
@@ -1487,6 +1503,15 @@ int ZfMaterializeJob::PickInstallLevel(
   const ROCKSDB_NAMESPACE::Slice u_largest = largest.user_key();
   const ROCKSDB_NAMESPACE::Comparator* ucmp = mc_.cfd->user_comparator();
 
+  // M4.11b：直装 base 前复查运行中 compaction 的输出范围冲突——阶段 0
+  // 检查后 compaction 可能启动（L0→L1 输出与直装范围重叠 → L1 重叠文件
+  // → VersionBuilder 一致性检查崩溃，R54 实测 5GB）。冲突 → 回落 L0
+  // （L0 允许重叠；compaction 消费后后续批次直装恢复）。
+  if (mc_.compaction_picker != nullptr &&
+      mc_.compaction_picker->RangeOverlapWithCompaction(
+          u_smallest, u_largest, base)) {
+    return 0;
+  }
   // 可安装 ⟺ L0..base_level 均无文件与 [smallest, largest] 重叠
   // （M3_DESIGN.md §6.2；base_level 为当前首个非空层）。
   for (int l = 0; l <= base; ++l) {
