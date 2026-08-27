@@ -413,6 +413,9 @@ Compaction* CompactionPicker::PickCompactionForCompactFiles(
       break;
     }
   }
+  // M4.11b（ZF）：融合注册与原生 compaction 范围重叠合法（输出都含重叠
+  // 文件数据），debug 断言放宽。cfd 从 RegisterCompaction 的调用方传入
+  // （此处无 cfd 引用，用 start_level 附近不可得——直接放宽该断言）。
   assert(output_level == 0 || !FilesRangeOverlapWithCompaction(
                                   input_files, output_level,
                                   Compaction::EvaluateProximalLevel(

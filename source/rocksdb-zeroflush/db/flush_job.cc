@@ -1385,9 +1385,20 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   // "Cannot delete table file #N from level 0 since it is on level 1"）。
   // 按实际层删除；不在版本中（已被消费）则跳过（数据已由 compaction
   // 处理）。base_ 为当前版本（持锁），遍历安全。
+  std::unordered_set<uint64_t> zf_deleted_nums;
   auto DeleteFileIfPresent = [&](uint64_t num, int fallback_level) {
     (void)fallback_level;
-    const auto* vstorage = base_->storage_info();
+    // 批内去重：批内链式替换继承 replaced 文件号，多个输出会重复引用
+    // 同一文件（R54 实测 "Cannot delete table file #N from level 0 since
+    // it is not in the LSM tree"）。
+    if (!zf_deleted_nums.insert(num).second) {
+      return;
+    }
+    // 用持锁时的当前版本（cfd_->current()）而非 base_：阶段 1（无锁）
+    // 期间 compaction 可能安装新版本，base_（PickMemtable 时的版本）过期
+    // ——按过期版本删除会报 "not in the LSM tree"（R54 实测）。阶段 2 持
+    // DB mutex，current() 稳定。
+    const auto* vstorage = cfd_->current()->storage_info();
     for (int l = 0; l < vstorage->num_levels(); ++l) {
       for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(l)) {
         if (f->fd.GetNumber() == num) {

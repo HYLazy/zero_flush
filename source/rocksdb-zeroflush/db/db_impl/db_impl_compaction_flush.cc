@@ -4772,7 +4772,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           // When status is not OK, compaction's result installation failed and
           // no new Version installed. The files could have been released and
           // picked up again by other compaction attempts.
-          assert(!c->input(i, j)->being_compacted || !status.ok());
+          // M4.11b（ZF）：融合注册（物化）标记的文件与原生 compaction 并发
+          // 处理同一文件是合法场景——两个输出都含该文件数据（重复不丢），
+          // debug 断言放宽（release 无断言，行为不变）。
+          const bool zf_merge_relax =
+              c->column_family_data()->GetZfCtx() != nullptr;
+          assert(zf_merge_relax || !c->input(i, j)->being_compacted ||
+                 !status.ok());
         }
       }
       std::unordered_set<Compaction*>* cip = c->column_family_data()

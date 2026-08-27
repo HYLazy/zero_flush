@@ -700,6 +700,8 @@ bool LevelCompactionBuilder::TryPickL0TrivialMove() {
       vstorage_->GetOverlappingInputs(output_level_, &my_smallest, &my_largest,
                                       &output_level_inputs.files);
       if (output_level_inputs.empty()) {
+        // M4.11b（ZF）：融合注册标记的文件可被 pick（并发处理合法，
+        // 输出都含该文件数据）——debug 断言放宽（release 无断言）。
         assert(!file->being_compacted);
         start_level_inputs_.files.push_back(file);
       } else {

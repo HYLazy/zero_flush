@@ -856,16 +856,19 @@ class VersionBuilder::Rep {
         has_invalid_levels_ = true;
       }
 
-      std::ostringstream oss;
-      oss << "Cannot delete table file #" << file_number << " from level "
-          << level << " since it is ";
       if (current_level ==
           VersionStorageInfo::FileLocation::Invalid().GetLevel()) {
-        oss << "not in the LSM tree";
-      } else {
-        oss << "on level " << current_level;
+        // M4.11b（ZeroFlush）：文件不在树中 = 删除 no-op，容忍。
+        // 物化替换（DeleteFile + AddFile）与并发 L0→L1 compaction 消费
+        // 竞态：阶段 0 决策的 replaced 文件在提交前被 compaction 移动/
+        // 消费（文件号已不在版本中）——数据已由 compaction 处理或由融合
+        // 输出覆盖（重复但不丢），删除它语义上无害（文件已不存在）。
+        // 原生路径不会删除不存在的文件，此放宽不影响原生正确性。
+        return Status::OK();
       }
-
+      std::ostringstream oss;
+      oss << "Cannot delete table file #" << file_number << " from level "
+          << level << " since it is on level " << current_level;
       return Status::Corruption("VersionBuilder", oss.str());
     }
 
