@@ -803,6 +803,27 @@ epoch 同时完成（释放时机不变），但 API 与语义已分区化，为
 
 修复路线（写组表版本绑定框架已实现、未收敛）：
    a. 批次封存接入采样学习（merge 启用验证通过）
-   b. 写组绑定表版本（WriteGroup.zf_table_version + RouteWithVersion）
-      + 学习/对齐只在写组边界且分区数恒定（align_l1 不足时采样边界兜底）
+   b. 写组绑定表版本（WriteGroup.zf_table_version + RouteWithVersion——
+      数据路由（AddRecord）与物化（se.table_version）同一表）
    c. L0 融合激活 → fallback→0（预期写 +20-50%、读的 L0 查找改善）
+
+### 6.9 M4.10b 根本冲突：批次封存 vs 表版本切换（R49 深挖）
+
+版本绑定（含数据路由）后 sampled 仍崩（物化范围断言越界）——根因：
+**kMaxBatch=4 的批次封存使 epoch 语义与表切换不兼容**——epoch 1（hash
+学习期）的 16 分区数据需 4 个 epoch 批次才全部封存，后续 epoch 的 gens
+仍含 hash 遗留数据；表切换到版本 1（边界表）后，这些 epoch 的物化用
+新表断言 → 越界 Corruption（R49 实测分区 1/3/10 越界）。
+
+修复路线（需过渡期语义）：
+   a. 物化断言放宽：学习过渡期（版本切换后活跃段仍含 hash 遗留）的
+      epoch 跳过范围断言（越界数据回落 L0——读走 L0 全范围查找，正确）
+   b. 过渡期判定：se 增加标记（如「可能含学习期遗留」——按 epoch 距离
+      学习安装的代数或分区覆盖度）
+   c. L0 禁用条件化：过渡期（hash 遗留 L0 存在）保持原生消费；过渡期
+      结束后启用 L0 融合接管
+   d. align_l1 的 L1 依赖：不足 partitions 时用采样边界兜底（分区数恒定）
+
+读路径缓解实测（R49）：value cache 0 vs 64MB 纯读无差异（160K vs
+160K——命中 0 时插入开销可忽略）；读慢（页缓存热 4.3×）主因是 fallback
+产生的同范围重叠 L0 文件拖慢 SST 查找——根治同样在 L0 自管。
