@@ -591,9 +591,30 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         }
       }
       if (!batch_l0) {
-        // L0 融合：B 侧 = L0 文件 + base overlap（plan.l0_overlap 供归并
-        // 与定层消费）；走下方 kMergeBase 注册路径（跳过 ratio 门槛——
-        // L0 文件存在即合并，否则回落 L0 循环）。
+        // L0 融合：B 侧 = L0 文件 + base overlap。写放大防护（R49e 实测
+        // 卡死根因）：小 epoch 无条件融合会每物化重写 L1 全量（32× 写放大
+        // → 物化吞吐 < 写吞吐 → 写停卡死）。用（本 epoch sealed + 待融合
+        // L0 字节）/ overlap（L1）的 ratio 门槛——不达标则回落 L0 累积
+        // （L0 文件由后续融合清理），达标才融合（重写 L1 一次）。
+        uint64_t l0_bytes = 0;
+        for (ROCKSDB_NAMESPACE::FileMetaData* f : l0_overlap) {
+          l0_bytes += f->fd.GetFileSize();
+        }
+        const auto pit = se_.part_bytes.find(pid);
+        const uint64_t sealed =
+            (pit != se_.part_bytes.end()) ? pit->second : 0;
+        const double ratio =
+            (overlap_bytes > 0)
+                ? static_cast<double>(sealed + l0_bytes) /
+                      static_cast<double>(overlap_bytes)
+                : 1.0;
+        if (ratio < ctx_->zfo_.base_merge_min_ratio) {
+          // ratio 不足：回落 L0 累积（compaction 消费——滞留由后续
+          // ratio 达标的融合清理；滞留有限且不阻断（越界跳过）。
+          plan.decision = MaterializeDecision::kFallback;
+          plans_.push_back(std::move(plan));
+          continue;
+        }
         plan.l0_overlap = std::move(l0_overlap);
       } else {
         // 批内有本分区未安装的 L0 输出（替换会丢其数据）：等待下一批
@@ -656,6 +677,20 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
 
     // overlap 为空且无批内跳过 → existing 无相交文件 → 走直装路径。
     if (overlap.empty() && !batch_skipped && plan.l0_overlap.empty()) {
+      // M4.10b：直装 L1 与运行中 compaction（L0→L1）的输出范围互斥——
+      // 并发安装会使 L1 出现重叠文件（破坏非 L0 层无重叠不变量）。
+      // 命中即降级：攒批开启时 kSkip 等待（compaction 完成后重试直装，
+      // 数据留 frozen + WAL 可读）；关闭时保持 kDirect（PickInstallLevel
+      // 因 L1 重叠回落 L0，由原生 L0 compaction 消费，语义正确）。
+      if (mc_.compaction_picker != nullptr &&
+          mc_.compaction_picker->RangeOverlapWithCompaction(plan.lo, plan.hi,
+                                                            base)) {
+        if (ctx_->zfo_.skip_batching &&
+            PendingGenCount(pid) < kMaxSkipGenerations) {
+          plan.decision = MaterializeDecision::kSkip;
+          ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
       plans_.push_back(std::move(plan));
       continue;
     }
@@ -881,6 +916,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
   assert(iter->Valid());
 
   // 范围断言（仅范围路由模式；hash 模式各分区输出范围可能交错，跳过）。
+  // M4.10：学习过的表（se.table_version > 0）的分区可能含 hash 学习期
+  // 遗留数据（epoch 1 的小分区滞留活跃段，被版本 1 数据稀释后混合冻结）
+  // ——越界数据回落 L0 承载（读走 L0 全范围查找，正确）→ 跳过 Corruption
+  // 并计数监控（hash 遗留与真路由错误无法静态区分）。版本 0（纯 hash 表，
+  // 无遗留）保持断言（真路由错误检测）。
   if (table_ != nullptr && !table_->IsHashMode()) {
     iter->SeekToFirst();
     const rocksdb::Slice u_smallest =
@@ -893,9 +933,13 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
     // [smallest, largest] ⊆ [lo, hi)，lo/hi 空 = -∞/+∞。
     if ((!lo.empty() && ucmp->Compare(u_smallest, lo) < 0) ||
         (!hi.empty() && ucmp->Compare(u_largest, hi) >= 0)) {
-      return ROCKSDB_NAMESPACE::Status::Corruption(
-          "ZF partition " + std::to_string(part_id) +
-          " materialized range outside table bounds");
+      if (se_.table_version > 0) {
+        ctx_->materialize_oob_count_.fetch_add(1, std::memory_order_relaxed);
+      } else {
+        return ROCKSDB_NAMESPACE::Status::Corruption(
+            "ZF partition " + std::to_string(part_id) +
+            " materialized range outside table bounds");
+      }
     }
   }
 
@@ -1030,7 +1074,8 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   a_iter->SeekToFirst();
   assert(a_iter->Valid());
 
-  // 范围断言（同 MaterializePartition）。
+  // 范围断言（同 MaterializePartition）。M4.10：学习表（版本 >0）的分区
+  // 可能含 hash 学习期遗留（越界——回落 L0 承载，读正确）→ 跳过并计数。
   if (table_ != nullptr && !table_->IsHashMode()) {
     a_iter->SeekToFirst();
     const rocksdb::Slice u_smallest =
@@ -1042,9 +1087,13 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
     const ROCKSDB_NAMESPACE::Comparator* ucmp = mc_.cfd->user_comparator();
     if ((!lo.empty() && ucmp->Compare(u_smallest, lo) < 0) ||
         (!hi.empty() && ucmp->Compare(u_largest, hi) >= 0)) {
-      return ROCKSDB_NAMESPACE::Status::Corruption(
-          "ZF partition " + std::to_string(part_id) +
-          " materialized range outside table bounds");
+      if (se_.table_version > 0) {
+        ctx_->materialize_oob_count_.fetch_add(1, std::memory_order_relaxed);
+      } else {
+        return ROCKSDB_NAMESPACE::Status::Corruption(
+            "ZF partition " + std::to_string(part_id) +
+            " materialized range outside table bounds");
+      }
     }
   }
 

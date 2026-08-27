@@ -141,7 +141,8 @@ class ZeroFlushContext {
   // 内部完成本 writer 的 BatchPostProcess（计数 + UpdateFlushState）。
   ROCKSDB_NAMESPACE::Status InsertWriterToPartitionWal(
       ROCKSDB_NAMESPACE::WriteThread::Writer* w,
-      ROCKSDB_NAMESPACE::MemTable* mem, const ROCKSDB_NAMESPACE::WriteOptions& write_options);
+      ROCKSDB_NAMESPACE::MemTable* mem, const ROCKSDB_NAMESPACE::WriteOptions& write_options,
+      uint32_t table_version);
 
   // M3.0 R3：fdatasync 指定分区（必须在不持 DB mutex 时调用）。
   ROCKSDB_NAMESPACE::Status SyncTouchedPartitions(
@@ -156,6 +157,11 @@ class ZeroFlushContext {
   // 重放 wal_dir 下全部分区 WAL 到 default CF 的 Slim MemTable，
   // 并设置 last sequence（重放的最大 seq）。
   ROCKSDB_NAMESPACE::Status Recover(ROCKSDB_NAMESPACE::DBImpl* db);
+
+  // M4.10c：持久化 ZFPROPS（全量表版本）。学习安装（kSampled epoch 1 /
+  // kAlignL1 每 epoch）后调用——否则运行中安装的新表不落盘，重开恢复
+  // 旧表 → 路由错位 → 活跃段数据读不到（R52 实测重开命中 46% vs 63%）。
+  ROCKSDB_NAMESPACE::Status PersistZfProps();
 
   PartitionedWalManager* wal() { return wal_.get(); }
   const ZeroFlushOptions& options() const { return zfo_; }
@@ -186,6 +192,10 @@ class ZeroFlushContext {
   // 路由：M1 用 key 哈希取模（确定性，同 key 同分区 → 正确性不变式成立）；
   // M3.1 由 PartitionTable 的边界二分接替。
   uint32_t Route(const ROCKSDB_NAMESPACE::Slice& user_key) const;
+  // M4.10：按指定表版本路由（写组绑定——封存换表期间组内版本一致，
+  // 数据路由与物化（se.table_version）用同一表 → 范围断言一致）。
+  uint32_t RouteWithVersion(const ROCKSDB_NAMESPACE::Slice& user_key,
+                            uint32_t table_version) const;
 
   // 单条记录：分区 WAL 追加 + Slim MemTable 索引插入（ZfBatchHandler 调用）。
   // M4.1c：并发插入路径（allow_concurrent=true），ppi 按 mem 累计，组
@@ -194,7 +204,8 @@ class ZeroFlushContext {
       ROCKSDB_NAMESPACE::MemTable* mem, const ROCKSDB_NAMESPACE::Slice& key,
       const ROCKSDB_NAMESPACE::Slice& value, ROCKSDB_NAMESPACE::ValueType type,
       ROCKSDB_NAMESPACE::SequenceNumber seq,
-      ROCKSDB_NAMESPACE::MemTablePostProcessInfo* ppi);
+      ROCKSDB_NAMESPACE::MemTablePostProcessInfo* ppi,
+      uint32_t table_version);
 
   // ---- M2 新增：Epoch 管理 ----
 
@@ -321,7 +332,9 @@ class ZeroFlushContext {
   // ---- M3.1 路由 ----
   std::unique_ptr<class PartitionTableSet> tables_;
   const ROCKSDB_NAMESPACE::Comparator* ucmp_ = nullptr;  // user comparator
-  std::unique_ptr<class KeySampler> sampler_;  // kSampled 学习期采样器
+  std::unique_ptr<class KeySampler> sampler_;  // kSampled/kAlignL1 学习期采样器
+  // M4.10：学习表物化越界计数（hash 学习期遗留——监控告警用）。
+  std::atomic<uint64_t> materialize_oob_count_{0};
   // ---- M4.3 终态 ----
   std::unique_ptr<class PartitionIndexSet> index_set_;  // 分区索引（L0 索引）
   // M4.7b：value cache（LRU；键 = locator 16B，值 = std::string*）。

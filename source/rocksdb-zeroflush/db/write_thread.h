@@ -97,6 +97,11 @@ class WriteThread {
     // memtable，组内全部 writer（含 follower）插入到同一 mem；组最后
     // 完成者 Unref。非 ZF 组恒为 nullptr。
     MemTable* zf_mem = nullptr;
+    // M4.10（ZF parallel）：组开始时的路由表版本——leader 在封存/表切换
+    // 前记录，组内全部 writer（含 follower）用同一版本路由数据（封存
+    // 安装新表后若 follower 用新表、物化用旧表 → 同 epoch 数据跨表 →
+    // 物化范围断言崩，R49 实测）。
+    uint32_t zf_table_version = 0;
 
     struct Iterator {
       Writer* writer;

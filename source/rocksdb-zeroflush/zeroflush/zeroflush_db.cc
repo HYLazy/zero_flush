@@ -57,8 +57,10 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
   ZfBatchHandler(ZeroFlushContext* ctx, ROCKSDB_NAMESPACE::MemTable* mem,
                  ROCKSDB_NAMESPACE::SequenceNumber* seq, uint64_t* touched,
                  std::map<ROCKSDB_NAMESPACE::MemTable*,
-                          ROCKSDB_NAMESPACE::MemTablePostProcessInfo>* post_map)
-      : ctx_(ctx), mem_(mem), seq_(seq), touched_(touched), post_map_(post_map) {}
+                          ROCKSDB_NAMESPACE::MemTablePostProcessInfo>* post_map,
+                 uint32_t table_version)
+      : ctx_(ctx), mem_(mem), seq_(seq), touched_(touched),
+        table_version_(table_version), post_map_(post_map) {}
 
   ROCKSDB_NAMESPACE::Status PutCF(uint32_t column_family_id,
                                   const ROCKSDB_NAMESPACE::Slice& key,
@@ -69,9 +71,9 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
     }
     ROCKSDB_NAMESPACE::Status s = ctx_->AddRecord(
         mem_, key, value, ROCKSDB_NAMESPACE::kTypeValue, *seq_,
-        &(*post_map_)[mem_]);
+        &(*post_map_)[mem_], table_version_);
     if (s.ok() && touched_ != nullptr) {
-      *touched_ |= (uint64_t{1} << ctx_->Route(key));
+      *touched_ |= (uint64_t{1} << ctx_->RouteWithVersion(key, table_version_));
     }
     ++(*seq_);
     return s;
@@ -86,9 +88,9 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
     ROCKSDB_NAMESPACE::Slice empty;
     ROCKSDB_NAMESPACE::Status s = ctx_->AddRecord(
         mem_, key, empty, ROCKSDB_NAMESPACE::kTypeDeletion, *seq_,
-        &(*post_map_)[mem_]);
+        &(*post_map_)[mem_], table_version_);
     if (s.ok() && touched_ != nullptr) {
-      *touched_ |= (uint64_t{1} << ctx_->Route(key));
+      *touched_ |= (uint64_t{1} << ctx_->RouteWithVersion(key, table_version_));
     }
     ++(*seq_);
     return s;
@@ -104,9 +106,9 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
     ROCKSDB_NAMESPACE::Slice empty;
     ROCKSDB_NAMESPACE::Status s = ctx_->AddRecord(
         mem_, key, empty, ROCKSDB_NAMESPACE::kTypeSingleDeletion, *seq_,
-        &(*post_map_)[mem_]);
+        &(*post_map_)[mem_], table_version_);
     if (s.ok() && touched_ != nullptr) {
-      *touched_ |= (uint64_t{1} << ctx_->Route(key));
+      *touched_ |= (uint64_t{1} << ctx_->RouteWithVersion(key, table_version_));
     }
     ++(*seq_);
     return s;
@@ -117,7 +119,7 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
       const ROCKSDB_NAMESPACE::Slice& end) override {
     ROCKSDB_NAMESPACE::Status s = ctx_->AddRecord(
         mem_, begin, end, ROCKSDB_NAMESPACE::kTypeRangeDeletion, *seq_,
-        &(*post_map_)[mem_]);
+        &(*post_map_)[mem_], table_version_);
     if (s.ok() && touched_ != nullptr) {
       // kRangeDelPartId=0xFFFFFFFE 装不进 64 位位图 → 用位 63 映射
       *touched_ |= (uint64_t{1} << 63);
@@ -131,9 +133,9 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
       const ROCKSDB_NAMESPACE::Slice& value) override {
     ROCKSDB_NAMESPACE::Status s = ctx_->AddRecord(
         mem_, key, value, ROCKSDB_NAMESPACE::kTypeMerge, *seq_,
-        &(*post_map_)[mem_]);
+        &(*post_map_)[mem_], table_version_);
     if (s.ok() && touched_ != nullptr) {
-      *touched_ |= (uint64_t{1} << ctx_->Route(key));
+      *touched_ |= (uint64_t{1} << ctx_->RouteWithVersion(key, table_version_));
     }
     ++(*seq_);
     return s;
@@ -148,6 +150,7 @@ class ZfBatchHandler : public ROCKSDB_NAMESPACE::WriteBatch::Handler {
   ROCKSDB_NAMESPACE::MemTable* mem_;
   ROCKSDB_NAMESPACE::SequenceNumber* seq_;
   uint64_t* touched_;  // 触达分区位图（分区数 ≤ 64；热路径省 hash）
+  uint32_t table_version_;  // M4.10：写组绑定的路由表版本
   std::map<ROCKSDB_NAMESPACE::MemTable*,
            ROCKSDB_NAMESPACE::MemTablePostProcessInfo>* post_map_;
 };
@@ -286,6 +289,9 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
           1, std::move(boundaries), ucmp_, &new_table);
       if (cps.ok()) {
         tables_->InstallNewVersion(std::move(new_table));
+        // M4.10c：新表必须立即落盘 ZFPROPS——否则崩溃/重开后恢复旧表，
+        // 路由错位使活跃段数据读不到（R52）。
+        PersistZfProps().PermitUncheckedError();
         // 学习期 epoch 1 用 hash 写入：se.table_version 保持 0（上方初始化
         // 值），仅后续 epoch 使用 version 1。
       }
@@ -304,6 +310,8 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
     std::shared_ptr<PartitionTable> new_table;
     if (BuildL1AlignedTable(cfd, &new_table)) {
       tables_->InstallNewVersion(std::move(new_table));
+      // M4.10c：同 kSampled——新表立即落盘，重开路由一致。
+      PersistZfProps().PermitUncheckedError();
     }
   }
   // Step 2：登记到 SealedFileCache（refcount=1）。M3.0 R1：若存在恢复期
@@ -515,15 +523,29 @@ uint32_t ZeroFlushContext::Route(const ROCKSDB_NAMESPACE::Slice& user_key) const
   return h % zfo_.partitions;
 }
 
+uint32_t ZeroFlushContext::RouteWithVersion(
+    const ROCKSDB_NAMESPACE::Slice& user_key, uint32_t table_version) const {
+  // M4.10：按指定表版本路由（写组绑定——封存换表期间组内版本一致，
+  // 数据路由与物化（se.table_version）用同一表 → 范围断言一致）。
+  auto tbl = tables_ ? tables_->Get(table_version) : nullptr;
+  if (tbl) {
+    return tbl->Route(user_key);
+  }
+  uint32_t h = ROCKSDB_NAMESPACE::Hash(user_key.data(), user_key.size(), 0);
+  return h % zfo_.partitions;
+}
+
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
     ROCKSDB_NAMESPACE::MemTable* mem, const ROCKSDB_NAMESPACE::Slice& key,
     const ROCKSDB_NAMESPACE::Slice& value, ROCKSDB_NAMESPACE::ValueType type,
     ROCKSDB_NAMESPACE::SequenceNumber seq,
-    ROCKSDB_NAMESPACE::MemTablePostProcessInfo* ppi) {
+    ROCKSDB_NAMESPACE::MemTablePostProcessInfo* ppi,
+    uint32_t table_version) {
   // 1) 路由 + 分区 WAL 追加（value 的唯一持久副本）
   const uint32_t part =
-      (type == ROCKSDB_NAMESPACE::kTypeRangeDeletion) ? kRangeDelPartId
-                                                      : Route(key);
+      (type == ROCKSDB_NAMESPACE::kTypeRangeDeletion)
+          ? kRangeDelPartId
+          : RouteWithVersion(key, table_version);
   WalRecordRef ref;
   ROCKSDB_NAMESPACE::Status s =
       wal_->Append(part, key, value, static_cast<uint8_t>(type), seq, &ref);
@@ -613,6 +635,40 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeBatchPartitions(
   SealedEpoch se;
   se.epoch = epoch;
   se.table_version = tables_ ? tables_->current_version() : 0;
+  // M3.1/M4.2b：采样学习 / L1 对齐（批次封存路径的接线缺口，R49——
+  // 融合从未启用的根因）。epoch 1 封存时学习安装新表（版本 1+）；本
+  // epoch 用旧表写/物化（写组表版本绑定保证路由一致）。
+  if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
+      sampler_ && tables_ && tables_->current_version() == 0 &&
+      epoch == 1 && !sampler_->empty()) {
+    std::vector<std::string> boundaries;
+    if (sampler_->BuildBoundaries(zfo_.partitions, &boundaries)) {
+      std::shared_ptr<PartitionTable> new_table;
+      rocksdb::Status cps = PartitionTable::Create(
+          1, std::move(boundaries), ucmp_, &new_table);
+      if (cps.ok()) {
+        tables_->InstallNewVersion(std::move(new_table));
+      }
+    }
+  } else if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kAlignL1 &&
+             tables_) {
+    std::shared_ptr<PartitionTable> new_table;
+    if (!BuildL1AlignedTable(cfd, &new_table) && sampler_ &&
+        tables_->current_version() == 0 && epoch == 1 &&
+        !sampler_->empty()) {
+      std::vector<std::string> boundaries;
+      if (sampler_->BuildBoundaries(zfo_.partitions, &boundaries)) {
+        rocksdb::Status cps = PartitionTable::Create(
+            1, std::move(boundaries), ucmp_, &new_table);
+        if (!cps.ok()) {
+          new_table.reset();
+        }
+      }
+    }
+    if (new_table != nullptr) {
+      tables_->InstallNewVersion(std::move(new_table));
+    }
+  }
   for (uint32_t p : batch) {
     const FreezeResult fr = wal_->Freeze(p);
     // 新活跃索引的 gen = 新 WAL 代（old_gen + 1）——否则 freeze 后写组的
@@ -838,7 +894,8 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::WriteGroupToPartitionWal(
     if (!writer->ShouldWriteToMemtable()) {
       continue;
     }
-    ZfBatchHandler handler(this, mem, &seq, &touched_set, &post_map);
+    ZfBatchHandler handler(this, mem, &seq, &touched_set, &post_map,
+                           wg.zf_table_version);
     ROCKSDB_NAMESPACE::Status s = writer->batch->Iterate(&handler);
     if (!s.ok()) {
       return s;
@@ -867,14 +924,16 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::WriteGroupToPartitionWal(
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::InsertWriterToPartitionWal(
     ROCKSDB_NAMESPACE::WriteThread::Writer* w,
     ROCKSDB_NAMESPACE::MemTable* mem,
-    const ROCKSDB_NAMESPACE::WriteOptions& write_options) {
+    const ROCKSDB_NAMESPACE::WriteOptions& write_options,
+    uint32_t table_version) {
   assert(w != nullptr);
   ROCKSDB_NAMESPACE::SequenceNumber seq = w->sequence;
   uint64_t touched_set = 0;  // 分区位图（M4.9：省每 op hash）
   std::map<ROCKSDB_NAMESPACE::MemTable*,
            ROCKSDB_NAMESPACE::MemTablePostProcessInfo>
       post_map;
-  ZfBatchHandler handler(this, mem, &seq, &touched_set, &post_map);
+  ZfBatchHandler handler(this, mem, &seq, &touched_set, &post_map,
+                         table_version);
   ROCKSDB_NAMESPACE::Status s = w->batch->Iterate(&handler);
   if (!s.ok()) {
     return s;
@@ -1062,13 +1121,18 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
       // M4.3a/4.4b：终态路径——重建分区索引（活跃 WAL 的全部代；locator
       // 指向持久 WAL）。索引 gen 字段不参与查找（Get 查 active+frozen 链），
       // 仅 frozen 索引按 gen 释放——恢复的活跃索引不释放，无碍。
+      // M4.10c：索引分区按「当前表」路由（Get 同路由 → 一致）而非写时
+      // 分区——ZFPROPS 表版本落后（旧版本 bug）或 hash 遗留时，写时分区
+      // 与重开路由错位 → 活跃段数据读不到（R52）。locator.part_id 保持
+      // 写时分区（WAL 段文件按写时分区定位，与路由无关）。
       std::string ik;
       ik.reserve(key.size() + 8);
       ik.append(key.data(), key.size());
       ROCKSDB_NAMESPACE::PutFixed64(
           &ik, ROCKSDB_NAMESPACE::PackSequenceAndType(
                    h.seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(h.type)));
-      index_set_->InsertCreate(part, gen, ik, loc_slice);
+      const uint32_t rpart = RouteWithVersion(key, tables_->current_version());
+      index_set_->InsertCreate(rpart, gen, ik, loc_slice);
       if (h.seq > max_seq) {
         max_seq = h.seq;
       }
@@ -1079,6 +1143,82 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
   // 防止退化（如 SetLastSequence 之前有更晚的写入）。
   db->SetZeroFlushLastSequence(
       std::max(db->GetLatestSequenceNumber(), max_seq));
+  return ROCKSDB_NAMESPACE::Status::OK();
+}
+
+// M4.10c：持久化 ZFPROPS v2（原子写：tmp → rename → SyncDir）。
+ROCKSDB_NAMESPACE::Status ZeroFlushContext::PersistZfProps() {
+  if (!zfo_.use_zfprops) {
+    return ROCKSDB_NAMESPACE::Status::OK();
+  }
+  const std::string props_path = wal_dir_ + "/ZFPROPS";
+  std::vector<ZfPropsTableInfo> tables_info;
+  tables_info.reserve(1);
+  ZfPropsTableInfo ti;
+  ti.version = 0;
+  ti.partitions = zfo_.partitions;
+  ti.part_ids.clear();
+  for (uint32_t i = 0; i < zfo_.partitions; ++i) ti.part_ids.push_back(i);
+  ti.boundaries.clear();  // 初始 phase 0 完整信息由 ZFPROPS 全量写入
+  tables_info.push_back(ti);
+  // 若有更多表（采样后 InstallNewVersion 的），也编码进去。
+  for (uint32_t v = 1; v <= tables_->current_version(); ++v) {
+    auto tbl = tables_->Get(v);
+    if (!tbl) continue;
+    ZfPropsTableInfo tiv;
+    tiv.version = v;
+    tiv.partitions = tbl->partitions();
+    tiv.part_ids = tbl->part_ids();
+    tiv.boundaries.clear();
+    if (!tbl->IsHashMode()) {
+      // 从 table 中获得 boundaries（通过 RangeOf 获取每个分区的 hi 边界）。
+      for (uint32_t i = 0; i + 1 < tbl->partitions(); ++i) {
+        rocksdb::Slice lo, hi;
+        tbl->RangeOf(i, &lo, &hi);
+        (void)lo;
+        tiv.boundaries.emplace_back(hi.data(), hi.size());
+      }
+    }
+    tables_info.push_back(tiv);
+  }
+  std::string props_data;
+  rocksdb::Status es = EncodeZfPropsV2(
+      static_cast<uint8_t>(zfo_.routing_mode), ucmp_->Name(), tables_info,
+      tables_->current_version(), &props_data);
+  if (!es.ok()) {
+    return ROCKSDB_NAMESPACE::Status::IOError(
+        "ZeroFlush: failed to encode ZFPROPS v2: " + es.ToString());
+  }
+  const std::string tmp_path = props_path + ".tmp";
+  std::unique_ptr<rocksdb::WritableFile> wf;
+  rocksdb::Status ws =
+      env_->NewWritableFile(tmp_path, &wf, rocksdb::EnvOptions());
+  if (ws.ok()) {
+    ws = wf->Append(props_data);
+    if (ws.ok()) ws = wf->Sync();
+    if (ws.ok()) ws = wf->Close();
+  }
+  if (ws.ok()) {
+    ws = env_->RenameFile(tmp_path, props_path);
+  }
+  if (ws.ok()) {
+    std::string dir = props_path.substr(0, props_path.rfind('/'));
+    if (!dir.empty()) {
+      std::unique_ptr<rocksdb::Directory> dir_obj;
+      rocksdb::Status ds = env_->NewDirectory(dir, &dir_obj);
+      if (ds.ok() && dir_obj) {
+        ds = dir_obj->Fsync();
+      }
+      if (!ds.ok() && zfo_.use_logger && wal_->InfoLog() != nullptr) {
+        ROCKS_LOG_WARN(wal_->InfoLog(), "ZeroFlush: SyncDir(%s) failed: %s",
+                       dir.c_str(), ds.ToString().c_str());
+      }
+    }
+  } else {
+    env_->DeleteFile(tmp_path).PermitUncheckedError();
+    return ROCKSDB_NAMESPACE::Status::IOError(
+        "ZeroFlush: failed to write ZFPROPS v2: " + ws.ToString());
+  }
   return ROCKSDB_NAMESPACE::Status::OK();
 }
 
@@ -1223,8 +1363,10 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   }
   ctx->tables_ = std::move(table_set);
 
-  // M3.1：kSampled 模式：创建采样器（学习期 epoch 1）。
-  if (zfo.routing_mode == ZeroFlushOptions::RoutingMode::kSampled) {
+  // M3.1：kSampled / kAlignL1 模式：创建采样器（kAlignL1 在 L1 不足时
+  // 用采样边界兜底，分区数恒定）。
+  if (zfo.routing_mode == ZeroFlushOptions::RoutingMode::kSampled ||
+      zfo.routing_mode == ZeroFlushOptions::RoutingMode::kAlignL1) {
     ctx->sampler_.reset(
         new KeySampler(zfo.sample_every_n_records, ucmp));
   }
@@ -1320,79 +1462,11 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
       }
     }
 
-    // 原子写 ZFPROPS v2（tmp → rename）。
-    // 用 v2 格式总是向前兼容（即使 hash 模式也写 v2）。
-    std::vector<ZfPropsTableInfo> tables_info;
-    tables_info.reserve(1);
-    ZfPropsTableInfo ti;
-    ti.version = 0;
-    ti.partitions = zfo.partitions;
-    ti.part_ids.clear();
-    for (uint32_t i = 0; i < zfo.partitions; ++i) ti.part_ids.push_back(i);
-    ti.boundaries.clear();  // 初始 phase 0 完整信息由 ZFPROPS 全量写入
-    tables_info.push_back(ti);
-    // 若有更多表（采样后 InstallNewVersion 的），也编码进去。
-    for (uint32_t v = 1; v <= ctx->tables_->current_version(); ++v) {
-      auto tbl = ctx->tables_->Get(v);
-      if (!tbl) continue;
-      ZfPropsTableInfo tiv;
-      tiv.version = v;
-      tiv.partitions = tbl->partitions();
-      tiv.part_ids = tbl->part_ids();
-      tiv.boundaries.clear();
-      if (!tbl->IsHashMode()) {
-        // 从 table 中获得 boundaries（通过 RangeOf 获取每个分区的 hi 边界）。
-        for (uint32_t i = 0; i + 1 < tbl->partitions(); ++i) {
-          rocksdb::Slice lo, hi;
-          tbl->RangeOf(i, &lo, &hi);
-          (void)lo;
-          tiv.boundaries.emplace_back(hi.data(), hi.size());
-        }
-      }
-      tables_info.push_back(tiv);
-    }
-    std::string props_data;
-    rocksdb::Status es = EncodeZfPropsV2(
-        static_cast<uint8_t>(zfo.routing_mode),
-        ucmp->Name(), tables_info, ctx->tables_->current_version(),
-        &props_data);
-    if (!es.ok()) {
-      return ROCKSDB_NAMESPACE::Status::IOError(
-          "ZeroFlush: failed to encode ZFPROPS v2: " + es.ToString());
-    }
-    // tmp → rename 原子写。
-    const std::string tmp_path = props_path + ".tmp";
-    std::unique_ptr<rocksdb::WritableFile> wf;
-    rocksdb::Status ws = env->NewWritableFile(tmp_path, &wf, rocksdb::EnvOptions());
-    if (ws.ok()) {
-      ws = wf->Append(props_data);
-      if (ws.ok()) ws = wf->Sync();
-      if (ws.ok()) ws = wf->Close();
-    }
-    if (ws.ok()) {
-      ws = env->RenameFile(tmp_path, props_path);
-    }
-    if (ws.ok()) {
-      // SyncDir 保证 Rename 的目录元数据持久化。
-      // 通过 NewDirectory + Fsync() 实现。
-      std::string dir = props_path.substr(0, props_path.rfind('/'));
-      if (!dir.empty()) {
-        std::unique_ptr<rocksdb::Directory> dir_obj;
-        rocksdb::Status ds = env->NewDirectory(dir, &dir_obj);
-        if (ds.ok() && dir_obj) {
-          ds = dir_obj->Fsync();
-        }
-        if (!ds.ok() && zfo.use_logger) {
-          ROCKS_LOG_WARN(zf_opt.info_log.get(),
-                        "ZeroFlush: SyncDir(%s) failed: %s",
-                        dir.c_str(), ds.ToString().c_str());
-        }
-      }
-    } else {
-      // 清理 tmp 文件（best effort）。
-      env->DeleteFile(tmp_path).PermitUncheckedError();
-      return ROCKSDB_NAMESPACE::Status::IOError(
-          "ZeroFlush: failed to write ZFPROPS v2: " + ws.ToString());
+    // 原子写 ZFPROPS v2（tmp → rename）——M4.10c 提取为 ctx 方法，
+    // 学习安装（运行中 InstallNewVersion）后同样调用。
+    rocksdb::Status ps2 = ctx->PersistZfProps();
+    if (!ps2.ok()) {
+      return ps2;
     }
   }
   s = ctx->Open();

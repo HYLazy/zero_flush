@@ -1144,7 +1144,8 @@ Status DBImpl::WriteImpl(
         // 完成者统一 Unref。
         assert(w.write_group != nullptr);
         w.status = zf_ctx_->InsertWriterToPartitionWal(
-            &w, w.write_group->zf_mem, write_options);
+            &w, w.write_group->zf_mem, write_options,
+            w.write_group->zf_table_version);
       } else {
         ColumnFamilyMemTablesImpl column_family_memtables(
             versions_->GetColumnFamilySet());
@@ -1530,6 +1531,10 @@ Status DBImpl::WriteImpl(
           ColumnFamilyData* cfd = GetDefaultColumnFamily();
           assert(cfd != nullptr);
           mutex_.Lock();
+          // M4.10：组开始时的路由表版本（封存/表切换前记录——组内全部
+          // writer 用同一版本路由数据，与物化（se.table_version）一致）。
+          write_group.zf_table_version =
+              zf_ctx_->tables() ? zf_ctx_->tables()->current_version() : 0;
           if (zf_ctx_->ShouldSeal()) {
             // M4.3c/d：终态路径批次封存（一次 epoch 冻结多分区）。
             // M4.4b：旧路径（全局 epoch 封存）已移除。
@@ -1586,6 +1591,10 @@ Status DBImpl::WriteImpl(
           ColumnFamilyData* cfd = GetDefaultColumnFamily();
           assert(cfd != nullptr);
           mutex_.Lock();
+          // M4.10：组开始时的路由表版本（封存/表切换前记录——组内全部
+          // writer 用同一版本路由数据，与物化（se.table_version）一致）。
+          write_group.zf_table_version =
+              zf_ctx_->tables() ? zf_ctx_->tables()->current_version() : 0;
           if (zf_ctx_->ShouldSeal()) {
             // M4.3c/d：终态路径批次封存（parallel 分支同款）。
             status = zf_ctx_->FreezeBatchPartitions(this, cfd);
@@ -1612,7 +1621,8 @@ Status DBImpl::WriteImpl(
           if (zf_ctx_ != nullptr) {
             // ZF 并行插入：本 writer 的 batch → 分区 WAL + Slim 跳表。
             w.status = zf_ctx_->InsertWriterToPartitionWal(
-                &w, write_group.zf_mem, write_options);
+                &w, write_group.zf_mem, write_options,
+                write_group.zf_table_version);
           } else {
             ColumnFamilyMemTablesImpl column_family_memtables(
                 versions_->GetColumnFamilySet());

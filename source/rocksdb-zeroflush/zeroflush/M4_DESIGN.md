@@ -878,3 +878,47 @@ fill + 105.6K read、回归 39/39。
 （Sync 次数多）；过渡期 Corruption 已可用「学习表永久放宽断言 + 越界计数」解决
 （§6.10 实现过）。重启前提：低负载验证（或接受当前负载的 fsync 开销）+ 永久放宽
 实现。
+
+### 6.13 L0 自管重启：恢复原生 L0 compaction + 数据完整性修复（R50-R52，2026-08-27）
+
+L0 自管重启（M4.10 禁用原生 L0 compaction、L0 由融合消费）在 sampled fillrandom
+2.2GB 下实测死锁（rc=124），并暴露两个长期数据完整性问题。全部定位并修复：
+
+**R50 卡死根因：L0 无人消费。** 禁用 L0 compaction 后，L0 文件只能被融合消费；
+但学习期（epoch 1，hash 表写入）物化输出全范围文件 → L0→L1 compaction（学习
+切换前）合并为全范围 L1 文件 → 后续所有分区的 `scan_overlap` 因「完全包含」
+约束越界 → 决策全部 kDirect 回落 L0 → L0 单调累积（lsm_state[0]: 3→35）→
+达 level0_stop_writes_trigger（36）→ WriteController::Stop → 写线程在
+DelayWrite 永久等待（flush 线程空闲、无 pending flush）→ 死锁。断言「hash
+遗留滞留有限」的前提错误：遗留的全范围文件会堵死**全部**后续物化的直装/融合。
+
+**修复（M4.10b）**：恢复原生 L0 compaction（删除禁用分支）——L0 文件由
+L0→L1 compaction 消费，物化直装/融合与 compaction 的互斥由
+`RangeOverlapWithCompaction` 协调（直装路径新增同样检查；融合路径已有）。
+实测 2.2GB sampled：rc=0，30.6s 完成（65K ops/s，64.9MB/s）。残留代价：
+L1 全范围文件存在期间直装/融合被堵（回落 L0 + compaction 消费，写放大
+≈1+L1/L0）——L2 层级下探是完整解（后续）。
+
+**R51 数据完整性：关闭/重开后活跃段数据读不到（readrandom 命中 46% vs 63%）。**
+两个修复：
+
+1. **ZFPROPS 学习表未持久化（M4.10c）**：kSampled 在 epoch 1 封存时
+   `InstallNewVersion(v1)` 安装学习表，但 ZFPROPS 只在 Open 时写入 → 重开恢复
+   v0 hash 表 → 路由错位 → 活跃段（v1 范围分区写入）数据读不到。修复：
+   提取 `ZeroFlushContext::PersistZfProps()`（原子写 tmp→rename→SyncDir），
+   kSampled 学习安装与 kAlignL1 每 epoch 对齐后调用。
+2. **Recover 索引分区按写时路由（M4.10c）**：Recover 用 WAL 文件名分区号建索引，
+   与重开路由（当前表）不一致（表版本落后/切换遗留）。修复：索引分区改按
+   「当前表」`RouteWithVersion(key, current_version)` 重路由（locator 保持原始
+   分区——WAL 段文件按写时分区定位，与路由无关）。
+
+修复后枚举验证（zf_check_keys 工具，逐 key Get）：sampled 2.2GB 命中
+1263504/2000000 = 63.18% = fillrandom 随机写覆盖期望（1-1/e）；hash 同规格
+63.26%；fillseq（顺序写全量枚举）100%。**无数据丢失**。
+
+**R52 已知问题（未修，偶发）**：fillseq 16 线程 + sampled 大测试偶发
+`WriteThread::Writer::StateMutex(): Assertion 'made_waitable' failed`
+（1/3 复现率，8GB 级）。写组 barrier（BeginWriteStall / ExitAsBatchGroupFollower）
+遍历 writer 链时命中未 CreateMutex 的 writer——ZF 封存持锁窗口长（SwitchMemtable
++ ZFPROPS fsync）使 writer 排队窗口放大，触发概率升高。未复现时不影响功能；
+修复方向：封存耗时瘦身（PersistZfProps 移出持锁窗口 / 异步化）。

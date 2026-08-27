@@ -4234,6 +4234,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                           "[ZF M4.6b] PickResult: NULLPTR");
         }
       }
+      // M4.10b L0 自管回退：恢复原生 L0 compaction。M4.10 禁用后的实测
+      // （R51：sampled fillrandom 2.2GB rc=124）证明"L0 由融合消费"在
+      // hash 遗留 L1 全范围文件存在时永不触发——物化 scan_overlap 越界
+      // → 全部回落 L0 → L0 无消费 → 达 level0_stop_writes_trigger 后
+      // 写停死锁。恢复原生消费：L0 文件（含 hash 遗留）由 L0→L1
+      // compaction 消化，物化直装/融合与 compaction 的互斥由
+      // RangeOverlapWithCompaction 协调（PlanLocked，见 materialize_job）。
+      // hash 模式（无融合）保持原生。手动 compaction 不经过本分支。
       if (thread_pri == Env::Priority::LOW) {
         TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
       } else if (thread_pri == Env::Priority::BOTTOM) {
