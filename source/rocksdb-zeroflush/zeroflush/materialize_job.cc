@@ -905,30 +905,34 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
   if (BuildSortKeys(keys, mc_.cfd->user_comparator(), &sort_buf, &sort_off)) {
     ReorderBySortKeys(&keys, &values, sort_buf, sort_off);
   }
-  std::unique_ptr<ROCKSDB_NAMESPACE::VectorIterator> iter(
-      new ROCKSDB_NAMESPACE::VectorIterator(
-          std::move(keys), std::move(values),
-          sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
   sort_micros_.fetch_add(mc_.db_options->clock->NowMicros() - sort_start,
                          std::memory_order_relaxed);
 
-  iter->SeekToFirst();
-  assert(iter->Valid());
+  // M4.11：hash 遗留切片判定——必须在构造 VectorIterator（move keys）之前。
+  // epoch 1（se.table_version==0，hash 表写入）的分区数据是全范围交错的
+  // key 集合，单文件输出为全范围 → L0→L1 compaction 合并出全范围 L1 →
+  // 所有后续物化 scan_overlap 越界 → 回落 L0 → 写放大无界（R50 链）。
+  // 按当前表（物化时已安装学习表 v1）RangeOf 切 P 片 → 输出分区范围文件
+  // → L1 保持分区文件 → 直装/融合恢复。
+  const bool slice_oob =
+      se_.table_version == 0 && table_ != nullptr && table_->IsHashMode();
+  std::shared_ptr<zeroflush::PartitionTable> slice_table;
+  if (slice_oob) {
+    slice_table = ctx_->tables()->current();
+  }
+  const bool do_slice =
+      slice_oob && slice_table != nullptr && !slice_table->IsHashMode() &&
+      slice_table->partitions() > 1 && lo.empty() && hi.empty();
 
   // 范围断言（仅范围路由模式；hash 模式各分区输出范围可能交错，跳过）。
   // M4.10：学习过的表（se.table_version > 0）的分区可能含 hash 学习期
-  // 遗留数据（epoch 1 的小分区滞留活跃段，被版本 1 数据稀释后混合冻结）
-  // ——越界数据回落 L0 承载（读走 L0 全范围查找，正确）→ 跳过 Corruption
-  // 并计数监控（hash 遗留与真路由错误无法静态区分）。版本 0（纯 hash 表，
-  // 无遗留）保持断言（真路由错误检测）。
-  if (table_ != nullptr && !table_->IsHashMode()) {
-    iter->SeekToFirst();
+  // 遗留数据——越界数据回落 L0 承载（读走 L0 全范围查找，正确）→ 跳过
+  // Corruption 并计数监控。版本 0（纯 hash 表，无遗留）保持断言。
+  if (!do_slice && table_ != nullptr && !table_->IsHashMode()) {
     const rocksdb::Slice u_smallest =
-        ROCKSDB_NAMESPACE::ExtractUserKey(iter->key());
-    iter->SeekToLast();
+        ROCKSDB_NAMESPACE::ExtractUserKey(keys.front());
     const rocksdb::Slice u_largest =
-        ROCKSDB_NAMESPACE::ExtractUserKey(iter->key());
-    iter->SeekToFirst();
+        ROCKSDB_NAMESPACE::ExtractUserKey(keys.back());
     const ROCKSDB_NAMESPACE::Comparator* ucmp = mc_.cfd->user_comparator();
     // [smallest, largest] ⊆ [lo, hi)，lo/hi 空 = -∞/+∞。
     if ((!lo.empty() && ucmp->Compare(u_smallest, lo) < 0) ||
@@ -944,11 +948,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
   }
 
   // BuildTable（模板对齐 FlushJob::WriteLevel0Table；level=0 构建语义）。
-  ROCKSDB_NAMESPACE::FileMetaData meta;
-  meta.fd = ROCKSDB_NAMESPACE::FileDescriptor(
-      mc_.versions->NewFileNumber(), 0, 0);
   const ROCKSDB_NAMESPACE::MutableCFOptions& mcf = *mc_.mutable_cf_options;
-
   const std::string* const full_history_ts_low =
       (mc_.full_history_ts_low.empty()) ? nullptr : &mc_.full_history_ts_low;
   ROCKSDB_NAMESPACE::ReadOptions read_options(
@@ -956,70 +956,127 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
   read_options.rate_limiter_priority = mc_.io_priority;
   const ROCKSDB_NAMESPACE::WriteOptions write_options(
       mc_.io_priority, ROCKSDB_NAMESPACE::Env::IOActivity::kFlush);
-
   int64_t _current_time = 0;
-  ROCKSDB_NAMESPACE::Status s =
+  ROCKSDB_NAMESPACE::Status ts =
       mc_.db_options->clock->GetCurrentTime(&_current_time);
-  if (!s.ok()) {
-    ROCKS_LOG_WARN(mc_.db_options->info_log,
-                   "[ZfMaterializeJob] GetCurrentTime failed: %s",
-                     s.ToString().c_str());
+  if (!ts.ok()) {
     _current_time = 0;
   }
   const uint64_t current_time = static_cast<uint64_t>(_current_time);
-  const uint64_t oldest_key_time = current_time;  // 简化：无 oldest key time
+  const uint64_t oldest_key_time = current_time;
 
-  ROCKSDB_NAMESPACE::TableBuilderOptions tboptions(
-      mc_.cfd->ioptions(), mcf, read_options, write_options,
-      mc_.cfd->internal_comparator(), mc_.cfd->internal_tbl_prop_coll_factories(),
-      mc_.output_compression, mcf.compression_opts, mc_.cfd->GetID(),
-      mc_.cfd->GetName(), 0 /* level */, current_time /* newest_key_time */,
-      false /* is_bottommost */, ROCKSDB_NAMESPACE::TableFileCreationReason::kFlush,
-      oldest_key_time, current_time, mc_.db_id, mc_.db_session_id,
-      0 /* target_file_size */, meta.fd.GetNumber(),
-      ROCKSDB_NAMESPACE::kMaxSequenceNumber /* preclude_last_level_min_seqno */);
+  // BuildTable 单文件 lambda（参数化迭代器；切片循环与整表共用）。
+  auto build_one = [&](std::unique_ptr<ROCKSDB_NAMESPACE::InternalIteratorBase<
+                           ROCKSDB_NAMESPACE::Slice>> vit)
+      -> ROCKSDB_NAMESPACE::Status {
+    ROCKSDB_NAMESPACE::FileMetaData meta;
+    meta.fd = ROCKSDB_NAMESPACE::FileDescriptor(
+        mc_.versions->NewFileNumber(), 0, 0);
+    ROCKSDB_NAMESPACE::TableBuilderOptions tboptions(
+        mc_.cfd->ioptions(), mcf, read_options, write_options,
+        mc_.cfd->internal_comparator(),
+        mc_.cfd->internal_tbl_prop_coll_factories(), mc_.output_compression,
+        mcf.compression_opts, mc_.cfd->GetID(), mc_.cfd->GetName(),
+        0 /* level */, current_time, false /* is_bottommost */,
+        ROCKSDB_NAMESPACE::TableFileCreationReason::kFlush, oldest_key_time,
+        current_time, mc_.db_id, mc_.db_session_id, 0 /* target_file_size */,
+        meta.fd.GetNumber(),
+        ROCKSDB_NAMESPACE::kMaxSequenceNumber /* preclude_last_level_min_seqno */);
+    ROCKSDB_NAMESPACE::IOStatus io_s;
+    std::vector<ROCKSDB_NAMESPACE::BlobFileAddition> blob_file_additions;
+    uint64_t memtable_payload_bytes = 0;
+    uint64_t memtable_garbage_bytes = 0;
+    ROCKSDB_NAMESPACE::TableProperties table_properties;
+    ROCKSDB_NAMESPACE::Status bs = ROCKSDB_NAMESPACE::BuildTable(
+        mc_.dbname, mc_.versions, *mc_.db_options, tboptions, *mc_.file_options,
+        mc_.cfd->table_cache(), vit.get(),
+        std::vector<std::unique_ptr<
+            ROCKSDB_NAMESPACE::FragmentedRangeTombstoneIterator>>(),
+        &meta, &blob_file_additions, mc_.job_context->snapshot_seqs,
+        mc_.earliest_snapshot,
+        mc_.job_context->earliest_write_conflict_snapshot,
+        mc_.job_context->GetJobSnapshotSequence(),
+        mc_.job_context->snapshot_checker, mcf.paranoid_file_checks,
+        mc_.cfd->internal_stats(), &io_s, mc_.io_tracer,
+        ROCKSDB_NAMESPACE::BlobFileCreationReason::kFlush,
+        mc_.seqno_to_time_mapping.get(), mc_.event_logger, mc_.job_id,
+        &table_properties, ROCKSDB_NAMESPACE::Env::WLTH_NOT_SET,
+        full_history_ts_low, mc_.blob_callback,
+        nullptr /* version */, &memtable_payload_bytes, &memtable_garbage_bytes,
+        nullptr /* flush_stats */, nullptr /* blob_file_garbages */,
+        mc_.fast_sst_open);
+    io_s.PermitUncheckedError();
+    if (!bs.ok()) {
+      return bs;
+    }
+    meta.epoch_number = mc_.cfd->NewEpochNumber();
+    if (meta.fd.GetFileSize() == 0) {
+      return ROCKSDB_NAMESPACE::Status::OK();  // 空表：BuildTable 已删除文件
+    }
+    {
+      rocksdb::MutexLock l(&out_mu_);
+      MaterializeOutput out;
+      out.meta = std::move(meta);
+      outputs_.push_back(std::move(out));
+    }
+    return ROCKSDB_NAMESPACE::Status::OK();
+  };
 
-  ROCKSDB_NAMESPACE::IOStatus io_s;
-  std::vector<ROCKSDB_NAMESPACE::BlobFileAddition> blob_file_additions;
-  uint64_t memtable_payload_bytes = 0;
-  uint64_t memtable_garbage_bytes = 0;
-  ROCKSDB_NAMESPACE::TableProperties table_properties;
-  s = ROCKSDB_NAMESPACE::BuildTable(
-      mc_.dbname, mc_.versions, *mc_.db_options, tboptions, *mc_.file_options,
-      mc_.cfd->table_cache(), iter.get(),
-      std::vector<std::unique_ptr<
-          ROCKSDB_NAMESPACE::FragmentedRangeTombstoneIterator>>(),
-      &meta, &blob_file_additions, mc_.job_context->snapshot_seqs,
-      mc_.earliest_snapshot, mc_.job_context->earliest_write_conflict_snapshot,
-      mc_.job_context->GetJobSnapshotSequence(),
-      mc_.job_context->snapshot_checker, mcf.paranoid_file_checks,
-      mc_.cfd->internal_stats(), &io_s, mc_.io_tracer,
-      ROCKSDB_NAMESPACE::BlobFileCreationReason::kFlush,
-      mc_.seqno_to_time_mapping.get(), mc_.event_logger, mc_.job_id,
-      &table_properties, ROCKSDB_NAMESPACE::Env::WLTH_NOT_SET,
-      full_history_ts_low, mc_.blob_callback,
-      nullptr /* version：无 blob/range tombstone，无需 base_ */,
-      &memtable_payload_bytes, &memtable_garbage_bytes,
-      nullptr /* flush_stats */, nullptr /* blob_file_garbages */,
-      mc_.fast_sst_open);
-  io_s.PermitUncheckedError();
-  if (!s.ok()) {
-    return s;
-  }
-  // 与原生 FlushJob 一致（flush_job.cc PickMemTable）：manifest 编码要求
-  // epoch_number != kUnknownEpochNumber（version_edit.cc EncodeTo 校验）。
-  meta.epoch_number = mc_.cfd->NewEpochNumber();
-  if (meta.fd.GetFileSize() == 0) {
-    return ROCKSDB_NAMESPACE::Status::OK();  // 空表：BuildTable 已删除文件
+  if (do_slice) {
+    // 切片：按当前表分区范围二分排序后的 keys，逐片构建（lo/hi 为全范围
+    // ——hash 遗留分区；切片边界 = 各分区 RangeOf 的 hi，升序）。
+    const ROCKSDB_NAMESPACE::Comparator* ucmp = mc_.cfd->user_comparator();
+    size_t begin = 0;
+    for (uint32_t i = 0; i < slice_table->partitions(); ++i) {
+      rocksdb::Slice p_lo, p_hi;
+      slice_table->RangeOf(i, &p_lo, &p_hi);
+      size_t end = begin;
+      while (end < keys.size()) {
+        const rocksdb::Slice uk = ROCKSDB_NAMESPACE::ExtractUserKey(keys[end]);
+        if (ucmp->Compare(uk, p_hi) >= 0) {
+          break;
+        }
+        ++end;
+      }
+      if (end > begin) {
+        std::vector<std::string> k2(keys.begin() + begin, keys.begin() + end);
+        std::vector<std::string> v2(values.begin() + begin,
+                                    values.begin() + end);
+        std::unique_ptr<ROCKSDB_NAMESPACE::VectorIterator> vit(
+            new ROCKSDB_NAMESPACE::VectorIterator(
+                std::move(k2), std::move(v2),
+                sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
+        ROCKSDB_NAMESPACE::Status ss = build_one(std::move(vit));
+        if (!ss.ok()) {
+          return ss;
+        }
+        begin = end;
+      }
+    }
+    // 尾部兜底（分区边界覆盖不全时剩余归入最后一片）。
+    if (begin < keys.size()) {
+      std::vector<std::string> k2(keys.begin() + begin, keys.end());
+      std::vector<std::string> v2(values.begin() + begin, values.end());
+      std::unique_ptr<ROCKSDB_NAMESPACE::VectorIterator> vit(
+          new ROCKSDB_NAMESPACE::VectorIterator(
+              std::move(k2), std::move(v2),
+              sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
+      ROCKSDB_NAMESPACE::Status ss = build_one(std::move(vit));
+      if (!ss.ok()) {
+        return ss;
+      }
+    }
+    return ROCKSDB_NAMESPACE::Status::OK();
   }
 
-  {
-    rocksdb::MutexLock l(&out_mu_);
-    MaterializeOutput out;
-    out.meta = std::move(meta);
-    outputs_.push_back(std::move(out));
-  }
-  return ROCKSDB_NAMESPACE::Status::OK();
+  // 非切片：整表输出（原逻辑，iter 持有已排序向量）。
+  std::unique_ptr<ROCKSDB_NAMESPACE::VectorIterator> iter(
+      new ROCKSDB_NAMESPACE::VectorIterator(
+          std::move(keys), std::move(values),
+          sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
+  iter->SeekToFirst();
+  assert(iter->Valid());
+  return build_one(std::move(iter));
 }
 
 ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
@@ -1106,6 +1163,12 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   //    链式融合"退化为攒批，收养后的多代合并与 base 前序交错（全局
   //    min ≤ max），但 per-key 版本序仍正确（覆盖写 seq 递增），归并
   //    由 CompactionIterator 按 per-key seq + snapshot 裁决 → 放行。
+  //  - M4.11 放宽：hash 遗留切片——epoch 1 分区数据（seq 从全局起点）
+  //    按当前表切 P 片进 L1，后续 epoch 物化（A 侧含未封存分区 epoch 1
+  //    遗留，min_seq 小）与 L1 片文件（不同 key 集合）seq 交错，全局
+  //    min ≤ max 但 per-key 无重叠 → 放行（CompactionIterator 裁决）。
+  //  - 孤儿 epoch（has_adopted_orphans）保留检查：崩溃恢复 seq 与 base
+  //    交错会破坏快照语义（PlanLocked 已降级，此处运行时防御）。
   uint64_t max_b_seq = 0;
   for (const ROCKSDB_NAMESPACE::FileMetaData* f : overlap_all) {
     max_b_seq = std::max(max_b_seq, f->fd.largest_seqno);
@@ -1113,7 +1176,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   for (const ROCKSDB_NAMESPACE::FileMetaData* f : l0_overlap) {
     max_b_seq = std::max(max_b_seq, f->fd.largest_seqno);
   }
-  if (!se_.has_adopted_skips && min_seq <= max_b_seq) {
+  if (se_.has_adopted_orphans && min_seq <= max_b_seq) {
     return ROCKSDB_NAMESPACE::Status::Corruption(
         "ZF merge partition " + std::to_string(part_id) +
         " A-side seq not newer than B-side (min=" + std::to_string(min_seq) +

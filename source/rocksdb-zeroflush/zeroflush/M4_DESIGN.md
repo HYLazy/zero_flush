@@ -922,3 +922,37 @@ L1 全范围文件存在期间直装/融合被堵（回落 L0 + compaction 消�
 遍历 writer 链时命中未 CreateMutex 的 writer——ZF 封存持锁窗口长（SwitchMemtable
 + ZFPROPS fsync）使 writer 排队窗口放大，触发概率升高。未复现时不影响功能；
 修复方向：封存耗时瘦身（PersistZfProps 移出持锁窗口 / 异步化）。
+
+### 6.14 M4.11 层级下探：hash 遗留切片 → 全链分区文件（2026-08-27）
+
+**目标**：恢复物化直装/融合（写放大 1+），拉近原生 RocksDB（2.2GB fillrandom：
+原生 88.8K vs ZF 63-77K）。
+
+**根因（R53）**：学习期 epoch 1（hash 表写入）的物化输出为全范围文件（hash
+分区数据 key 交错）→ L0→L1 compaction 合并出全范围 L1 → 后续所有分区的
+`scan_overlap` 因「完全包含」约束越界 → 决策全部回落 L0 → L0→L1 每轮全范围
+重写 + 级联下探（数据最终到 L6）→ 写放大无界。hash 与 sampled 同瓶颈
+（2.2GB 均 71-77K）。
+
+**修复**：epoch 1 物化（se.table_version==0 且当前表为范围路由）时，按当前表
+`RangeOf` 把排序后的 KV 切 P 片，每片独立 BuildTable → 输出分区范围文件 →
+L1 保持分区文件（L0→L1 compaction 输入 = 分区文件 → 输出分区文件）→ 直装/
+融合恢复。配套放宽融合的「A-side seq not newer than B-side」断言为仅孤儿
+epoch 检查（hash 遗留的跨分区数据 seq 交错是不同 key 集合，per-key 版本序
+由 CompactionIterator 裁决，全局 min/max 比较过度保守）。
+
+**实测（2.2GB sampled fillrandom）**：
+
+| 版本 | 吞吐 | 说明 |
+|---|---|---|
+| eb08508（恢复 compaction） | 63-77K | L1 全范围污染，写放大高 |
+| +M4.11 切片 | **78.6K（78 MB/s）** | LSM 分层 L0=7/L1=8/L2=13（不再级联 L6），compaction 次数减半 |
+| 原生 RocksDB | 88.8K | 差距收窄至 11%（物化 fsync 固定开销，已剖析过不划算） |
+
+数据完整性（枚举逐 key）：63.19% = fillrandom 随机写覆盖期望；hash 模式无
+回归（切片条件仅 sampled epoch 1）。回归 38/38 PASS。
+
+**残留**：直装/融合仍被批内前序 L0 输出（batch_l0 必要等待）部分阻塞
+（zf.install_fallback_l0=80 / skip_count=124 / base_merge_count=0）——批内
+链式替换已覆盖 base 层，L0 场景的等待是数据安全前提。物化路径固定开销
+（fsync 30% + 读 WAL/排序 70%）是 11% 差距主体。
