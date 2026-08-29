@@ -872,6 +872,8 @@ DEFINE_int32(zf_max_pending_epochs, -1,
             "flow control; -1 = ZeroFlushOptions default (2)");
 DEFINE_int64(zf_epoch_target_mb, 256,
              "ZeroFlush epoch seal target (sum of all partitions) in MB.");
+DEFINE_int64(zf_index_mem_mb, 0,
+               "ZeroFlush index memory budget MB (0 = default 4096)");
 DEFINE_double(zf_merge_ratio, 0.25,
               "ZeroFlush base-merge trigger ratio: sealed bytes / base-level "
               "overlap bytes must exceed this to fuse (else fall back to L0).");
@@ -5523,6 +5525,10 @@ class Benchmark {
       if (FLAGS_zf_epoch_target_mb > 0) {
         zfo.epoch_target_bytes =
             static_cast<uint64_t>(FLAGS_zf_epoch_target_mb) * 1024 * 1024;
+      }
+      if (FLAGS_zf_index_mem_mb > 0) {
+        zfo.index_mem_budget =
+            static_cast<uint64_t>(FLAGS_zf_index_mem_mb) * 1024 * 1024;
       }
       if (FLAGS_zf_max_pending_epochs > 0) {
         zfo.max_pending_epochs =

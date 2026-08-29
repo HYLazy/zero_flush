@@ -66,7 +66,8 @@ class PartitionIndex {
   // 插入（并发安全）。internal_key 含 seq/type 尾；locator 为 16B SlimLocator。
   // 返回 false 表示重复条目（key+seq 已存在，理论上不发生——seq 唯一）。
   bool Insert(const ROCKSDB_NAMESPACE::Slice& internal_key,
-              const ROCKSDB_NAMESPACE::Slice& locator) {
+              const ROCKSDB_NAMESPACE::Slice& locator,
+              uint64_t* bytes_added = nullptr) {
     const uint32_t ik_len = static_cast<uint32_t>(internal_key.size());
     const uint32_t loc_len = static_cast<uint32_t>(locator.size());
     const size_t total =
@@ -80,8 +81,15 @@ class PartitionIndex {
     p += ik_len;
     p = ROCKSDB_NAMESPACE::EncodeVarint32(p, loc_len);
     memcpy(p, locator.data(), loc_len);
+    // R57：成功后计数（失败时节点未入表，计 total 会虚增 mem_bytes）。
+    if (!list_.InsertConcurrently(buf)) {
+      return false;
+    }
     mem_bytes_.fetch_add(total, std::memory_order_relaxed);
-    return list_.InsertConcurrently(buf);
+    if (bytes_added != nullptr) {
+      *bytes_added = total;
+    }
+    return true;
   }
 
   // M4.11c：遍历全部条目的 internal key（布隆重建用）。跳表条目格式：
@@ -392,12 +400,16 @@ class PartitionIndexSet {
     // mem_bytes 检查可能看到未更新的旧值而丢弃空索引）的后果是条目进
     // "游离索引"——数据仍在 WAL/物化 SST，Get 读游离条目失败时回退
     // SST（M4.3 回退逻辑），正确性保持。
-    const uint64_t before = idx->mem_bytes();
-    if (!idx->Insert(internal_key, locator)) {
+    // R57：用 Insert 输出的精确增量——"after - before" 在并发插入下
+    // 重复计数（两线程同读 before，各加一次 total，后算者得 2×total），
+    // 计数器虚增 ~11B/op → 350M ops 时虚增 4GB 触发 index_mem_budget
+    // 背压 → 封存正反馈爆发（R57）。实际内存始终有界（Dump 实测
+    // 计数器 800MB vs 实际 109MB）。
+    uint64_t added = 0;
+    if (!idx->Insert(internal_key, locator, &added)) {
       return 0;
     }
     blooms_[part_id].Add(ROCKSDB_NAMESPACE::ExtractUserKey(internal_key));
-    const uint64_t added = idx->mem_bytes() - before;
     total_mem_bytes_.fetch_add(added, std::memory_order_relaxed);
     return added;
   }
@@ -538,14 +550,14 @@ class PartitionIndexSet {
         }
       }
     }
-    const uint64_t before = idx->mem_bytes();
-    if (!idx->Insert(internal_key, locator)) {
+    uint64_t added = 0;
+    if (!idx->Insert(internal_key, locator, &added)) {
       return 0;
     }
     // M4.11c：布隆更新（Recover 重建路径——漏加会导致重开后活跃段数据
     // 被布隆预过滤误判 miss → 读不到）。
     blooms_[part_id].Add(ROCKSDB_NAMESPACE::ExtractUserKey(internal_key));
-    const uint64_t added = idx->mem_bytes() - before;
+    // R57：精确增量（同上——并发读算重复计数）。
     total_mem_bytes_.fetch_add(added, std::memory_order_relaxed);
     return added;
   }
@@ -643,6 +655,29 @@ class PartitionIndexSet {
 
   uint64_t total_mem_bytes() const {
     return total_mem_bytes_.load(std::memory_order_relaxed);
+  }
+
+  // R57 诊断：dump 每分区 active/frozen 索引字节与 gen（定位索引泄漏）。
+  void DumpState() {
+    std::shared_lock<std::shared_mutex> l(mu_);
+    uint64_t act = 0, frz = 0;
+    for (const auto& kv : active_) {
+      act += kv.second->mem_bytes();
+    }
+    for (const auto& kv : frozen_) {
+      for (const auto& idx : kv.second) {
+        frz += idx->mem_bytes();
+      }
+    }
+    fprintf(stderr, "ZFDBG-imem active_total=%llu frozen_total=%llu\n",
+            (unsigned long long)act, (unsigned long long)frz);
+    for (const auto& kv : frozen_) {
+      fprintf(stderr, "ZFDBG-imem part=%u frozen=[", kv.first);
+      for (const auto& idx : kv.second) {
+        fprintf(stderr, "g%u:%llu,", idx->gen(), (unsigned long long)idx->mem_bytes());
+      }
+      fprintf(stderr, "]\n");
+    }
   }
 
 

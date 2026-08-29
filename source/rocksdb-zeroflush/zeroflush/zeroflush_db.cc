@@ -178,13 +178,27 @@ ZeroFlushContext::~ZeroFlushContext() = default;
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::Open() { return wal_->Open(); }
 
 bool ZeroFlushContext::ShouldSeal() const {
+  // R57 诊断：限频打印三个触发源（每 4096 次取模 + 仅 index 超 1GB 时打印）。
+  static std::atomic<uint64_t> zf_seal_calls{0};
+  const uint64_t sc = zf_seal_calls.fetch_add(1, std::memory_order_relaxed);
+  if ((sc & 0x1FFFFF) == 0) {
+    const uint64_t im = index_set_ ? index_set_->total_mem_bytes() : 0;
+    fprintf(stderr, "ZFDBG-seal active=%llu over=%d imem=%llu budget=%llu\n",
+            (unsigned long long)wal_->TotalActiveBytes(),
+            wal_->AnyPartitionOverTarget() ? 1 : 0,
+            (unsigned long long)im,
+            (unsigned long long)zfo_.index_mem_budget);
+    if (im > (500ull << 20) && index_set_ != nullptr) {
+      index_set_->DumpState();
+    }
+  }
   // M4.1a：O(1) 判定——总活跃字节与超限标志均由 Append/Freeze 以 relaxed
   // atomic 维护，写路径不再每写组遍历全部 P 分区（实测 ~0.3us×P 开销）。
   // 主触发：全分区活跃字节合计 ≥ epoch_target_bytes（原子读）。
   // 副触发：任一分区 ≥ partition_target_bytes（Append 时置位，防倾斜）。
   // M4.3d-2：终态路径追加内存预算背压——分区索引总内存 ≥ 预算即触发
   // freeze（索引是终态 L0 的内存驻留，需独立于 WAL 字节的背压）。
-  if (index_set_ != nullptr &&
+  if (index_set_ != nullptr && zfo_.index_mem_budget > 0 &&
       index_set_->total_mem_bytes() >= zfo_.index_mem_budget) {
     return true;
   }
