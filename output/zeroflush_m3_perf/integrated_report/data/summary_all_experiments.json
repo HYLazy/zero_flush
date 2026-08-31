@@ -1,0 +1,234 @@
+{
+ "experiment_series": {
+  "E1_native_baseline_stalls": "native_wa_stall_100gb*.json — 默认配置 16/8/4/2 线程写停顿/各层 WA",
+  "E2_compaction_time": "*_comp_time.json — L0→L1 与深层 compaction 耗时分布（4 线程数）",
+  "E3_l0l1_importance": "l0_l1_importance/ — L1 放大三配置（分析值内嵌本报告 JSON）",
+  "E4_l0_bottleneck": "l0_bottleneck/lane_*.json — 8 组车道并发/利用率",
+  "E5_trigger_sweep": "l0_bottleneck/ — 同窗 T 扫描（分析值内嵌本报告 JSON）",
+  "E6_engine_matrix": "bench_matrix.json — ZF vs 原生 24 配置吞吐/延迟/命中率"
+ },
+ "E1_thread_scaling": {
+  "16": {
+   "ops_s": 13978,
+   "stall_pct": 94.6,
+   "memtable_stop": 2605,
+   "total_write_gb": 980.3
+  },
+  "8": {
+   "ops_s": 12558,
+   "stall_pct": 93.7,
+   "memtable_stop": 2595,
+   "total_write_gb": 1007.0
+  },
+  "4": {
+   "ops_s": 11424,
+   "stall_pct": 91.4,
+   "memtable_stop": 2450,
+   "total_write_gb": 1029.5
+  },
+  "2": {
+   "ops_s": 10539,
+   "stall_pct": 81.1,
+   "memtable_stop": 1350,
+   "total_write_gb": 651.0
+  }
+ },
+ "E3_l0l1_importance": {
+  "base256m": {
+   "ops": 28374,
+   "wall": 3638.574,
+   "mt_stop": 2350,
+   "l0_delay": 14,
+   "stall_pct": 91.1,
+   "l0l1_write": 121.2,
+   "l1l2": 284.1,
+   "l2l3": 363.3,
+   "l3l4": 12.9,
+   "total_write": 965.8,
+   "l0l1_jobs": 96,
+   "l0l1_avg_in": 10.97,
+   "l0l1_max_in": 24,
+   "l0l1_avg": 8.94,
+   "l0l1_p99": 18.89,
+   "l0l1_total": 858.3,
+   "deep_jobs": 3302,
+   "deep_total": 42433.5,
+   "l2l3_jobs": 1501
+  },
+  "base1g": {
+   "ops": 27694,
+   "wall": 3728.015,
+   "mt_stop": 2031,
+   "l0_delay": 18,
+   "stall_pct": 91.5,
+   "l0l1_write": 169.5,
+   "l1l2": 360.0,
+   "l2l3": 134.9,
+   "l3l4": 0.0,
+   "total_write": 849.3,
+   "l0l1_jobs": 78,
+   "l0l1_avg_in": 27.04,
+   "l0l1_max_in": 38,
+   "l0l1_avg": 12.99,
+   "l0l1_p99": 24.42,
+   "l0l1_total": 1013.0,
+   "deep_jobs": 2605,
+   "deep_total": 44602.7,
+   "l2l3_jobs": 1013
+  },
+  "base4g": {
+   "ops": 35402,
+   "wall": 2916.279,
+   "mt_stop": 1390,
+   "l0_delay": 130,
+   "stall_pct": 85.7,
+   "l0l1_write": 279.8,
+   "l1l2": 209.5,
+   "l2l3": 0.0,
+   "l3l4": 0.0,
+   "total_write": 681.4,
+   "l0l1_jobs": 45,
+   "l0l1_avg_in": 79.96,
+   "l0l1_max_in": 135,
+   "l0l1_avg": 28.26,
+   "l0l1_p99": 50.22,
+   "l0l1_total": 1271.6,
+   "deep_jobs": 1162,
+   "deep_total": 19201.3,
+   "l2l3_jobs": 0
+  }
+ },
+ "E4_lane_seriality": {
+  "base256m": {
+   "l0l1_max_conc": 1,
+   "l0l1_util": 0.236,
+   "deep_max_conc": 18,
+   "system_util": 0.999,
+   "wall_s": 3640.2
+  },
+  "base1g": {
+   "l0l1_max_conc": 1,
+   "l0l1_util": 0.272,
+   "deep_max_conc": 18,
+   "system_util": 0.997,
+   "wall_s": 3729.4
+  },
+  "base4g": {
+   "l0l1_max_conc": 1,
+   "l0l1_util": 0.436,
+   "deep_max_conc": 18,
+   "system_util": 0.995,
+   "wall_s": 2917.1
+  },
+  "trig2": {
+   "l0l1_max_conc": 1,
+   "l0l1_util": 0.623,
+   "deep_max_conc": 18,
+   "system_util": 0.994,
+   "wall_s": 2377.5
+  },
+  "trig4": {
+   "l0l1_max_conc": 1,
+   "l0l1_util": 0.4,
+   "deep_max_conc": 18,
+   "system_util": 0.993,
+   "wall_s": 1852.9
+  },
+  "trig8": {
+   "l0l1_max_conc": 1,
+   "l0l1_util": 0.373,
+   "deep_max_conc": 18,
+   "system_util": 0.987,
+   "wall_s": 2079.1
+  },
+  "trig16": {
+   "l0l1_max_conc": 1,
+   "l0l1_util": 0.423,
+   "deep_max_conc": 18,
+   "system_util": 0.952,
+   "wall_s": 2253.2
+  }
+ },
+ "E4_default16_lane": {
+  "l0l1_max_conc": 1,
+  "l0l1_util": 0.211,
+  "deep_max_conc": 18,
+  "deep_util": 0.965
+ },
+ "E5_trigger_sweep": {
+  "trig2": {
+   "ops_s": 43530,
+   "wall_s": 2371.742,
+   "memtable_stop": 1335,
+   "l0_delay": 100,
+   "stall_pct": 84.7,
+   "l0l1_write_gb": 431.0,
+   "l0l1_avg_input_sst": 122.32,
+   "l0l1_max_input_sst": 250,
+   "total_write_amp": 7.6,
+   "l0l1_lane_util": 0.623
+  },
+  "trig4": {
+   "ops_s": 55722,
+   "wall_s": 1852.827,
+   "memtable_stop": 1350,
+   "l0_delay": 117,
+   "stall_pct": 81.1,
+   "l0l1_write_gb": 254.9,
+   "l0l1_avg_input_sst": 69.0,
+   "l0l1_max_input_sst": null,
+   "total_write_amp": 6.6,
+   "l0l1_lane_util": 0.4
+  },
+  "trig8": {
+   "ops_s": 49682,
+   "wall_s": 2078.092,
+   "memtable_stop": 1353,
+   "l0_delay": 190,
+   "stall_pct": 82.0,
+   "l0l1_write_gb": 256.7,
+   "l0l1_avg_input_sst": 69.43,
+   "l0l1_max_input_sst": 89,
+   "total_write_amp": 7.0,
+   "l0l1_lane_util": 0.373
+  },
+  "trig16": {
+   "ops_s": 45839,
+   "wall_s": 2252.296,
+   "memtable_stop": 1228,
+   "l0_delay": 598,
+   "stall_pct": 76.2,
+   "l0l1_write_gb": 336.0,
+   "l0l1_avg_input_sst": 79.57,
+   "l0l1_max_input_sst": 91,
+   "total_write_amp": 7.9,
+   "l0l1_lane_util": 0.423
+  }
+ },
+ "E6_matrix_fill": {
+  "native_2048B_10G": 40473,
+  "zf_2048B_10G": 10554,
+  "native_1024B_10G": 27833,
+  "zf_1024B_10G": 21285,
+  "native_256B_10G": 380976,
+  "zf_256B_10G": 68920,
+  "native_128B_10G": 268815,
+  "zf_128B_10G": 85548,
+  "native_2048B_50G": 6920,
+  "zf_2048B_50G": 5447,
+  "native_1024B_50G": 12865,
+  "zf_1024B_50G": 10289,
+  "native_256B_50G": 45087,
+  "zf_256B_50G": 37552,
+  "native_128B_50G": 80954,
+  "zf_128B_50G": 65897,
+  "native_2048B_100G": 4752,
+  "zf_2048B_100G": 4551,
+  "native_1024B_100G": 12396,
+  "zf_1024B_100G": 9728,
+  "native_256B_100G": 42699,
+  "zf_256B_100G": 30632,
+  "native_128B_100G": 68503,
+  "zf_128B_100G": 56014
+ }
+}
