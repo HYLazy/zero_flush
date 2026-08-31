@@ -1,0 +1,62 @@
+{
+ "label": "default(dynamic,t16)",
+ "wall_s": 7388.8,
+ "lanes": {
+  "L0_L1": {
+   "jobs": 99,
+   "max_concurrency": 1,
+   "sum_wall_s": 1558.2,
+   "merged_busy_s": 1558.2,
+   "utilization": 0.211
+  },
+  "deep_L1_L2": {
+   "jobs": 1719,
+   "max_concurrency": 18,
+   "sum_wall_s": 30200.2,
+   "merged_busy_s": 4238.7,
+   "utilization": 0.574
+  },
+  "intra_L0": {
+   "jobs": 290,
+   "max_concurrency": 3,
+   "sum_wall_s": 3905.0,
+   "merged_busy_s": 3588.4,
+   "utilization": 0.486
+  },
+  "deep_L2_L3": {
+   "jobs": 1513,
+   "max_concurrency": 17,
+   "sum_wall_s": 48529.8,
+   "merged_busy_s": 5624.9,
+   "utilization": 0.761
+  },
+  "deep_L3_L4": {
+   "jobs": 141,
+   "max_concurrency": 11,
+   "sum_wall_s": 3514.1,
+   "merged_busy_s": 764.5,
+   "utilization": 0.103
+  },
+  "ALL_L0_L1": {
+   "jobs": 99,
+   "max_concurrency": 1,
+   "sum_wall_s": 1558.2,
+   "merged_busy_s": 1558.2,
+   "utilization": 0.211
+  },
+  "ALL_deep": {
+   "jobs": 3373,
+   "max_concurrency": 18,
+   "sum_wall_s": 82244.1,
+   "merged_busy_s": 7133.4,
+   "utilization": 0.965
+  },
+  "ALL_jobs": {
+   "jobs": 3762,
+   "max_concurrency": 18,
+   "sum_wall_s": 87707.2,
+   "merged_busy_s": 7377.9,
+   "utilization": 0.999
+  }
+ }
+}

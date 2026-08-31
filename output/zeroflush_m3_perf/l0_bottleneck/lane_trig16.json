@@ -1,0 +1,48 @@
+{
+ "label": "trig16",
+ "wall_s": 2253.2,
+ "lanes": {
+  "L0_L1": {
+   "jobs": 65,
+   "max_concurrency": 1,
+   "sum_wall_s": 953.2,
+   "merged_busy_s": 953.2,
+   "utilization": 0.423
+  },
+  "deep_L1_L2": {
+   "jobs": 1274,
+   "max_concurrency": 18,
+   "sum_wall_s": 16283.8,
+   "merged_busy_s": 1168.4,
+   "utilization": 0.519
+  },
+  "intra_L0": {
+   "jobs": 34,
+   "max_concurrency": 1,
+   "sum_wall_s": 308.4,
+   "merged_busy_s": 308.4,
+   "utilization": 0.137
+  },
+  "ALL_L0_L1": {
+   "jobs": 65,
+   "max_concurrency": 1,
+   "sum_wall_s": 953.2,
+   "merged_busy_s": 953.2,
+   "utilization": 0.423
+  },
+  "ALL_deep": {
+   "jobs": 1274,
+   "max_concurrency": 18,
+   "sum_wall_s": 16283.8,
+   "merged_busy_s": 1168.4,
+   "utilization": 0.519
+  },
+  "ALL_jobs": {
+   "jobs": 1373,
+   "max_concurrency": 18,
+   "sum_wall_s": 17545.4,
+   "merged_busy_s": 2145.1,
+   "utilization": 0.952
+  }
+ }
+}

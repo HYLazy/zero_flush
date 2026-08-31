@@ -1,0 +1,62 @@
+{
+ "label": "fixed L1=256m",
+ "wall_s": 3640.2,
+ "lanes": {
+  "L0_L1": {
+   "jobs": 96,
+   "max_concurrency": 1,
+   "sum_wall_s": 858.3,
+   "merged_busy_s": 858.3,
+   "utilization": 0.236
+  },
+  "deep_L1_L2": {
+   "jobs": 1694,
+   "max_concurrency": 18,
+   "sum_wall_s": 14071.1,
+   "merged_busy_s": 2144.5,
+   "utilization": 0.589
+  },
+  "intra_L0": {
+   "jobs": 287,
+   "max_concurrency": 2,
+   "sum_wall_s": 1913.1,
+   "merged_busy_s": 1713.7,
+   "utilization": 0.471
+  },
+  "deep_L2_L3": {
+   "jobs": 1501,
+   "max_concurrency": 17,
+   "sum_wall_s": 26678.7,
+   "merged_busy_s": 2996.5,
+   "utilization": 0.823
+  },
+  "deep_L3_L4": {
+   "jobs": 107,
+   "max_concurrency": 10,
+   "sum_wall_s": 1683.7,
+   "merged_busy_s": 447.0,
+   "utilization": 0.123
+  },
+  "ALL_L0_L1": {
+   "jobs": 96,
+   "max_concurrency": 1,
+   "sum_wall_s": 858.3,
+   "merged_busy_s": 858.3,
+   "utilization": 0.236
+  },
+  "ALL_deep": {
+   "jobs": 3302,
+   "max_concurrency": 18,
+   "sum_wall_s": 42433.5,
+   "merged_busy_s": 3519.8,
+   "utilization": 0.967
+  },
+  "ALL_jobs": {
+   "jobs": 3685,
+   "max_concurrency": 18,
+   "sum_wall_s": 45204.9,
+   "merged_busy_s": 3635.9,
+   "utilization": 0.999
+  }
+ }
+}
