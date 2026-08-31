@@ -434,11 +434,14 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   auto scan_overlap = [&](const rocksdb::Slice& lo, const rocksdb::Slice& hi,
                           std::vector<ROCKSDB_NAMESPACE::FileMetaData*>* out,
                           uint64_t* out_bytes, bool* ok_out,
-                          bool* batch_skipped_out) {
+                          bool* batch_skipped_out, bool* has_oob_out = nullptr) {
     out->clear();
     *out_bytes = 0;
     *ok_out = true;
     *batch_skipped_out = false;
+    if (has_oob_out != nullptr) {
+      *has_oob_out = false;
+    }
     for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(base)) {
       const ROCKSDB_NAMESPACE::Slice f_lo = f->smallest.user_key();
       const ROCKSDB_NAMESPACE::Slice f_hi = f->largest.user_key();
@@ -446,11 +449,12 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       if (ucmp->Compare(f_hi, lo) < 0 || ucmp->Compare(f_lo, hi) >= 0) {
         continue;
       }
-      // 完全包含：lo <= f_lo && f_hi < hi；越界文件（分区边界切割）
-      // 无法安全替换 → 放弃。
+      // R59：越界文件（分区边界切割）不再拒绝——收进 overlap 作融合 B 侧
+      // 整体重写（输出 ⊇ 被替换文件，替换安全）。
       if (ucmp->Compare(f_lo, lo) < 0 || ucmp->Compare(f_hi, hi) >= 0) {
-        *ok_out = false;
-        return;
+        if (has_oob_out != nullptr) {
+          *has_oob_out = true;
+        }
       }
       if (f->being_compacted) {
         // 若为本批次前序融合注册所标记 → 跳过（由批内链式替换的
@@ -495,7 +499,8 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         std::vector<ROCKSDB_NAMESPACE::FileMetaData*> ov;
         uint64_t ov_bytes = 0;
         bool ok = true, bskipped = false;
-        scan_overlap(plan.lo, plan.hi, &ov, &ov_bytes, &ok, &bskipped);
+        bool oob3 = false;
+        scan_overlap(plan.lo, plan.hi, &ov, &ov_bytes, &ok, &bskipped, &oob3);
         // M4.8 遮蔽防护：L0 有本分区范围文件 → 直装替换会被 L0 遮蔽
         // （L0 文件可能比孤儿输出旧）→ 放弃 force_replace，走默认 kDirect
         // → PickInstallLevel 回落 L0（L0 内按 file number 新→旧——读
@@ -535,8 +540,9 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     uint64_t overlap_bytes = 0;
     bool ok = true;
     bool batch_skipped = false;
+    bool has_oob = false;
     scan_overlap(plan.lo, plan.hi, &overlap, &overlap_bytes, &ok,
-                 &batch_skipped);
+                 &batch_skipped, &has_oob);
     if (!ok) {
       // M4.8 直装优先：base 层不可替换（being_compacted 冲突 / 边界越界）
       // → 不物化，等待（kSkip 攒批：数据留在 frozen 索引 + 封存 WAL，

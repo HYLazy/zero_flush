@@ -108,6 +108,10 @@ struct ZeroFlushOptions {
   // 入队）。align_l1 下 16 分区范围不相交 → 并行消费安全（Register-
   // Compaction 互斥自动排除重叠）。R20 基线（单 job 串行）= 1。
   uint32_t l0_parallelism = 8;
+  // R59：批次封存分区数上限（0 = 默认 4）。与 epoch_target_bytes 联动：
+  // 批次增大时调用方应同步放大 epoch_target 保持每分区大小（融合 ratio
+  // 不受影响）。
+  uint32_t max_batch_partitions = 4;
 };
 
 class ZeroFlushContext {
