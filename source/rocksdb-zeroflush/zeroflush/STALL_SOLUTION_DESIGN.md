@@ -146,3 +146,35 @@ L0..base 检查）→ 新 fallback；L0 被原生占用挡融合 → l0_busy ski
    ratio——235 次装 L0 的决策路径分布）；
 3. **P2：滞留数据的有界性确认**（kMaxSkipGenerations=2 下代深 ≤2，但 l0_busy
    连续发生时数据反复跨批——收养代数是否实际 ≤2）。
+
+## 8. P1 归因结果（2026-09-02，5GB sampled）
+
+装 L0 的 272 次 **全部是 kDirect 决策后的 PickInstallLevel 回落**（dec=0 lvl=0
+×272、dec=0 lvl=1 ×47 直装成功），0 次显式 kFallback。
+
+**根因闭环（完整）**：kDirect 直装失败 = 安装时 L0..base 层有重叠——但决策
+（阶段 0，持锁）时 scan_overlap/l0_overlap 均为空 → 重叠文件在**阶段 1（物化，
+无锁 1-4s）期间被原生 compaction 安装**（新 base 文件与输出范围重叠）→
+PickInstallLevel 的 OverlapInLevel 命中 → 回落 L0。R54 已知竞态的规模版：
+原生 compaction 频率随规模增长 → 阶段 1 窗口内撞新文件的概率线性上升。
+
+```
+kDirect 决策（无冲突）→ 阶段 1 原生安装新 base 文件 → 安装时撞重叠
+  → PickInstallLevel 回落 L0（272 次/5GB = 决策 46%）
+  → L0 文件 → 后续同分区物化：L0 被原生占用 → l0_busy skip（190）
+  → 滞留 → 多代收养物化 → 物化放大
+```
+
+## 9. P0 破环方案（下一实施，需先确认 FinalizeLocked/Apply 时序）
+
+**方向：消除 kDirect 回落的两个子选项**
+- P0a（安装期重决策）：阶段 2 安装（Apply）前，对 PickInstallLevel 回落 L0 的
+  kDirect 输出**重新决策**——vstorage 含阶段 1 安装的新文件 → overlap 非空 →
+  转融合路径（输出与重叠文件合并后替换）。需确认：输出文件已生成（物化产物），
+  转融合 = 二次物化（读 WAL + 新重叠文件合并）——只对回落的 46% 分区做，成本
+  可控（一次额外物化 vs 当前滞留的多次）。
+- P0b（L0 即时消费强化）：回落装 L0 后，L0 文件由**原生消费**——l0_busy 的
+  skip 数据下批应落地（原生消费完 L0 空）——验证"下批落地率"：若落地率高，
+  滞留仅 1 批（代深 2 有界），物化放大有限——需量化 272 回落的落地延迟。
+- 实施前先确认时序：FinalizeLocked 的 edit_ 是逐输出累积还是统一 Apply；
+  kDirect 回落发生在 Apply 前（可拦截重决策）还是后。
