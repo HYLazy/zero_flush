@@ -120,3 +120,29 @@ kMaxBatch=4 → epoch 256MB（952 epoch@100GB）。batch=16 + epoch=1GB → epoc
 - 若 E2 滞留：B2 后物化去重复 → +20-40%；
 - 若 E3 固定开销：epoch 1GB → 固定开销 ÷4 → +15-25%。
 组合预期：100GB 19.7K → 26-32K（≥ native 21.7K）。
+
+## 7. E2 归因结果（2026-09-02 实测，5GB sampled）
+
+skip 196 次原因分布：**l0_busy=191（97%）**、batch_prev=5、其余 0。
+
+**滞留链条修正**：滞留的直接机制不是"批内前序冲突"，而是
+```
+fallback（ratio 不足/kDirect 被挡）→ L0 文件产生
+  → 后续同分区物化：L0 文件被原生 L0→base compaction 占用 → l0_busy
+  → kSkip（数据积 WAL）→ 下批收养多代物化 → 物化放大
+  → 物化慢 → 封存积压 → 更多 fallback → 自增强
+```
+fallback 235 次（决策 46% 装 L0）是循环源头：L0 残留挡直装（PickInstallLevel
+L0..base 检查）→ 新 fallback；L0 被原生占用挡融合 → l0_busy skip。
+
+**修复优先级（更新）**：
+1. **P0：打破 fallback 自增强**——L0 残留一旦存在，后续同分区物化几乎必然
+   fallback/skip。方向：a) L0 残留的即时清空（同分区物化时若 L0 有自己的旧
+   文件且未被占用 → L0 融合（M4.9 已有，需确认触发率）；b) L0 被占用时的
+   等待窗口缩短（原生 L0→base 消费很快——skip 的下批应已消，但 batch_prev
+   只有 5 说明 l0_busy 的 skip 数据下批仍被挡——需要验证 l0_busy 的等待是否
+   有效：原生消费 L0 后 vstorage 无 L0 → 直装恢复）；
+2. **P1：fallback 源头归因**（下一插桩：kDirect 回落 vs kFallback 分支 vs
+   ratio——235 次装 L0 的决策路径分布）；
+3. **P2：滞留数据的有界性确认**（kMaxSkipGenerations=2 下代深 ≤2，但 l0_busy
+   连续发生时数据反复跨批——收养代数是否实际 ≤2）。

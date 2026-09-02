@@ -469,6 +469,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   // L1 自洽。
   const bool skip_ok = ctx_->zfo_.routing_mode !=
                        zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
+  // R59E 诊断：skip 原因计数（static 累积，PlanLocked 每次调用打印）。
+  static uint64_t zf_skip_no_merge = 0, zf_skip_busy_conflict = 0,
+                   zf_skip_batch_l0 = 0, zf_skip_l0_busy = 0,
+                   zf_skip_direct_conflict = 0, zf_skip_batch_prev = 0,
+                   zf_skip_ratio = 0;
   ROCKSDB_NAMESPACE::VersionStorageInfo* vstorage =
       (mc_.base != nullptr) ? mc_.base->storage_info() : nullptr;
   const int base = (vstorage != nullptr) ? vstorage->base_level() : 0;
@@ -534,6 +539,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           PendingGenCount(pid) < kMaxSkipGenerations) {
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
+          zf_skip_no_merge++;
         } else {
           plan.decision = MaterializeDecision::kFallback;
         }
@@ -603,6 +609,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           PendingGenCount(pid) < kMaxSkipGenerations) {
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
+          zf_skip_busy_conflict++;
         } else {
           plan.decision = MaterializeDecision::kFallback;
         }
@@ -698,6 +705,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         if (ctx_->skipped_bytes() < shadow_limit) {
           if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
+          zf_skip_batch_l0++;
         } else {
           plan.decision = MaterializeDecision::kFallback;
         }
@@ -718,6 +726,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       if (ctx_->skipped_bytes() < shadow_limit) {
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
+          zf_skip_l0_busy++;
         } else {
           plan.decision = MaterializeDecision::kFallback;
         }
@@ -769,6 +778,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
             PendingGenCount(pid) < kMaxSkipGenerations) {
           if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
+          zf_skip_direct_conflict++;
         } else {
           plan.decision = MaterializeDecision::kFallback;
         }
@@ -794,6 +804,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       if (PendingGenCount(pid) < kMaxSkipGenerations) {
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
+          zf_skip_batch_prev++;
         } else {
           plan.decision = MaterializeDecision::kFallback;
         }
@@ -825,6 +836,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
             PendingGenCount(pid) < kMaxSkipGenerations) {
           if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
+          zf_skip_ratio++;
         } else {
           plan.decision = MaterializeDecision::kFallback;
         }
@@ -928,6 +940,16 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       }
     }
   }
+  fprintf(stderr,
+          "ZFDBG-skip no_merge=%llu busy=%llu batch_l0=%llu l0busy=%llu "
+          "dirconf=%llu batchprev=%llu ratio=%llu\n",
+          (unsigned long long)zf_skip_no_merge,
+          (unsigned long long)zf_skip_busy_conflict,
+          (unsigned long long)zf_skip_batch_l0,
+          (unsigned long long)zf_skip_l0_busy,
+          (unsigned long long)zf_skip_direct_conflict,
+          (unsigned long long)zf_skip_batch_prev,
+          (unsigned long long)zf_skip_ratio);
   return ROCKSDB_NAMESPACE::Status::OK();
 }
 
