@@ -313,16 +313,43 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
           if (x.superseded || x.level != o.level) {
             continue;
           }
+          // R59 修复 2：x 必须是 kMergeBase——o 的 B 侧只覆盖「被替换
+          // 文件」的数据；kDirect/kFallback 输出是新数据（不替换任何
+          // 文件，replaced 为空），o 的 B 侧不含它 → 即使范围 ⊆ o 也
+          // 不能 superseded（否则 x 的新数据被删 → 命中率低于期望）。
+          if (x.decision != MaterializeDecision::kMergeBase) {
+            continue;
+          }
           const ROCKSDB_NAMESPACE::Slice x_smallest =
               x.meta.smallest.user_key();
           const ROCKSDB_NAMESPACE::Slice x_largest = x.meta.largest.user_key();
-          if (ucmp2->Compare(o.meta.smallest.user_key(), x_largest) <= 0 &&
-              ucmp2->Compare(x_smallest, o.meta.largest.user_key()) <= 0) {
-            x.superseded = true;
-            orphan_files_.push_back(x.meta.fd.GetNumber());
-            for (uint64_t n : x.replaced_file_numbers) {
-              o.replaced_file_numbers.push_back(n);
+          // R59 修复：链式替换的判据从「范围相交」收紧为「x ⊆ o 且 o
+          // 替换了 x 的全部输入文件」——后者保证 o 的 B 侧 ⊇ x 的数据。
+          // 越界融合（R59）使 o 的输出范围为越界文件并集 ⊋ 分区范围，
+          // 与相邻分区的输出**相交**但**不包含**其数据（相邻分区的新
+          // A 侧数据在 x 里、不在 o 里）——旧判据把 x 误标 superseded
+          // → x 数据被删 → 数据丢失（实测命中率 60.9% vs 63.2% 期望，
+          // 枚举确认丢 ~5.3% key）。
+          if (ucmp2->Compare(x_smallest, o.meta.smallest.user_key()) < 0 ||
+              ucmp2->Compare(x_largest, o.meta.largest.user_key()) > 0) {
+            continue;  // x 越出 o 范围：o 不包含 x 的数据 → 不可替换
+          }
+          bool replaced_subset = true;
+          for (uint64_t n : x.replaced_file_numbers) {
+            if (std::find(o.replaced_file_numbers.begin(),
+                          o.replaced_file_numbers.end(),
+                          n) == o.replaced_file_numbers.end()) {
+              replaced_subset = false;
+              break;
             }
+          }
+          if (!replaced_subset) {
+            continue;  // x 替换了 o 未替换的文件：o 的 B 侧缺 x 数据
+          }
+          x.superseded = true;
+          orphan_files_.push_back(x.meta.fd.GetNumber());
+          for (uint64_t n : x.replaced_file_numbers) {
+            o.replaced_file_numbers.push_back(n);
           }
         }
         std::sort(o.replaced_file_numbers.begin(),
@@ -714,13 +741,21 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
 
     // 被批内前序注册标记的文件必须由批内融合输出覆盖（last_batch 为
     // kMergeBase），否则 B 侧缺数据 → 安全降级 kSkip（攒批，见下）。
+    // R59 修正：批内冲突时**无条件 kSkip**（不依赖 skip_batching）——
+    // 越界融合使相邻分区与前序融合输出范围重叠，skip_batching=false 时
+    // 走 kDirect → PickInstallLevel 撞 L1 重叠 → 回落 L0 → 原生 L0→L1
+    // 全范围重写 → 性能塌陷（同窗实测正确性修复版 vs 错误版 2× 差距
+    // 即此）。kSkip = 数据留 frozen + WAL 可读，下批前序文件替换后
+    // vstorage 可见 → 再融合吸收（正确且高性能）。gen 达上限强制
+    // kFallback（装 L0 落底）。
     if (batch_skipped &&
         (last_batch == nullptr ||
          last_batch->decision != MaterializeDecision::kMergeBase)) {
-      if (ctx_->zfo_.skip_batching &&
-          PendingGenCount(pid) < kMaxSkipGenerations) {
+      if (PendingGenCount(pid) < kMaxSkipGenerations) {
         plan.decision = MaterializeDecision::kSkip;
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      } else {
+        plan.decision = MaterializeDecision::kFallback;
       }
       plans_.push_back(std::move(plan));
       continue;
