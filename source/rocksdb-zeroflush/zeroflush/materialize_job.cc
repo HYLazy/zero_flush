@@ -222,6 +222,19 @@ void ZfMaterializeJob::CollectTasks(std::vector<MaterializeTask>* tasks) {
   }
 }
 
+// R59C：见头文件注释。table_ 为 null/hash 或 pid 越界 → 全范围。
+bool ZfMaterializeJob::GetPartRange(uint32_t pid, ROCKSDB_NAMESPACE::Slice* lo,
+                                    ROCKSDB_NAMESPACE::Slice* hi) const {
+  lo->clear();
+  hi->clear();
+  if (table_ == nullptr || table_->IsHashMode() ||
+      pid >= table_->partitions()) {
+    return false;
+  }
+  table_->RangeOf(pid, lo, hi);
+  return true;
+}
+
 ROCKSDB_NAMESPACE::Status ZfMaterializeJob::ExecutePartition(uint32_t part_id) {
   // 该 part 的全部 gen：正常封存 1 个 + 可能收养的恢复期孤儿/攒批代。
   std::vector<std::pair<uint32_t, uint32_t>> gens;
@@ -245,7 +258,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::ExecutePartition(uint32_t part_id) {
       lo = plan->lo;
       hi = plan->hi;
     } else {
-      table_->RangeOf(part_id, &lo, &hi);
+      GetPartRange(part_id, &lo, &hi);
     }
   }
   return (plan != nullptr && plan->decision == MaterializeDecision::kMergeBase)
@@ -449,6 +462,13 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   const bool merge_enabled = ctx_->zfo_.merge_into_base_level &&
                              !se_.has_adopted_orphans && table_ != nullptr &&
                              !table_->IsHashMode();
+  // R59C：kSkip 攒批在 align_l1 下禁用——skip 数据跨 epoch 收养时 part
+  // 属于旧路由表（align 表每 epoch 按 L1 重建，分区数可变），孤儿全范围
+  // 兜底在孤儿累积时产生重叠输出（50GB 实测 L1 重叠崩）。align_l1 稳态
+  // 应为 1:1 融合（无 skip 需求）；fallback（装 L0）由原生消费、表跟随
+  // L1 自洽。
+  const bool skip_ok = ctx_->zfo_.routing_mode !=
+                       zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
   ROCKSDB_NAMESPACE::VersionStorageInfo* vstorage =
       (mc_.base != nullptr) ? mc_.base->storage_info() : nullptr;
   const int base = (vstorage != nullptr) ? vstorage->base_level() : 0;
@@ -512,7 +532,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       // =false）或关闭攒批（skip_batching=false）时不攒批（维持原行为）。
       if (ctx_->zfo_.merge_into_base_level && ctx_->zfo_.skip_batching &&
           PendingGenCount(pid) < kMaxSkipGenerations) {
-        plan.decision = MaterializeDecision::kSkip;
+        if (skip_ok) {
+          plan.decision = MaterializeDecision::kSkip;
+        } else {
+          plan.decision = MaterializeDecision::kFallback;
+        }
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       } else if (ctx_->zfo_.merge_into_base_level && se_.has_adopted_orphans &&
                  table_ != nullptr && !table_->IsHashMode()) {
@@ -522,7 +546,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         // 融合输出 → 读旧值（R22 实测用例 48 phase2 get 读到 'C'）。
         // 替换安全性：输出范围 ⊇ overlap 文件范围（全代数据），替换后
         // base 无重叠且数据最新。
-        table_->RangeOf(pid, &plan.lo, &plan.hi);
+        GetPartRange(pid, &plan.lo, &plan.hi);
         std::vector<ROCKSDB_NAMESPACE::FileMetaData*> ov;
         uint64_t ov_bytes = 0;
         bool ok = true, bskipped = false;
@@ -557,7 +581,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       plans_.push_back(std::move(plan));
       continue;
     }
-    table_->RangeOf(pid, &plan.lo, &plan.hi);
+    GetPartRange(pid, &plan.lo, &plan.hi);
 
     // 候选重叠文件：base 层与分区半开区间 [lo, hi) 相交且完全包含。
     // 手工遍历而非 GetOverlappingInputs：后者闭区间语义会把右邻居
@@ -577,7 +601,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       // （回落 L0 兜底，保证收敛；内存背压由 max_pending_epochs 流控）。
       if (ctx_->zfo_.skip_batching &&
           PendingGenCount(pid) < kMaxSkipGenerations) {
-        plan.decision = MaterializeDecision::kSkip;
+        if (skip_ok) {
+          plan.decision = MaterializeDecision::kSkip;
+        } else {
+          plan.decision = MaterializeDecision::kFallback;
+        }
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       }
       plans_.push_back(std::move(plan));
@@ -668,7 +696,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         const uint64_t shadow_limit =
             static_cast<uint64_t>(ctx_->zfo_.partition_target_bytes) * 32;
         if (ctx_->skipped_bytes() < shadow_limit) {
+          if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
+        } else {
+          plan.decision = MaterializeDecision::kFallback;
+        }
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
         } else {
           plan.decision = MaterializeDecision::kFallback;
@@ -684,7 +716,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       const uint64_t shadow_limit =
           static_cast<uint64_t>(ctx_->zfo_.partition_target_bytes) * 32;
       if (ctx_->skipped_bytes() < shadow_limit) {
-        plan.decision = MaterializeDecision::kSkip;
+        if (skip_ok) {
+          plan.decision = MaterializeDecision::kSkip;
+        } else {
+          plan.decision = MaterializeDecision::kFallback;
+        }
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       } else {
         plan.decision = MaterializeDecision::kFallback;
@@ -731,7 +767,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
                                                             base)) {
         if (ctx_->zfo_.skip_batching &&
             PendingGenCount(pid) < kMaxSkipGenerations) {
+          if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
+        } else {
+          plan.decision = MaterializeDecision::kFallback;
+        }
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
         }
       }
@@ -752,7 +792,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         (last_batch == nullptr ||
          last_batch->decision != MaterializeDecision::kMergeBase)) {
       if (PendingGenCount(pid) < kMaxSkipGenerations) {
-        plan.decision = MaterializeDecision::kSkip;
+        if (skip_ok) {
+          plan.decision = MaterializeDecision::kSkip;
+        } else {
+          plan.decision = MaterializeDecision::kFallback;
+        }
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       } else {
         plan.decision = MaterializeDecision::kFallback;
@@ -779,7 +823,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         // 约束：该分区待物化代 < 上限（防永不收敛——攒一代即强制落地）。
         if (ctx_->zfo_.skip_batching &&
             PendingGenCount(pid) < kMaxSkipGenerations) {
+          if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
+        } else {
+          plan.decision = MaterializeDecision::kFallback;
+        }
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
           plans_.push_back(std::move(plan));
           continue;

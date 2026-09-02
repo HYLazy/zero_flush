@@ -200,6 +200,12 @@ class ZfMaterializeJob {
   void FinishPlansLocked();
 
  private:
+  // R59C：分区范围安全获取——孤儿/攒批 gens 的 part 来自旧路由表（align_l1
+  // 每 epoch 重建表，分区数变化）→ 用当前表 RangeOf 越界断言。越界时返回
+  // false（调用方用全范围 lo/hi 空——物化输出正确性由 BuildTable 实际数据
+  // 范围保证，仅决策范围变宽，孤儿分区少量出现无碍）。
+  bool GetPartRange(uint32_t pid, ROCKSDB_NAMESPACE::Slice* lo,
+                    ROCKSDB_NAMESPACE::Slice* hi) const;
   // M4.5b：阶段 0 决策为 kSkip 的分区 gens（Run 尾部移交 recovery 集合）。
   std::vector<std::pair<uint32_t, uint32_t>> skipped_gens_;
   // 阶段 0（持锁）产生的分区决策，供阶段 1 worker 与阶段 2 安装消费。
