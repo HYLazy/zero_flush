@@ -206,44 +206,48 @@ bool ZeroFlushContext::ShouldSeal() const {
          wal_->AnyPartitionOverTarget();
 }
 
-bool ZeroFlushContext::BuildL1AlignedTable(
+bool ZeroFlushContext::BuildBaseAlignedTable(
     ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
     std::shared_ptr<PartitionTable>* out) const {
   assert(cfd != nullptr);
   assert(out != nullptr);
   // REQUIRES: DB mutex held（cfd->current()）。
   const auto* vstorage = cfd->current()->storage_info();
-  const auto& l1 = vstorage->LevelFiles(1);
-  if (l1.empty()) {
-    return false;  // L1 为空：无法对齐，调用方保持当前表。
+  // R59D：对齐对象 = base_level（ZF 物化实际直装层），而非硬编码 L1——
+  // dynamic level 下空库 base=6、数据增长后下移（2.2GB 实测 L1/L2）；
+  // 读错层使表桶与直装文件错位 → 桶偏斜/fallback 循环（研究结论）。
+  const int base_lvl = vstorage->base_level();
+  const auto& base_files = vstorage->LevelFiles(base_lvl);
+  if (base_files.empty()) {
+    return false;  // base 层为空：无法对齐，调用方保持当前表/采样兜底。
   }
-  // 桶聚合：目标分区数 = zfo_.partitions；L1 文件数 ≤ 目标时每文件一桶。
-  // 桶边界 = 桶末文件的 largest user key——精确落在文件边界上，保证
-  // 物化输出的 L0 文件键范围 ⊆ 单个 L1 文件范围（L0→L1 1:1 归并）。
+  // 桶聚合：目标分区数 = zfo_.partitions；base 层文件数 ≤ 目标时每文件
+  // 一桶。桶边界 = 桶末文件的 largest user key——精确落在文件边界上，
+  // 保证物化输出文件键范围 ⊆ 单个 base 文件范围（1:1 归并/融合）。
   std::vector<std::string> boundaries;
   const uint32_t target = std::max<uint32_t>(1, zfo_.partitions);
-  if (static_cast<size_t>(target) >= l1.size()) {
-    for (size_t i = 0; i + 1 < l1.size(); ++i) {
-      boundaries.push_back(l1[i]->largest.user_key().ToString());
+  if (static_cast<size_t>(target) >= base_files.size()) {
+    for (size_t i = 0; i + 1 < base_files.size(); ++i) {
+      boundaries.push_back(base_files[i]->largest.user_key().ToString());
     }
   } else {
     uint64_t total = 0;
-    for (const auto* f : l1) {
+    for (const auto* f : base_files) {
       total += f->fd.GetFileSize();
     }
     const uint64_t target_bytes = total / target;
     uint64_t acc = 0;
-    for (size_t i = 0; i < l1.size(); ++i) {
-      acc += l1[i]->fd.GetFileSize();
-      if (acc >= target_bytes && i + 1 < l1.size() &&
+    for (size_t i = 0; i < base_files.size(); ++i) {
+      acc += base_files[i]->fd.GetFileSize();
+      if (acc >= target_bytes && i + 1 < base_files.size() &&
           boundaries.size() + 1 < target) {
-        boundaries.push_back(l1[i]->largest.user_key().ToString());
+        boundaries.push_back(base_files[i]->largest.user_key().ToString());
         acc = 0;
       }
     }
   }
   if (boundaries.empty()) {
-    return false;  // 单文件 L1 无法形成分区边界。
+    return false;  // 单文件 base 层无法形成分区边界。
   }
   // 层内文件键范围严格升序 → boundaries 升序（PartitionTable::Create 校验）。
   return PartitionTable::Create(tables_->current_version() + 1,
@@ -322,7 +326,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
   if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kAlignL1 &&
       tables_) {
     std::shared_ptr<PartitionTable> new_table;
-    if (BuildL1AlignedTable(cfd, &new_table)) {
+    if (BuildBaseAlignedTable(cfd, &new_table)) {
       tables_->InstallNewVersion(std::move(new_table));
       // M4.10c：同 kSampled——新表立即落盘，重开路由一致。
       PersistZfProps().PermitUncheckedError();
@@ -667,7 +671,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeBatchPartitions(
   } else if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kAlignL1 &&
              tables_) {
     std::shared_ptr<PartitionTable> new_table;
-    if (!BuildL1AlignedTable(cfd, &new_table) && sampler_ &&
+    if (!BuildBaseAlignedTable(cfd, &new_table) && sampler_ &&
         tables_->current_version() == 0 && epoch == 1 &&
         !sampler_->empty()) {
       std::vector<std::string> boundaries;

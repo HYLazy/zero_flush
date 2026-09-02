@@ -245,7 +245,7 @@ class ZeroFlushContext {
   // 桶边界 = 桶末文件的 largest user key（精确文件边界 → L0/L1 1:1 对齐）。
   // L1 为空或无法形成边界时返回 false（调用方保持当前表）。
   // REQUIRES: DB mutex held（cfd->current() 访问）。
-  bool BuildL1AlignedTable(
+  bool BuildBaseAlignedTable(
       ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
       std::shared_ptr<PartitionTable>* out) const;
 
