@@ -1,0 +1,490 @@
+[
+ {
+  "engine": "native",
+  "kv_value": 2048,
+  "kv_total": 2064,
+  "scale_gb": 10,
+  "num": 5202224,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 138.459,
+   "ops_s": 115158,
+   "ops": 5202224,
+   "mbps": 226.7
+  },
+  "read": {
+   "micros_op": 18.237,
+   "ops_s": 872397,
+   "ops": 16000000,
+   "mbps": 1085.2,
+   "found": 632605,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 2048,
+  "kv_total": 2064,
+  "scale_gb": 10,
+  "num": 5202224,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 829.654,
+   "ops_s": 19263,
+   "ops": 5202224,
+   "mbps": 37.9
+  },
+  "read": {
+   "micros_op": 134.874,
+   "ops_s": 116841,
+   "ops": 16000000,
+   "mbps": 145.4,
+   "found": 632381,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "native",
+  "kv_value": 1024,
+  "kv_total": 1040,
+  "scale_gb": 10,
+  "num": 10324432,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 122.959,
+   "ops_s": 130105,
+   "ops": 10324432,
+   "mbps": 129.0
+  },
+  "read": {
+   "micros_op": 27.186,
+   "ops_s": 582641,
+   "ops": 16000000,
+   "mbps": 365.4,
+   "found": 632398,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 1024,
+  "kv_total": 1040,
+  "scale_gb": 10,
+  "num": 10324432,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 443.54,
+   "ops_s": 36045,
+   "ops": 10324432,
+   "mbps": 35.8
+  },
+  "read": {
+   "micros_op": 136.205,
+   "ops_s": 116710,
+   "ops": 16000000,
+   "mbps": 73.2,
+   "found": 633281,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "native",
+  "kv_value": 256,
+  "kv_total": 272,
+  "scale_gb": 10,
+  "num": 39475792,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 50.854,
+   "ops_s": 311212,
+   "ops": 39475792,
+   "mbps": 80.7
+  },
+  "read": {
+   "micros_op": 24.431,
+   "ops_s": 649457,
+   "ops": 16000000,
+   "mbps": 106.5,
+   "found": 632069,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 256,
+  "kv_total": 272,
+  "scale_gb": 10,
+  "num": 39475792,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 216.645,
+   "ops_s": 73805,
+   "ops": 39475792,
+   "mbps": 19.1
+  },
+  "read": {
+   "micros_op": 142.153,
+   "ops_s": 110930,
+   "ops": 16000000,
+   "mbps": 18.2,
+   "found": 632745,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "native",
+  "kv_value": 128,
+  "kv_total": 144,
+  "scale_gb": 10,
+  "num": 74565392,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 38.759,
+   "ops_s": 410900,
+   "ops": 74565392,
+   "mbps": 56.4
+  },
+  "read": {
+   "micros_op": 18.337,
+   "ops_s": 829495,
+   "ops": 16000000,
+   "mbps": 72.0,
+   "found": 631893,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 128,
+  "kv_total": 144,
+  "scale_gb": 10,
+  "num": 74565392,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 218.074,
+   "ops_s": 73348,
+   "ops": 74565392,
+   "mbps": 10.1
+  },
+  "read": {
+   "micros_op": 169.372,
+   "ops_s": 93562,
+   "ops": 16000000,
+   "mbps": 8.1,
+   "found": 633037,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "native",
+  "kv_value": 2048,
+  "kv_total": 2064,
+  "scale_gb": 50,
+  "num": 26011184,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 1168.119,
+   "ops_s": 13693,
+   "ops": 26011184,
+   "mbps": 27.0
+  },
+  "read": {
+   "micros_op": 32.407,
+   "ops_s": 489746,
+   "ops": 16000000,
+   "mbps": 609.4,
+   "found": 632129,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "native",
+  "kv_value": 1024,
+  "kv_total": 1040,
+  "scale_gb": 50,
+  "num": 51622192,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 587.108,
+   "ops_s": 27232,
+   "ops": 51622192,
+   "mbps": 27.0
+  },
+  "read": {
+   "micros_op": 33.195,
+   "ops_s": 476961,
+   "ops": 16000000,
+   "mbps": 299.2,
+   "found": 631785,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "native",
+  "kv_value": 256,
+  "kv_total": 272,
+  "scale_gb": 50,
+  "num": 197379008,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 191.28,
+   "ops_s": 83394,
+   "ops": 197379008,
+   "mbps": 21.6
+  },
+  "read": {
+   "micros_op": 29.125,
+   "ops_s": 544557,
+   "ops": 16000000,
+   "mbps": 89.3,
+   "found": 632106,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "native",
+  "kv_value": 128,
+  "kv_total": 144,
+  "scale_gb": 50,
+  "num": 372827008,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 97.046,
+   "ops_s": 164766,
+   "ops": 372827008,
+   "mbps": 22.6
+  },
+  "read": {
+   "micros_op": 31.327,
+   "ops_s": 491457,
+   "ops": 16000000,
+   "mbps": 42.7,
+   "found": 631108,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "native",
+  "kv_value": 2048,
+  "kv_total": 2064,
+  "scale_gb": 100,
+  "num": 52022368,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 1642.817,
+   "ops_s": 9735,
+   "ops": 52022368,
+   "mbps": 19.2
+  },
+  "read": {
+   "micros_op": 254.213,
+   "ops_s": 62861,
+   "ops": 16000000,
+   "mbps": 78.2,
+   "found": 631992,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "native",
+  "kv_value": 1024,
+  "kv_total": 1040,
+  "scale_gb": 100,
+  "num": 103244400,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 828.914,
+   "ops_s": 19299,
+   "ops": 103244400,
+   "mbps": 19.1
+  },
+  "read": {
+   "micros_op": 259.016,
+   "ops_s": 61652,
+   "ops": 16000000,
+   "mbps": 38.6,
+   "found": 632208,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 2048,
+  "kv_total": 2064,
+  "scale_gb": 50,
+  "num": 26011184,
+  "fill_rc": 0,
+  "read_rc": 0,
+  "fill": {
+   "micros_op": 1460.532,
+   "ops_s": 10949,
+   "ops": 26011184,
+   "mbps": 21.6
+  },
+  "read": {
+   "micros_op": 294.082,
+   "ops_s": 54336,
+   "ops": 16000000,
+   "mbps": 67.6,
+   "found": 632159,
+   "read": 1000000
+  },
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 1024,
+  "kv_total": 1040,
+  "scale_gb": 50,
+  "num": 51622192,
+  "fill_rc": 127,
+  "read_rc": null,
+  "fill": {},
+  "read": {},
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 256,
+  "kv_total": 272,
+  "scale_gb": 50,
+  "num": 197379008,
+  "fill_rc": 127,
+  "read_rc": null,
+  "fill": {},
+  "read": {},
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 128,
+  "kv_total": 144,
+  "scale_gb": 50,
+  "num": 372827008,
+  "fill_rc": 127,
+  "read_rc": null,
+  "fill": {},
+  "read": {},
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 2048,
+  "kv_total": 2064,
+  "scale_gb": 100,
+  "num": 52022368,
+  "fill_rc": 127,
+  "read_rc": null,
+  "fill": {},
+  "read": {},
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 1024,
+  "kv_total": 1040,
+  "scale_gb": 100,
+  "num": 103244400,
+  "fill_rc": 127,
+  "read_rc": null,
+  "fill": {},
+  "read": {},
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 256,
+  "kv_total": 272,
+  "scale_gb": 100,
+  "num": 394758016,
+  "fill_rc": 127,
+  "read_rc": null,
+  "fill": {},
+  "read": {},
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ },
+ {
+  "engine": "zf",
+  "kv_value": 128,
+  "kv_total": 144,
+  "scale_gb": 100,
+  "num": 745654032,
+  "fill_rc": 127,
+  "read_rc": null,
+  "fill": {},
+  "read": {},
+  "fill_percentiles": {},
+  "read_percentiles": {},
+  "errors": 0
+ }
+]
