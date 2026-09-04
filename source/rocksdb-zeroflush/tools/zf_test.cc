@@ -2678,6 +2678,10 @@ void TestBulkLoadZeroL0() {
   zfo.static_boundaries = {"kb", "kd", "kf"};
   zfo.partition_target_bytes = 8 << 10;  // 8KB：单分区超限即封存
   zfo.epoch_target_bytes = 8 << 10;      // 副触发先到（写路径按 epoch 边界封存）
+  // M5（zeroflush0.98）适配：P1 稳态开融合——epoch2+ 同分区数据与
+  // L1 无条件融合（不再直装撞 L1 落 L0——merge off 直装落 L0 为 0.9
+  // 语义，L0 消费在 P1 禁用）。
+  zfo.merge_into_base_level = true;
 
   std::unique_ptr<rocksdb::DB> db;
   auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);

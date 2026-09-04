@@ -818,13 +818,21 @@ void ZeroFlushContext::HandOffSkippedToRecovery(
   // 取该 epoch 的 per-partition 封存字节（ratio 攒批合并用）。
   SealedEpoch se;
   std::unordered_map<uint32_t, uint64_t> part_bytes;
-  if (GetSealedEpoch(epoch, &se)) {
+  bool se_ok = GetSealedEpoch(epoch, &se);
+  if (se_ok) {
     for (const auto& [part, gen] : gens) {
       auto pb = se.part_bytes.find(part);
       if (pb != se.part_bytes.end()) {
         part_bytes[part] = pb->second;
       }
     }
+  }
+  static uint64_t zf_ctxho_dbg = 0;
+  if (zf_ctxho_dbg++ < 100) {
+    fprintf(stderr,
+            "ZFDBG-ctxhandoff epoch=%llu gens=%zu se_ok=%d se_pb=%zu out_pb=%zu\n",
+            (unsigned long long)epoch, gens.size(), (int)se_ok,
+            se.part_bytes.size(), part_bytes.size());
   }
   sealed_cache_->HandOffSkippedToRecovery(epoch, gens, part_bytes);
 }

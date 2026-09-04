@@ -439,10 +439,21 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
       } else {
         o.level = PickInstallLevel(o.meta.smallest, o.meta.largest);
         if (o.level == 0) {
+          // M5 §3.5：定层冲突（决策后下沉 compaction 启动/批内互斥——
+          // 决策视图与定层视图不一致）→ 不装 L0（禁用后滞留）：丢弃
+          // 输出物理文件 + 本分区 gens 移交 recovery（下批收养重物化，
+          // 决策看到新状态 → 正常融合/直装——收敛）。原回落 L0 计数
+          // 保留为诊断（install_fallback_l0 表示"冲突转 recovery"次数）。
           ctx_->install_fallback_l0_.fetch_add(1, std::memory_order_relaxed);
-        } else {
-          ctx_->install_direct_base_.fetch_add(1, std::memory_order_relaxed);
+          orphan_files_.push_back(o.meta.fd.GetNumber());
+          for (const auto& g : se_.gens) {
+            if (g.first == o.part_id) {
+              skipped_gens_.emplace_back(g);
+            }
+          }
+          continue;  // 不安装、不入 batch_outputs_
         }
+        ctx_->install_direct_base_.fetch_add(1, std::memory_order_relaxed);
       }
     }
     if (batch_outputs_ != nullptr) {
@@ -1001,38 +1012,30 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       continue;
     }
 
-    // M5（zeroflush0.98）§3.2 字节化决策——ratio 门槛删除。overlap 为空
+    // M5（zeroflush0.98）§3.2/§3.4 决策——ratio 门槛删除。overlap 为空
     // （batch_skipped 场景，融合成本已由前序承担、B 侧全量由 last_batch
     // 提供）或 L0 融合（plan.l0_overlap 非空，历史残留防御）跳过判据。
-    // N = 该分区待物化字节：se_.part_bytes[pid]——封存时 RegisterSealedEpoch
-    // 已并入 skip/recovery 收养字节（skip_part_bytes_/recovery_part_bytes_），
-    // 即"本批 + 收养代"的完整字节账，无需另行统计。
+    // 规则（二分支，无字节账依赖——长跑实测 skip 字节账目链断裂
+    // （FreezeOnePartition 单分区 epoch 的 part_bytes 只含本批分区，
+    // 收养字节未正确流转）→ 判据 2 的 N 恒为本批大小 → 判据 3 永不
+    // 触发 → F 满数据永滞留 recovery → 吞吐塌陷。改为 M5 §3.4 原文
+    // 语义：F 满（merge 输出必超限）即下沉让位，不攒批等待）：
+    //  判据 1：N + |F| ≤ 64MB → 无条件 kMergeBase（fallthrough 到下方
+    //    融合注册路径；写放大 1×——输出 = 该 range 全部未下沉数据）。
+    //  判据 2：N + |F| > 64MB（F 已满/接近满）→ 请求下沉 F（zf_ctx 队列
+    //    → DBImpl bg 调度原生 L1→L2，异步执行）+ 本批转 recovery（下批
+    //    L1 空 → kDirect 直装）。原判据 2（N<64 且 N<F 的字节化攒批）
+    //    删除——其收敛依赖字节账收养链（断裂）且 F 满时攒批无意义
+    //    （等下沉让位由判据 2 直接做）。
     if (!overlap.empty() && plan.l0_overlap.empty()) {
       const auto it = se_.part_bytes.find(pid);
       const uint64_t pending =
           (it != se_.part_bytes.end()) ? it->second : 0;
-      // M5 §3.5-2：关闭冲刷模式——跳过判据 2/3（kSkip/下沉让位），F 满
-      // 也强制融合（输出超限由 worker 按 target_file_size 切分——单文件
-      // ≤64MB 为稳态性能目标，关闭一次性场景放宽；否则每轮冲刷 F 满
-      // 分区都判据 3 转 recovery → 冲刷循环永不收敛 → 跨关闭滞留违约）。
-      if (ctx_->closing_flush()) {
-        // 无条件融合（fallthrough 到下方注册路径）。
-      } else if (pending + overlap_bytes > kRangeMergeBytes) {
-        // 融合输出必超 kRangeMergeBytes → 不融合，攒批或让位：
-        //  - N < 64MB 且 N < |F|（判据 2）：kSkip 字节化攒批。收养使 N
-        //    每批单调增 → 最终 N ≥ |F| 或 F 下沉让位 → 收敛；无代数上限
-        //    （kMaxSkipGenerations 删除——L0 兜底移除后强制落地无路可去，
-        //    正是 R49e 卡死根因）。全局 2GB skip 字节兜底（调用方 L0
-        //    等待分支的 shadow_limit）保留。
-        //  - 否则（判据 3：F 已满/接近满，merge 输出必超限）：请求下沉 F
-        //    （zf_ctx 队列 → DBImpl bg 调度点原生 L1→L2，异步执行），本批
-        //    转 recovery（下批 L1 空 → kDirect 收养直装）。
-        if (pending < kRangeMergeBytes && pending < overlap_bytes) {
-          zf_skip_bytes++;
-        } else {
-          zf_sink_request++;
-          ctx_->RequestRangeSink(plan.lo, plan.hi);
-        }
+      if (pending + overlap_bytes > kRangeMergeBytes &&
+          !ctx_->closing_flush()) {
+        // 判据 2：F 让位（下沉请求 + 本批转 recovery）。
+        zf_sink_request++;
+        ctx_->RequestRangeSink(plan.lo, plan.hi);
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
@@ -1045,9 +1048,10 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         plans_.push_back(std::move(plan));
         continue;
       }
-      // 判据 1：N + |F| ≤ 64MB → 无条件 kMergeBase（fallthrough 到下方
-      // 融合注册路径；写放大 1×——输出 = 该 range 全部未下沉数据，从不
-      // 重写旧 F，故无 ratio/代数判据需求）。
+      // 判据 1（N+|F| ≤ 64MB，或关闭冲刷模式强制）：无条件融合
+      // （fallthrough 到下方注册路径；冲刷模式输出超限由 worker 按
+      // target_file_size 切分——单文件 ≤64MB 为稳态目标，关闭一次性
+      // 场景放宽）。
     }
 
     // M4.5：删除 upper_conflict 检查——L0（或更浅层）与本分区范围重叠
@@ -1354,6 +1358,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
       rocksdb::MutexLock l(&out_mu_);
       MaterializeOutput out;
       out.meta = std::move(meta);
+      // M5：直装/切片输出标注来源分区（原恒 0——安装期冲突转 recovery
+      // 需要按分区移交 gens；single_task 切片输出标任务分区，recovery
+      // 按任务 gens 全量移交——可能含已装片导致重复物化，罕见且下批
+      // 融合吸收收敛）。
+      out.part_id = part_id;
       outputs_.push_back(std::move(out));
     }
     return ROCKSDB_NAMESPACE::Status::OK();

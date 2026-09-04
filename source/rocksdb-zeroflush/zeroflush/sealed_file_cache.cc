@@ -55,6 +55,11 @@ void SealedFileCache::AddEpochWithRecoveryAdoption(const SealedEpoch& e,
     recovery_part_bytes_.clear();
   }
   if (!skip_gens_.empty()) {
+    static uint64_t zf_adopt_dbg = 0;
+    if (zf_adopt_dbg++ < 100) {
+      fprintf(stderr, "ZFDBG-adopt skip_gens=%zu epoch=%llu\n",
+              skip_gens_.size(), (unsigned long long)e.epoch);
+    }
     // M4.5b：收养 kSkip 跳过代（攒批）——并入 gens 供多代合并物化、
     // 并入 part_bytes 供融合 ratio 计算。seq 连续（未崩溃）→ 置
     // has_adopted_skips（物化可融合），区别于 has_adopted_orphans 的
@@ -99,6 +104,12 @@ void SealedFileCache::HandOffSkippedToRecovery(
     uint64_t epoch, const std::vector<std::pair<uint32_t, uint32_t>>& gens,
     const std::unordered_map<uint32_t, uint64_t>& part_bytes) {
   rocksdb::MutexLock l(&mu_);
+  static uint64_t zf_ho_dbg = 0;
+  if (zf_ho_dbg++ < 100) {
+    fprintf(stderr, "ZFDBG-handoff epoch=%llu gens=%zu skip_bytes=%llu\n",
+            (unsigned long long)epoch, gens.size(),
+            (unsigned long long)skip_bytes_);
+  }
   // 1) 从 epoch 移除跳过的 gens（ReleaseEpoch 不再 unlink 它们）。
   auto eit = epochs_.find(epoch);
   if (eit != epochs_.end()) {
