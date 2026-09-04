@@ -1258,6 +1258,10 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   // 持锁取 base 层重叠文件并 RegisterCompaction；base_ 引用覆盖 Run 全程）。
   mc.base = base_;
   mc.compaction_picker = cfd_->compaction_picker();
+  // M5：批级"已规划分区"集合（本批次全部 epoch 的 job 共享）——阶段 0
+  // 按 epoch 序决策时登记产出分区；同分区后序 epoch 见已规划 → kSkip
+  // （下批再融合），防同批同 range 多输出落 L0 滞留。
+  mc.batch_planned_parts = std::make_shared<std::unordered_set<uint32_t>>();
 
   // ---- 阶段 0（持锁）：逐 epoch 按序决策 ----
   // M4.8 迁移路径：物化调度从「epoch 批次串行」改为「(part, gen) 分区
@@ -1432,10 +1436,11 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     {
       const rocksdb::Slice& lk = o.meta.smallest.user_key();
       const rocksdb::Slice& hk = o.meta.largest.user_key();
-      fprintf(stderr, "ZFDBG-install lvl=%d file=%llu lo=%s hi=%s bytes=%llu part=%u\n",
+      fprintf(stderr, "ZFDBG-install lvl=%d file=%llu lo=%s hi=%s bytes=%llu part=%u dec=%d\n",
               o.level, (unsigned long long)o.meta.fd.GetNumber(),
               lk.ToString(true).c_str(), hk.ToString(true).c_str(),
-              (unsigned long long)o.meta.fd.GetFileSize(), o.part_id);
+              (unsigned long long)o.meta.fd.GetFileSize(), o.part_id,
+              (int)o.decision);
     }
     edit_->AddFile(o.level, o.meta);
   }

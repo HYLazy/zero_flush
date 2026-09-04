@@ -81,6 +81,11 @@ struct MaterializeOutput {
   // 批内链式替换：本输出已被同批次后序融合输出替代（不安装其文件，
   // 物理文件由替换者 Run() 返回前删除；M3.3 §7.4 批次内多 epoch 互斥）。
   bool superseded = false;
+  // M5（zeroflush0.98）：本融合输出 B 侧吸收的批内前序输出文件号
+  // （PartitionPlan::batch_meta_copies——last_batch 链）。吸收 = 前序
+  // 数据包含在本输出中 → 前序（含 kDirect）可被安全 superseded（R23
+  // 限制只防"未吸收误删"——被吸收的 kDirect 前序不在此列）。
+  std::vector<uint64_t> batch_input_nums;
 };
 
 class ZfMaterializeJob;
@@ -134,6 +139,13 @@ struct ZfMaterializeCtx {
   // M3.3：CompactionPicker（cfd_->compaction_picker()），融合归并时
   // RegisterCompaction/UnregisterCompaction 用（防与原生 compaction 抢文件）。
   ROCKSDB_NAMESPACE::CompactionPicker* compaction_picker = nullptr;
+  // M5（zeroflush0.98）：批级"已规划分区"集合（同批次多 epoch 共享——
+  // imm 堆积时一次 flush 处理多个 epoch）。阶段 0 按 epoch 序决策：某
+  // 分区已被本批前序 epoch 规划（非 skip）→ 后序 epoch 同分区 kSkip
+  // （转 recovery，下批前序安装后 vstorage 可见再融合）——否则同批同
+  // range 双融合输出：前序被后序注册挡落 L0（292 复查的正确防御但滞留，
+  // smoke 实测 27 文件/170MB）。flush_job 创建，拷贝进各 job 共享。
+  std::shared_ptr<std::unordered_set<uint32_t>> batch_planned_parts;
 };
 
 // 物化一个 epoch：M4.8 起由调用方（ZfMaterializeAllEpochs）按三阶段驱动，
@@ -310,6 +322,11 @@ class ZfMaterializeJob {
 
   // 本 epoch 待物化分区（se.gens 去重排序；阶段 0 计算）。
   std::vector<uint32_t> part_ids_;
+  // M5（zeroflush0.98）：单任务模式（hash 期 / 学习批齐批）——由代表任务
+  // （part_ids_.front()）全量读取全部 gens 并按当前分区表整表切片（输出
+  // 片互斥直装）；CollectTasks 只收代表、ExecutePartition 非代表防御返回。
+  // PlanLocked 设置。
+  bool single_task_mode_ = false;
   // 阶段 0 决策结果（持锁写入，阶段 1/2 只读；Compaction 由 FinalizeLocked
   // 释放，worker 无锁期间仅经 compaction 指针做只读查询）。
   std::vector<PartitionPlan> plans_;
