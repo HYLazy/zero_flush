@@ -13,7 +13,9 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
@@ -326,6 +328,22 @@ class ZeroFlushContext {
   // M4.5b 指标：kSkip 攒批跳过的分区次数（决策时累计）。
   uint64_t skip_count() const;
 
+  // ---- M5（zeroflush0.98）下沉请求 ----
+  // 物化决策（PlanLocked 判据 3：L1 文件已满/接近满，merge 输出必超
+  // kRangeMergeBytes）请求原生 L1→L2 下沉。请求按分区 key 边界记录
+  // （lo/hi 为半开区间 [lo,hi) 的拷贝——GetPartRange 的 Slice 指向路由表
+  // 内部存储，须拷贝存续），由 DBImpl 在 bg 调度点消费（MaybeSchedule
+  // 内构造 prepicked compaction 交 bg 执行，异步、不等待）。
+  // 请求方在持 DB mutex 的决策窗口调用（不取本锁——锁内仅 O(n) 去重
+  // 扫描，n = 待处理 range 数 ≤ 分区数）。
+  void RequestRangeSink(const ROCKSDB_NAMESPACE::Slice& lo,
+                        const ROCKSDB_NAMESPACE::Slice& hi);
+  // 消费：取走全部未处理请求（内部锁；DBImpl 在 MaybeSchedule 持 DB
+  // mutex 时调用——下沉请求入队自物化决策（同持锁窗口），无死锁序）。
+  std::vector<std::pair<std::string, std::string>> TakeSinkRequests();
+  // 累计下沉请求次数（诊断/统计：rocksdb.zeroflush.sink_requests）。
+  uint64_t sink_request_count() const;
+
   ZeroFlushOptions zfo_;
   std::string wal_dir_;       // wal_dir/zfwal
   ROCKSDB_NAMESPACE::Env* env_;
@@ -354,6 +372,10 @@ class ZeroFlushContext {
   std::atomic<uint64_t> base_merge_rewritten_bytes_{0};  // 被重写 base 字节
   // ---- M4.5b 攒批统计 ----
   std::atomic<uint64_t> skip_count_{0};  // kSkip 攒批跳过的分区次数
+  // ---- M5 下沉请求状态 ----
+  mutable std::mutex sink_mu_;
+  std::vector<std::pair<std::string, std::string>> sink_requests_;  // (lo, hi)
+  std::atomic<uint64_t> sink_request_count_{0};  // 累计请求次数（诊断）
 };
 
 // 打开 ZeroFlush DB：

@@ -278,6 +278,25 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
   // 交错重叠，会全部直装同一层 → VersionBuilder force_consistency_checks
   // 报 "L6 has overlapping ranges"（对应 M3_DESIGN.md §6.2 批内互斥）。
   std::vector<MaterializeOutput> outs = std::move(outputs_);
+  // M5（zeroflush0.98）：先释放本 job 注册的融合 Compaction（Unregister +
+  // 解除 being_compacted，保留指针供下方 output_level/overlap 查询）——
+  // 否则下方 M4.11b 复查（RangeOverlapWithCompaction）会命中自身注册：
+  // 其 inputs 正是本输出要替换的 F、输出范围 ⊇ inputs → 恒冲突 → 每个
+  // 融合输出必回落 L0（R59E 归因的"安装期回落/fallback 全为 kDirect
+  // 安装期回落"即此路径；0.9 靠原生 L0 消费掩盖，L0 禁用后即滞留）。
+  // 注册的语义（防 worker 无锁执行期间原生 picker 抢 F）到任务池 join
+  // 已结束，此处释放安全。FinishPlansLocked 尾部的重复释放幂等无害。
+  if (mc_.compaction_picker != nullptr) {
+    for (PartitionPlan& p : plans_) {
+      if (p.decision == MaterializeDecision::kMergeBase && p.compaction) {
+        mc_.compaction_picker->UnregisterCompaction(p.compaction.get());
+        // 注意：不在此 unmark——尾部 FinishPlansLocked 会再次
+        // MarkFilesBeingCompacted(false)（unmark 与 mark 必须 1:1），
+        // 此处提前 unmark 会使尾部重复 unmark 触发断言。复查（292）
+        // 只依赖注册集合，unmark 时机（批尾）不受影响。
+      }
+    }
+  }
   for (auto& o : outs) {
     if (o.decision == MaterializeDecision::kMergeBase) {
       // 融合输出：直装阶段 0 决策的 base 层（替换 overlap 输入文件）。
@@ -601,19 +620,19 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     scan_overlap(plan.lo, plan.hi, &overlap, &overlap_bytes, &ok,
                  &batch_skipped, &has_oob);
     if (!ok) {
-      // M4.8 直装优先：base 层不可替换（being_compacted 冲突 / 边界越界）
-      // → 不物化，等待（kSkip 攒批：数据留在 frozen 索引 + 封存 WAL，
-      // 下个 epoch 收养后重试直装）。gen ≥ kMaxSkipGenerations 强制落地
-      // （回落 L0 兜底，保证收敛；内存背压由 max_pending_epochs 流控）。
-      if (ctx_->zfo_.skip_batching &&
-          PendingGenCount(pid) < kMaxSkipGenerations) {
-        if (skip_ok) {
-          plan.decision = MaterializeDecision::kSkip;
-          zf_skip_busy_conflict++;
-        } else {
-          plan.decision = MaterializeDecision::kFallback;
-        }
+      // M5（zeroflush0.98）：base 层不可替换（being_compacted 冲突 / 边界
+      // 越界）→ 不物化、等待让位。原"gen ≥ kMaxSkipGenerations 强制落地
+      // （回落 L0 兜底）"随 L0 移除失效——落地输出只会撞被占文件回落
+      // L0 滞留（§3.6 后无消费者）。改为无条件 kSkip：冲突为瞬态（下沉/
+      // 融合完成后 vstorage 可见），数据留 frozen+WAL 可读，下批重试。
+      if (skip_ok) {
+        plan.decision = MaterializeDecision::kSkip;
+        zf_skip_busy_conflict++;
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      } else {
+        // align_l1（R59C：skip 跨路由表收养不安全）→ 旧 L0 兜底（P1 稳态
+        // 配置 kStatic/kSampled 不可达）。
+        plan.decision = MaterializeDecision::kFallback;
       }
       plans_.push_back(std::move(plan));
       continue;
@@ -766,23 +785,20 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
 
     // overlap 为空且无批内跳过 → existing 无相交文件 → 走直装路径。
     if (overlap.empty() && !batch_skipped && plan.l0_overlap.empty()) {
-      // M4.10b：直装 L1 与运行中 compaction（L0→L1）的输出范围互斥——
-      // 并发安装会使 L1 出现重叠文件（破坏非 L0 层无重叠不变量）。
-      // 命中即降级：攒批开启时 kSkip 等待（compaction 完成后重试直装，
-      // 数据留 frozen + WAL 可读）；关闭时保持 kDirect（PickInstallLevel
-      // 因 L1 重叠回落 L0，由原生 L0 compaction 消费，语义正确）。
+      // M4.10b：直装 L1 与运行中 compaction（L0→L1 / ZF 下沉 L1→L2）的
+      // 输出范围互斥——并发安装会使 L1 出现重叠文件（破坏非 L0 层无重叠
+      // 不变量）。命中即 kSkip 等待（M5 §3.4：下沉进行中 L1 空让位前的
+      // 自然等待点；数据留 frozen + WAL 可读，下沉完成后重试直装）。
       if (mc_.compaction_picker != nullptr &&
           mc_.compaction_picker->RangeOverlapWithCompaction(plan.lo, plan.hi,
                                                             base)) {
-        if (ctx_->zfo_.skip_batching &&
-            PendingGenCount(pid) < kMaxSkipGenerations) {
-          if (skip_ok) {
+        if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
           zf_skip_direct_conflict++;
-        } else {
-          plan.decision = MaterializeDecision::kFallback;
-        }
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+        } else {
+          // align_l1（R59C）→ 旧 L0 兜底（P1 稳态配置不可达）。
+          plan.decision = MaterializeDecision::kFallback;
         }
       }
       plans_.push_back(std::move(plan));
@@ -790,26 +806,19 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     }
 
     // 被批内前序注册标记的文件必须由批内融合输出覆盖（last_batch 为
-    // kMergeBase），否则 B 侧缺数据 → 安全降级 kSkip（攒批，见下）。
-    // R59 修正：批内冲突时**无条件 kSkip**（不依赖 skip_batching）——
-    // 越界融合使相邻分区与前序融合输出范围重叠，skip_batching=false 时
-    // 走 kDirect → PickInstallLevel 撞 L1 重叠 → 回落 L0 → 原生 L0→L1
-    // 全范围重写 → 性能塌陷（同窗实测正确性修复版 vs 错误版 2× 差距
-    // 即此）。kSkip = 数据留 frozen + WAL 可读，下批前序文件替换后
-    // vstorage 可见 → 再融合吸收（正确且高性能）。gen 达上限强制
-    // kFallback（装 L0 落底）。
+    // kMergeBase），否则 B 侧缺数据 → kSkip（攒批，见下）。kSkip = 数据
+    // 留 frozen + WAL 可读，下批前序文件替换后 vstorage 可见 → 再融合
+    // 吸收。M5：无条件 kSkip（原"gen 达上限强制 kFallback 装 L0 落底"
+    // 随 L0 移除失效——前序安装是同一批次内的瞬态，跨批即恢复，无滞留）。
     if (batch_skipped &&
         (last_batch == nullptr ||
          last_batch->decision != MaterializeDecision::kMergeBase)) {
-      if (PendingGenCount(pid) < kMaxSkipGenerations) {
-        if (skip_ok) {
-          plan.decision = MaterializeDecision::kSkip;
-          zf_skip_batch_prev++;
-        } else {
-          plan.decision = MaterializeDecision::kFallback;
-        }
+      if (skip_ok) {
+        plan.decision = MaterializeDecision::kSkip;
+        zf_skip_batch_prev++;
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       } else {
+        // align_l1（R59C）→ 旧 L0 兜底（P1 稳态配置不可达）。
         plan.decision = MaterializeDecision::kFallback;
       }
       plans_.push_back(std::move(plan));
@@ -834,12 +843,13 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         //    正是 R49e 卡死根因）。全局 2GB skip 字节兜底（调用方 L0
         //    等待分支的 shadow_limit）保留。
         //  - 否则（判据 3：F 已满/接近满，merge 输出必超限）：请求下沉 F
-        //    （P1b：zf_ctx 队列 → DBImpl 按 range 边界原生 L1→L2），本批
-        //    转 recovery（下批 L1 空 → kDirect 收养直装）。P1a 先计数。
+        //    （zf_ctx 队列 → DBImpl bg 调度点原生 L1→L2，异步执行），本批
+        //    转 recovery（下批 L1 空 → kDirect 收养直装）。
         if (pending < kRangeMergeBytes && pending < overlap_bytes) {
           zf_skip_bytes++;
         } else {
           zf_sink_request++;
+          ctx_->RequestRangeSink(plan.lo, plan.hi);
         }
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;

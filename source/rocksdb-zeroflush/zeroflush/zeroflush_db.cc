@@ -420,6 +420,8 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(base_merge_rewritten_bytes());
   } else if (prop == "rocksdb.zeroflush.skip_count") {
     *value = std::to_string(skip_count());
+  } else if (prop == "rocksdb.zeroflush.sink_requests") {
+    *value = std::to_string(sink_request_count());
   } else {
     return false;
   }
@@ -517,6 +519,39 @@ uint64_t ZeroFlushContext::base_merge_rewritten_bytes() const {
 
 uint64_t ZeroFlushContext::skip_count() const {
   return skip_count_.load(std::memory_order_relaxed);
+}
+
+void ZeroFlushContext::RequestRangeSink(
+    const ROCKSDB_NAMESPACE::Slice& lo, const ROCKSDB_NAMESPACE::Slice& hi) {
+  // 去重：同 range（lo/hi 全同）已有未消费请求则不重复入队——判据 3 每
+  // epoch 都会对同一"满文件 range"重发请求，下沉完成前重复入队只会让
+  // 消费点反复构造同一 compaction（首条成功后其余因 being_compacted
+  // 构造失败丢弃——正确但浪费）。相邻 range 边界互斥（静态分区），
+  // 无相交合并需求。lo/hi 必须拷贝：调用方的 Slice 指向路由表内部
+  // 存储，表换代后悬垂。
+  std::lock_guard<std::mutex> l(sink_mu_);
+  const std::string lo_s(lo.data(), lo.size());
+  const std::string hi_s(hi.data(), hi.size());
+  for (const auto& r : sink_requests_) {
+    if (r.first == lo_s && r.second == hi_s) {
+      sink_request_count_.fetch_add(1, std::memory_order_relaxed);
+      return;
+    }
+  }
+  sink_requests_.emplace_back(std::move(lo_s), std::move(hi_s));
+  sink_request_count_.fetch_add(1, std::memory_order_relaxed);
+}
+
+std::vector<std::pair<std::string, std::string>>
+ZeroFlushContext::TakeSinkRequests() {
+  std::lock_guard<std::mutex> l(sink_mu_);
+  std::vector<std::pair<std::string, std::string>> out;
+  out.swap(sink_requests_);
+  return out;
+}
+
+uint64_t ZeroFlushContext::sink_request_count() const {
+  return sink_request_count_.load(std::memory_order_relaxed);
 }
 
 uint32_t ZeroFlushContext::pending_epochs(
@@ -1298,6 +1333,23 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
     zf_opt.max_write_buffer_number =
         static_cast<int>(zfo.max_pending_epochs) + 1;
   }
+
+  // ---- M5（zeroflush0.98）§3.6：原生介入禁用 ----
+  // 稳态（P1 后）无 L0、L1→L2 只响应 ZF 手动 range 下沉：
+  // 1) dynamic_level_bytes 恒 false——base_level 恒 1（本树默认 true 时
+  //    空库 base=6=最底层，ZF 直装落底、无处下沉，M5 架构不成立）；
+  // 2) L0 三触发 = 1e8——L0 永不产生也永不消费（装 L0 的决策分支已成
+  //    防御/align 专属，P1 稳态配置不可达）；
+  // 3) max_bytes_for_level_base 放大到 1GB——L1 score 触发的兜底阈值
+  //    （手动下沉让位正常时 L1 稳态 << 1GB；L1 累积超限才原生全范围
+  //    兜底——语义正确只是写放大退化）。L2 目标随之放大（multiplier
+  //    = 10 → L2 目标 10GB）：下沉累积到 10GB 触发原生 L2→L3 清场
+  //    （M5 §3.4"L2+ 完全交给原生"）。
+  zf_opt.level_compaction_dynamic_level_bytes = false;
+  zf_opt.level0_file_num_compaction_trigger = 100000000;
+  zf_opt.level0_slowdown_writes_trigger = 100000000;
+  zf_opt.level0_stop_writes_trigger = 100000000;
+  zf_opt.max_bytes_for_level_base = 1ull << 30;
 
   // 2) 原生 Open（MANIFEST/VersionSet/SuperVersion 全复用）
   // M4.6-2：CURRENT 一致性预修复——在原生 Recover 之前。Open/轮换竞态

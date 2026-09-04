@@ -2611,6 +2611,12 @@ class DBImpl : public DB {
 
   void MaybeScheduleFlushOrCompaction();
 
+  // ZeroFlush M5（zeroflush0.98）：消费下沉请求——把 zf_ctx 队列中"L1
+  // 文件已满 range"的让位请求转成原生 L1→L2 compaction（picker 构造 +
+  // prepicked 调度 bg 线程异步执行，调用方不等待）。REQUIRES: mutex
+  // held。由 MaybeScheduleFlushOrCompaction 每次调度时调用。
+  void MaybeScheduleZfSink();
+
   BackgroundJobPressure CaptureBackgroundJobPressure() const;
   void NotifyOnBackgroundJobPressureChanged();
 

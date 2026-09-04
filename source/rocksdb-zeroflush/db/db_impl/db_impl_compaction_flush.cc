@@ -3206,6 +3206,9 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // DB is being deleted; no more background compactions
     return;
   }
+  // ZeroFlush M5：下沉请求消费（L1 满文件让位 → 原生 L1→L2）。必须在
+  // 关闭检查之后（关库期不再调度新 compaction）。
+  MaybeScheduleZfSink();
   auto bg_job_limits = GetBGJobLimits();
   bool is_flush_pool_empty =
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
@@ -3282,6 +3285,85 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     unscheduled_compactions_--;
     env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
                    &DBImpl::UnscheduleCompactionCallback);
+  }
+}
+
+// ZeroFlush M5（zeroflush0.98）：下沉请求消费——把 zf_ctx 队列中"L1 文件
+// 已满且本 range 有新数据"的让位请求转成原生 L1→L2 compaction，异步交
+// bg 线程执行（调用方不等待；M5_DESIGN §3.4）。
+// 实现：与 RunManualCompaction 相同的构造路径（cfd->CompactRange =
+// CompactionPicker::PickCompactionForCompactRange——内部 RegisterCompaction
+// + MarkFilesBeingCompacted），但 prepicked 无 ManualCompactionState——
+// 不占 manual 队列（不抑制 MaybeScheduleFlushOrCompaction 的自动调度）、
+// 无等待。构造失败（文件被占/无重叠）丢弃请求：下一个物化批的判据 3
+// 会重新请求（自愈）。task_token 留空（完成路径 4005 判空跳过释放）。
+// REQUIRES: mutex held（default_cf_handle_/current 访问）。
+void DBImpl::MaybeScheduleZfSink() {
+  mutex_.AssertHeld();
+  if (zf_ctx_ == nullptr || default_cf_handle_ == nullptr) {
+    return;
+  }
+  std::vector<std::pair<std::string, std::string>> reqs =
+      zf_ctx_->TakeSinkRequests();
+  if (reqs.empty()) {
+    return;
+  }
+  ColumnFamilyData* cfd = default_cf_handle_->cfd();
+  const int input_level = cfd->current()->storage_info()->base_level();
+  const int output_level = input_level + 1;
+  if (input_level < 1 || output_level >= cfd->NumberLevels()) {
+    // input<1：L0 下沉非 ZF 语义；output 越界 = 数据已在最底层
+    // （dynamic_level_bytes=false 覆写后不可达；防御）。
+    return;
+  }
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "[%s] ZeroFlush sink: %zu range request(s), L%d->L%d",
+                 cfd->GetName().c_str(), reqs.size(), input_level,
+                 output_level);
+  for (const auto& r : reqs) {
+    const ROCKSDB_NAMESPACE::Slice lo(r.first), hi(r.second);
+    InternalKey begin_storage, end_storage;
+    begin_storage.SetMinPossibleForUserKey(lo);
+    end_storage.SetMaxPossibleForUserKey(hi);
+    InternalKey* compaction_end = nullptr;
+    bool manual_conflict = false;
+    ROCKSDB_NAMESPACE::CompactRangeOptions cr_opts;
+    Compaction* compaction = cfd->CompactRange(
+        cfd->GetLatestMutableCFOptions(), mutable_db_options_, input_level,
+        output_level, cr_opts, &begin_storage, &end_storage, &compaction_end,
+        &manual_conflict, std::numeric_limits<uint64_t>::max(),
+        "" /* trim_ts */);
+    if (compaction == nullptr) {
+      // 冲突（L1 文件 being_compacted——融合/下沉进行中）或 range 无
+      // 重叠文件（已被并发让位）→ 自愈（物化决策下批重新请求）。
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                      "[%s] ZeroFlush sink: no compaction for [%s, %s] "
+                      "(conflict=%d)",
+                      cfd->GetName().c_str(), lo.ToString(true).c_str(),
+                      hi.ToString(true).c_str(), (int)manual_conflict);
+      continue;
+    }
+    CompactionArg* ca = new CompactionArg;
+    ca->db = this;
+    ca->prepicked_compaction = new PrepickedCompaction;
+    ca->prepicked_compaction->manual_compaction_state = nullptr;
+    ca->prepicked_compaction->compaction = compaction;
+    ca->prepicked_compaction->need_repick = false;
+    if (compaction->bottommost_level() &&
+        env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
+      bg_bottom_compaction_scheduled_++;
+      ca->compaction_pri_ = Env::Priority::BOTTOM;
+      env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca,
+                     Env::Priority::BOTTOM,
+                     GetTaskTag(TaskType::kManualCompaction),
+                     &DBImpl::UnscheduleCompactionCallback);
+    } else {
+      bg_compaction_scheduled_++;
+      ca->compaction_pri_ = Env::Priority::LOW;
+      env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW,
+                     GetTaskTag(TaskType::kManualCompaction),
+                     &DBImpl::UnscheduleCompactionCallback);
+    }
   }
 }
 
