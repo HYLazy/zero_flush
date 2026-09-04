@@ -790,6 +790,10 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeOnePartition(
   se.table_version = tables_ ? tables_->current_version() : 0;
   if (fr.sealed_bytes > 0) {
     se.gens.emplace_back(target, fr.old_gen);
+    // M5：自身新 gen0 标记（学习批 hash 数据分批封存中）。
+    if (fr.old_gen == 0) {
+      se.has_fresh_gen0 = true;
+    }
     se.part_bytes[target] = fr.sealed_bytes;
     se.total_bytes = fr.sealed_bytes;
   }

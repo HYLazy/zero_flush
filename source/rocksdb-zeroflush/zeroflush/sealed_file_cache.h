@@ -52,6 +52,11 @@ struct SealedEpoch {
   // kSkip 跳过的数据 seq 与本 epoch 连续（未崩溃），可正常融合归并——
   // 物化决策据此区分保守（崩溃孤儿）与可融合（攒批跳过）收养。
   bool has_adopted_skips = false;
+  // M5（zeroflush0.98）：本 epoch 封存是否含"自身新 gen0"（freeze 的
+  // 分区 old_gen==0——学习批 hash 数据仍在分批封存）。物化判齐用：
+  // gen0 覆盖 == partitions（全分区有 gen0）或（覆盖 >0 且本 epoch 无
+  // 自身新 gen0——学习批已封完、覆盖不再增长）→ 单任务全量切片物化。
+  bool has_fresh_gen0 = false;
   // M3.0：封存登记时刻（NowMicros），用于物化耗时统计。
   uint64_t sealed_at_micros = 0;
   // M3.1：该 epoch 写入时使用的 PartitionTable version（用于物化时取回

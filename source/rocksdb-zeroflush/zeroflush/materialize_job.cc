@@ -603,8 +603,25 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       gen0_parts.push_back(g.first);
     }
   }
-  const bool gen0_learning = !gen0_parts.empty();
-  if (gen0_learning && gen0_parts.size() == ctx_->zfo_.partitions) {
+  // M5（zeroflush0.98）修正：滞留/齐批机制只在分区表已激活时适用
+  // （学习安装成功——后续 epoch 按 v1 边界归位）。学习未装（采样样本
+  // 不足、current 仍 hash）时无齐批可等、滞留即永滞留（数据困在
+  // recovery，索引随 epoch 回收释放 → 读不到，SampledLearningE2E 实测
+  // NotFound）→ 走 0.9 老路径（hash 分支 single-task 直装，zf_test 默认
+  // L0 消费开可承载；db_bench 稳态样本足必装表，不经过此分支）。
+  const bool zf_partition_table_active =
+      ctx_->tables() != nullptr && ctx_->tables()->current() != nullptr &&
+      !ctx_->tables()->current()->IsHashMode();
+  const bool gen0_learning =
+      !gen0_parts.empty() && zf_partition_table_active;
+  // 判齐：gen0 覆盖 == partitions（全分区有 gen0），或覆盖 >0 且本 epoch
+  // 无自身新 gen0（学习批已封完、覆盖不再增长——部分分区无 gen0 数据的
+  // 小库场景；否则覆盖永 < partitions → 滞留永不齐，RecoveryEpochMerge
+  // 实测重开读旧值）。齐批 = 单任务全量切片（只含有数据的分区片）。
+  const bool gen0_ready =
+      gen0_learning &&
+      (gen0_parts.size() == ctx_->zfo_.partitions || !se_.has_fresh_gen0);
+  if (gen0_ready) {
     single_task_mode_ = true;  // 齐批：代表任务全量切片
   }
   for (uint32_t pid : part_ids_) {
