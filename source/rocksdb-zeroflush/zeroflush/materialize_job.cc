@@ -213,6 +213,14 @@ ROCKSDB_NAMESPACE::Status RunMaterializeTaskPool(
 void ZfMaterializeJob::CollectTasks(std::vector<MaterializeTask>* tasks) {
   // kSkip 攒批分区不收集（数据留在 frozen 索引 + 封存 WAL，调用方在
   // imm 出链前 HandOff 移交 recovery 集合，下个 epoch 收养后多代合并）。
+  // M5：hash 期（学习批）单任务全量切片——只有代表分区收集任务，其余
+  // 分区的数据由代表任务整读（见 ExecutePartition），避免同片重复输出。
+  if (table_ == nullptr || table_->IsHashMode()) {
+    if (!part_ids_.empty()) {
+      tasks->push_back({this, part_ids_.front()});
+    }
+    return;
+  }
   for (uint32_t pid : part_ids_) {
     const PartitionPlan* plan = FindPlan(pid);
     if (plan != nullptr && plan->decision == MaterializeDecision::kSkip) {
@@ -237,10 +245,19 @@ bool ZfMaterializeJob::GetPartRange(uint32_t pid, ROCKSDB_NAMESPACE::Slice* lo,
 
 ROCKSDB_NAMESPACE::Status ZfMaterializeJob::ExecutePartition(uint32_t part_id) {
   // 该 part 的全部 gen：正常封存 1 个 + 可能收养的恢复期孤儿/攒批代。
+  // M5：hash 期代表任务读全部 gens（数据按 hash 散布全范围，切片时
+  // 按当前分区表归位）；非代表任务不会被收集（CollectTasks），防御返回。
   std::vector<std::pair<uint32_t, uint32_t>> gens;
-  for (const auto& g : se_.gens) {
-    if (g.first == part_id) {
-      gens.push_back(g);
+  if (table_ == nullptr || table_->IsHashMode()) {
+    if (!part_ids_.empty() && part_id != part_ids_.front()) {
+      return ROCKSDB_NAMESPACE::Status::OK();
+    }
+    gens = se_.gens;  // 代表任务：全量（hash 分区数据散布全范围）
+  } else {
+    for (const auto& g : se_.gens) {
+      if (g.first == part_id) {
+        gens.push_back(g);
+      }
     }
   }
   if (gens.empty()) {
@@ -547,6 +564,18 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     PartitionPlan plan;
     plan.part_id = pid;
     plan.decision = MaterializeDecision::kDirect;
+    if (table_ == nullptr || table_->IsHashMode()) {
+      // M5（zeroflush0.98）：hash 期（sampled 学习批 / kHash 路由）数据按
+      // hash 分区散布全范围——16 个分区任务各自物化会（a）在 M4.11 切片
+      // 下对同一 v1 片重复输出（同片 16 文件互斥失败 → 除首个外全落 L0，
+      // L0 禁用后滞留）；（b）攒批（kSkip）跨表收养进融合路径（无切片）
+      // → 全范围输出与相邻分区互叠 → L1 重叠崩（mini 复现实锤）。统一由
+      // 代表任务（part_ids_.front()）全量读取全部 gens 并按当前分区表
+      // 切片（ExecutePartition/CollectTasks 配合），输出 16 片互斥直装。
+      // kHash 路由（无分区表可切）退化为每批单全范围文件（读正确）。
+      plans_.push_back(std::move(plan));
+      continue;
+    }
     if (!merge_enabled) {
       // M4.5b：融合关闭（用户未开融合或孤儿收养 epoch）时，攒批仍适用
       // 于"待物化代 < 上限"的分区（数据留在 frozen 索引 + recovery WAL，
