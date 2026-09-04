@@ -461,6 +461,17 @@ size_t ZeroFlushContext::recovery_count() const {
   return sealed_cache_ != nullptr ? sealed_cache_->recovery_count() : 0;
 }
 
+bool ZeroFlushContext::HasPendingSealedData() const {
+  if (sealed_cache_ != nullptr && sealed_cache_->HasPendingGens()) {
+    return true;
+  }
+  // 未物化 epoch（imm 中的封存代）也须冲刷——recovery_count 只覆盖
+  // 崩溃孤儿，skip 攒批与 imm 由调用方（DBImpl::Close）分别处理：
+  // 本查询只回答"收养集合是否有货"；imm 存在性由调用方经
+  // pending_epochs(cfd) 判断。
+  return false;
+}
+
 double ZeroFlushContext::partition_skew() const {
   // 路由倾斜：max(ActiveSize) / avg(ActiveSize)。所有分区都为空时返回 0
   // （无倾斜可度量）；单分区活跃字节为 0 时按 1 计，避免除零。

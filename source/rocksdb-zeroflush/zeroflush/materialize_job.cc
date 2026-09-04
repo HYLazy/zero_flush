@@ -994,7 +994,13 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       const auto it = se_.part_bytes.find(pid);
       const uint64_t pending =
           (it != se_.part_bytes.end()) ? it->second : 0;
-      if (pending + overlap_bytes > kRangeMergeBytes) {
+      // M5 §3.5-2：关闭冲刷模式——跳过判据 2/3（kSkip/下沉让位），F 满
+      // 也强制融合（输出超限由 worker 按 target_file_size 切分——单文件
+      // ≤64MB 为稳态性能目标，关闭一次性场景放宽；否则每轮冲刷 F 满
+      // 分区都判据 3 转 recovery → 冲刷循环永不收敛 → 跨关闭滞留违约）。
+      if (ctx_->closing_flush()) {
+        // 无条件融合（fallthrough 到下方注册路径）。
+      } else if (pending + overlap_bytes > kRangeMergeBytes) {
         // 融合输出必超 kRangeMergeBytes → 不融合，攒批或让位：
         //  - N < 64MB 且 N < |F|（判据 2）：kSkip 字节化攒批。收养使 N
         //    每批单调增 → 最终 N ≥ |F| 或 F 下沉让位 → 收敛；无代数上限

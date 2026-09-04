@@ -862,6 +862,47 @@ Status DBImpl::CloseHelper() {
   return ret;
 }
 
+// ZeroFlush M5 §3.5-2（zeroflush0.98）：关闭冲刷——skip/recovery 数据
+// 不得跨 DB 关闭滞留（铁律：跨进程 readrandom 命中率为数据完整性验收
+// 门）。两段（须在 CloseImpl 停后台线程之前）：
+//  1) FlushMemTable(wait)：物化全部未物化 epoch（imm）；
+//  2) 空封存收养（SealEpochAndSwitch——把 skip_gens_/recovery_gens_ 并入
+//     新 epoch 并切 imm）+ flush，循环至收养集合空。
+// 调用点：DBImpl::Close() 与 ~DBImpl()（析构不经过 Close()——直走
+// CloseImpl——两处都须冲刷；Close 后析构经 closed_ 短路不再重复）。
+void DBImpl::ZfCloseFlush() {
+  if (zf_ctx_ == nullptr || default_cf_handle_ == nullptr) {
+    return;
+  }
+  ColumnFamilyData* cfd = default_cf_handle_->cfd();
+  zf_ctx_->SetClosingFlush(true);
+  FlushOptions fo;
+  fo.wait = true;
+  fo.allow_write_stall = true;
+  Status zs = FlushMemTable(cfd, fo, FlushReason::kManualCompaction);
+  int zf_guard = 0;
+  while (zs.ok() && zf_ctx_->HasPendingSealedData() && zf_guard++ < 16) {
+    {
+      InstrumentedMutexLock l(&mutex_);
+      zs = zf_ctx_->SealEpochAndSwitch(this, cfd);
+    }
+    if (!zs.ok()) {
+      break;
+    }
+    zs = FlushMemTable(cfd, fo, FlushReason::kManualCompaction);
+  }
+  if (!zs.ok()) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "[%s] ZeroFlush close-flush failed: %s",
+                   cfd->GetName().c_str(), zs.ToString().c_str());
+  } else if (zf_ctx_->HasPendingSealedData()) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "[%s] ZeroFlush close-flush guard limit reached "
+                   "(pending sealed data remains)",
+                   cfd->GetName().c_str());
+  }
+}
+
 Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
@@ -881,6 +922,7 @@ DBImpl::~DBImpl() {
       s.PermitUncheckedError();
     }
 
+    ZfCloseFlush();
     closing_status_ = CloseImpl();
     closing_status_.PermitUncheckedError();
   }
@@ -5821,6 +5863,8 @@ Status DBImpl::Close() {
       return s;
     }
   }
+
+  ZfCloseFlush();
 
   closing_status_ = CloseImpl();
   closed_ = true;

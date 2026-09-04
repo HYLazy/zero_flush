@@ -1786,6 +1786,9 @@ class DBImpl : public DB {
 
   // Actual implementation of Close()
   virtual Status CloseImpl();
+  // ZeroFlush M5 §3.5-2：关闭冲刷（skip/recovery 强制物化；Close 与析构
+  // 两路径共用——须在 CloseImpl 停后台线程前调用）。
+  void ZfCloseFlush();
 
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to

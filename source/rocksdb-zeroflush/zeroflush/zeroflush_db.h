@@ -302,6 +302,9 @@ class ZeroFlushContext {
   uint64_t sealed_read_count() const;
   uint64_t sealed_cache_miss() const;
   size_t recovery_count() const;      // 待收养恢复期孤儿代数
+  // M5 §3.5-2：待物化数据存在性（skip 攒批 / 恢复孤儿 / 未物化 epoch）——
+  // 关闭冲刷循环用。skip 数据跨 DB 关闭滞留 = 数据完整性违约（读命中门）。
+  bool HasPendingSealedData() const;
   double partition_skew() const;      // max(ActiveSize) / avg(ActiveSize)
 
   // ---- M3.2：物化状态与统计（M3_DESIGN.md §6/§13）----
@@ -344,6 +347,19 @@ class ZeroFlushContext {
   // 累计下沉请求次数（诊断/统计：rocksdb.zeroflush.sink_requests）。
   uint64_t sink_request_count() const;
 
+  // ---- M5 §3.5-2：关闭冲刷模式 ----
+  // DB 关闭冲刷期间置位：物化决策跳过 kSkip 判据 2/3（F 满也强制融合，
+  // 输出按 target_file_size 切分——单文件 ≤64MB 约束为稳态性能目标，
+  // 关闭一次性场景放宽；否则 F 满分区每轮冲刷都判据 3 转 recovery →
+  // 循环永不收敛，跨关闭滞留违约）。冲刷由 DBImpl::ZfCloseFlush 驱动
+  // （Seal 收养 + Flush 物化循环）。
+  void SetClosingFlush(bool on) {
+    closing_flush_.store(on, std::memory_order_relaxed);
+  }
+  bool closing_flush() const {
+    return closing_flush_.load(std::memory_order_relaxed);
+  }
+
   ZeroFlushOptions zfo_;
   std::string wal_dir_;       // wal_dir/zfwal
   ROCKSDB_NAMESPACE::Env* env_;
@@ -373,6 +389,7 @@ class ZeroFlushContext {
   // ---- M4.5b 攒批统计 ----
   std::atomic<uint64_t> skip_count_{0};  // kSkip 攒批跳过的分区次数
   // ---- M5 下沉请求状态 ----
+  std::atomic<bool> closing_flush_{false};  // 关闭冲刷模式（强制物化）
   mutable std::mutex sink_mu_;
   std::vector<std::pair<std::string, std::string>> sink_requests_;  // (lo, hi)
   std::atomic<uint64_t> sink_request_count_{0};  // 累计请求次数（诊断）

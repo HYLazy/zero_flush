@@ -139,6 +139,9 @@ class SealedFileCache {
   uint64_t reclaimed_epochs() const;
   // M3.0 R1：当前待收养的恢复期孤儿代文件数（诊断用）。
   size_t recovery_count() const;
+  // M5（zeroflush0.98）§3.5-2：是否存在待收养数据（skip 攒批 gens /
+  // 恢复期孤儿 gens 任一非空）——DB 关闭冲刷循环的终止判定。
+  bool HasPendingGens() const;
 
  private:
   std::string FileName(uint32_t part, uint32_t gen) const;

@@ -366,6 +366,11 @@ uint64_t SealedFileCache::reclaimed_epochs() const {
   return reclaimed_epochs_;
 }
 
+bool SealedFileCache::HasPendingGens() const {
+  rocksdb::MutexLock l(&mu_);
+  return !skip_gens_.empty() || !recovery_gens_.empty();
+}
+
 size_t SealedFileCache::recovery_count() const {
   rocksdb::MutexLock l(&mu_);
   return recovery_gens_.size();
