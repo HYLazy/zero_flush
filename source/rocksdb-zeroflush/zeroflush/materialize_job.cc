@@ -740,6 +740,20 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     bool has_oob = false;
     scan_overlap(plan.lo, plan.hi, &overlap, &overlap_bytes, &ok,
                  &batch_skipped, &has_oob);
+    // M5 诊断：决策 overlap 内容（残留 L0/互叠定位）。
+    {
+      static uint64_t zf_scan_dbg = 0;
+      if (zf_scan_dbg++ < 200) {
+        fprintf(stderr,
+                "ZFDBG-scan pid=%u lo=%s hi=%s n=%zu bytes=%llu ok=%d "
+                "bskip=%d l1n=%zu\n",
+                pid, plan.lo.ToString(true).c_str(),
+                plan.hi.ToString(true).c_str(), overlap.size(),
+                (unsigned long long)overlap_bytes, (int)ok,
+                (int)batch_skipped,
+                vstorage != nullptr ? vstorage->LevelFiles(base).size() : 0);
+      }
+    }
     if (!ok) {
       // M5（zeroflush0.98）：base 层不可替换（being_compacted 冲突 / 边界
       // 越界）→ 不物化、等待让位。原"gen ≥ kMaxSkipGenerations 强制落地
@@ -1026,9 +1040,21 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     // 与运行中 compaction 的输出范围互斥（§7.3）：注册前检查，命中即
     // 降级不等待（防死锁）。分区范围 ⊇ 重叠文件范围，故该检查严格于
     // RegisterCompaction 内部 assert 的 FilesRangeOverlapWithCompaction。
-    if (mc_.compaction_picker == nullptr ||
+    // M5：命中 → kSkip 等待让位（原 push 默认 kDirect 物化 → 直装输出与
+    // L1/批内前序冲突 → PickInstallLevel 落 L0——L0 禁用后滞留；smoke
+    // 实测 19 个 lvl=0 全出自此分支）。冲突为瞬态（同批前序注册在批尾
+    // 释放；原生 compaction 完成后 vstorage 可见），下批重试收敛。
+    if (mc_.compaction_picker != nullptr &&
         mc_.compaction_picker->RangeOverlapWithCompaction(plan.lo, plan.hi,
                                                           base)) {
+      if (skip_ok) {
+        plan.decision = MaterializeDecision::kSkip;
+        zf_skip_direct_conflict++;
+        ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      } else {
+        // align_l1（R59C）→ 旧 L0 兜底（P1 稳态配置不可达）。
+        plan.decision = MaterializeDecision::kFallback;
+      }
       plans_.push_back(std::move(plan));
       continue;
     }

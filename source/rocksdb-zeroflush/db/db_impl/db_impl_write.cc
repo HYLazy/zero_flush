@@ -1531,10 +1531,6 @@ Status DBImpl::WriteImpl(
           ColumnFamilyData* cfd = GetDefaultColumnFamily();
           assert(cfd != nullptr);
           mutex_.Lock();
-          // M4.10：组开始时的路由表版本（封存/表切换前记录——组内全部
-          // writer 用同一版本路由数据，与物化（se.table_version）一致）。
-          write_group.zf_table_version =
-              zf_ctx_->tables() ? zf_ctx_->tables()->current_version() : 0;
           if (zf_ctx_->ShouldSeal()) {
             // M4.3c/d：终态路径批次封存（一次 epoch 冻结多分区）。
             // M4.4b：旧路径（全局 epoch 封存）已移除。
@@ -1550,6 +1546,15 @@ Status DBImpl::WriteImpl(
             // 物化排队（imm 里的 mem 已被原生 flush scheduler 接管）
             MaybeScheduleFlushOrCompaction();
           }
+          // M4.10/M5（zeroflush0.98）：路由表版本在封存后捕获——封存可能
+          // 安装新表（sampled 学习 v1 / align 重对齐）。若在封存前捕获，
+          // 封存写组自身的数据按旧表（hash）路由、却在 freeze 换代后写
+          // 入新代（gen1）→ 后续 v1 物化 A 侧混入 hash 记录 → 输出越界
+          // 与邻区文件互叠（实测：part12 gen1 首条 seq62844 即学习批
+          // 封存写组的 hash 记录 → L1 互叠崩）。组内全部 writer 共享
+          // write_group 版本，一致。
+          write_group.zf_table_version =
+              zf_ctx_->tables() ? zf_ctx_->tables()->current_version() : 0;
           ROCKSDB_NAMESPACE::MemTable* zf_mem = cfd->mem();
           zf_mem->Ref();
           mutex_.Unlock();
@@ -1591,10 +1596,6 @@ Status DBImpl::WriteImpl(
           ColumnFamilyData* cfd = GetDefaultColumnFamily();
           assert(cfd != nullptr);
           mutex_.Lock();
-          // M4.10：组开始时的路由表版本（封存/表切换前记录——组内全部
-          // writer 用同一版本路由数据，与物化（se.table_version）一致）。
-          write_group.zf_table_version =
-              zf_ctx_->tables() ? zf_ctx_->tables()->current_version() : 0;
           if (zf_ctx_->ShouldSeal()) {
             // M4.3c/d：终态路径批次封存（parallel 分支同款）。
             status = zf_ctx_->FreezeBatchPartitions(this, cfd);
@@ -1607,6 +1608,10 @@ Status DBImpl::WriteImpl(
             }
             MaybeScheduleFlushOrCompaction();
           }
+          // M5：路由表版本在封存后捕获（同非 parallel 分支——封存装新表
+          // 时写组数据按新表路由，防 hash 记录混入换代后的新代）。
+          write_group.zf_table_version =
+              zf_ctx_->tables() ? zf_ctx_->tables()->current_version() : 0;
           write_group.zf_mem = cfd->mem();
           write_group.zf_mem->Ref();
           mutex_.Unlock();
