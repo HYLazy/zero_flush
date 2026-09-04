@@ -3319,25 +3319,13 @@ void DBImpl::MaybeScheduleZfSink() {
   if (zf_ctx_ == nullptr || default_cf_handle_ == nullptr) {
     return;
   }
-  std::vector<std::pair<std::string, std::string>> reqs =
-      zf_ctx_->TakeSinkRequests();
-  if (reqs.empty()) {
-    return;
-  }
   ColumnFamilyData* cfd = default_cf_handle_->cfd();
-  const int input_level = cfd->current()->storage_info()->base_level();
-  const int output_level = input_level + 1;
-  if (input_level < 1 || output_level >= cfd->NumberLevels()) {
-    // input<1：L0 下沉非 ZF 语义；output 越界 = 数据已在最底层
-    // （dynamic_level_bytes=false 覆写后不可达；防御）。
-    return;
-  }
-  // M5：L2 清场（绕开 L2→L3 自动触发缺失——实测 L2 超 10GB 目标后无
-  // 自动调度，L2 无界增长 → 下沉归并膨胀 → 让位慢 → 数据滞留累积 →
-  // 概率性崩）。L2 超阈值时优先手动调度整层 L2→L3（单步 +1，picker
-  // 合法），本批下沉请求留给下轮（L2 清后下沉归并输入小；冲突时自然
-  // 失败重试）。
-  constexpr uint64_t kSinkL2ClearBytes = 8ull << 30;
+  // M5：L2 清场（L2→L3 自动触发在长跑中未观察到——L2 无界增长 →
+  // 下沉归并膨胀 → 让位慢 → 数据滞留累积 → 概率性崩；实测 16GB 级）。
+  // L2 超阈值即手动调度整层 L2→L3（单步 +1，picker 合法）——检查放
+  // 在取下沉请求之前（L2 超时即使无 pending 请求也清场）。清场期间
+  // 下沉暂停（return——下轮重试；F 满数据滞留 recovery 自愈）。
+  constexpr uint64_t kSinkL2ClearBytes = 4ull << 30;
   auto* zf_vstorage = cfd->current()->storage_info();
   if (zf_vstorage->NumLevelBytes(2) >= kSinkL2ClearBytes) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -3367,8 +3355,24 @@ void DBImpl::MaybeScheduleZfSink() {
                      &DBImpl::UnscheduleCompactionCallback);
       return;  // 下沉请求留给下轮（L2 清后让位归并小）
     }
-    // 构造失败（L2 文件被占——下沉进行中）：继续处理下沉请求（让位
-    // 优先——下沉输出与 L2→L3 的冲突由注册互斥自然处理）。
+    // 构造失败（L2 文件被占——下沉/其它 compaction 进行中）：本批
+    // 下沉也暂停（return——下轮 MaybeSchedule 重试清场）。否则清场被
+    // 密集下沉饿死（L2 恒 busy → 清场恒失败 → L2 无界 → 崩，20GB
+    // 实测）。L2 清场一次 compaction（分钟级）期间 F 满数据滞留
+    // recovery（可读，自愈）。
+    return;
+  }
+  std::vector<std::pair<std::string, std::string>> reqs =
+      zf_ctx_->TakeSinkRequests();
+  if (reqs.empty()) {
+    return;
+  }
+  const int input_level = cfd->current()->storage_info()->base_level();
+  const int output_level = input_level + 1;
+  if (input_level < 1 || output_level >= cfd->NumberLevels()) {
+    // input<1：L0 下沉非 ZF 语义；output 越界 = 数据已在最底层
+    // （dynamic_level_bytes=false 覆写后不可达；防御）。
+    return;
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] ZeroFlush sink: %zu range request(s), L%d->L%d",
