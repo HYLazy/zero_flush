@@ -1434,7 +1434,7 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       const rocksdb::Slice& hk = o.meta.largest.user_key();
       fprintf(stderr, "ZFDBG-install lvl=%d file=%llu lo=%s hi=%s bytes=%llu part=%u\n",
               o.level, (unsigned long long)o.meta.fd.GetNumber(),
-              lk.data(), hk.data(),
+              lk.ToString(true).c_str(), hk.ToString(true).c_str(),
               (unsigned long long)o.meta.fd.GetFileSize(), o.part_id);
     }
     edit_->AddFile(o.level, o.meta);
