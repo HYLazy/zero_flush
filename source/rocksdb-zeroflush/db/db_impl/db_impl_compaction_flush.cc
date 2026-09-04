@@ -3209,6 +3209,22 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   // ZeroFlush M5：下沉请求消费（L1 满文件让位 → 原生 L1→L2）。必须在
   // 关闭检查之后（关库期不再调度新 compaction）。
   MaybeScheduleZfSink();
+  // M5 诊断（限频）：L1/L2 score 与待调度任务（L2→L3 不触发定位）。
+  {
+    static uint64_t zf_ms_dbg = 0;
+    if ((zf_ms_dbg++ % 500 == 0 || zf_ms_dbg < 50) && zf_ctx_ != nullptr &&
+        default_cf_handle_ != nullptr) {
+      const auto* vstorage =
+          default_cf_handle_->cfd()->current()->storage_info();
+      fprintf(stderr,
+              "ZFDBG-sched unsched=%d bgc=%d l1score=%.2f l2score=%.2f "
+              "l1n=%zu l2n=%zu l2bytes=%llu\n",
+              unscheduled_compactions_, bg_compaction_scheduled_,
+              vstorage->CompactionScore(1), vstorage->CompactionScore(2),
+              vstorage->LevelFiles(1).size(), vstorage->LevelFiles(2).size(),
+              (unsigned long long)vstorage->NumLevelBytes(2));
+    }
+  }
   auto bg_job_limits = GetBGJobLimits();
   bool is_flush_pool_empty =
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
@@ -3310,7 +3326,13 @@ void DBImpl::MaybeScheduleZfSink() {
   }
   ColumnFamilyData* cfd = default_cf_handle_->cfd();
   const int input_level = cfd->current()->storage_info()->base_level();
-  const int output_level = input_level + 1;
+  // M5（zeroflush0.98）修正：下沉直达 L3（input+2）而非 L1→L2——实测
+  // L2→L3 自动 compaction 不触发（score>1 后无调度，机制待查）→ L2 无界
+  // 增长 → 下沉归并输入膨胀 → 让位慢 → 数据滞留累积（442MB 级直装）。
+  // L1→L3 单步：picker 吸收中间层（L2）重叠归并（L2 同时清空），输出
+  // L3（50GB 数据 < L3 目标 1GB×10²=100GB——数据停 L3；层内无重叠
+  // （下沉保证）读无放大；trivial move 在 L3 空时自动生效）。
+  const int output_level = input_level + 2;
   if (input_level < 1 || output_level >= cfd->NumberLevels()) {
     // input<1：L0 下沉非 ZF 语义；output 越界 = 数据已在最底层
     // （dynamic_level_bytes=false 覆写后不可达；防御）。
