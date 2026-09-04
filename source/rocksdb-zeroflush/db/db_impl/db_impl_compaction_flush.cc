@@ -3326,17 +3326,49 @@ void DBImpl::MaybeScheduleZfSink() {
   }
   ColumnFamilyData* cfd = default_cf_handle_->cfd();
   const int input_level = cfd->current()->storage_info()->base_level();
-  // M5（zeroflush0.98）修正：下沉直达 L3（input+2）而非 L1→L2——实测
-  // L2→L3 自动 compaction 不触发（score>1 后无调度，机制待查）→ L2 无界
-  // 增长 → 下沉归并输入膨胀 → 让位慢 → 数据滞留累积（442MB 级直装）。
-  // L1→L3 单步：picker 吸收中间层（L2）重叠归并（L2 同时清空），输出
-  // L3（50GB 数据 < L3 目标 1GB×10²=100GB——数据停 L3；层内无重叠
-  // （下沉保证）读无放大；trivial move 在 L3 空时自动生效）。
-  const int output_level = input_level + 2;
+  const int output_level = input_level + 1;
   if (input_level < 1 || output_level >= cfd->NumberLevels()) {
     // input<1：L0 下沉非 ZF 语义；output 越界 = 数据已在最底层
     // （dynamic_level_bytes=false 覆写后不可达；防御）。
     return;
+  }
+  // M5：L2 清场（绕开 L2→L3 自动触发缺失——实测 L2 超 10GB 目标后无
+  // 自动调度，L2 无界增长 → 下沉归并膨胀 → 让位慢 → 数据滞留累积 →
+  // 概率性崩）。L2 超阈值时优先手动调度整层 L2→L3（单步 +1，picker
+  // 合法），本批下沉请求留给下轮（L2 清后下沉归并输入小；冲突时自然
+  // 失败重试）。
+  constexpr uint64_t kSinkL2ClearBytes = 8ull << 30;
+  auto* zf_vstorage = cfd->current()->storage_info();
+  if (zf_vstorage->NumLevelBytes(2) >= kSinkL2ClearBytes) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] ZeroFlush sink: L2 clear (%llu bytes >= %llu)",
+                   cfd->GetName().c_str(),
+                   (unsigned long long)zf_vstorage->NumLevelBytes(2),
+                   (unsigned long long)kSinkL2ClearBytes);
+    ROCKSDB_NAMESPACE::CompactRangeOptions cr_opts;
+    InternalKey* l2_compaction_end = nullptr;
+    bool l2_manual_conflict = false;
+    Compaction* l2c = cfd->CompactRange(
+        cfd->GetLatestMutableCFOptions(), mutable_db_options_, 2, 3, cr_opts,
+        nullptr /* begin */, nullptr /* end */, &l2_compaction_end,
+        &l2_manual_conflict, std::numeric_limits<uint64_t>::max(),
+        "" /* trim_ts */);
+    if (l2c != nullptr) {
+      CompactionArg* ca = new CompactionArg;
+      ca->db = this;
+      ca->prepicked_compaction = new PrepickedCompaction;
+      ca->prepicked_compaction->manual_compaction_state = nullptr;
+      ca->prepicked_compaction->compaction = l2c;
+      ca->prepicked_compaction->need_repick = false;
+      bg_compaction_scheduled_++;
+      ca->compaction_pri_ = Env::Priority::LOW;
+      env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW,
+                     GetTaskTag(TaskType::kManualCompaction),
+                     &DBImpl::UnscheduleCompactionCallback);
+      return;  // 下沉请求留给下轮（L2 清后让位归并小）
+    }
+    // 构造失败（L2 文件被占——下沉进行中）：继续处理下沉请求（让位
+    // 优先——下沉输出与 L2→L3 的冲突由注册互斥自然处理）。
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] ZeroFlush sink: %zu range request(s), L%d->L%d",
