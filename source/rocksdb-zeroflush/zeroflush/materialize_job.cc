@@ -473,7 +473,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   static uint64_t zf_skip_no_merge = 0, zf_skip_busy_conflict = 0,
                    zf_skip_batch_l0 = 0, zf_skip_l0_busy = 0,
                    zf_skip_direct_conflict = 0, zf_skip_batch_prev = 0,
-                   zf_skip_ratio = 0;
+                   zf_skip_bytes = 0, zf_sink_request = 0;
   ROCKSDB_NAMESPACE::VersionStorageInfo* vstorage =
       (mc_.base != nullptr) ? mc_.base->storage_info() : nullptr;
   const int base = (vstorage != nullptr) ? vstorage->base_level() : 0;
@@ -816,46 +816,46 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       continue;
     }
 
-    // 触发比（§7.2）：sealed_bytes / overlap_bytes >= base_merge_min_ratio。
-    // overlap 为空时（batch_skipped 场景）跳过比率检查——融合成本已被
-    // 前序承担，B 侧全量由 last_batch（融合输出）提供。
-    // M4.9：L0 融合（plan.l0_overlap 非空）跳过 ratio——L0 文件存在即
-    // 合并（否则回落 L0 循环），重写代价 ≤ compaction 消费的代价。
+    // M5（zeroflush0.98）§3.2 字节化决策——ratio 门槛删除。overlap 为空
+    // （batch_skipped 场景，融合成本已由前序承担、B 侧全量由 last_batch
+    // 提供）或 L0 融合（plan.l0_overlap 非空，历史残留防御）跳过判据。
+    // N = 该分区待物化字节：se_.part_bytes[pid]——封存时 RegisterSealedEpoch
+    // 已并入 skip/recovery 收养字节（skip_part_bytes_/recovery_part_bytes_），
+    // 即"本批 + 收养代"的完整字节账，无需另行统计。
     if (!overlap.empty() && plan.l0_overlap.empty()) {
       const auto it = se_.part_bytes.find(pid);
-      const uint64_t sealed =
+      const uint64_t pending =
           (it != se_.part_bytes.end()) ? it->second : 0;
-      const double ratio =
-          static_cast<double>(sealed) / static_cast<double>(overlap_bytes);
-      if (ratio < ctx_->zfo_.base_merge_min_ratio) {
-        // M4.5b：比例不足（批次小不融合）→ kSkip 攒批：不产出 L0 回落
-        // 文件，数据留在 frozen 索引 + 封存 WAL（skip 集合可读），
-        // 下个 epoch 收养后多代合并一次物化。
-        // 约束：该分区待物化代 < 上限（防永不收敛——攒一代即强制落地）。
-        if (ctx_->zfo_.skip_batching &&
-            PendingGenCount(pid) < kMaxSkipGenerations) {
-          if (skip_ok) {
-          plan.decision = MaterializeDecision::kSkip;
-          zf_skip_ratio++;
+      if (pending + overlap_bytes > kRangeMergeBytes) {
+        // 融合输出必超 kRangeMergeBytes → 不融合，攒批或让位：
+        //  - N < 64MB 且 N < |F|（判据 2）：kSkip 字节化攒批。收养使 N
+        //    每批单调增 → 最终 N ≥ |F| 或 F 下沉让位 → 收敛；无代数上限
+        //    （kMaxSkipGenerations 删除——L0 兜底移除后强制落地无路可去，
+        //    正是 R49e 卡死根因）。全局 2GB skip 字节兜底（调用方 L0
+        //    等待分支的 shadow_limit）保留。
+        //  - 否则（判据 3：F 已满/接近满，merge 输出必超限）：请求下沉 F
+        //    （P1b：zf_ctx 队列 → DBImpl 按 range 边界原生 L1→L2），本批
+        //    转 recovery（下批 L1 空 → kDirect 收养直装）。P1a 先计数。
+        if (pending < kRangeMergeBytes && pending < overlap_bytes) {
+          zf_skip_bytes++;
         } else {
-          plan.decision = MaterializeDecision::kFallback;
+          zf_sink_request++;
         }
+        if (skip_ok) {
+          plan.decision = MaterializeDecision::kSkip;
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
           plans_.push_back(std::move(plan));
           continue;
         }
-        if (!ctx_->zfo_.skip_batching) {
-          // 攒批关闭：维持原行为（kFallback 回落 L0，R20 基线）。
-          plans_.push_back(std::move(plan));
-          continue;
-        }
-        // M4.5b-2：攒一代后（待物化代 ≥ 上限）强制融合——无视 ratio，
-        // 物化多代数据直装 base 层。回落会触发 L0 遮蔽链（后续同分区
-        // 直装被 L0 重叠拒绝 → 连锁回落 → L0 堆积 → 停写；R21 实测
-        // 50GB 17 分钟退化至 18K/51% stall）。强制融合的写放大 =
-        // 重写 overlap 一次（~2MB vs 数据 ~300KB），换取零 L0 产出。
-        // fallthrough：继续执行下方融合注册路径（kMergeBase）。
+        // align_l1（R59C：skip 数据跨路由表收养不安全）：维持旧 L0 兜底
+        // （M5 稳态配置 kStatic/kSampled 不经过此分支）。
+        plan.decision = MaterializeDecision::kFallback;
+        plans_.push_back(std::move(plan));
+        continue;
       }
+      // 判据 1：N + |F| ≤ 64MB → 无条件 kMergeBase（fallthrough 到下方
+      // 融合注册路径；写放大 1×——输出 = 该 range 全部未下沉数据，从不
+      // 重写旧 F，故无 ratio/代数判据需求）。
     }
 
     // M4.5：删除 upper_conflict 检查——L0（或更浅层）与本分区范围重叠
@@ -942,14 +942,15 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   }
   fprintf(stderr,
           "ZFDBG-skip no_merge=%llu busy=%llu batch_l0=%llu l0busy=%llu "
-          "dirconf=%llu batchprev=%llu ratio=%llu\n",
+          "dirconf=%llu batchprev=%llu bytes=%llu sink=%llu\n",
           (unsigned long long)zf_skip_no_merge,
           (unsigned long long)zf_skip_busy_conflict,
           (unsigned long long)zf_skip_batch_l0,
           (unsigned long long)zf_skip_l0_busy,
           (unsigned long long)zf_skip_direct_conflict,
           (unsigned long long)zf_skip_batch_prev,
-          (unsigned long long)zf_skip_ratio);
+          (unsigned long long)zf_skip_bytes,
+          (unsigned long long)zf_sink_request);
   return ROCKSDB_NAMESPACE::Status::OK();
 }
 

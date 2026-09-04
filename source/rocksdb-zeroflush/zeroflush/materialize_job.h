@@ -273,7 +273,15 @@ class ZfMaterializeJob {
 
   // M4.5b：kSkip 攒批的上限——同一分区最多攒一代（≥上限强制物化，
   // 保证数据最终收敛到 SST，不被 ratio 拒绝无限推迟）。
+  // M5（zeroflush0.98）：仅孤儿收养/align 兜底路径仍用代数上限；稳态
+  // 主路径（merge_enabled + 非孤儿）改用 kRangeMergeBytes 字节化判据。
   static constexpr uint32_t kMaxSkipGenerations = 2;
+
+  // M5（zeroflush0.98）§3.1：range 攒批到量阈值 = L1 单文件上限（默认
+  // SST 大小 64MB）。判据：N + |F| ≤ kRangeMergeBytes → 无条件 kMergeBase
+  // （删除 ratio 门槛）；输出恒 ≤ 64MB 单文件（worker 的 target_file_size
+  // 切分保留为超限防御，正常路径单文件由判据保证）。
+  static constexpr uint64_t kRangeMergeBytes = 64u << 20;
 
   // M4.5b：该分区在本 epoch 的待物化代数（含收养的恢复期孤儿代）。
   uint32_t PendingGenCount(uint32_t pid) const;
