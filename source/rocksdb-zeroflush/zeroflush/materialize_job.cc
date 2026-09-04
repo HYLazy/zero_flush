@@ -907,6 +907,24 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
 
     // overlap 为空且无批内跳过 → existing 无相交文件 → 走直装路径。
     if (overlap.empty() && !batch_skipped && plan.l0_overlap.empty()) {
+      // M5 诊断：直装决策时的 L1 状态（区分决策视图过期 vs 逻辑缺陷）。
+      {
+        static uint64_t zf_direct_dbg = 0;
+        if (zf_direct_dbg++ < 48 && vstorage != nullptr) {
+          uint64_t l1_files = 0, l1_bytes = 0;
+          for (auto* f : vstorage->LevelFiles(base)) {
+            l1_files++;
+            l1_bytes += f->fd.GetFileSize();
+          }
+          fprintf(stderr,
+                  "ZFDBG-direct pid=%u lo=%s hi=%s base=%d l1files=%llu "
+                  "l1bytes=%llu single=%d epoch=%llu\n",
+                  pid, plan.lo.ToString(true).c_str(),
+                  plan.hi.ToString(true).c_str(), base,
+                  (unsigned long long)l1_files, (unsigned long long)l1_bytes,
+                  (int)single_task_mode_, (unsigned long long)epoch_);
+        }
+      }
       // M4.10b：直装 L1 与运行中 compaction（L0→L1 / ZF 下沉 L1→L2）的
       // 输出范围互斥——并发安装会使 L1 出现重叠文件（破坏非 L0 层无重叠
       // 不变量）。命中即 kSkip 等待（M5 §3.4：下沉进行中 L1 空让位前的
@@ -1770,6 +1788,25 @@ int ZfMaterializeJob::PickInstallLevel(
   // （M3_DESIGN.md §6.2；base_level 为当前首个非空层）。
   for (int l = 0; l <= base; ++l) {
     if (vstorage->OverlapInLevel(l, &u_smallest, &u_largest)) {
+      // M5 诊断：冲突对象（vstorage 已装文件 vs 批内 placed）。
+      static uint64_t zf_pick_conflict = 0;
+      if (zf_pick_conflict++ < 64 && vstorage != nullptr) {
+        for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(l)) {
+          const ROCKSDB_NAMESPACE::Slice f_lo = f->smallest.user_key();
+          const ROCKSDB_NAMESPACE::Slice f_hi = f->largest.user_key();
+          if (ucmp->Compare(f_hi, u_smallest) >= 0 &&
+              ucmp->Compare(f_lo, u_largest) <= 0) {
+            fprintf(stderr,
+                    "ZFDBG-pick vsstorage lvl=%d new=[%s,%s] hit=file%llu "
+                    "[%s,%s]\n",
+                    l, u_smallest.ToString(true).c_str(),
+                    u_largest.ToString(true).c_str(),
+                    (unsigned long long)f->fd.GetNumber(),
+                    f_lo.ToString(true).c_str(), f_hi.ToString(true).c_str());
+            break;
+          }
+        }
+      }
       return 0;  // 回落 L0
     }
     // 本批次已放置到该层的文件（跨 epoch ABA 防护：同批文件尚未进
@@ -1785,6 +1822,17 @@ int ZfMaterializeJob::PickInstallLevel(
         // 区间相交 ⟺ !(u_largest < p_smallest || p_largest < u_smallest)。
         if (ucmp->Compare(u_largest, p_smallest) >= 0 &&
             ucmp->Compare(p_largest, u_smallest) >= 0) {
+          static uint64_t zf_pick_placed = 0;
+          if (zf_pick_placed++ < 64) {
+            fprintf(stderr,
+                    "ZFDBG-pick placed lvl=%d new=[%s,%s] hit=file%llu "
+                    "[%s,%s]\n",
+                    l, u_smallest.ToString(true).c_str(),
+                    u_largest.ToString(true).c_str(),
+                    (unsigned long long)placed.meta.fd.GetNumber(),
+                    p_smallest.ToString(true).c_str(),
+                    p_largest.ToString(true).c_str());
+          }
           return 0;
         }
       }
