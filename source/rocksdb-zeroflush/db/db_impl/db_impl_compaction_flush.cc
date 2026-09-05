@@ -3334,7 +3334,13 @@ void DBImpl::MaybeScheduleZfSink() {
                    (unsigned long long)zf_vstorage->NumLevelBytes(2),
                    (unsigned long long)kSinkL2ClearBytes);
     ROCKSDB_NAMESPACE::CompactRangeOptions cr_opts;
-    InternalKey* l2_compaction_end = nullptr;
+    // picker 的 `**compaction_end = *next_smallest` 要求 *compaction_end
+    // 预先指向有效 InternalKey 存储（原生 RunManualCompaction 用
+    // &manual.tmp_storage1）——传初始 nullptr 会在 next_smallest 非空时
+    // 写空指针崩（下沉 100+ 次才遇一次——长跑概率崩根源，gdb 实锤
+    // compaction_picker.cc:878）。
+    InternalKey l2_end_storage;
+    InternalKey* l2_compaction_end = &l2_end_storage;
     bool l2_manual_conflict = false;
     Compaction* l2c = cfd->CompactRange(
         cfd->GetLatestMutableCFOptions(), mutable_db_options_, 2, 3, cr_opts,
@@ -3383,7 +3389,8 @@ void DBImpl::MaybeScheduleZfSink() {
     InternalKey begin_storage, end_storage;
     begin_storage.SetMinPossibleForUserKey(lo);
     end_storage.SetMaxPossibleForUserKey(hi);
-    InternalKey* compaction_end = nullptr;
+    InternalKey end_storage2;
+    InternalKey* compaction_end = &end_storage2;
     bool manual_conflict = false;
     ROCKSDB_NAMESPACE::CompactRangeOptions cr_opts;
     Compaction* compaction = cfd->CompactRange(
