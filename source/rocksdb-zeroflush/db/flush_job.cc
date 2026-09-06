@@ -1270,8 +1270,6 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   // （跨 epoch 不同分区自由并行，同分区 gen 序由决策序保证）；阶段 2 按
   // 决策序定层、单次 VersionEdit 原子安装。
   const uint64_t last_before = zf_ctx->last_materialized_epoch();
-  fprintf(stderr, "ZFDBG-batch mems=%zu last=%llu\n", mems_.size(),
-          (unsigned long long)last_before);
   std::vector<std::unique_ptr<zeroflush::ZfMaterializeJob>> jobs;
   uint64_t prev_epoch = last_before;
   bool first_epoch = true;
@@ -1308,6 +1306,8 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       break;
     }
   }
+  (void)prev_epoch;
+  (void)first_epoch;
   if (!s.ok()) {
     // 阶段 0 失败：释放已注册的部分 Compaction（无临时文件产出），
     // 回滚 last（下次 flush 重试时按序断言仍成立）。持锁返回
