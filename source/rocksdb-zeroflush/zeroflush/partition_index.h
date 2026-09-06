@@ -364,7 +364,12 @@ class PartitionIndexSet {
       if (zf_ins_dbg++ < 2000) {
         const auto uk = ROCKSDB_NAMESPACE::ExtractUserKey(internal_key);
         if (uk.size() >= 9 && memcmp(uk.data(), "k00000035", 9) == 0) {
-          fprintf(stderr, "ZFDBG-ins part=%u gen=%u key=%s\n", part_id, gen,
+          uint64_t off = 0;
+          if (locator.size() >= 16) {
+            memcpy(&off, locator.data() + 8, 8);
+          }
+          fprintf(stderr, "ZFDBG-ins part=%u gen=%u off=%llu key=%s\n",
+                  part_id, gen, (unsigned long long)off,
                   uk.ToString(true).c_str());
         }
       }

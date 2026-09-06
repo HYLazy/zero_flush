@@ -414,6 +414,16 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
             continue;  // x 替换了 o 未替换的文件：o 的 B 侧缺 x 数据
           }
           x.superseded = true;
+          // M5 诊断：批内链式替换（superseded）追踪。
+          {
+            static uint64_t zf_ss_dbg = 0;
+            if (zf_ss_dbg++ < 100) {
+              fprintf(stderr,
+                      "ZFDBG-superseded x_file=%llu by_file=%llu part=%u\n",
+                      (unsigned long long)x.meta.fd.GetNumber(),
+                      (unsigned long long)o.meta.fd.GetNumber(), o.part_id);
+            }
+          }
           orphan_files_.push_back(x.meta.fd.GetNumber());
           for (uint64_t n : x.replaced_file_numbers) {
             o.replaced_file_numbers.push_back(n);
@@ -439,31 +449,13 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
       } else {
         o.level = PickInstallLevel(o.meta.smallest, o.meta.largest);
         if (o.level == 0) {
-          // M5 §3.5：定层冲突（决策后下沉 compaction 启动/批内互斥——
-          // 决策视图与定层视图不一致）→ 不装 L0（禁用后滞留）：丢弃
-          // 输出物理文件 + 本分区 gens 移交 recovery（下批收养重物化，
-          // 决策看到新状态 → 正常融合/直装——收敛）。原回落 L0 计数
-          // 保留为诊断（install_fallback_l0 表示"冲突转 recovery"次数）。
+          // 定层冲突（决策后 compaction 启动/批内互斥）→ 回落 L0（数据
+          // 安全——L0 允许重叠；由原生 L0 消费或后续回收。M5 §3.5 曾改
+          // 为丢弃转 recovery——实测小规模/学习期/align 下 recovery 的
+          // 孤儿删除 + 段 Purge + 索引释放三叠加丢数据（SampledLearning/
+          // Concurrent/ParallelSpeedup 用例实锤）；50GB 级冲突低频，
+          // 装 L0 的滞留影响远小于丢失风险——回退 0d0383c 语义。
           ctx_->install_fallback_l0_.fetch_add(1, std::memory_order_relaxed);
-          // M5 诊断：冲突转 recovery 触发（Concurrent 用例读不到定位）。
-          {
-            static uint64_t zf_cfl_dbg = 0;
-            if (zf_cfl_dbg++ < 64) {
-              fprintf(stderr,
-                      "ZFDBG-conflict part=%u file=%llu lo=%s hi=%s gens=%zu\n",
-                      o.part_id, (unsigned long long)o.meta.fd.GetNumber(),
-                      o.meta.smallest.user_key().ToString(true).c_str(),
-                      o.meta.largest.user_key().ToString(true).c_str(),
-                      se_.gens.size());
-            }
-          }
-          orphan_files_.push_back(o.meta.fd.GetNumber());
-          for (const auto& g : se_.gens) {
-            if (g.first == o.part_id) {
-              skipped_gens_.emplace_back(g);
-            }
-          }
-          continue;  // 不安装、不入 batch_outputs_
         }
         ctx_->install_direct_base_.fetch_add(1, std::memory_order_relaxed);
       }
@@ -488,6 +480,14 @@ void ZfMaterializeJob::DeleteOrphanFiles() {
   // 批内被替换输出的物理文件（从未安装，仅本批内可见；持锁 IO 不必要，
   // 由调用方在解锁后调用；不删会泄漏 SST）。
   for (uint64_t fn : orphan_files_) {
+    // M5 诊断：孤儿文件删除（冲突/替换输出）。
+    {
+      static uint64_t zf_orph_dbg = 0;
+      if (zf_orph_dbg++ < 200) {
+        fprintf(stderr, "ZFDBG-orphan del_file=%llu epoch=%llu\n",
+                (unsigned long long)fn, (unsigned long long)epoch_);
+      }
+    }
     const std::string fname = ROCKSDB_NAMESPACE::TableFileName(
         mc_.cfd->ioptions().cf_paths, fn, 0);
     mc_.db_options->env->DeleteFile(fname).PermitUncheckedError();

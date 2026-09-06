@@ -1394,6 +1394,15 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   std::unordered_set<uint64_t> zf_deleted_nums;
   auto DeleteFileIfPresent = [&](uint64_t num, int fallback_level) {
     (void)fallback_level;
+    // M5 诊断：replaced 删除追踪（Concurrent 数据丢失定位）。
+    {
+      static uint64_t zf_del_dbg = 0;
+      if (zf_del_dbg++ < 200) {
+        fprintf(stderr, "ZFDBG-del file=%llu epoch=%llu\n",
+                (unsigned long long)num,
+                (unsigned long long)(jobs.empty() ? 0 : jobs.back()->epoch()));
+      }
+    }
     // 批内去重：批内链式替换继承 replaced 文件号，多个输出会重复引用
     // 同一文件（R54 实测 "Cannot delete table file #N from level 0 since
     // it is not in the LSM tree"）。

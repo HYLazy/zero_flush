@@ -542,6 +542,12 @@ FreezeResult PartitionedWalManager::Freeze(uint32_t part) {
     p->wfile->Sync().PermitUncheckedError();
     p->wfile.reset();
   }
+  // M5 诊断：part3 freeze 段大小（Concurrent 写丢失定位——Insert
+  // offset 对照）。
+  if (part == 3) {
+    fprintf(stderr, "ZFDBG-frz part=%u gen=%u size=%llu\n", part, p->gen,
+            (unsigned long long)p->total_size);
+  }
   // 旧代读句柄移交 SealedFileCache（M2.1 启用时）；若未启用，本句
   // 释放文件描述符但保留物理文件（与原 M1 行为一致）。
   p->rfile.reset();

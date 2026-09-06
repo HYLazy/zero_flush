@@ -67,6 +67,11 @@ void ReportResult(const char* name, bool ok, const std::string& detail = "") {
 // 注意：rocksdb::DestroyDB 不会清理 zfwal 这种自定义子目录，
 // 会导致 zfwal 跨测试累积，污染后续用例。
 inline void CleanDB(const std::string& dbname) {
+  // M5 诊断：ZF_KEEP_DB=1 时保留库（Concurrent 定位——SST 内容检查）。
+  if (getenv("ZF_KEEP_DB") != nullptr) {
+    fprintf(stderr, "[KEEP] %s\n", dbname.c_str());
+    return;
+  }
   // 用 system() 强制递归删除（POSIX 环境）
   std::string cmd = "rm -rf '" + dbname + "'";
   if (std::system(cmd.c_str()) != 0) {
