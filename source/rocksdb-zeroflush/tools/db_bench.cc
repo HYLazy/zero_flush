@@ -15,7 +15,15 @@ int main() {
 }
 #else
 #include "rocksdb/db_bench_tool.h"
+#include <malloc.h>
 int main(int argc, char** argv) {
+  // ZeroFlush M5：限制 glibc malloc arena 数——多线程（36+）下默认
+  // arena 池（8×核）膨胀至数十 GB 且不还 OS（50GB 实测 44GB at 32GB
+  // 数据 → OOM；MALLOC_ARENA_MAX=4 后 7.6GB 且吞吐 +~2×）。
+#if defined(__GLIBC__)
+  mallopt(M_ARENA_MAX, 4);
+#endif
+
   return ROCKSDB_NAMESPACE::db_bench_tool(argc, argv);
 }
 #endif  // GFLAGS
