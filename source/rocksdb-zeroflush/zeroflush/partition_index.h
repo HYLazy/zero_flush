@@ -358,6 +358,17 @@ class PartitionIndexSet {
   uint64_t Insert(uint32_t part_id, uint32_t gen,
                   const ROCKSDB_NAMESPACE::Slice& internal_key,
                   const ROCKSDB_NAMESPACE::Slice& locator) {
+    // M5 诊断：写路由 vs 读路由一致性（Concurrent 用例定位）。
+    {
+      static uint64_t zf_ins_dbg = 0;
+      if (zf_ins_dbg++ < 2000) {
+        const auto uk = ROCKSDB_NAMESPACE::ExtractUserKey(internal_key);
+        if (uk.size() >= 9 && memcmp(uk.data(), "k00000035", 9) == 0) {
+          fprintf(stderr, "ZFDBG-ins part=%u gen=%u key=%s\n", part_id, gen,
+                  uk.ToString(true).c_str());
+        }
+      }
+    }
     std::shared_ptr<PartitionIndex> idx;
     {
       auto it = active_.find(part_id);
@@ -389,10 +400,38 @@ class PartitionIndexSet {
             }
           }
         }
+        // M5（zeroflush0.98）修复：无锁链查找可能落在 freeze 的
+        // "活跃替换后、frozen push 前"窗口（freeze 持写锁 push——本
+        // 查找无锁——暂未见 gen → 误判丢弃 → 在途条目游离（读不到；
+        // §3.5 转 recovery 后无 SST 回退——Concurrent 用例 NotFound
+        // 实锤）。持锁重查一次（freeze push 完成后可见）。
+        if (idx == nullptr) {
+          std::shared_lock<std::shared_mutex> l(mu_);
+          auto fit2 = frozen_.find(part_id);
+          if (fit2 != frozen_.end()) {
+            for (auto c = fit2->second.rbegin(); c != fit2->second.rend();
+                 ++c) {
+              if ((*c)->gen() == gen) {
+                idx = *c;
+                break;
+              }
+            }
+          }
+        }
       }
     }
     if (idx == nullptr) {
       // gen 已物化并释放（数据已进 SST）——索引插入丢弃，数据由 SST 承载。
+      // M5 诊断：插入丢弃（Concurrent 定位）。
+      {
+        static uint64_t zf_insdrop_dbg = 0;
+        if (zf_insdrop_dbg++ < 64) {
+          const auto uk = ROCKSDB_NAMESPACE::ExtractUserKey(internal_key);
+          if (uk.size() >= 9 && memcmp(uk.data(), "k00000035", 9) == 0) {
+            fprintf(stderr, "ZFDBG-insdrop part=%u gen=%u\n", part_id, gen);
+          }
+        }
+      }
       return 0;
     }
     // M4.3 性能修复：跳表插入在锁外（InlineSkipList 并发插入）——锁内
@@ -416,6 +455,13 @@ class PartitionIndexSet {
 
   // M4.3a：封存时冻结分区 p 的活跃索引（gen = 换代的 WAL 代）。
   // active → frozen 链头（新→旧）；新活跃索引接替（gen+1）。
+  // M5（zeroflush0.98）修复：无条件转 frozen（原 mem_bytes()>0 条件）——
+  // freeze 的 mem 检查与在途写组的锁外 Insert 竞态（检查见旧值 0 →
+  // 丢弃活跃索引）→ 在途条目落"游离索引"（不在 active/frozen——读不
+  // 到）。旧设计靠"游离失败回退 SST"兜底（数据已物化）；§3.5 冲突转
+  // recovery 后数据不在 SST → 读不到（Concurrent 用例 NotFound 实锤）。
+  // 无条件转后：在途 Insert 按 gen 找 frozen 链命中 → 可读。空占位
+  // （freeze 时真无数据）仅链中占位（mem=0 无条目），量级可忽略。
   void Freeze(uint32_t part_id, uint32_t new_gen) {
     std::shared_ptr<PartitionIndex> old;
     {
@@ -430,7 +476,7 @@ class PartitionIndexSet {
         return;
       }
     }
-    if (old != nullptr && old->mem_bytes() > 0) {
+    if (old != nullptr) {
       old->SetFrozen();
       std::unique_lock<std::shared_mutex> l(mu_);
       frozen_[part_id].push_back(std::move(old));  // 新→旧（push_back = 链尾最旧）
@@ -627,6 +673,13 @@ class PartitionIndexSet {
       std::shared_lock<std::shared_mutex> l(mu_);
       auto bit = blooms_.find(part_id);
       if (bit == blooms_.end() || !bit->second.MayContain(user_key)) {
+        // M5 诊断：bloom 预过滤未命中（Concurrent 定位）。
+        static uint64_t zf_bmiss_dbg = 0;
+        if (zf_bmiss_dbg++ < 32 && user_key.size() >= 9 &&
+            memcmp(user_key.data(), "k00000035", 9) == 0) {
+          fprintf(stderr, "ZFDBG-bmiss part=%u key=%s\n", part_id,
+                  user_key.ToString(true).c_str());
+        }
         return false;
       }
     }
@@ -641,6 +694,17 @@ class PartitionIndexSet {
       if (ait != active_.end()) {
         chain.push_back(ait->second);
       }
+      // M5 诊断：part3 链状态（Concurrent 定位——chain 空疑点）。
+      static uint64_t zf_chain_dbg = 0;
+      if (zf_chain_dbg++ < 32 && part_id == 3 && user_key.size() >= 9 &&
+          memcmp(user_key.data(), "k00000035", 9) == 0) {
+        fprintf(stderr,
+                "ZFDBG-chain part=%u frozen_n=%zu active=%d actgen=%u\n",
+                part_id,
+                chain.size() - (ait != active_.end() ? 1 : 0),
+                (int)(ait != active_.end()),
+                ait != active_.end() ? ait->second->gen() : 0);
+      }
     }
     // frozen 链：新→旧（vector 尾部最旧——push_back 语义）。
     // 需从"最新 frozen"到"最旧 frozen"再到 active 的顺序查——frozen 链
@@ -648,6 +712,13 @@ class PartitionIndexSet {
     for (auto c = chain.rbegin(); c != chain.rend(); ++c) {
       if ((*c)->Get(user_key, snapshot, locator_out, type_out, seq_out)) {
         return true;
+      }
+      // M5 诊断：链遍历未命中（记录链长与 gen 序）。
+      static uint64_t zf_cmiss_dbg = 0;
+      if (zf_cmiss_dbg++ < 32 && user_key.size() >= 9 &&
+          memcmp(user_key.data(), "k00000035", 9) == 0) {
+        fprintf(stderr, "ZFDBG-cmiss part=%u chain_gen=%u\n", part_id,
+                (*c)->gen());
       }
     }
     return false;

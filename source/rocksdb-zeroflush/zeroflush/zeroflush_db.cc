@@ -854,6 +854,13 @@ void ZeroFlushContext::ReleaseFrozenIndexes(uint64_t epoch) {
     return;
   }
   for (const auto& [part, gen] : se.gens) {
+    // M5 诊断：frozen 索引释放（Concurrent 用例定位——释放后该代数据
+    // 必须已在 SST）。
+    static uint64_t zf_rfi_dbg = 0;
+    if (zf_rfi_dbg++ < 32) {
+      fprintf(stderr, "ZFDBG-rfi epoch=%llu part=%u gen=%u\n",
+              (unsigned long long)epoch, part, gen);
+    }
     index_set_->ReleaseFrozen(part, gen);
   }
 }
@@ -872,6 +879,13 @@ bool ZeroFlushContext::GetFromPartitionIndex(
   ROCKSDB_NAMESPACE::ValueType type;
   ROCKSDB_NAMESPACE::SequenceNumber seq;
   if (!index_set_->Get(part, user_key, snapshot, &loc, &type, &seq)) {
+    // M5 诊断：索引未命中（Concurrent 用例 NotFound 定位——key 不在
+    // frozen/active 链）。
+    static uint64_t zf_ixmiss_dbg = 0;
+    if (zf_ixmiss_dbg++ < 32) {
+      fprintf(stderr, "ZFDBG-ixmiss part=%u key=%s\n", part,
+              user_key.ToString(true).c_str());
+    }
     if (CheckRangeDelCover(user_key, snapshot)) {
       *s = ROCKSDB_NAMESPACE::Status::NotFound();
       return true;

@@ -267,6 +267,13 @@ rocksdb::Status SealedFileCache::Get(
     }
   }
   if (!valid) {
+    // M5 诊断：读路径 gen 不在册（Concurrent 用例 NotFound 定位）。
+    static uint64_t zf_getnf_dbg = 0;
+    if (zf_getnf_dbg++ < 32) {
+      fprintf(stderr, "ZFDBG-getnf part=%u gen=%u skip=%d rec=%d\n", part,
+              gen, (int)skip_gens_.count(key),
+              (int)recovery_gens_.count(key));
+    }
     return rocksdb::Status::NotFound("ZF sealed gen not in any active epoch");
   }
   sealed_read_count_.fetch_add(1, std::memory_order_relaxed);

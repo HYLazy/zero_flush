@@ -445,6 +445,18 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
           // 决策看到新状态 → 正常融合/直装——收敛）。原回落 L0 计数
           // 保留为诊断（install_fallback_l0 表示"冲突转 recovery"次数）。
           ctx_->install_fallback_l0_.fetch_add(1, std::memory_order_relaxed);
+          // M5 诊断：冲突转 recovery 触发（Concurrent 用例读不到定位）。
+          {
+            static uint64_t zf_cfl_dbg = 0;
+            if (zf_cfl_dbg++ < 64) {
+              fprintf(stderr,
+                      "ZFDBG-conflict part=%u file=%llu lo=%s hi=%s gens=%zu\n",
+                      o.part_id, (unsigned long long)o.meta.fd.GetNumber(),
+                      o.meta.smallest.user_key().ToString(true).c_str(),
+                      o.meta.largest.user_key().ToString(true).c_str(),
+                      se_.gens.size());
+            }
+          }
           orphan_files_.push_back(o.meta.fd.GetNumber());
           for (const auto& g : se_.gens) {
             if (g.first == o.part_id) {
