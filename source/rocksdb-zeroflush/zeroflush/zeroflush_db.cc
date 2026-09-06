@@ -855,11 +855,16 @@ void ZeroFlushContext::ReleaseFrozenIndexes(uint64_t epoch) {
   }
   for (const auto& [part, gen] : se.gens) {
     // M5 诊断：frozen 索引释放（Concurrent 用例定位——释放后该代数据
-    // 必须已在 SST）。
-    static uint64_t zf_rfi_dbg = 0;
-    if (zf_rfi_dbg++ < 32) {
+    // 必须已在 SST）。part3 全打（关键分区）。
+    if (part == 3) {
       fprintf(stderr, "ZFDBG-rfi epoch=%llu part=%u gen=%u\n",
               (unsigned long long)epoch, part, gen);
+    } else {
+      static uint64_t zf_rfi_dbg = 0;
+      if (zf_rfi_dbg++ < 8) {
+        fprintf(stderr, "ZFDBG-rfi epoch=%llu part=%u gen=%u\n",
+                (unsigned long long)epoch, part, gen);
+      }
     }
     index_set_->ReleaseFrozen(part, gen);
   }

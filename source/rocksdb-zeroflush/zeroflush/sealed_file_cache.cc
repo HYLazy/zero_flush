@@ -104,11 +104,15 @@ void SealedFileCache::HandOffSkippedToRecovery(
     uint64_t epoch, const std::vector<std::pair<uint32_t, uint32_t>>& gens,
     const std::unordered_map<uint32_t, uint64_t>& part_bytes) {
   rocksdb::MutexLock l(&mu_);
-  static uint64_t zf_ho_dbg = 0;
-  if (zf_ho_dbg++ < 100) {
-    fprintf(stderr, "ZFDBG-handoff epoch=%llu gens=%zu skip_bytes=%llu\n",
-            (unsigned long long)epoch, gens.size(),
-            (unsigned long long)skip_bytes_);
+  // M5 诊断：epoch 14 的移交（Concurrent 定位——gen5 未移除疑点）。
+  if (epoch == 14 || epoch == 13) {
+    std::string gl;
+    for (const auto& g : gens) {
+      gl += "(" + std::to_string(g.first) + "," + std::to_string(g.second) +
+            ")";
+    }
+    fprintf(stderr, "ZFDBG-handoff epoch=%llu gens=[%s]\n",
+            (unsigned long long)epoch, gl.c_str());
   }
   // 1) 从 epoch 移除跳过的 gens（ReleaseEpoch 不再 unlink 它们）。
   auto eit = epochs_.find(epoch);

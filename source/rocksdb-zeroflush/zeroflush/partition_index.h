@@ -694,16 +694,16 @@ class PartitionIndexSet {
       if (ait != active_.end()) {
         chain.push_back(ait->second);
       }
-      // M5 诊断：part3 链状态（Concurrent 定位——chain 空疑点）。
+      // M5 诊断：part3 链状态（Concurrent 定位——列出 frozen 各 gen）。
       static uint64_t zf_chain_dbg = 0;
-      if (zf_chain_dbg++ < 32 && part_id == 3 && user_key.size() >= 9 &&
+      if (zf_chain_dbg++ < 40 && part_id == 3 && user_key.size() >= 9 &&
           memcmp(user_key.data(), "k00000035", 9) == 0) {
-        fprintf(stderr,
-                "ZFDBG-chain part=%u frozen_n=%zu active=%d actgen=%u\n",
-                part_id,
-                chain.size() - (ait != active_.end() ? 1 : 0),
-                (int)(ait != active_.end()),
-                ait != active_.end() ? ait->second->gen() : 0);
+        std::string gens;
+        for (const auto& ci : chain) {
+          gens += std::to_string(ci->gen()) + ",";
+        }
+        fprintf(stderr, "ZFDBG-chain part=%u chain_gens=[%s]\n", part_id,
+                gens.c_str());
       }
     }
     // frozen 链：新→旧（vector 尾部最旧——push_back 语义）。
