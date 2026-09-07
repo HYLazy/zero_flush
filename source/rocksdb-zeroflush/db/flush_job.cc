@@ -376,13 +376,12 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     cfd_->GetZfCtx()->EndMaterializeBatch(zf_mm_token_);
     zf_mm_token_ = 0;
   }
-  // M5P1b：学习齐批安装成功 = gen0 学习窗口结束——清闸放行稳态产出
-  // （仅安装成功后清：失败重试窗口内闸保持，防稳态批先装 L1 → 齐批
-  // 重试切片重叠）。
-  if (s.ok() && zf_batch_has_gen0_ready_) {
-    fprintf(stderr, "ZFDBG-gate CLEAR job=%d\n", job_context_->job_id);
-    cfd_->GetZfCtx()->ClearGen0Gate();
-    zf_batch_has_gen0_ready_ = false;
+  // M5P1b：学习窗 gen0 批串行槽释放（安装或回滚完成后——批内存活期与
+  // 跨批登记一致：LogAndApply 中途释放 DB mutex，提前释放会让并发稳态
+  // 批在学习窗内规划）。
+  if (zf_batch_gen0_) {
+    cfd_->GetZfCtx()->ReleaseGen0Slot();
+    zf_batch_gen0_ = false;
   }
 
   if (!s.ok() && meta_.fd.GetFileSize() > 0 && !zf_mode_) {
@@ -1238,6 +1237,7 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   assert(zf_mode_);
   const auto& zf_ctx = cfd_->GetZfCtx();
   assert(zf_ctx != nullptr);
+  zf_batch_gen0_ = false;
 
   // M5P1b（多 flush 并行）：规划基版本刷新——base_ 在 PickMemTable 时
   // 取快照，而 pick → Run(阶段 0) 之间 NotifyOnFlushBegin 等会释放 DB
@@ -1251,6 +1251,41 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     cur->Ref();
     base_->Unref();
     base_ = cur;
+  }
+
+  // M5P1b（多 flush 并行）：学习窗串行槽。批内任一 epoch 含 gen0 代
+  // （学习期数据，分区首次封存）→ 本批为学习批：与在飞学习批互斥
+  // （至多一个在飞——学习批的切片输出依赖串行语义：各批按自身 gens
+  // 分区产出、互不重叠、且不得与稳态安装交错，Release 实测并发下
+  // 切片/稳态重叠崩）。稳态批在学习窗关闭前等待（防其直装落入学习批
+  // 未安装输出的分区 → 学习批冲突让位 → gen0 代进 recovery 循环振荡）。
+  // 检测读封存登记（mems 已出 imm 队列，封存条目在 flush 完成/回滚前
+  // 不会被释放，安全）；等待期间释放 DB mutex（槽协议在 ctx 锁上完成，
+  // 无锁序嵌套）。
+  bool zf_batch_has_gen0 = false;
+  for (ReadOnlyMemTable* m : mems_) {
+    zeroflush::SealedEpoch se0;
+    if (zf_ctx->GetSealedEpoch(m->GetZfEpoch(), &se0)) {
+      for (const auto& g : se0.gens) {
+        if (g.second == 0) {
+          zf_batch_has_gen0 = true;
+          break;
+        }
+      }
+      if (zf_batch_has_gen0) {
+        break;
+      }
+    }
+  }
+  if (zf_batch_has_gen0) {
+    db_mutex_->Unlock();
+    zf_ctx->AcquireGen0Slot();
+    db_mutex_->Lock();
+    zf_batch_gen0_ = true;
+  } else {
+    db_mutex_->Unlock();
+    zf_ctx->WaitGen0WindowClosed();
+    db_mutex_->Lock();
   }
 
   const uint64_t start_micros = clock_->NowMicros();
@@ -1301,7 +1336,6 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   const uint64_t mm_token = zf_ctx->BeginMaterializeBatch();
   mc.materialize_token = mm_token;
   zf_mm_token_ = mm_token;
-  zf_batch_has_gen0_ready_ = false;
 
   // ---- 阶段 0（持锁）：逐 epoch 按序决策 ----
   // M4.8 迁移路径：物化调度从「epoch 批次串行」改为「(part, gen) 分区
@@ -1362,14 +1396,12 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     zf_ctx->SetLastMaterializedEpoch(last_before);
     zf_ctx->EndMaterializeBatch(mm_token);
     zf_mm_token_ = 0;
+    if (zf_batch_gen0_) {
+      zf_ctx->ReleaseGen0Slot();
+      zf_batch_gen0_ = false;
+    }
     base_->Unref();  // 配对 PickMemtable 的 base_->Ref()（对齐 WriteLevel0Table）
     return s;
-  }
-  for (auto& job : jobs) {
-    if (job->is_gen0_ready_plan()) {
-      zf_batch_has_gen0_ready_ = true;
-      break;
-    }
   }
   db_mutex_->Unlock();
 
@@ -1404,6 +1436,10 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     zf_ctx->SetLastMaterializedEpoch(last_before);
     zf_ctx->EndMaterializeBatch(mm_token);
     zf_mm_token_ = 0;
+    if (zf_batch_gen0_) {
+      zf_ctx->ReleaseGen0Slot();
+      zf_batch_gen0_ = false;
+    }
     base_->Unref();
     return s;  // 持锁返回（WriteLevel0Table 契约）
   }
@@ -1422,6 +1458,10 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       zf_ctx->SetLastMaterializedEpoch(last_before);
       zf_ctx->EndMaterializeBatch(mm_token);
       zf_mm_token_ = 0;
+      if (zf_batch_gen0_) {
+        zf_ctx->ReleaseGen0Slot();
+        zf_batch_gen0_ = false;
+      }
       base_->Unref();
       return s;  // 持锁返回（WriteLevel0Table 契约）
     }

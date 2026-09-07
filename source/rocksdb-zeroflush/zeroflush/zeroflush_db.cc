@@ -570,15 +570,26 @@ size_t ZeroFlushContext::ActiveMaterializeParts() const {
   return mm_active_parts_.size();
 }
 
-// ---- M5P1b：sampled 学习窗口闸 ----
-bool ZeroFlushContext::gen0_gate() const {
-  return gen0_gate_.load(std::memory_order_relaxed);
+// ---- M5P1b：学习窗 gen0 批串行槽 ----
+void ZeroFlushContext::AcquireGen0Slot() {
+  std::unique_lock<std::mutex> l(g0_mu_);
+  ++g0_waiters_;
+  g0_cv_.wait(l, [this] { return g0_running_ == 0; });
+  --g0_waiters_;
+  ++g0_running_;
+  ++g0_pending_;
+  g0_cv_.notify_all();  // 稳态批可能在等 waiters==0
 }
-void ZeroFlushContext::SetGen0Gate() {
-  gen0_gate_.store(true, std::memory_order_relaxed);
+void ZeroFlushContext::WaitGen0WindowClosed() {
+  std::unique_lock<std::mutex> l(g0_mu_);
+  // 学习批优先：等全部学习批（在飞 + 等待取槽的）结束后稳态批才规划。
+  g0_cv_.wait(l, [this] { return g0_pending_ == 0 && g0_waiters_ == 0; });
 }
-void ZeroFlushContext::ClearGen0Gate() {
-  gen0_gate_.store(false, std::memory_order_relaxed);
+void ZeroFlushContext::ReleaseGen0Slot() {
+  std::lock_guard<std::mutex> l(g0_mu_);
+  --g0_running_;
+  --g0_pending_;
+  g0_cv_.notify_all();
 }
 
 uint64_t ZeroFlushContext::install_direct_base() const {
@@ -1441,21 +1452,29 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   // 两者均为兼容/测试模式，非 P1 稳态性能路径（kSampled/kStatic 分区
   // 边界版本化后稳定 → 分区粒度互斥充分）。
   //
-  // **kSampled/kStatic 的并行开启暂缓（M5P1b 实验结论）**：本会话完成
-  // 并验证了并行化的正确性地基——跨批分区互斥登记（Begin/Add/End
-  // MaterializeBatch）、last_materialized max 单调推进、批内 epoch 序
-  // 断言放宽（> prev）、批次登记延后到安装完成后释放（修 BulkLoad
-  // 双批替换竞态）、规划基版本刷新（修 pick→plan 窗口过期 base_）、
-  // 学习窗口闸（修 齐批 vs 稳态并发安装重叠）。但 sampled 学习期
-  // （gen0 齐批）与稳态批的并发在 Release 12GB 实测中暴露更深层问题：
-  // gen0 数据经 skip→recovery→收养 循环时与稳态批互相重触发（闸内
-  // 稳态批 skip 会把收养的 gen0 代重新移交 recovery → 下批再收养 →
-  // 部分齐批反复单任务物化 → 闸反复置/清振荡）。学习窗口需要的是
-  // flush 调度级排他（闸内稳态 imm 挂起等待而非 skip 移交），属独立
-  // 设计项（M5P1b-next：学习期 flush 排他调度），本版维持
-  // max_background_flushes=1（全部模式）——吞吐对比基线不变、零行为
-  // 回归；互斥登记机制在单 flush 下幂等无副作用，为下版直接复用。
-  const bool zf_parallel_flush = false;
+  // kSampled/kStatic 开启多 flush 并行；kAlignL1/kHash 维持单 flush
+  // 串行（base 语义）：
+  //  - kAlignL1：align 表每 epoch 按当前 L1 重建，分区 id 跨表不稳定
+  //    （同 id 范围漂移、异 id 范围互叠）——分区粒度登记无法防跨批重叠
+  //    （MemoryBudgetBackpressure 实测 L1 overlap 崩）；
+  //  - kHash：全范围单任务 epoch，skip/recovery 收养链在并发窗口下放大
+  //    数据滞留窗口（MultiEpoch 偶发率上升）。
+  // kSampled/kStatic 的并行正确性由以下机制共同保证（M5P1b 系列）：
+  //  1) 跨批分区互斥登记（ctx mm_*：Begin/Add/EndMaterializeBatch）——
+  //     稳态批按分区登记；单任务批（学习齐批/hash 全范围）**全分区**
+  //     登记 + 批级占位全分区（输出可覆盖任意分区范围，登记只覆盖自身
+  //     gens 会让并发稳态批直装与其切片重叠，Release 实测 #197/#207）；
+  //  2) 学习窗串行槽（AcquireGen0Slot/WaitGen0WindowClosed）——含 gen0
+  //     代的学习批至多一个在飞（其切片输出依赖串行语义）；稳态批等
+  //     学习窗关闭才规划（防直装落入学习批未安装输出分区 → 冲突让位
+  //     → gen0 代进 recovery 循环振荡，Release 实测 81 次闸振荡）；
+  //  3) last_materialized max 单调 + 批内 epoch 序断言放宽（> prev）；
+  //  4) 批次登记延后到安装完成后释放（修 End→LogAndApply 窗口双批替换
+  //     竞态，BulkLoadZeroL0 实测）；
+  //  5) 规划基版本刷新（修 pick→plan 解锁窗口过期 base_，#180/#173 实测）。
+  const bool zf_parallel_flush =
+      zfo.routing_mode == zeroflush::ZeroFlushOptions::RoutingMode::kSampled ||
+      zfo.routing_mode == zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
   // 4 路流水上限：flush worker 批内分区任务各自占用物化线程（8 并发/
   // 批 × 4 批 = 32 ≤ 后台线程预算）。
   zf_opt.max_background_flushes = zf_parallel_flush ? 4 : 1;

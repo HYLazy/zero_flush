@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -363,17 +364,19 @@ class ZeroFlushContext {
   bool AddMaterializePart(uint64_t token, uint32_t part_id);
   void EndMaterializeBatch(uint64_t token);
 
-  // ---- M5P1b：sampled 学习窗口闸 ----
-  // gen0（hash 期）数据未齐批前，稳态 epoch 不得产出 L1 文件：齐批
-  // 单任务按 v1 全 16 片直装、假设 L1 空（此前数据全滞留）——多 flush
-  // 下并发稳态批先装 L1 → 齐批切片与其重叠（Release 12GB 实测 #197/
-  // #207 L1 overlap 崩）。闸在首个 gen0 epoch 计划时置位；稳态 epoch
-  // 整批 kSkip → recovery（下批封存全量收养累积）；齐批 epoch 安装
-  // 成功后由 FlushJob 清闸。单 flush（align/hash 等串行模式）下学习
-  // 批先于一切稳态批执行，闸无行为影响（恒不置位路径相同）。
-  bool gen0_gate() const;
-  void SetGen0Gate();
-  void ClearGen0Gate();
+  // ---- M5P1b：学习窗 gen0 批串行槽 ----
+  // 含 gen0 代（学习期 hash 数据）的 flush 批必须串行执行（同一时刻至多
+  // 一个在飞）：学习批的切片输出依赖串行语义（各批按自身 gens 分区产出、
+  // 互不重叠、L1 为空前提），并发会让切片与稳态安装/他批切片重叠（Release
+  // 实测 #197/#207 等）。稳态批不受限（与在飞学习批的冲突由全分区登记
+  // 转 kSkip 让位，数据走 recovery 下批收养合并——学习批自身不 skip，
+  // gen0 代不进入 recovery 循环）。AcquireGen0Slot 在批计划前调用（可能
+  // 等待在飞学习批完成；等待期间释放 DB mutex）；Release 在批结束（安装
+  // 或失败）后调用。单 flush（串行模式）下无并发批，槽位恒可获取。
+  void AcquireGen0Slot();
+  void ReleaseGen0Slot();
+  // 稳态批等待学习窗关闭（无 gen0 批在飞/等待）后才开始规划。
+  void WaitGen0WindowClosed();
   // 诊断：当前被他批登记占用的分区数（skip 循环定位）。
   size_t ActiveMaterializeParts() const;
 
@@ -430,8 +433,17 @@ class ZeroFlushContext {
   uint64_t mm_token_next_ = 1;
   std::unordered_map<uint64_t, std::unordered_set<uint32_t>> mm_batch_parts_;
   std::unordered_set<uint32_t> mm_active_parts_;
-  // M5P1b：sampled 学习窗口闸（见上方 gen0_gate 说明）。
-  std::atomic<bool> gen0_gate_{false};
+  // M5P1b：学习窗 gen0 批串行槽（g0_* 保护；Acquire 等待时释放 DB mutex，
+  // 锁序 DB mutex → g0_mu_ 恒单向）。
+  //  g0_running_：在飞学习批数（0/1——学习批互斥执行）；
+  //  g0_pending_：已取槽未释放的学习批数（稳态批等它归零 = 学习窗关闭）；
+  //  g0_waiters_：等待取槽的学习批数——稳态批必须等它归零（学习批优先：
+  //  防「稳态批先规划占分区 → 学习批冲突让位 → gen0 代进 recovery 循环」）。
+  mutable std::mutex g0_mu_;
+  std::condition_variable g0_cv_;
+  uint32_t g0_running_ = 0;
+  uint32_t g0_pending_ = 0;
+  uint32_t g0_waiters_ = 0;
 };
 
 // 打开 ZeroFlush DB：

@@ -183,8 +183,6 @@ class ZfMaterializeJob {
   ZfMaterializeJob& operator=(const ZfMaterializeJob&) = delete;
 
   uint64_t epoch() const { return epoch_; }
-  // M5P1b：本 epoch 计划是否为学习齐批（安装成功 = 学习窗口结束）。
-  bool is_gen0_ready_plan() const { return gen0_ready_plan_; }
 
   // 阶段 0（须持 DB mutex）：逐分区做融合归并触发判定（§7.2）并构造/
   // 注册 Compaction（§7.3）。决策写入 plans_；冲突（being_compacted/
@@ -334,10 +332,6 @@ class ZfMaterializeJob {
   // 片互斥直装）；CollectTasks 只收代表、ExecutePartition 非代表防御返回。
   // PlanLocked 设置。
   bool single_task_mode_ = false;
-  // M5P1b：本 epoch 是否为学习齐批（gen0_ready 且无跨批冲突）——齐批
-  // epoch 安装成功 = 学习窗口结束（FlushJob 据此清 ctx 的 gen0 闸）。
-  // PlanLocked 设置，FlushJob::Run 安装后读取。
-  bool gen0_ready_plan_ = false;
   // 阶段 0 决策结果（持锁写入，阶段 1/2 只读；Compaction 由 FinalizeLocked
   // 释放，worker 无锁期间仅经 compaction 指针做只读查询）。
   std::vector<PartitionPlan> plans_;

@@ -129,56 +129,62 @@ P1 即含全部核心改动；后续（偏态 range 分裂/合并、边界校正
 
 ---
 
-# 附录 A：M5P1b 多 flush 并行设计（2026-09-06 实验，暂缓上线）
+# 附录 A：M5P1b 多 flush 并行设计（2026-09-06 定稿，已上线）
 
-## 目标与结论
+## 目标
 
-吞吐线最终瓶颈 = 物化流水串行（max_background_flushes=1：一次只允许一个
-flush 批次，物化期间新封存 epoch 只能排队）。本设计放开多 flush 并发，
-实验后在 sampled 学习期暴露更深层并发问题，**本版保持 flushes=1（零行为
-回归）；正确性地基已落地并验证，供下版直接复用**。
+吞吐线最终瓶颈 = 物化流水串行（max_background_flushes=1：单 flush 批次
+串行，物化期间新封存 epoch 只能排队）。本设计放开多 flush 并发
+（kSampled/kStatic = 4 路；kAlignL1/kHash 维持串行——分区表跨 epoch 重建
+/全范围单任务语义与并发不兼容）。
 
-## 已落地机制（单 flush 下幂等，无行为影响）
+## 机制（全部已落地，ab29fe9 + 本版）
 
 1. **跨批分区互斥登记**（ctx `mm_*`：BeginMaterializeBatch/AddMaterializePart/
-   EndMaterializeBatch + token 批集）：批次在计划期（持 DB mutex）登记产出
-   分区；他批计划同分区 → 不产出（kSkip 转 recovery）。单任务批（学习齐批
-   /hash 全范围）整批登记全分区、任一冲突整批让位。
-2. **last_materialized max 单调**（store → CAS max）：并发批交错推进不回退；
-   失败批"回滚到 last_before"在他批推进后自动 no-op（last 仅作批首种子/
-   断言辅助，数据安全以 imm 生命周期为准）。
-3. **批内 epoch 序断言放宽**（`== prev+1` → `> prev`）：批内空洞合法（中间
-   epoch 在并发在飞批次手中——失败回滚 imm 重入队头 + 他批取走中间段）。
-4. **批次登记延后释放**：成功路径 End 从 ZfMaterializeAllEpochs 尾部挪到
+   EndMaterializeBatch + token 批集，DB mutex 内登记）：稳态批按产出分区
+   登记；他批同分区 → kSkip 让位（数据转 recovery，批尾释放后下批收养）。
+2. **单任务批全分区登记 + 批级占位全分区**：学习齐批 / hash 全范围的输出
+   （do_slice 切片 / 全范围单文件）可覆盖任意分区范围——登记只覆盖自身
+   gens 会让并发稳态批在未覆盖分区直装 → 与切片输出重叠（Release 实测
+   #197/#207 L1 重叠崩的根因）。任一分区被他批占用 → 整批 kSkip 让位。
+3. **学习窗串行槽**（ctx g0_*：AcquireGen0Slot / WaitGen0WindowClosed /
+   ReleaseGen0Slot）：含 gen0 代（分区首次封存，学习期 hash 数据）的批次
+   至多一个在飞（其切片输出依赖串行语义：各批按自身 gens 分区产出、互不
+   重叠、L1 为空前提——并发实测振荡/重叠崩）；稳态批在学习窗关闭后规划
+   （学习批优先：g0_waiters_ 计数防「稳态批先规划占分区 → 学习批冲突让位
+   → gen0 代进 recovery 循环振荡」）。批内 epoch 的 gen0 检测在入口扫描
+   封存登记（mems 已出 imm 队列，安全）；等待期间释放 DB mutex。
+4. **last_materialized max 单调**（store → CAS max）：并发批交错推进不回退；
+   失败批回滚在推进被超越时自动 no-op（数据安全以 imm 生命周期为准）。
+5. **批内 epoch 序断言放宽**（`== prev+1` → `> prev`）：批内空洞合法
+   （中间 epoch 在并发在飞批次手中——失败回滚 imm 重入队头 + 他批取中间段）。
+6. **批次登记延后释放**：成功路径 End 从 ZfMaterializeAllEpochs 尾部挪到
    FlushJob::Run 安装完成后（修 BulkLoadZeroL0 实测：End→LogAndApply 之间
-   DB mutex 释放做 manifest IO，他批在「登记释放 → 版本更新完成」窗口内用
+   DB mutex 释放做 manifest IO，他批在「释放 → 版本更新完成」窗口内用
    过期 base_ 规划 → 双批替换同一批 base 文件 → L1 重叠）。
-5. **规划基版本刷新**：阶段 0 入口把 base_（PickMemtable 快照）刷新为
-   current()（pick→Run 之间 NotifyOnFlushBegin/监听器回调释放 DB mutex，
-   他批可在此窗口完成安装——持过期 base_ 规划产生与已装文件重叠的输出，
-   Release 12GB 实测 #180/#173、#197/#207）。
-6. **学习窗口闸**（ctx gen0_gate_ + 稳态 epoch 整批 kSkip）：齐批 16 片直装
-   假设 L1 空——并发稳态批先装 L1 → 齐批切片重叠（Release 实测）。闸在
-   首个 gen0 epoch 计划时置位、齐批 epoch 安装成功后清。
+7. **规划基版本刷新**：阶段 0 入口把 base_（PickMemtable 快照）刷新为
+   current()（pick→Run 之间 NotifyOnFlushBegin 等释放 DB mutex，他批可在
+   此窗口完成安装——过期 base_ 规划产生与已装文件重叠的输出，#180/#173
+   实测）。
 
-## 实验发现：sampled 学习期与稳态批的并发不可调和（本版暂缓根因）
+## 实测验证（Release，多轮）
 
-闸内稳态批整批 kSkip → 其移交的 gens **含收养的 gen0 代** → recovery 再
-收养 → 后续 epoch 反复触发部分齐批（gen0_parts<partitions 且无自身新
-gen0 → ready）→ 单任务反复物化 + 闸反复置/清振荡（Release 1.2M-num 实测
-81 次 CLEAR；epoch 3/6/9/12 各带 gen0=4/8/2/1 循环）。gen0 代在
-skip→recovery→收养 循环中无法退出——齐批收敛假设（串行世界里学习批先于
-一切稳态批执行、recovery 只含学习代）在并发下破裂。
+- zf_test 全量 38/38 × 3 轮全绿（kSampled/kStatic 并行开启；MultiEpoch
+  为 base 既有 hash 路由偶发，kHash 维持串行不受影响）。
+- Release 19GB fillrandom（1.2M-num×16 线程）：105-112K ops/s，RC=0，
+  零 Corruption/overlap（与串行基线持平——该配置写路径 WAL 组提交为瓶颈，
+  物化流水并行度未被用满；并行收益在物化受限配置下体现）。
+- Release 600K-num × 3：150-220K ops/s，零 corruption；cross 冲突计数
+  证实稳态批真实并发（冲突让位 → recovery → 下批收养合并收敛）。
+- 修复过程实测的竞态均已在上述机制闭环：MemoryBudgetBackpressure L1
+  overlap（align 表跨批——kAlignL1 维持串行）、BulkLoadZeroL0 双批替换、
+  #180/#173 过期规划、#197/#207 切片覆盖洞、学习窗 81 次振荡、槽释放
+  标志被后置初始化清零死锁（zf_batch_gen0_ 初始化须在入口协议之前）。
 
-修正方向（M5P1b-next，独立设计项）：**学习窗口 flush 调度级排他**——闸内
-稳态 epoch 的 flush 挂起等待（imm 保留在队列、不 skip 移交、不放 recovery），
-齐批完成清闸后按序冲刷；需要 flush 线程在"批含齐批 epoch"与"批为稳态"
-间的调度区分 + 条件变量唤醒（防 4 线程全等死锁：齐批 epoch 入队即唤醒）。
+## 后续可选项
 
-## 其他实测
-
-- kAlignL1/kHash 多 flush 亦不可行（分区表跨 epoch 重建 → 分区粒度登记
-  无效；全范围单任务 skip 链放大滞留）——并行仅对分区边界版本化后稳定
-  的 kSampled/kStatic 有意义，且须先解决学习窗排他。
-- zf_test 全量 38/38 三轮全绿（单 flush 语义零回归）；Release 1.2M-num
-  19GB fillrandom RC=0 完成、零崩溃零 overlap（齐批+稳态串行路径）。
+- 学习批的串行语义与稳态批等待会短暂压低学习窗吞吐（~4 epoch 的窗口，
+  约数秒；写停水位 max_pending_epochs 兜底）——如需极致可做学习期
+  flush 调度级直通（批内学习 epoch 全量读取单任务化）。
+- MultiEpoch（kHash）偶发红为 base 既有问题（hash 路由 1/3），与本设计
+  无关，单列跟踪。

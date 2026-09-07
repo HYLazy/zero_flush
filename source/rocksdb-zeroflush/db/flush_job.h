@@ -295,10 +295,9 @@ class FlushJob {
   // 由 FlushJob::Run 在安装返回后统一 End（失败路径在 ZfMaterializeAllEpochs
   // 内 End 并清零）。
   uint64_t zf_mm_token_ = 0;
-  // M5P1b：本批次是否含学习齐批（gen0_ready）epoch——安装成功后清
-  // ctx 的 gen0 学习窗口闸（放行稳态产出）。ZfMaterializeAllEpochs
-  // 规划期置位，Run 安装后消费。
-  bool zf_batch_has_gen0_ready_ = false;
+  // M5P1b：本批次是否为学习批（含 gen0 代 epoch）——入口检测后占学习窗
+  // 串行槽（AcquireGen0Slot）；随批次结束（失败出口 / Run 安装后）释放。
+  bool zf_batch_gen0_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

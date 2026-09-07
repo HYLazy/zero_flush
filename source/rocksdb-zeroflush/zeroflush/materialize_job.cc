@@ -664,42 +664,32 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   if (gen0_ready) {
     single_task_mode_ = true;  // 齐批：代表任务全量切片
   }
-  // M5P1b（多 flush 并行）：sampled 学习窗口闸置位——首个 gen0 epoch
-  // （学习批，hash 期数据）计划时打开：其数据未齐批（single-task 16 片
-  // 直装）前，稳态 epoch 不得产出 L1（齐批切片与并发安装的稳态文件
-  // 重叠——Release 12GB 实测）。闸在齐批 epoch 安装成功后清（FlushJob）。
-  // 单 flush（闸内无并发批）下所有学习 epoch 先于稳态执行，闸无行为
-  // 影响——置位只是保守等价。
-  if (gen0_learning && !ctx_->gen0_gate()) {
-    fprintf(stderr, "ZFDBG-gate SET epoch=%llu gen0=%zu ready=%d\n",
-            (unsigned long long)epoch_, gen0_parts.size(), (int)gen0_ready);
-    ctx_->SetGen0Gate();
-  }
-  // 闸内非齐批 epoch（稳态/滞留学批）→ 整批 kSkip（数据转 recovery，
-  // 下批封存全量收养，齐批一次收敛）。
-  const bool zf_gated_epoch =
-      ctx_->gen0_gate() && !(gen0_learning && single_task_mode_);
-  // M5P1b（多 flush 并行）：单任务批（齐批全分区 / hash 全范围全量读取）
-  // 批级登记产出分区——他批在飞（同分区）时本批不得产出。任一冲突 →
+  // M5P1b（多 flush 并行）：单任务批（学习齐批 / hash 全范围）**全分区**
+  // 跨批登记——其输出（do_slice 切片 / 全范围单文件）可覆盖任意分区范围，
+  // 登记只覆盖自身 gens 会让并发稳态批在未覆盖分区直装 → 与切片输出重叠
+  // （Release 实测 #197/#207 L1 重叠崩）。任一分区被他批在飞批次占用 →
   // 整批 kSkip 让位（单任务无法只产出部分分区；数据留 frozen+WAL 可读，
-  // 本批结束释放后下批收养重试收敛）。hash 输出为全范围单文件（跨全部
-  // 分区边界）→ 登记全部分区；齐批只覆盖有数据的分区片。
+  // 本批结束释放后下批收养重试收敛）。同 token 重复登记幂等。
+  // 并发安全由 flush 级学习窗串行槽兜底（gen0 批互斥 + 稳态批等待学习窗
+  // 关闭）——此登记是第二道防线（覆盖稳态批与在飞单任务批交错的窗口）。
   bool single_task_conflict = false;
-  if (mc_.materialize_token != 0 &&
-      (single_task_mode_ ||
-       ((table_ == nullptr || table_->IsHashMode()) && !gen0_learning))) {
-    if (table_ == nullptr || table_->IsHashMode()) {
-      for (uint32_t pp = 0; pp < ctx_->zfo_.partitions; ++pp) {
-        if (!ctx_->AddMaterializePart(mc_.materialize_token, pp)) {
-          single_task_conflict = true;
-        }
+  const bool zf_single_task_produce =
+      single_task_mode_ ||
+      ((table_ == nullptr || table_->IsHashMode()) && !gen0_learning);
+  if (mc_.materialize_token != 0 && zf_single_task_produce) {
+    for (uint32_t pp = 0; pp < ctx_->zfo_.partitions; ++pp) {
+      if (!ctx_->AddMaterializePart(mc_.materialize_token, pp)) {
+        single_task_conflict = true;
       }
-    } else {
-      for (uint32_t pid2 : part_ids_) {
-        if (!ctx_->AddMaterializePart(mc_.materialize_token, pid2)) {
-          single_task_conflict = true;
-        }
-      }
+    }
+  }
+  // 齐批（gen0-ready 单任务）的批级占位覆盖全分区：同批后序 epoch（稳态/
+  // hash）全部让位——齐批切片输出覆盖全分区，后序直装/融合必与其重叠。
+  // （齐批自身经 gen0 分支占位，不受本批级占位影响；同批多学习 epoch 的
+  // 输出按各自 gens 分区互斥——串行语义实证，齐批间不需要互斥。）
+  if (gen0_ready && mc_.batch_planned_parts != nullptr) {
+    for (uint32_t pp = 0; pp < ctx_->zfo_.partitions; ++pp) {
+      mc_.batch_planned_parts->insert(pp);
     }
   }
   for (uint32_t pid : part_ids_) {
@@ -730,26 +720,9 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           plan.decision = MaterializeDecision::kFallback;
         }
       } else if (mc_.batch_planned_parts != nullptr) {
-        // 齐批占位 = 批级规划：同批后序 epoch 同分区不得再物化（其决策
-        // 看不到本批未安装的 16 片 → 直装/融合 → finalize 时 placed 冲突
-        // 落 L0 滞留，smoke 实测 27 文件/170MB）。
+        // 齐批占位：分区登记已在 pre-loop 全量完成（batch_planned_parts
+        // 覆盖全分区）——此处仅保持 plans_ 结构一致（每 pid 一个占位）。
         mc_.batch_planned_parts->insert(pid);
-        gen0_ready_plan_ = true;  // 齐批提交（安装成功后 FlushJob 清闸）
-      }
-      plans_.push_back(std::move(plan));
-      continue;
-    }
-    if (zf_gated_epoch) {
-      // M5P1b：学习窗口闸——稳态 epoch 在 gen0 齐批前不得产出（齐批
-      // 16 片直装假设 L1 空，并发稳态安装与其重叠 → L1 overlap 崩）。
-      // 整批 kSkip → recovery（下批封存全量收养，齐批一次收敛）。
-      if (skip_ok) {
-        plan.decision = MaterializeDecision::kSkip;
-        zf_skip_cross_batch++;
-        ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
-      } else {
-        // align_l1（R59C）→ 旧 L0 兜底（闸仅在 sampled 置位，不可达）。
-        plan.decision = MaterializeDecision::kFallback;
       }
       plans_.push_back(std::move(plan));
       continue;
@@ -1281,7 +1254,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   fprintf(stderr,
           "ZFDBG-skip no_merge=%llu busy=%llu batch_l0=%llu l0busy=%llu "
           "dirconf=%llu batchprev=%llu bytes=%llu sink=%llu cross=%llu "
-          "gate=%d act=%zu\n",
+          "act=%zu\n",
           (unsigned long long)zf_skip_no_merge,
           (unsigned long long)zf_skip_busy_conflict,
           (unsigned long long)zf_skip_batch_l0,
@@ -1291,7 +1264,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           (unsigned long long)zf_skip_bytes,
           (unsigned long long)zf_sink_request,
           (unsigned long long)zf_skip_cross_batch,
-          (int)ctx_->gen0_gate(), ctx_->ActiveMaterializeParts());
+          ctx_->ActiveMaterializeParts());
   return ROCKSDB_NAMESPACE::Status::OK();
 }
 
