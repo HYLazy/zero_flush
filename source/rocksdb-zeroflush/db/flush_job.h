@@ -286,6 +286,19 @@ class FlushJob {
   // 本批次全部 epoch 的定层输出（跨 epoch 共享，定层防同层重叠，§6.2）；
   // 成功后由调用方单次写入 edit_，失败时统一清理。
   std::vector<zeroflush::MaterializeOutput> zf_batch_outputs_;
+  // M5P1b（多 flush 并行）：本批次的跨批互斥登记 token。登记在
+  // ZfMaterializeAllEpochs 计划期（注册产出分区）；**成功路径不在
+  // ZfMaterializeAllEpochs 内释放**——安装（TryInstallMemtableFlushResults/
+  // LogAndApply）中途会释放 DB mutex 做 manifest IO，若在 stage-2 尾即释放
+  // 登记，他批可在「释放 → 版本更新完成」窗口内用过期 base_ 规划（旧文件
+  // 仍可见）→ 双批替换同一批 base 文件 → L1 重叠（BulkLoadZeroL0 实测）。
+  // 由 FlushJob::Run 在安装返回后统一 End（失败路径在 ZfMaterializeAllEpochs
+  // 内 End 并清零）。
+  uint64_t zf_mm_token_ = 0;
+  // M5P1b：本批次是否含学习齐批（gen0_ready）epoch——安装成功后清
+  // ctx 的 gen0 学习窗口闸（放行稳态产出）。ZfMaterializeAllEpochs
+  // 规划期置位，Run 安装后消费。
+  bool zf_batch_has_gen0_ready_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

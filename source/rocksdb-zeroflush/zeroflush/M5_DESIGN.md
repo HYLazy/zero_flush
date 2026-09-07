@@ -126,3 +126,59 @@ P1 即含全部核心改动；后续（偏态 range 分裂/合并、边界校正
   需"注册 pending manual compaction + 让出"或专用触发点。
 - kSkip 字节化的内存账目（range 待物化字节的统计点：se.part_bytes + 收养）。
 - 关闭冲刷的触发位置（DB 析构 / Close / 最后 flush 循环）。
+
+---
+
+# 附录 A：M5P1b 多 flush 并行设计（2026-09-06 实验，暂缓上线）
+
+## 目标与结论
+
+吞吐线最终瓶颈 = 物化流水串行（max_background_flushes=1：一次只允许一个
+flush 批次，物化期间新封存 epoch 只能排队）。本设计放开多 flush 并发，
+实验后在 sampled 学习期暴露更深层并发问题，**本版保持 flushes=1（零行为
+回归）；正确性地基已落地并验证，供下版直接复用**。
+
+## 已落地机制（单 flush 下幂等，无行为影响）
+
+1. **跨批分区互斥登记**（ctx `mm_*`：BeginMaterializeBatch/AddMaterializePart/
+   EndMaterializeBatch + token 批集）：批次在计划期（持 DB mutex）登记产出
+   分区；他批计划同分区 → 不产出（kSkip 转 recovery）。单任务批（学习齐批
+   /hash 全范围）整批登记全分区、任一冲突整批让位。
+2. **last_materialized max 单调**（store → CAS max）：并发批交错推进不回退；
+   失败批"回滚到 last_before"在他批推进后自动 no-op（last 仅作批首种子/
+   断言辅助，数据安全以 imm 生命周期为准）。
+3. **批内 epoch 序断言放宽**（`== prev+1` → `> prev`）：批内空洞合法（中间
+   epoch 在并发在飞批次手中——失败回滚 imm 重入队头 + 他批取走中间段）。
+4. **批次登记延后释放**：成功路径 End 从 ZfMaterializeAllEpochs 尾部挪到
+   FlushJob::Run 安装完成后（修 BulkLoadZeroL0 实测：End→LogAndApply 之间
+   DB mutex 释放做 manifest IO，他批在「登记释放 → 版本更新完成」窗口内用
+   过期 base_ 规划 → 双批替换同一批 base 文件 → L1 重叠）。
+5. **规划基版本刷新**：阶段 0 入口把 base_（PickMemtable 快照）刷新为
+   current()（pick→Run 之间 NotifyOnFlushBegin/监听器回调释放 DB mutex，
+   他批可在此窗口完成安装——持过期 base_ 规划产生与已装文件重叠的输出，
+   Release 12GB 实测 #180/#173、#197/#207）。
+6. **学习窗口闸**（ctx gen0_gate_ + 稳态 epoch 整批 kSkip）：齐批 16 片直装
+   假设 L1 空——并发稳态批先装 L1 → 齐批切片重叠（Release 实测）。闸在
+   首个 gen0 epoch 计划时置位、齐批 epoch 安装成功后清。
+
+## 实验发现：sampled 学习期与稳态批的并发不可调和（本版暂缓根因）
+
+闸内稳态批整批 kSkip → 其移交的 gens **含收养的 gen0 代** → recovery 再
+收养 → 后续 epoch 反复触发部分齐批（gen0_parts<partitions 且无自身新
+gen0 → ready）→ 单任务反复物化 + 闸反复置/清振荡（Release 1.2M-num 实测
+81 次 CLEAR；epoch 3/6/9/12 各带 gen0=4/8/2/1 循环）。gen0 代在
+skip→recovery→收养 循环中无法退出——齐批收敛假设（串行世界里学习批先于
+一切稳态批执行、recovery 只含学习代）在并发下破裂。
+
+修正方向（M5P1b-next，独立设计项）：**学习窗口 flush 调度级排他**——闸内
+稳态 epoch 的 flush 挂起等待（imm 保留在队列、不 skip 移交、不放 recovery），
+齐批完成清闸后按序冲刷；需要 flush 线程在"批含齐批 epoch"与"批为稳态"
+间的调度区分 + 条件变量唤醒（防 4 线程全等死锁：齐批 epoch 入队即唤醒）。
+
+## 其他实测
+
+- kAlignL1/kHash 多 flush 亦不可行（分区表跨 epoch 重建 → 分区粒度登记
+  无效；全范围单任务 skip 链放大滞留）——并行仅对分区边界版本化后稳定
+  的 kSampled/kStatic 有意义，且须先解决学习窗排他。
+- zf_test 全量 38/38 三轮全绿（单 flush 语义零回归）；Release 1.2M-num
+  19GB fillrandom RC=0 完成、零崩溃零 overlap（齐批+稳态串行路径）。

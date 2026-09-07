@@ -15,6 +15,8 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "rocksdb/cache.h"
@@ -347,6 +349,34 @@ class ZeroFlushContext {
   // 累计下沉请求次数（诊断/统计：rocksdb.zeroflush.sink_requests）。
   uint64_t sink_request_count() const;
 
+  // ---- M5P1b：多 flush 并行——跨批分区互斥登记（flush 批次级）----
+  // max_background_flushes>1 后多个批次可同时在飞（imm 堆积流水）。同
+  // 分区跨批并发产出破坏"每 range 单文件"不变量与 gen 序（后批决策看
+  // 不到前批未安装输出）。批在计划阶段（持 DB mutex）登记产出分区；他
+  // 批计划同分区 → 不产出（kSkip 转 recovery，本批结束释放后下批收养
+  // 重物化）。登记随批次结束（安装/失败出口）统一 End 释放。
+  // 单任务批（学习齐批/hash 全范围全量读取）登记全部分区，任一被占 →
+  // 整批 kSkip（单任务无法只产出部分分区）。
+  uint64_t BeginMaterializeBatch();
+  // 登记 part 到 token 批。false = 分区正被他批（不同 token）持有；
+  // 同 token 重复登记幂等（返回 true）。
+  bool AddMaterializePart(uint64_t token, uint32_t part_id);
+  void EndMaterializeBatch(uint64_t token);
+
+  // ---- M5P1b：sampled 学习窗口闸 ----
+  // gen0（hash 期）数据未齐批前，稳态 epoch 不得产出 L1 文件：齐批
+  // 单任务按 v1 全 16 片直装、假设 L1 空（此前数据全滞留）——多 flush
+  // 下并发稳态批先装 L1 → 齐批切片与其重叠（Release 12GB 实测 #197/
+  // #207 L1 overlap 崩）。闸在首个 gen0 epoch 计划时置位；稳态 epoch
+  // 整批 kSkip → recovery（下批封存全量收养累积）；齐批 epoch 安装
+  // 成功后由 FlushJob 清闸。单 flush（align/hash 等串行模式）下学习
+  // 批先于一切稳态批执行，闸无行为影响（恒不置位路径相同）。
+  bool gen0_gate() const;
+  void SetGen0Gate();
+  void ClearGen0Gate();
+  // 诊断：当前被他批登记占用的分区数（skip 循环定位）。
+  size_t ActiveMaterializeParts() const;
+
   // ---- M5 §3.5-2：关闭冲刷模式 ----
   // DB 关闭冲刷期间置位：物化决策跳过 kSkip 判据 2/3（F 满也强制融合，
   // 输出按 target_file_size 切分——单文件 ≤64MB 约束为稳态性能目标，
@@ -393,6 +423,15 @@ class ZeroFlushContext {
   mutable std::mutex sink_mu_;
   std::vector<std::pair<std::string, std::string>> sink_requests_;  // (lo, hi)
   std::atomic<uint64_t> sink_request_count_{0};  // 累计请求次数（诊断）
+  // ---- M5P1b 跨批互斥登记状态（mm_*：materialize mutex 缩写）----
+  // 持锁方：登记在 PlanLocked（持 DB mutex）窗口、释放/End 在批次出口
+  // （持 DB mutex）——锁序恒 DB mutex → mm_mu_（无反向获取），无死锁。
+  mutable std::mutex mm_mu_;
+  uint64_t mm_token_next_ = 1;
+  std::unordered_map<uint64_t, std::unordered_set<uint32_t>> mm_batch_parts_;
+  std::unordered_set<uint32_t> mm_active_parts_;
+  // M5P1b：sampled 学习窗口闸（见上方 gen0_gate 说明）。
+  std::atomic<bool> gen0_gate_{false};
 };
 
 // 打开 ZeroFlush DB：

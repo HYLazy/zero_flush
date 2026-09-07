@@ -367,6 +367,23 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
                               or new level 0 file path to write to manifest. */);
     }
   }
+  // M5P1b（多 flush 并行）：安装（或回滚）完成后释放跨批互斥登记——
+  // 此时本批输出已进版本（他批规划可见）或 imm 已回滚（他批可重试）。
+  // 成功路径的 End 从 ZfMaterializeAllEpochs 尾部挪到这里：LogAndApply
+  // 中途释放 DB mutex，提前释放会让并发批在过期 base_ 上规划出与
+  // 本批输出重叠的替换（BulkLoadZeroL0 实测 L1 重叠）。
+  if (zf_mm_token_ != 0) {
+    cfd_->GetZfCtx()->EndMaterializeBatch(zf_mm_token_);
+    zf_mm_token_ = 0;
+  }
+  // M5P1b：学习齐批安装成功 = gen0 学习窗口结束——清闸放行稳态产出
+  // （仅安装成功后清：失败重试窗口内闸保持，防稳态批先装 L1 → 齐批
+  // 重试切片重叠）。
+  if (s.ok() && zf_batch_has_gen0_ready_) {
+    fprintf(stderr, "ZFDBG-gate CLEAR job=%d\n", job_context_->job_id);
+    cfd_->GetZfCtx()->ClearGen0Gate();
+    zf_batch_has_gen0_ready_ = false;
+  }
 
   if (!s.ok() && meta_.fd.GetFileSize() > 0 && !zf_mode_) {
     // If BuildTable succeeded (file was cached in table cache for user reads)
@@ -1222,6 +1239,20 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   const auto& zf_ctx = cfd_->GetZfCtx();
   assert(zf_ctx != nullptr);
 
+  // M5P1b（多 flush 并行）：规划基版本刷新——base_ 在 PickMemTable 时
+  // 取快照，而 pick → Run(阶段 0) 之间 NotifyOnFlushBegin 等会释放 DB
+  // mutex（监听器回调）；多 flush 下他批可能在此窗口完成安装。持过期
+  // base_ 规划 → 本批替换的是已被他批替换掉的旧文件（编辑删除空集 +
+  // 新增输出与他批输出重叠 → L1 overlap，Release 实测 #180/#173）。
+  // 阶段 0 持锁，重新取 current() 并 Ref（规划收集的 FileMetaData 指针
+  // 生命周期由该 Ref 覆盖 stage-1 全程）；旧 base_ Unref。
+  {
+    ROCKSDB_NAMESPACE::Version* cur = cfd_->current();
+    cur->Ref();
+    base_->Unref();
+    base_ = cur;
+  }
+
   const uint64_t start_micros = clock_->NowMicros();
   Status s;
 
@@ -1262,6 +1293,15 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   // 按 epoch 序决策时登记产出分区；同分区后序 epoch 见已规划 → kSkip
   // （下批再融合），防同批同 range 多输出落 L0 滞留。
   mc.batch_planned_parts = std::make_shared<std::unordered_set<uint32_t>>();
+  // M5P1b（多 flush 并行）：批次互斥 token——job 的 PlanLocked 用它登记
+  // 本批产出分区（跨批同分区互斥：他批在飞 → kSkip 让位）。登记随批次
+  // 结束释放：成功路径延后到 Run() 安装完成后（EndMaterializeBatch 在
+  // LogAndApply 释放 mutex 期间不可提前放——他批会用过期 base_ 规划）；
+  // 失败路径在各出口 End。
+  const uint64_t mm_token = zf_ctx->BeginMaterializeBatch();
+  mc.materialize_token = mm_token;
+  zf_mm_token_ = mm_token;
+  zf_batch_has_gen0_ready_ = false;
 
   // ---- 阶段 0（持锁）：逐 epoch 按序决策 ----
   // M4.8 迁移路径：物化调度从「epoch 批次串行」改为「(part, gen) 分区
@@ -1282,9 +1322,12 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     }
     // M4.8 按序放宽：物化执行乱序自由（分区数据独立，读各自 WAL 段）；
     // 决策/安装按 epoch 序（= 同分区 gen 序）。首 epoch 允许重试场景
-    // （epoch ≤ last_before：上次批次失败后 imm 保留、last 已回滚）；
-    // 后续 epoch 严格升序（imm FIFO）。
-    assert(first_epoch || epoch == prev_epoch + 1);
+    // （epoch ≤ last：上次批次失败后 imm 保留；last 并发批 max 推进不
+    // 回退）；后续 epoch 严格升序。M5P1b（多 flush）：批内可出现空洞
+    // （中间 epoch 在并发 in-flight 批次手中——本批失败回滚 imm 重入队
+    // 头、他批已取走中间段）——空洞合法，同分区跨批序由批级分区互斥
+    // 保证（冲突批 kSkip 让位），批内仍按 epoch 升序规划。
+    assert(first_epoch || epoch > prev_epoch);
     first_epoch = false;
     prev_epoch = epoch;
     zeroflush::SealedEpoch se;
@@ -1310,14 +1353,23 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   (void)first_epoch;
   if (!s.ok()) {
     // 阶段 0 失败：释放已注册的部分 Compaction（无临时文件产出），
-    // 回滚 last（下次 flush 重试时按序断言仍成立）。持锁返回
+    // 回滚 last（下次 flush 重试时按序断言仍成立——max 单调推进下并发
+    // 批已推进时自动 no-op，重试批 first_epoch 放行）。持锁返回
     // （WriteLevel0Table 契约：返回时 DB mutex 由本函数持有）。
     for (auto& job : jobs) {
       job->FinishPlansLocked();
     }
     zf_ctx->SetLastMaterializedEpoch(last_before);
+    zf_ctx->EndMaterializeBatch(mm_token);
+    zf_mm_token_ = 0;
     base_->Unref();  // 配对 PickMemtable 的 base_->Ref()（对齐 WriteLevel0Table）
     return s;
+  }
+  for (auto& job : jobs) {
+    if (job->is_gen0_ready_plan()) {
+      zf_batch_has_gen0_ready_ = true;
+      break;
+    }
   }
   db_mutex_->Unlock();
 
@@ -1350,6 +1402,8 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       job->FinishPlansLocked();
     }
     zf_ctx->SetLastMaterializedEpoch(last_before);
+    zf_ctx->EndMaterializeBatch(mm_token);
+    zf_mm_token_ = 0;
     base_->Unref();
     return s;  // 持锁返回（WriteLevel0Table 契约）
   }
@@ -1363,14 +1417,19 @@ Status FlushJob::ZfMaterializeAllEpochs() {
                      "[%s] [JOB %d] finalize epoch %" PRIu64 " failed: %s",
                      cfd_->GetName().c_str(), job_context_->job_id,
                      job->epoch(), s.ToString().c_str());
-      // 阶段 2 失败（理论不可达——定层为纯内存操作）：回滚 last。
+      // 阶段 2 失败（理论不可达——定层为纯内存操作）：回滚 last
+      // （max 单调推进下若他批已推进则 no-op，数据由 imm 重试保全）。
       zf_ctx->SetLastMaterializedEpoch(last_before);
+      zf_ctx->EndMaterializeBatch(mm_token);
+      zf_mm_token_ = 0;
       base_->Unref();
       return s;  // 持锁返回（WriteLevel0Table 契约）
     }
     zf_ctx->materialize_sort_micros_.fetch_add(job->sort_micros(),
                                                std::memory_order_relaxed);
-    // 每成功一个 job 即推进 last（语义与迁移前一致；批次失败整体回滚）。
+    // 每成功一个 job 即推进 last（max 单调——并发批交错时各自推进不
+    // 回退；失败批整体回滚在推进已被他批超越时自动 no-op，数据由 imm
+    // 重试保全）。
     zf_ctx->SetLastMaterializedEpoch(job->epoch());
   }
   // 收尾（持锁）：删除批内被替换输出的物理文件；kSkip 分区的封存 WAL
@@ -1464,6 +1523,11 @@ Status FlushJob::ZfMaterializeAllEpochs() {
                  cfd_->GetName().c_str(), job_context_->job_id, mems_.size(),
                  zf_batch_outputs_.size(), meta_.fd.GetFileSize(),
                  clock_->NowMicros() - start_micros);
+  // 批次成功：跨批互斥登记**不在此释放**——安装（TryInstallMemtableFlush
+  // Results → LogAndApply）中途释放 DB mutex 做 manifest IO；若在此提前
+  // 释放，他批可在「释放 → 版本更新完成」窗口内持过期 base_ 规划（旧
+  // base 文件仍可见、本批输出不可见）→ 双批替换同一批 base 文件 → L1
+  // 重叠（BulkLoadZeroL0 实测）。由 FlushJob::Run 在安装返回后 End。
   base_->Unref();  // 配对 PickMemtable 的 base_->Ref()（对齐 WriteLevel0Table）
   return s;
 }

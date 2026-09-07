@@ -146,6 +146,11 @@ struct ZfMaterializeCtx {
   // range 双融合输出：前序被后序注册挡落 L0（292 复查的正确防御但滞留，
   // smoke 实测 27 文件/170MB）。flush_job 创建，拷贝进各 job 共享。
   std::shared_ptr<std::unordered_set<uint32_t>> batch_planned_parts;
+  // M5P1b（多 flush 并行）：本批次的跨批互斥登记 token（0 = 不参与，
+  // 单 flush 串行/测试直构 ctx 场景）。ZfMaterializeJob 在 PlanLocked 内
+  // 用 ctx->AddMaterializePart(token, pid) 检查并登记产出分区；登记随
+  // 批次结束（ZfMaterializeAllEpochs 全部出口）统一释放。
+  uint64_t materialize_token = 0;
 };
 
 // 物化一个 epoch：M4.8 起由调用方（ZfMaterializeAllEpochs）按三阶段驱动，
@@ -178,6 +183,8 @@ class ZfMaterializeJob {
   ZfMaterializeJob& operator=(const ZfMaterializeJob&) = delete;
 
   uint64_t epoch() const { return epoch_; }
+  // M5P1b：本 epoch 计划是否为学习齐批（安装成功 = 学习窗口结束）。
+  bool is_gen0_ready_plan() const { return gen0_ready_plan_; }
 
   // 阶段 0（须持 DB mutex）：逐分区做融合归并触发判定（§7.2）并构造/
   // 注册 Compaction（§7.3）。决策写入 plans_；冲突（being_compacted/
@@ -327,6 +334,10 @@ class ZfMaterializeJob {
   // 片互斥直装）；CollectTasks 只收代表、ExecutePartition 非代表防御返回。
   // PlanLocked 设置。
   bool single_task_mode_ = false;
+  // M5P1b：本 epoch 是否为学习齐批（gen0_ready 且无跨批冲突）——齐批
+  // epoch 安装成功 = 学习窗口结束（FlushJob 据此清 ctx 的 gen0 闸）。
+  // PlanLocked 设置，FlushJob::Run 安装后读取。
+  bool gen0_ready_plan_ = false;
   // 阶段 0 决策结果（持锁写入，阶段 1/2 只读；Compaction 由 FinalizeLocked
   // 释放，worker 无锁期间仅经 compaction 指针做只读查询）。
   std::vector<PartitionPlan> plans_;

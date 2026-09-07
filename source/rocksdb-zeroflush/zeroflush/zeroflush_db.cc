@@ -505,7 +505,80 @@ uint64_t ZeroFlushContext::last_materialized_epoch() const {
 }
 
 void ZeroFlushContext::SetLastMaterializedEpoch(uint64_t e) {
-  last_materialized_epoch_.store(e, std::memory_order_release);
+  // M5P1b（多 flush 并行）：并发批推进不可回退——store 改 max 单调。
+  // 失败批的"回滚到 last_before"调用在并发推进后自动 no-op（last 只降
+  // 不升的反向操作被忽略）。数据侧安全：last 仅作批首 epoch 种子/按序
+  // 断言的辅助，物化/释放以 imm 生命周期为准（失败批 imm 保留在队列，
+  // 重试批次 first_epoch 放行不受 last 影响）。
+  uint64_t cur = last_materialized_epoch_.load(std::memory_order_relaxed);
+  while (e > cur &&
+         !last_materialized_epoch_.compare_exchange_weak(
+             cur, e, std::memory_order_release, std::memory_order_relaxed)) {
+  }
+}
+
+uint64_t ZeroFlushContext::BeginMaterializeBatch() {
+  std::lock_guard<std::mutex> l(mm_mu_);
+  uint64_t token = mm_token_next_++;
+  if (token == 0) {
+    // 自增溢出回绕（不可达）：跳 0（0 = 不参与标记），从 1 重新计数。
+    token = mm_token_next_ = 1;
+  }
+  mm_batch_parts_.emplace(token, std::unordered_set<uint32_t>());
+  return token;
+}
+
+bool ZeroFlushContext::AddMaterializePart(uint64_t token, uint32_t part_id) {
+  if (token == 0) {
+    return true;  // 不参与跨批互斥（单 flush 串行等场景）
+  }
+  std::lock_guard<std::mutex> l(mm_mu_);
+  auto it = mm_batch_parts_.find(token);
+  if (it == mm_batch_parts_.end()) {
+    // token 已 End（理论不可达——登记只在批活跃窗口内）：
+    // 放行（不登记），避免死锁式拒绝。
+    return true;
+  }
+  if (it->second.count(part_id) != 0) {
+    return true;  // 本批已登记（幂等）
+  }
+  if (mm_active_parts_.count(part_id) != 0) {
+    return false;  // 他批在产
+  }
+  it->second.insert(part_id);
+  mm_active_parts_.insert(part_id);
+  return true;
+}
+
+void ZeroFlushContext::EndMaterializeBatch(uint64_t token) {
+  if (token == 0) {
+    return;
+  }
+  std::lock_guard<std::mutex> l(mm_mu_);
+  auto it = mm_batch_parts_.find(token);
+  if (it == mm_batch_parts_.end()) {
+    return;
+  }
+  for (uint32_t pid : it->second) {
+    mm_active_parts_.erase(pid);
+  }
+  mm_batch_parts_.erase(it);
+}
+
+size_t ZeroFlushContext::ActiveMaterializeParts() const {
+  std::lock_guard<std::mutex> l(mm_mu_);
+  return mm_active_parts_.size();
+}
+
+// ---- M5P1b：sampled 学习窗口闸 ----
+bool ZeroFlushContext::gen0_gate() const {
+  return gen0_gate_.load(std::memory_order_relaxed);
+}
+void ZeroFlushContext::SetGen0Gate() {
+  gen0_gate_.store(true, std::memory_order_relaxed);
+}
+void ZeroFlushContext::ClearGen0Gate() {
+  gen0_gate_.store(false, std::memory_order_relaxed);
 }
 
 uint64_t ZeroFlushContext::install_direct_base() const {
@@ -1348,10 +1421,45 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   zf_opt.allow_concurrent_memtable_write = true;
   // pipelined_write 与 ZF 写路径不兼容（WriteGroup leader 串行）
   zf_opt.enable_pipelined_write = false;
-  // M3.2：物化按序前提（§6.2）——单后台 flush 线程。多 flush 线程并发时
-  // ZfMaterializeJob 的按序断言不成立（epoch 顺序与 last 推进竞态）。
-  zf_opt.max_background_flushes = 1;
-  // M4.6：max_background_flushes=1（非 -1）使 GetBGJobLimits 走"兼容
+  // M5P1b（多 flush 并行）：放宽 M3.2 的"单后台 flush 线程"串行约束。
+  // 多 flush 线程并发时批次在 imm 堆积间自发流水（每封存一批分区即一次
+  // imm → 可独立成批），物化吞吐不再被单批串行限制。正确性保障：
+  //  1) 跨批同分区互斥——每批计划期登记产出分区（ctx mm_* 登记表），
+  //     他批同分区 → kSkip 让位（数据转 recovery，批尾释放后下批收养），
+  //     单任务批（学习齐批/hash 全范围）整批登记、任一冲突整批让位；
+  //  2) last_materialized 推进 max 单调（并发批交错不回退；失败批回滚
+  //     在他批推进后自动 no-op——数据由 imm 重试保全，重试批 first_epoch
+  //     放行）；
+  //  3) 批内 epoch 序断言放宽为单调升序（空洞 = 中间 epoch 在并发批
+  //     手中，合法——同分区序由互斥保证）。
+  // kAlignL1/kHash 除外（维持单 flush 串行——base 语义）：
+  //  - kAlignL1：align 表每 epoch 按当前 L1 重建，分区 id 跨表不稳定
+  //    （同 id 范围漂移、异 id 范围互叠）——分区粒度登记无法防跨批重叠
+  //    （MemoryBudgetBackpressure 实测 L1 overlap 崩）；
+  //  - kHash：全范围单任务 epoch，跨批互斥会整批 skip → recovery 收养链
+  //    在并发窗口下放大数据滞留窗口（MultiEpoch 偶发率上升）。
+  // 两者均为兼容/测试模式，非 P1 稳态性能路径（kSampled/kStatic 分区
+  // 边界版本化后稳定 → 分区粒度互斥充分）。
+  //
+  // **kSampled/kStatic 的并行开启暂缓（M5P1b 实验结论）**：本会话完成
+  // 并验证了并行化的正确性地基——跨批分区互斥登记（Begin/Add/End
+  // MaterializeBatch）、last_materialized max 单调推进、批内 epoch 序
+  // 断言放宽（> prev）、批次登记延后到安装完成后释放（修 BulkLoad
+  // 双批替换竞态）、规划基版本刷新（修 pick→plan 窗口过期 base_）、
+  // 学习窗口闸（修 齐批 vs 稳态并发安装重叠）。但 sampled 学习期
+  // （gen0 齐批）与稳态批的并发在 Release 12GB 实测中暴露更深层问题：
+  // gen0 数据经 skip→recovery→收养 循环时与稳态批互相重触发（闸内
+  // 稳态批 skip 会把收养的 gen0 代重新移交 recovery → 下批再收养 →
+  // 部分齐批反复单任务物化 → 闸反复置/清振荡）。学习窗口需要的是
+  // flush 调度级排他（闸内稳态 imm 挂起等待而非 skip 移交），属独立
+  // 设计项（M5P1b-next：学习期 flush 排他调度），本版维持
+  // max_background_flushes=1（全部模式）——吞吐对比基线不变、零行为
+  // 回归；互斥登记机制在单 flush 下幂等无副作用，为下版直接复用。
+  const bool zf_parallel_flush = false;
+  // 4 路流水上限：flush worker 批内分区任务各自占用物化线程（8 并发/
+  // 批 × 4 批 = 32 ≤ 后台线程预算）。
+  zf_opt.max_background_flushes = zf_parallel_flush ? 4 : 1;
+  // M4.6：max_background_flushes（非 -1）使 GetBGJobLimits 走"兼容
   // 分支"（max_compactions = max(1, max_background_compactions)），而
   // max_background_compactions 默认 -1 → max(1,-1)=1 → L0 并行 job 被
   // 限制为 1（R41 实测 max_comp=1、num-running-compactions 恒 1——多
@@ -1359,8 +1467,9 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   // 显式配对：compactions = jobs - flushes（R27 验证 max_comp=23 后
   // 连续调度多个 BGWorkCompaction、并行生效）。
   if (zf_opt.max_background_compactions <= 0) {
-    zf_opt.max_background_compactions =
-        std::max(1, zf_opt.max_background_jobs - 1);
+    zf_opt.max_background_compactions = std::max(
+        1, static_cast<int>(zf_opt.max_background_jobs) -
+               zf_opt.max_background_flushes);
   }
   // M2.3-1：写流控。设计要求 `max_write_buffer_number = max_pending_epochs + 1`。
   // 原生默认 2 时：第一次封存后 imm=1（无 stall），第二次封存后 imm=2
