@@ -449,29 +449,18 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
       } else {
         o.level = PickInstallLevel(o.meta.smallest, o.meta.largest);
         if (o.level == 0) {
-          // 定层冲突（决策后 compaction 启动/批内互斥）。M5 §3.5 精准版：
-          // recovery（丢弃输出 + gens 移交）仅当安全——非 align（R59C
-          // 跨表）+ 非学习期（table_version>0——hash 表期跨表）+ kDirect
-          // 直装（A 侧数据 WAL 在——recovery 可重建；融合输出含 B 侧已
-          // 物化代——WAL 已 Purge——丢弃即丢，Concurrent 等用例实锤）。
-          // 其余场景回落 L0（数据安全；L0 允许重叠、原生消费或回收）。
+          // 定层冲突（决策后 compaction 启动/批内互斥/齐批切片撞已装
+          // L1 文件）。M5P1b 修正（2026-09-07，25/50GB 实测命中 33% 根因）：
+          // **一律回落 L0 安装，不再 recovery 移交**——§3.5 的"丢弃输出
+          // + gens 移交 recovery"在冲突高频（大规模下齐批/直装撞 L1 文件，
+          // 25GB 实测 4.4 转换/epoch）时形成收养循环：gen0 代反复移交 →
+          // 反复触发单任务齐批 → 切片再撞 L1 → 再移交 → 数据永不落地
+          // （recovery_count 归零 ≠ 数据已物化——循环到 close 后 LSM 仍
+          // 缺 ~50%）。L0 允许重叠、读优先、数据必达（0.9 语义，100GB
+          // 门 63.2% 验证过的路径）；L0 文件由后续物化的 L0 融合分支
+          // （M4.9 l0_overlap）吸收，不留 recovery 循环。
           ctx_->install_fallback_l0_.fetch_add(1, std::memory_order_relaxed);
-          const bool zf_safe_recovery =
-              ctx_->zfo_.routing_mode !=
-                  zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1 &&
-              se_.table_version > 0;
-          if (zf_safe_recovery) {
-            // 直装 A 侧冲突：丢弃输出 + gens 移交 recovery（下批收养
-            // 重物化——50GB sampled 稳态验证零丢失零 L0）。
-            orphan_files_.push_back(o.meta.fd.GetNumber());
-            for (const auto& g : se_.gens) {
-              if (g.first == o.part_id) {
-                skipped_gens_.emplace_back(g);
-              }
-            }
-            continue;  // 不安装、不入 batch_outputs_（recovery 移交）
-          }
-          // 不安全场景：回落 L0（o.level==0 保持——落入下方 push 安装）。
+          // o.level==0 保持——落入下方 push 安装（L0）。
         }
         ctx_->install_direct_base_.fetch_add(1, std::memory_order_relaxed);
       }
@@ -1950,16 +1939,16 @@ int ZfMaterializeJob::PickInstallLevel(
     if (vstorage->OverlapInLevel(l, &u_smallest, &u_largest)) {
       // M5 诊断：冲突对象（vstorage 已装文件 vs 批内 placed）。
       static uint64_t zf_pick_conflict = 0;
-      if (zf_pick_conflict++ < 64 && vstorage != nullptr) {
+      if (zf_pick_conflict++ < 400 && vstorage != nullptr) {
         for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(l)) {
           const ROCKSDB_NAMESPACE::Slice f_lo = f->smallest.user_key();
           const ROCKSDB_NAMESPACE::Slice f_hi = f->largest.user_key();
           if (ucmp->Compare(f_hi, u_smallest) >= 0 &&
               ucmp->Compare(f_lo, u_largest) <= 0) {
             fprintf(stderr,
-                    "ZFDBG-pick vsstorage lvl=%d new=[%s,%s] hit=file%llu "
-                    "[%s,%s]\n",
-                    l, u_smallest.ToString(true).c_str(),
+                    "ZFDBG-pick vsstorage base=%d lvl=%d new=[%s,%s] "
+                    "hit=file%llu [%s,%s]\n",
+                    base, l, u_smallest.ToString(true).c_str(),
                     u_largest.ToString(true).c_str(),
                     (unsigned long long)f->fd.GetNumber(),
                     f_lo.ToString(true).c_str(), f_hi.ToString(true).c_str());

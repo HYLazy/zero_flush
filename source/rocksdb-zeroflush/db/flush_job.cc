@@ -1239,20 +1239,6 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   assert(zf_ctx != nullptr);
   zf_batch_gen0_ = false;
 
-  // M5P1b（多 flush 并行）：规划基版本刷新——base_ 在 PickMemTable 时
-  // 取快照，而 pick → Run(阶段 0) 之间 NotifyOnFlushBegin 等会释放 DB
-  // mutex（监听器回调）；多 flush 下他批可能在此窗口完成安装。持过期
-  // base_ 规划 → 本批替换的是已被他批替换掉的旧文件（编辑删除空集 +
-  // 新增输出与他批输出重叠 → L1 overlap，Release 实测 #180/#173）。
-  // 阶段 0 持锁，重新取 current() 并 Ref（规划收集的 FileMetaData 指针
-  // 生命周期由该 Ref 覆盖 stage-1 全程）；旧 base_ Unref。
-  {
-    ROCKSDB_NAMESPACE::Version* cur = cfd_->current();
-    cur->Ref();
-    base_->Unref();
-    base_ = cur;
-  }
-
   // M5P1b（多 flush 并行）：学习窗串行槽。批内任一 epoch 含 gen0 代
   // （学习期数据，分区首次封存）→ 本批为学习批：与在飞学习批互斥
   // （至多一个在飞——学习批的切片输出依赖串行语义：各批按自身 gens
@@ -1286,6 +1272,21 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     db_mutex_->Unlock();
     zf_ctx->WaitGen0WindowClosed();
     db_mutex_->Lock();
+  }
+
+  // M5P1b（多 flush 并行）：规划基版本刷新——base_ 在 PickMemtable 时
+  // 取快照，而 pick → 此处之间 NotifyOnFlushBegin/学习窗等待会释放 DB
+  // mutex；多 flush 下他批可能在此窗口完成安装。持过期 base_ 规划 →
+  // 直装决策看不到已装 L1 文件 → finalize 冲突 → §3.5 recovery 转换 →
+  // 收养循环数据丢失（25GB 实测命中 33%）。**必须在学习窗等待之后**
+  // 刷新（等待的意义 = 让窗口内安装落地后再规划；提前刷新 = 过期）。
+  // 重新取 current() 并 Ref（规划收集的 FileMetaData 指针生命周期由该
+  // Ref 覆盖 stage-1 全程）；旧 base_ Unref。
+  {
+    ROCKSDB_NAMESPACE::Version* cur = cfd_->current();
+    cur->Ref();
+    base_->Unref();
+    base_ = cur;
   }
 
   const uint64_t start_micros = clock_->NowMicros();

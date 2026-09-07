@@ -129,62 +129,52 @@ P1 即含全部核心改动；后续（偏态 range 分裂/合并、边界校正
 
 ---
 
-# 附录 A：M5P1b 多 flush 并行设计（2026-09-06 定稿，已上线）
+# 附录 A：M5 并行 + 数据丢失修复实录（2026-09-06/07）
 
-## 目标
+## M5P1b 多 flush 并行（已上线）
 
-吞吐线最终瓶颈 = 物化流水串行（max_background_flushes=1：单 flush 批次
-串行，物化期间新封存 epoch 只能排队）。本设计放开多 flush 并发
-（kSampled/kStatic = 4 路；kAlignL1/kHash 维持串行——分区表跨 epoch 重建
-/全范围单任务语义与并发不兼容）。
+放宽 max_background_flushes=1 的物化串行约束（kSampled/kStatic = 4 路；
+kAlignL1/kHash 串行）。机制：
+1. 跨批分区互斥登记（ctx mm_*：Begin/Add/EndMaterializeBatch，DB mutex 内）；
+   单任务批（学习齐批/hash）**全分区**登记 + 批级占位全分区（do_slice 输出
+   可覆盖任意分区——登记只覆盖自身 gens 会让并发稳态批直装与切片重叠，
+   Release 实测 #197/#207）。
+2. 学习窗串行槽（g0_*：AcquireGen0Slot/WaitGen0WindowClosed/Release）——
+   含 gen0 代批次至多一个在飞（切片输出依赖串行语义），稳态批等学习窗
+   关闭才规划，学习批优先（waiters 计数防唤醒竞态；防 gen0 代 recovery
+   循环振荡）。
+3. last_materialized max 单调；批内 epoch 序断言放宽（> prev）。
+4. 批次登记延后到安装完成后释放（修 End→LogAndApply 窗口双批替换）。
+5. 规划基版本刷新（pick→Run 解锁窗口过期 base_）——**必须在学习窗等待
+   之后**（先刷新再等待 = 过期视图 → 直装撞已装文件 → 丢失链，25GB 实测）。
 
-## 机制（全部已落地，ab29fe9 + 本版）
+## 数据丢失根因（2026-09-07 验收实测定位，已修复）
 
-1. **跨批分区互斥登记**（ctx `mm_*`：BeginMaterializeBatch/AddMaterializePart/
-   EndMaterializeBatch + token 批集，DB mutex 内登记）：稳态批按产出分区
-   登记；他批同分区 → kSkip 让位（数据转 recovery，批尾释放后下批收养）。
-2. **单任务批全分区登记 + 批级占位全分区**：学习齐批 / hash 全范围的输出
-   （do_slice 切片 / 全范围单文件）可覆盖任意分区范围——登记只覆盖自身
-   gens 会让并发稳态批在未覆盖分区直装 → 与切片输出重叠（Release 实测
-   #197/#207 L1 重叠崩的根因）。任一分区被他批占用 → 整批 kSkip 让位。
-3. **学习窗串行槽**（ctx g0_*：AcquireGen0Slot / WaitGen0WindowClosed /
-   ReleaseGen0Slot）：含 gen0 代（分区首次封存，学习期 hash 数据）的批次
-   至多一个在飞（其切片输出依赖串行语义：各批按自身 gens 分区产出、互不
-   重叠、L1 为空前提——并发实测振荡/重叠崩）；稳态批在学习窗关闭后规划
-   （学习批优先：g0_waiters_ 计数防「稳态批先规划占分区 → 学习批冲突让位
-   → gen0 代进 recovery 循环振荡」）。批内 epoch 的 gen0 检测在入口扫描
-   封存登记（mems 已出 imm 队列，安全）；等待期间释放 DB mutex。
-4. **last_materialized max 单调**（store → CAS max）：并发批交错推进不回退；
-   失败批回滚在推进被超越时自动 no-op（数据安全以 imm 生命周期为准）。
-5. **批内 epoch 序断言放宽**（`== prev+1` → `> prev`）：批内空洞合法
-   （中间 epoch 在并发在飞批次手中——失败回滚 imm 重入队头 + 他批取中间段）。
-6. **批次登记延后释放**：成功路径 End 从 ZfMaterializeAllEpochs 尾部挪到
-   FlushJob::Run 安装完成后（修 BulkLoadZeroL0 实测：End→LogAndApply 之间
-   DB mutex 释放做 manifest IO，他批在「释放 → 版本更新完成」窗口内用
-   过期 base_ 规划 → 双批替换同一批 base 文件 → L1 重叠）。
-7. **规划基版本刷新**：阶段 0 入口把 base_（PickMemtable 快照）刷新为
-   current()（pick→Run 之间 NotifyOnFlushBegin 等释放 DB mutex，他批可在
-   此窗口完成安装——过期 base_ 规划产生与已装文件重叠的输出，#180/#173
-   实测）。
+规模扫描（1KB/16 线程/sampled/16 分区）：10GB 命中 61.4% ✓；25GB 32.7% ✗
+（install_fallback_l0 4.4/epoch）；50GB 32.8% ✗（4.0/epoch，1999 转换）。
+manifest/ldb/分区探测联合定位：
 
-## 实测验证（Release，多轮）
+**§3.5 定层冲突 recovery 移交在冲突高频下形成 gen0 收养循环**：直装/齐批
+切片输出在 finalize 撞已装 L1 文件（同 range）→ 输出丢弃 + gens（含收养
+的 gen0 对）移交 recovery → 下批封存全量收养 → gen0-ready → 单任务齐批
+→ 切片再撞 L1 → 再移交……数据永不落地（recovery_count 归零 ≠ 已物化，
+循环持续到 close）。10GB 冲突低频（0.8/epoch）时 recovery 重物化正常。
 
-- zf_test 全量 38/38 × 3 轮全绿（kSampled/kStatic 并行开启；MultiEpoch
-  为 base 既有 hash 路由偶发，kHash 维持串行不受影响）。
-- Release 19GB fillrandom（1.2M-num×16 线程）：105-112K ops/s，RC=0，
-  零 Corruption/overlap（与串行基线持平——该配置写路径 WAL 组提交为瓶颈，
-  物化流水并行度未被用满；并行收益在物化受限配置下体现）。
-- Release 600K-num × 3：150-220K ops/s，零 corruption；cross 冲突计数
-  证实稳态批真实并发（冲突让位 → recovery → 下批收养合并收敛）。
-- 修复过程实测的竞态均已在上述机制闭环：MemoryBudgetBackpressure L1
-  overlap（align 表跨批——kAlignL1 维持串行）、BulkLoadZeroL0 双批替换、
-  #180/#173 过期规划、#197/#207 切片覆盖洞、学习窗 81 次振荡、槽释放
-  标志被后置初始化清零死锁（zf_batch_gen0_ 初始化须在入口协议之前）。
+**修复**：定层冲突一律回落 L0 安装（L0 允许重叠、读优先、数据必达——0.9
+语义，100GB 门验证过的路径；L0 文件由后续物化 l0_overlap 融合吸收）。
+修复后：25GB 命中 63.16%、转换 1086→90；50GB 命中 63.26%（316,320/500K）、
+转换 1999→48、L0 终态 3 文件 0.02GB。base_level 漂移假设被 base=1 证据
+证伪（非根因）。
 
-## 后续可选项
+## 50GB 验收（修复后，同窗 native 对照）
 
-- 学习批的串行语义与稳态批等待会短暂压低学习窗吞吐（~4 epoch 的窗口，
-  约数秒；写停水位 max_pending_epochs 兜底）——如需极致可做学习期
-  flush 调度级直通（批内学习 epoch 全量读取单任务化）。
-- MultiEpoch（kHash）偶发红为 base 既有问题（hash 路由 1/3），与本设计
-  无关，单列跟踪。
+- ZF fillrandom 15,452 ops/s vs native 20,752（0.74×）；readrandom 命中
+  63.26% ≈ 63.2% 期望（零丢失 ✓）；L0=3 文件终态；zf_test 38/38。
+- 吞吐目标 27.1K 来自旧配置时代；当前同窗 native 基准 20.75K。差距
+  （0.74×）来源：物化占墙钟 73%、L1 文件数 152（设计 16/range 单文件）
+  ——下一步优化方向（L1 结构回归 + 物化/下沉重叠）。
+
+## 待办
+
+- L1 152 文件 vs 16 的设计偏差归因（下沉节奏/合并切分）。
+- MultiEpoch（kHash）base 既有偶发。
