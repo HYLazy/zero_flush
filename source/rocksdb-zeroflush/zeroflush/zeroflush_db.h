@@ -58,7 +58,13 @@ struct ZeroFlushOptions {
   // 默认 256MB，与 M1 Open() 中强制放大的 write_buffer_size 对齐。
   uint64_t epoch_target_bytes = 256u << 20;
   // 副触发：单分区活跃字节上限（防分区倾斜时主条件迟迟不满足）。
-  uint64_t max_pending_epochs = 2;     // 未物化 epoch 上限（用于流控）
+  // M5P1b（2026-09-07 剖析结论）：未物化 epoch 上限（写停水位）。默认
+  // 2 会饿死多 flush 流水线——写停在 2 个 pending epoch，imm 永远攒不起
+  // backlog，4 路 flush 有效并行度 ~1.1×（实测 25GB：任务时间总和 ≈ 墙钟、
+  // 全体线程 95% futex 等待；水位 8 后 stall=0、早期吞吐 +55%）。抬到 8
+  // （= 2× 并行 flush 数 + 余量）：允许流水线积压后并发排空；内存代价 =
+  // 至多 8 个未物化 epoch 的封存 WAL/索引（~1-2GB，index_mem_budget 兜底）。
+  uint64_t max_pending_epochs = 8;
   uint32_t max_open_sealed_files = 256;  // SealedFileCache LRU 容量
   bool reclaim_sealed_files = true;     // false=只封存不删（调试/取证用）
   // 是否在 zeroflush::Open() 中写/校验 ZFPROPS 元数据文件（保护 partitions
@@ -433,6 +439,17 @@ class ZeroFlushContext {
   uint64_t mm_token_next_ = 1;
   std::unordered_map<uint64_t, std::unordered_set<uint32_t>> mm_batch_parts_;
   std::unordered_set<uint32_t> mm_active_parts_;
+  // ---- 物化分相剖析（2026-09-07 吞吐归因）----
+  // 每分区任务的阶段耗时/字节累积：scan = A 侧封存 WAL 顺序读；
+  // build = 直装/切片建表（含排序）；merge = 融合路径 B 侧迭代器 +
+  // CompactionIterator + 输出建表（含排序）。output_bytes = 建表输出。
+  std::atomic<uint64_t> prof_scan_us_{0};
+  std::atomic<uint64_t> prof_scan_bytes_{0};
+  std::atomic<uint64_t> prof_build_us_{0};
+  std::atomic<uint64_t> prof_merge_us_{0};
+  std::atomic<uint64_t> prof_output_bytes_{0};
+  std::atomic<uint64_t> prof_tasks_{0};
+
   // M5P1b：学习窗 gen0 批串行槽（g0_* 保护；Acquire 等待时释放 DB mutex，
   // 锁序 DB mutex → g0_mu_ 恒单向）。
   //  g0_running_：在飞学习批数（0/1——学习批互斥执行）；

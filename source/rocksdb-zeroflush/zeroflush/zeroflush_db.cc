@@ -422,6 +422,18 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(skip_count());
   } else if (prop == "rocksdb.zeroflush.sink_requests") {
     *value = std::to_string(sink_request_count());
+  } else if (prop == "rocksdb.zeroflush.prof_scan_us") {
+    *value = std::to_string(prof_scan_us_.load(std::memory_order_relaxed));
+  } else if (prop == "rocksdb.zeroflush.prof_scan_bytes") {
+    *value = std::to_string(prof_scan_bytes_.load(std::memory_order_relaxed));
+  } else if (prop == "rocksdb.zeroflush.prof_build_us") {
+    *value = std::to_string(prof_build_us_.load(std::memory_order_relaxed));
+  } else if (prop == "rocksdb.zeroflush.prof_merge_us") {
+    *value = std::to_string(prof_merge_us_.load(std::memory_order_relaxed));
+  } else if (prop == "rocksdb.zeroflush.prof_output_bytes") {
+    *value = std::to_string(prof_output_bytes_.load(std::memory_order_relaxed));
+  } else if (prop == "rocksdb.zeroflush.prof_tasks") {
+    *value = std::to_string(prof_tasks_.load(std::memory_order_relaxed));
   } else {
     return false;
   }
@@ -1491,17 +1503,29 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
                zf_opt.max_background_flushes);
   }
   // M2.3-1：写流控。设计要求 `max_write_buffer_number = max_pending_epochs + 1`。
+  // M5P1b（2026-09-07）：有效水位——并行模式（kSampled/kStatic）用完整
+  // 水位（默认 8 = 2× 并行 flush 数 + 余量：允许 imm 积压后 4 路并发
+  // 排空——水位 2 会把流水线饿死，实测有效并行度 ~1.1×）；串行模式
+  // （kAlignL1/kHash——多 flush 不启用）钳制回 2：align 的逐 epoch L1
+  // 重对齐依赖低水位节拍（深 backlog 攒批处理 → align 回落 L0 失控，
+  // SteadyStateControlledL0 实测 L0 93-99 vs ≤64）。
   // 原生默认 2 时：第一次封存后 imm=1（无 stall），第二次封存后 imm=2
   // 触发 kStopped → Recalc 创建 StopWriteToken → 第三次写进入 DelayWrite
   // 在 bg_cv 上等待。但 StopWriteToken 仅在 InstallSuperVersion 触发的
   // Recalc 中释放，InstallSuperVersion 只能由写路径触发，写路径又被
   // DelayWrite 卡住，形成不可解死锁。
-  // 抬高到 max_pending_epochs+1：让 imm 计数到 max_pending_epochs 才触发
-  // stall，BG flush 完成时 imm 下降，InstallSuperVersion 释放 token。
+  // 抬高到 max_write_buffer_number = 有效水位 + 1：让 imm 计数到水位才
+  // 触发 stall，BG flush 完成时 imm 下降，InstallSuperVersion 释放 token。
+  uint64_t zf_pending_epochs = zfo.max_pending_epochs;
+  if (zfo.routing_mode ==
+          zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1 ||
+      zfo.routing_mode == zeroflush::ZeroFlushOptions::RoutingMode::kHash) {
+    zf_pending_epochs = std::min<uint64_t>(zf_pending_epochs, 2);
+  }
   if (zf_opt.max_write_buffer_number <
-      static_cast<int>(zfo.max_pending_epochs) + 1) {
+      static_cast<int>(zf_pending_epochs) + 1) {
     zf_opt.max_write_buffer_number =
-        static_cast<int>(zfo.max_pending_epochs) + 1;
+        static_cast<int>(zf_pending_epochs) + 1;
   }
 
   // ---- M5（zeroflush0.98）§3.6：原生介入禁用 ----
