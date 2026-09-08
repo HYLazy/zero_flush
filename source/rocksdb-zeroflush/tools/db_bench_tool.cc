@@ -4226,7 +4226,13 @@ class Benchmark {
           "install_fallback_l0",
           "base_merge_count",
           "base_merge_rewritten_bytes",
-          "skip_count"};
+          "skip_count",
+          "prof_scan_us",
+          "prof_scan_bytes",
+          "prof_build_us",
+          "prof_merge_us",
+          "prof_output_bytes",
+          "prof_tasks"};
       fprintf(stdout, "ZEROFLUSH PROPERTIES:\n");
       for (const char* p : zf_props) {
         std::string v;

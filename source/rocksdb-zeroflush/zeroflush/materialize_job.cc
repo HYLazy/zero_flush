@@ -1299,10 +1299,13 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
     uint32_t part_id, const std::vector<std::pair<uint32_t, uint32_t>>& gens,
     const ROCKSDB_NAMESPACE::Slice& lo, const ROCKSDB_NAMESPACE::Slice& hi) {
   assert(!gens.empty());
+  ctx_->prof_tasks_.fetch_add(1, std::memory_order_relaxed);
 
   // 顺序整读该分区全部代（按 gen 升序 = 写入序）。
+  const uint64_t prof_t0 = mc_.db_options->clock->NowMicros();
   std::vector<std::string> keys;
   std::vector<std::string> values;
+  uint64_t prof_ab = 0;
   for (const auto& [p, gen] : gens) {
     WalScanner scanner(mc_.db_options->env, ctx_->wal_dir(), p, gen,
                        mc_.db_options->info_log.get());
@@ -1311,6 +1314,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
     while (scanner.Next(&h, &key, &value)) {
       keys.push_back(MakeInternalKey(key, h.seq, h.type));
       values.emplace_back(value.data(), value.size());
+      prof_ab += key.size() + value.size();
     }
     // M3.2：物化严格要求已封存文件完整（区别于恢复路径的宽容语义）。
     if (!scanner.status().ok()) {
@@ -1321,10 +1325,15 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
   if (keys.empty()) {
     return ROCKSDB_NAMESPACE::Status::OK();  // 空分区不产出 SST
   }
+  const uint64_t prof_scan_end = mc_.db_options->clock->NowMicros();
+  ctx_->prof_scan_us_.fetch_add(prof_scan_end - prof_t0,
+                                std::memory_order_relaxed);
+  ctx_->prof_scan_bytes_.fetch_add(prof_ab, std::memory_order_relaxed);
 
   // 排序（M4.6e：Bytewise 时编码排序键 + memcmp 索引排序——InternalKey
   // Comparator 的逐次解析是物化排序大头；非 Bytewise 走原 VectorIterator
   // 排序）。
+  const uint64_t prof_b0 = mc_.db_options->clock->NowMicros();
   const uint64_t sort_start = mc_.db_options->clock->NowMicros();
   std::string sort_buf;
   std::vector<size_t> sort_off;
@@ -1445,6 +1454,8 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
     if (meta.fd.GetFileSize() == 0) {
       return ROCKSDB_NAMESPACE::Status::OK();  // 空表：BuildTable 已删除文件
     }
+    ctx_->prof_output_bytes_.fetch_add(meta.fd.GetFileSize(),
+                                       std::memory_order_relaxed);
     {
       rocksdb::MutexLock l(&out_mu_);
       MaterializeOutput out;
@@ -1485,6 +1496,9 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
                 sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
         ROCKSDB_NAMESPACE::Status ss = build_one(std::move(vit));
         if (!ss.ok()) {
+          ctx_->prof_build_us_.fetch_add(
+              mc_.db_options->clock->NowMicros() - prof_b0,
+              std::memory_order_relaxed);
           return ss;
         }
         begin = end;
@@ -1500,9 +1514,14 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
               sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
       ROCKSDB_NAMESPACE::Status ss = build_one(std::move(vit));
       if (!ss.ok()) {
+        ctx_->prof_build_us_.fetch_add(
+            mc_.db_options->clock->NowMicros() - prof_b0,
+            std::memory_order_relaxed);
         return ss;
       }
     }
+    ctx_->prof_build_us_.fetch_add(mc_.db_options->clock->NowMicros() - prof_b0,
+                                   std::memory_order_relaxed);
     return ROCKSDB_NAMESPACE::Status::OK();
   }
 
@@ -1513,7 +1532,20 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
           sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
   iter->SeekToFirst();
   assert(iter->Valid());
-  return build_one(std::move(iter));
+  ROCKSDB_NAMESPACE::Status bs3 = build_one(std::move(iter));
+  const uint64_t prof_end = mc_.db_options->clock->NowMicros();
+  ctx_->prof_build_us_.fetch_add(prof_end - prof_b0,
+                                 std::memory_order_relaxed);
+  if (prof_end - prof_t0 > 2000000) {
+    fprintf(stderr,
+            "ZFDBG-slowtask pid=%u gens=%zu scan_ms=%llu build_ms=%llu "
+            "ab_mb=%llu\n",
+            part_id, gens.size(),
+            (unsigned long long)((prof_scan_end - prof_t0) / 1000),
+            (unsigned long long)((prof_end - prof_scan_end) / 1000),
+            (unsigned long long)(prof_ab / 1000000));
+  }
+  return bs3;
 }
 
 ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
@@ -1526,11 +1558,14 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   assert(!overlap_all.empty() || !l0_overlap.empty());
   assert(compaction != nullptr);
   const ROCKSDB_NAMESPACE::MutableCFOptions& mcf = *mc_.mutable_cf_options;
+  ctx_->prof_tasks_.fetch_add(1, std::memory_order_relaxed);
 
   // ---- A 侧：顺序整读 + 排序（同 MaterializePartition；记录最小 seq）----
+  const uint64_t prof_t0 = mc_.db_options->clock->NowMicros();
   std::vector<std::string> keys;
   std::vector<std::string> values;
   uint64_t min_seq = ROCKSDB_NAMESPACE::kMaxSequenceNumber;
+  uint64_t prof_ab = 0;
   for (const auto& [p, gen] : gens) {
     WalScanner scanner(mc_.db_options->env, ctx_->wal_dir(), p, gen,
                        mc_.db_options->info_log.get());
@@ -1539,6 +1574,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
     while (scanner.Next(&h, &key, &value)) {
       keys.push_back(MakeInternalKey(key, h.seq, h.type));
       values.emplace_back(value.data(), value.size());
+      prof_ab += key.size() + value.size();
       if (h.seq < min_seq) {
         min_seq = h.seq;
       }
@@ -1551,6 +1587,10 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   if (keys.empty()) {
     return ROCKSDB_NAMESPACE::Status::OK();  // 空分区不产出 SST
   }
+  const uint64_t prof_scan_end = mc_.db_options->clock->NowMicros();
+  ctx_->prof_scan_us_.fetch_add(prof_scan_end - prof_t0,
+                                std::memory_order_relaxed);
+  ctx_->prof_scan_bytes_.fetch_add(prof_ab, std::memory_order_relaxed);
 
   // M4.6e：同 MaterializePartition——Bytewise 时编码排序键 + memcmp 重排。
   const uint64_t sort_start = mc_.db_options->clock->NowMicros();
@@ -1621,6 +1661,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   }
 
   // ---- B 侧：overlap_all（existing + 批内前序输出）TableIterator 串接 ----
+  const uint64_t prof_m0 = mc_.db_options->clock->NowMicros();
   ROCKSDB_NAMESPACE::ReadOptions read_options(
       ROCKSDB_NAMESPACE::Env::IOActivity::kCompaction);
   read_options.rate_limiter_priority = mc_.io_priority;
@@ -1889,6 +1930,22 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
     s = c_iter.status();
   }
   s = finish_cur(s);
+  const uint64_t prof_end = mc_.db_options->clock->NowMicros();
+  ctx_->prof_merge_us_.fetch_add(prof_end - prof_m0,
+                                 std::memory_order_relaxed);
+  if (prof_end - prof_t0 > 2000000) {
+    fprintf(stderr,
+            "ZFDBG-slowmerge pid=%u gens=%zu bfiles=%zu scan_ms=%llu "
+            "merge_ms=%llu ab_mb=%llu\n",
+            part_id, gens.size(), overlap_all.size() + l0_overlap.size(),
+            (unsigned long long)((prof_scan_end - prof_t0) / 1000),
+            (unsigned long long)((prof_end - prof_m0) / 1000),
+            (unsigned long long)(prof_ab / 1000000));
+  }
+  for (const ROCKSDB_NAMESPACE::FileMetaData& m : outs) {
+    ctx_->prof_output_bytes_.fetch_add(m.fd.GetFileSize(),
+                                       std::memory_order_relaxed);
+  }
 
   if (!s.ok()) {
     // 清理已产出文件（尚未进入 outputs_）。

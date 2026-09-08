@@ -1407,6 +1407,7 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   db_mutex_->Unlock();
 
   // ---- 阶段 1（无锁）：全局分区任务池并行物化 ----
+  const uint64_t stage1_t0 = clock_->NowMicros();
   std::vector<zeroflush::MaterializeTask> tasks;
   for (auto& job : jobs) {
     job->CollectTasks(&tasks);
@@ -1446,6 +1447,11 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   }
 
   // ---- 阶段 2（持锁）：逐 job 定层 / 释放注册 / 推进 last ----
+  fprintf(stderr,
+          "ZFDBG-batch [JOB %d] stage1_us=%llu epochs=%zu tasks=%zu\n",
+          job_context_->job_id,
+          (unsigned long long)(clock_->NowMicros() - stage1_t0), mems_.size(),
+          tasks.size());
   db_mutex_->Lock();
   for (auto& job : jobs) {
     s = job->FinalizeLocked();

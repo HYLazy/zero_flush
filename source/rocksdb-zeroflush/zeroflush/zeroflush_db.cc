@@ -702,16 +702,19 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
     ROCKSDB_NAMESPACE::MemTablePostProcessInfo* ppi,
     uint32_t table_version) {
   // 1) 路由 + 分区 WAL 追加（value 的唯一持久副本）
+  const uint64_t wg_t0 = env_->NowMicros();
   const uint32_t part =
       (type == ROCKSDB_NAMESPACE::kTypeRangeDeletion)
           ? kRangeDelPartId
           : RouteWithVersion(key, table_version);
+  const uint64_t wg_t1 = env_->NowMicros();
   WalRecordRef ref;
   ROCKSDB_NAMESPACE::Status s =
       wal_->Append(part, key, value, static_cast<uint8_t>(type), seq, &ref);
   if (!s.ok()) {
     return s;
   }
+  const uint64_t wg_t2 = env_->NowMicros();
   // 2) 索引插入
   SlimLocator loc;
   loc.part_id = ref.part_id;
@@ -735,6 +738,18 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
                    seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(type)));
   const rocksdb::Slice ik(ik_buf);
   index_set_->Insert(part, ref.gen, ik, loc_slice);
+  const uint64_t wg_t3 = env_->NowMicros();
+  if (wg_t3 - wg_t0 > 200) {
+    static uint64_t zf_wg_dbg = 0;
+    if (zf_wg_dbg++ < 64) {
+      fprintf(stderr,
+              "ZFDBG-slowop route_us=%llu wal_us=%llu ins_us=%llu part=%u "
+              "gen=%u\n",
+              (unsigned long long)(wg_t1 - wg_t0),
+              (unsigned long long)(wg_t2 - wg_t1),
+              (unsigned long long)(wg_t3 - wg_t2), part, ref.gen);
+    }
+  }
   // M3.1：kSampled 模式下记录采样（仅 epoch 1 学习期）。
   if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
       sampler_ && epoch_counter_.load() == 0) {
