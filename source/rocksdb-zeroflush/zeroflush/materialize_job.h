@@ -30,6 +30,8 @@
 #include "db/version_edit.h"
 #include "zeroflush/partition_table.h"
 #include "zeroflush/sealed_file_cache.h"
+// ZeroFlushV0 P0：S5 压缩契约（仅编译验证 + 注释映射，未接线——零行为改动）。
+#include "zeroflush/zf_request.h"
 
 namespace ROCKSDB_NAMESPACE {
 class BlobFileCompletionCallback;
