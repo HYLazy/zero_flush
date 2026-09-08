@@ -674,12 +674,29 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   }
   // 齐批（gen0-ready 单任务）的批级占位覆盖全分区：同批后序 epoch（稳态/
   // hash）全部让位——齐批切片输出覆盖全分区，后序直装/融合必与其重叠。
-  // （齐批自身经 gen0 分支占位，不受本批级占位影响；同批多学习 epoch 的
-  // 输出按各自 gens 分区互斥——串行语义实证，齐批间不需要互斥。）
+  // M5P1b（OOB 竞态修复，2026-09-07）：**批内第二个齐批 epoch 让位**——
+  // 学习窗内 imm 堆积时多个 gen0-ready epoch 可同批（实测 epochs=3 批）；
+  // 第二个齐批经 gen0 分支绕过 batch_planned 检查 → 与前序齐批同分区双份
+  // 切片 → 同 B 侧双份融合输出落 L1 → VersionBuilder 重叠崩（8GB 32KB
+  // 阈值复现）。规则：本 epoch 的任一分区已被批级占位（前序齐批覆盖）→
+  // 整批让位（数据留 frozen+WAL，下批安装后按常规路径收养落地）。首个
+  // 齐批的占位插入在检查之后。
+  bool zf_qibatch_dup = false;
   if (gen0_ready && mc_.batch_planned_parts != nullptr) {
-    for (uint32_t pp = 0; pp < ctx_->zfo_.partitions; ++pp) {
-      mc_.batch_planned_parts->insert(pp);
+    for (uint32_t pp : part_ids_) {
+      if (mc_.batch_planned_parts->count(pp) != 0) {
+        zf_qibatch_dup = true;
+        break;
+      }
     }
+    if (!zf_qibatch_dup) {
+      for (uint32_t pp = 0; pp < ctx_->zfo_.partitions; ++pp) {
+        mc_.batch_planned_parts->insert(pp);
+      }
+    }
+  }
+  if (zf_qibatch_dup) {
+    single_task_conflict = true;  // 复用冲突让位路径（整批 kSkip）
   }
   for (uint32_t pid : part_ids_) {
     PartitionPlan plan;
