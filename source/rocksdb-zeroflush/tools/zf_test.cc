@@ -4126,6 +4126,142 @@ void TestMergeActiveTailEndToEnd() {
   ReportResult(tag, true, "absorb=0 drain->retired");
 }
 
+
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 P1b/M1b：F1 门 + merge_into_base_level=true 下的 quiescent 合并。
+//  覆盖：活跃尾合并（merge=true）被门拒绝（F1 未接线）；排空后合并成功；
+//  post-merge 写（含吸收方/邻居分区，验证 id/下标映射）→ 物化 → 重开一致。
+// ---------------------------------------------------------------------------
+void TestMergeF1GateAndMergeEnabled() {
+  const char* tag = "MergeF1GateAndMergeEnabled(ZeroFlushV0-P1b)";
+  std::string dbname = std::string(kDbBase) + "mergef1gate";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+  zfo.static_boundaries = {"c", "g", "m"};
+  zfo.partition_target_bytes = 4 * 1024;
+  zfo.epoch_target_bytes = 4 * 1024;
+  zfo.materialize_parallelism = 1;
+  zfo.merge_into_base_level = true;  // 触发 kMergeBase 路径
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  auto fail = [&](const std::string& why) {
+    ReportResult(tag, false, why);
+    CleanDB(dbname);
+  };
+  char k[16], v[224];
+  auto put = [&](const char* prefix, int id) -> bool {
+    snprintf(k, sizeof(k), "%s%04d", prefix, id);
+    ::memset(v, 'x', 200);
+    snprintf(v, sizeof(v), "v%s%04d", prefix, id);
+    return db->Put(rocksdb::WriteOptions(), k, v).ok();
+  };
+  auto get_eq = [&](const char* prefix, int id, const char* expect) -> bool {
+    snprintf(k, sizeof(k), "%s%04d", prefix, id);
+    std::string out;
+    if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() || out != expect) {
+      fprintf(stderr, "[dbg] get(%s%04d) mismatch\n", prefix, id);
+      return false;
+    }
+    return true;
+  };
+
+  // 种子：四分区各 40 键（触发封存/物化）。
+  for (int i = 0; i < 40; ++i) {
+    if (!put("b", i) || !put("d", i) || !put("h", i) || !put("n", i)) {
+      fail("put@seed");
+      return;
+    }
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    fail("WaitAllMaterialized(seed) timeout");
+    return;
+  }
+  // 活跃尾（part1, < 4KB 阈值保持未封存）。
+  for (int i = 300; i < 306; ++i) {
+    if (!put("d", i)) {
+      fail("put@tail");
+      return;
+    }
+  }
+  // F1 门：merge=true + 活跃尾 → Busy（不得放行）。
+  uint32_t absorb = 999;
+  s = zeroflush::MergePartition(db.get(), 1, &absorb);
+  if (s.ok()) {
+    fail("active-tail merge under merge_into_base_level=true must be gated");
+    return;
+  }
+  // 排空活跃尾（追加写入触发封存）→ quiescent 合并应成功。
+  for (int i = 0; i < 40; ++i) {
+    if (!put("b", 100 + i) || !put("h", 100 + i) || !put("n", 100 + i)) {
+      fail("put@drain");
+      return;
+    }
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    fail("WaitAllMaterialized(drain) timeout");
+    return;
+  }
+  absorb = 999;
+  s = zeroflush::MergePartition(db.get(), 1, &absorb);
+  if (!s.ok() || absorb != 0) {
+    fprintf(stderr, "[dbg] merge: %s\n", s.ToString().c_str());
+    fail("quiescent merge under merge=true failed");
+    return;
+  }
+  // post-merge：覆写 d 区间 key + 写邻居分区（h/n → 稀疏 id 映射路径）。
+  snprintf(k, sizeof(k), "d%04d", 300);
+  snprintf(v, sizeof(v), "vnew0300");
+  if (!db->Put(rocksdb::WriteOptions(), k, v).ok()) {
+    fail("put overwrite");
+    return;
+  }
+  for (int i = 500; i < 540; ++i) {
+    if (!put("b", i) || !put("h", i) || !put("n", i)) {
+      fail("put@post-merge");
+      return;
+    }
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    fail("WaitAllMaterialized(post-merge) timeout");
+    return;
+  }
+  if (!get_eq("d", 300, "vnew0300") || !get_eq("d", 5, "vd0005") ||
+      !get_eq("h", 500, "vh0500") || !get_eq("n", 500, "vn0500") ||
+      !get_eq("b", 500, "vb0500")) {
+    fail("read after post-merge materialize");
+    return;
+  }
+  // 重开一致。
+  const int64_t cnt_before = CountViaIterator(db.get());
+  db.reset();
+  s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    fail("reopen: " + s.ToString());
+    return;
+  }
+  if (CountViaIterator(db.get()) != cnt_before) {
+    fail("iter count mismatch after reopen");
+    return;
+  }
+  if (!get_eq("d", 300, "vnew0300") || !get_eq("h", 500, "vh0500") ||
+      !get_eq("n", 500, "vn0500")) {
+    fail("spot read after reopen");
+    return;
+  }
+  db.reset();
+  CleanDB(dbname);
+  ReportResult(tag, true, "gate+quiescent-merge(merge=true)");
+}
+
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -4208,6 +4344,7 @@ int main(int argc, char** argv) {
   run("MergePartitionTableDerive",      TestMergePartitionTableDerive);
   run("MergeColdPartitionEndToEnd",     TestMergeColdPartitionEndToEnd);
   run("MergeActiveTailEndToEnd",        TestMergeActiveTailEndToEnd);
+  run("MergeF1GateAndMergeEnabled",   TestMergeF1GateAndMergeEnabled);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {
