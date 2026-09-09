@@ -4128,13 +4128,13 @@ void TestMergeActiveTailEndToEnd() {
 
 
 // ---------------------------------------------------------------------------
-// ZeroFlushV0 P1b/M1b：F1 门 + merge_into_base_level=true 下的 quiescent 合并。
-//  覆盖：活跃尾合并（merge=true）被门拒绝（F1 未接线）；排空后合并成功；
-//  post-merge 写（含吸收方/邻居分区，验证 id/下标映射）→ 物化 → 重开一致。
+// ZeroFlushV0 P1b/M1b：活跃尾 merge（merge_into_base_level=true）e2e。
+//  F1（PlanLocked DRAINING 分区强制物化）接线后，merge=true + 活跃尾放行；
+//  覆盖排空窗口读（别名）/覆写序/E_D 孤儿直装与吸收方物化/retire/重开。
 // ---------------------------------------------------------------------------
-void TestMergeF1GateAndMergeEnabled() {
-  const char* tag = "MergeF1GateAndMergeEnabled(ZeroFlushV0-P1b)";
-  std::string dbname = std::string(kDbBase) + "mergef1gate";
+void TestMergeActiveTailMergeEnabled() {
+  const char* tag = "MergeActiveTailMergeEnabled(ZeroFlushV0-P1b)";
+  std::string dbname = std::string(kDbBase) + "mergeactivetail_m";
   CleanDB(dbname);
 
   zeroflush::ZeroFlushOptions zfo;
@@ -4144,7 +4144,7 @@ void TestMergeF1GateAndMergeEnabled() {
   zfo.partition_target_bytes = 4 * 1024;
   zfo.epoch_target_bytes = 4 * 1024;
   zfo.materialize_parallelism = 1;
-  zfo.merge_into_base_level = true;  // 触发 kMergeBase 路径
+  zfo.merge_into_base_level = true;
 
   std::unique_ptr<rocksdb::DB> db;
   auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
@@ -4167,13 +4167,14 @@ void TestMergeF1GateAndMergeEnabled() {
     snprintf(k, sizeof(k), "%s%04d", prefix, id);
     std::string out;
     if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() || out != expect) {
-      fprintf(stderr, "[dbg] get(%s%04d) mismatch\n", prefix, id);
+      fprintf(stderr, "[dbg] get(%s%04d) mismatch: got=%.60s\n", prefix, id,
+              out.c_str());
       return false;
     }
     return true;
   };
 
-  // 种子：四分区各 40 键（触发封存/物化）。
+  // 种子四分区（触发封存/物化）。
   for (int i = 0; i < 40; ++i) {
     if (!put("b", i) || !put("d", i) || !put("h", i) || !put("n", i)) {
       fail("put@seed");
@@ -4184,59 +4185,68 @@ void TestMergeF1GateAndMergeEnabled() {
     fail("WaitAllMaterialized(seed) timeout");
     return;
   }
-  // 活跃尾（part1, < 4KB 阈值保持未封存）。
+  // 活跃尾（part1, <4KB 阈值未封存）。
   for (int i = 300; i < 306; ++i) {
     if (!put("d", i)) {
       fail("put@tail");
       return;
     }
   }
-  // F1 门：merge=true + 活跃尾 → Busy（不得放行）。
+  // 活跃尾 merge（merge=true，F1 接线后应成功）→ DRAINING 登记。
   uint32_t absorb = 999;
   s = zeroflush::MergePartition(db.get(), 1, &absorb);
-  if (s.ok()) {
-    fail("active-tail merge under merge_into_base_level=true must be gated");
-    return;
-  }
-  // 排空活跃尾（追加写入触发封存）→ quiescent 合并应成功。
-  for (int i = 0; i < 40; ++i) {
-    if (!put("b", 100 + i) || !put("h", 100 + i) || !put("n", 100 + i)) {
-      fail("put@drain");
-      return;
-    }
-  }
-  if (!WaitAllMaterialized(db.get())) {
-    fail("WaitAllMaterialized(drain) timeout");
-    return;
-  }
-  absorb = 999;
-  s = zeroflush::MergePartition(db.get(), 1, &absorb);
-  if (!s.ok() || absorb != 0) {
+  if (!s.ok() || absorb != 0 ||
+      ZfMetric(db.get(), "draining_partitions") != 1) {
     fprintf(stderr, "[dbg] merge: %s\n", s.ToString().c_str());
-    fail("quiescent merge under merge=true failed");
+    fail("active-tail merge under merge=true failed");
     return;
   }
-  // post-merge：覆写 d 区间 key + 写邻居分区（h/n → 稀疏 id 映射路径）。
+  // 排空窗口：未覆写的尾 key 经别名/待 E_D 落地可读。
+  if (!get_eq("d", 300, "vd0300") || !get_eq("d", 5, "vd0005")) {
+    fail("alias-window read after merge");
+    return;
+  }
+  // 覆写序：尾 key 覆写归吸收方，立即读必须为新值。
   snprintf(k, sizeof(k), "d%04d", 300);
   snprintf(v, sizeof(v), "vnew0300");
   if (!db->Put(rocksdb::WriteOptions(), k, v).ok()) {
     fail("put overwrite");
     return;
   }
-  for (int i = 500; i < 540; ++i) {
+  if (!get_eq("d", 300, "vnew0300")) {
+    fail("overwrite must win over drain old version");
+    return;
+  }
+  // 驱动物化（E_D 孤儿直装 + 吸收方/邻居 kMergeBase）→ retire。
+  for (int i = 500; i < 560; ++i) {
     if (!put("b", i) || !put("h", i) || !put("n", i)) {
-      fail("put@post-merge");
+      fail("put@phase3");
       return;
     }
   }
   if (!WaitAllMaterialized(db.get())) {
-    fail("WaitAllMaterialized(post-merge) timeout");
+    fail("WaitAllMaterialized(phase3) timeout");
     return;
   }
-  if (!get_eq("d", 300, "vnew0300") || !get_eq("d", 5, "vd0005") ||
+  {
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(60);
+    while (ZfMetric(db.get(), "draining_partitions") != 0) {
+      if (std::chrono::steady_clock::now() > deadline) {
+        fail("draining_partitions did not retire");
+        return;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+  }
+  if (ZfMetric(db.get(), "merge_retired") != 1) {
+    fail("merge_retired != 1");
+    return;
+  }
+  if (!get_eq("d", 300, "vnew0300") || !get_eq("d", 302, "vd0302") ||
       !get_eq("h", 500, "vh0500") || !get_eq("n", 500, "vn0500") ||
       !get_eq("b", 500, "vb0500")) {
-    fail("read after post-merge materialize");
+    fail("read after drain/materialize");
     return;
   }
   // 重开一致。
@@ -4251,17 +4261,14 @@ void TestMergeF1GateAndMergeEnabled() {
     fail("iter count mismatch after reopen");
     return;
   }
-  if (!get_eq("d", 300, "vnew0300") || !get_eq("h", 500, "vh0500") ||
-      !get_eq("n", 500, "vn0500")) {
+  if (!get_eq("d", 300, "vnew0300") || !get_eq("h", 500, "vh0500")) {
     fail("spot read after reopen");
     return;
   }
   db.reset();
   CleanDB(dbname);
-  ReportResult(tag, true, "gate+quiescent-merge(merge=true)");
+  ReportResult(tag, true, "active-tail merge under merge=true -> retired");
 }
-
-
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -4344,7 +4351,7 @@ int main(int argc, char** argv) {
   run("MergePartitionTableDerive",      TestMergePartitionTableDerive);
   run("MergeColdPartitionEndToEnd",     TestMergeColdPartitionEndToEnd);
   run("MergeActiveTailEndToEnd",        TestMergeActiveTailEndToEnd);
-  run("MergeF1GateAndMergeEnabled",   TestMergeF1GateAndMergeEnabled);
+  run("MergeActiveTailMergeEnabled",   TestMergeActiveTailMergeEnabled);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

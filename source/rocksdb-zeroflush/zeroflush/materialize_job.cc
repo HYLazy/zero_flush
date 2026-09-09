@@ -718,6 +718,21 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     PartitionPlan plan;
     plan.part_id = pid;
     plan.decision = MaterializeDecision::kDirect;
+    // ZeroFlushV0 P1b/M1b（F1）：DRAINING 分区强制物化，永不 kSkip。
+    // 其冻结代（merge 的 E_D）在切路由后的当前表中不存在 → 孤儿（lo/hi
+    // 空），按自身实际数据直装单文件（与 base 冲突时落 L0，由 l0_overlap
+    // 融合吸收）。kSkip 会把 drain 旧版本延后到吸收方更新版本之后落地 →
+    // 层序读读到旧值（序倒置）。批级登记照常（占位防同批重复产出）。
+    if (ctx_->IsDrainingPartition(pid)) {
+      if (mc_.materialize_token != 0) {
+        ctx_->AddMaterializePart(mc_.materialize_token, pid);
+      }
+      if (mc_.batch_planned_parts != nullptr) {
+        mc_.batch_planned_parts->insert(pid);
+      }
+      plans_.push_back(std::move(plan));  // kDirect + 空 lo/hi = 孤儿直装
+      continue;
+    }
     if (gen0_learning) {
       // 学习批子批：未齐 → 滞留（skip 移交 recovery；下批封存收养累积）；
       // 齐批 → 占位 plan（single_task_mode_ 下由代表任务统一物化）。

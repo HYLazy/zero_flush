@@ -55,10 +55,10 @@ M5 意图持久化收口 + 崩溃矩阵 + §5 文字对齐
 sealed/skip/recovery pending"。依据 P1B_DESIGN §2/§4 的 (c)+(F1)。
 进度（2026-09-09）：M1a 已提交（441ae6b）——活跃尾冻结（切路由先于冻结，
 规避 ZfSwitchMemtable 让锁窗口）、DRAINING 注册表/别名读/retire、分区 id/下
-标映射正确性修复（写/读/物化/恢复）；F1 门已提交（合并=true + 活跃尾 → Busy
-护栏 + quiescent-merge-under-merge=true 回归）。M1 剩余：F1 完整收口
-（PlanLocked 对 DRAINING 分区 kSkip 出口强制物化）、DRAINING 持久化（ZFPROPS）
-与崩溃注入用例。
+标映射正确性修复（写/读/物化/恢复）。F1 已完整接线并解除 Busy 门
+（8182426 → 本轮）：PlanLocked 对 DRAINING 分区强制孤儿直装、永不 kSkip，
+活跃尾合并覆盖 merge_into_base_level=true（MergeActiveTailMergeEnabled 序
+回归，zf_test 42/42）。M1 剩余：DRAINING 持久化（ZFPROPS）与崩溃注入用例。
 范围：
 1. 恢复 DRAINING 注册表（DrainingPart{part,absorb,lo,hi} + mutex）与
    IsDrainingPartition / DrainingPartitions / MergeRetired 指标。

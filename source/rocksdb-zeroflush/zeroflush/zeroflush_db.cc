@@ -1590,17 +1590,10 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
   const uint64_t active_bytes =
       wal_ != nullptr ? wal_->ActiveSize(drain_part) : 0;
 
-  // ZeroFlushV0 P1b/M1b 门（F1 未接线前的正确性护栏）：merge_into_base_level
-  // =true 时，E_D（drain 冻结代，切路由后不在当前表 → 孤儿 lo/hi 空）的物化
-  // 决策可能 kSkip（小批攒批）→ drain 旧版本延后到吸收方更新版本之后落地 →
-  // 按层序读会读到旧值（序倒置）。F1（DRAINING 分区物化强制不攒批，PlanLocked
-  // 收口）接线前，活跃尾合并仅在默认 merge-off（drain 直装不攒批）下放行。
-  // 完全排空的合并（无冻结、无 E_D）不受此限——任何配置下安全。
-  if (active_bytes > 0 && zfo_.merge_into_base_level) {
-    return ROCKSDB_NAMESPACE::Status::Busy(
-        "ZeroFlush: active-tail merge requires merge_into_base_level=false "
-        "(F1 draining force-materialize not yet wired, M1b)");
-  }
+  // ZeroFlushV0 P1b/M1b：活跃尾合并的序倒置防护 = F1（PlanLocked 对
+  // DRAINING 分区强制物化不攒批）——E_D 冻结代在切路由后的表中不存在
+  // （孤儿直装），绝不被 kSkip 延后到吸收方更新版本之后。F1 已接线，
+  // merge_into_base_level 任意取值均安全。
 
   // ---- 路由切换（先于冻结；纯内存+落盘，不释放 DB mutex）----
   // 派生去掉 drain 的新表版本并安装（对新写即时生效；drain 历史 L1 文件
