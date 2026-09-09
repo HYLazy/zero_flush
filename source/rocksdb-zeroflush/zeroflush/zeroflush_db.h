@@ -454,6 +454,17 @@ class ZeroFlushContext {
   void SyncDrainingFile();
   void LoadDrainingFile();
 
+  // ---- ZeroFlushV0 P2（M2）：分区 id 分配器（split 用）----
+  // split 时给两个子分区分配新的全局 part id（父 id 退役）。id 单调不回退：
+  // merge 移除的分区 id 保持空缺、split 分配的 id 不复用——历史 WAL gens /
+  // 分区索引 / DRAINING 别名按原 id 记账的前提。初始化：Open（Recover 后）
+  // 调 RebuildNextPartId——按「全部持久化表版本 part_ids ∪ zfwal 文件 part」
+  // 的 max 重建（表版本全量落 ZFPROPS，任意分配过的 id 必在某个表版本或残留
+  // 文件中，故无需单独持久化计数器）。分配只发生在持 DB mutex 的
+  // Split/MergePartitionLocked 窗口（无锁，调用方保证互斥）。
+  uint32_t AllocatePartId();
+  void RebuildNextPartId();
+
   // 在途写组计数（路由切换的写屏障）：写组 leader 在"路由表版本捕获"点
   // +1（持 DB mutex）；组内全部记录追加+索引插入完成后 -1（恰好一次/组，
   // 见 db_impl_write.cc 埋点）。MergePartitionLocked 切换前等待归零——切表
@@ -539,6 +550,10 @@ class ZeroFlushContext {
   // 登记数快照（别名读热路径的免锁门：为 0 时 Get 不取 draining_mu_）。
   std::atomic<uint32_t> draining_active_{0};
   std::atomic<uint64_t> merge_retired_{0};
+  // ---- ZeroFlushV0 P2（M2）：分区 id 分配器状态 ----
+  // 下一个可分配的分区全局 id（见 AllocatePartId）。仅分配窗口（持 DB
+  // mutex）读写；Open 时 RebuildNextPartId 初始化。
+  uint32_t next_part_id_ = 0;
 };
 
 // 打开 ZeroFlush DB：

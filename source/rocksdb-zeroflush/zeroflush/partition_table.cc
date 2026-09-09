@@ -215,6 +215,70 @@ rocksdb::Status PartitionTable::DeriveMerge(
   return rocksdb::Status::OK();
 }
 
+rocksdb::Status PartitionTable::DeriveSplit(
+    uint32_t part_id, const rocksdb::Slice& split_key, uint32_t version,
+    uint32_t child_left_id, uint32_t child_right_id,
+    std::shared_ptr<PartitionTable>* out) const {
+  if (out == nullptr) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable::DeriveSplit: output pointer must not be null");
+  }
+  if (is_hash_mode_) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable::DeriveSplit: hash mode has no key ranges");
+  }
+  const auto it = std::find(part_ids_.begin(), part_ids_.end(), part_id);
+  if (it == part_ids_.end()) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable::DeriveSplit: partition not in table");
+  }
+  if (child_left_id == child_right_id ||
+      std::find(part_ids_.begin(), part_ids_.end(), child_left_id) !=
+          part_ids_.end() ||
+      std::find(part_ids_.begin(), part_ids_.end(), child_right_id) !=
+          part_ids_.end()) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable::DeriveSplit: child ids must be unique and absent "
+        "from table");
+  }
+  const size_t j = static_cast<size_t>(it - part_ids_.begin());
+  // 父区间 (lo, hi)：首分区 lo=-∞、末分区 hi=+∞（空 Slice 表示无约束）。
+  // split_key 必须严格落在开区间内——等于 lo/hi（即既有边界）会与新插入的
+  // 边界重复，拒绝。
+  if (j > 0 && ucmp_->Compare(split_key, rocksdb::Slice(boundaries_[j - 1])) <= 0) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable::DeriveSplit: split_key must be inside partition "
+        "range (above lo)");
+  }
+  if (j < boundaries_.size() &&
+      ucmp_->Compare(split_key, rocksdb::Slice(boundaries_[j])) >= 0) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable::DeriveSplit: split_key must be inside partition "
+        "range (below hi)");
+  }
+  // 新边界：在 j 处插入 split_key（partition j 的 lo/hi 之间）。
+  std::vector<std::string> nb;
+  nb.reserve(boundaries_.size() + 1);
+  nb.insert(nb.end(), boundaries_.begin(), boundaries_.begin() + j);
+  nb.push_back(split_key.ToString());
+  nb.insert(nb.end(), boundaries_.begin() + j, boundaries_.end());
+  // part_ids：父 id 原位替换为左/右子 id（顺序保持 → 既有 key 路由不变）。
+  std::vector<uint32_t> nids;
+  nids.reserve(part_ids_.size() + 1);
+  for (size_t i = 0; i < part_ids_.size(); ++i) {
+    if (i == j) {
+      nids.push_back(child_left_id);
+      nids.push_back(child_right_id);
+    } else {
+      nids.push_back(part_ids_[i]);
+    }
+  }
+  *out = std::shared_ptr<PartitionTable>(
+      new PartitionTable(version, /*is_hash_mode=*/false, std::move(nb),
+                         std::move(nids), ucmp_));
+  return rocksdb::Status::OK();
+}
+
 // ---------------------------------------------------------------------------
 // PartitionTableSet
 // ---------------------------------------------------------------------------

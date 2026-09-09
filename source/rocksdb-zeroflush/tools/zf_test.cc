@@ -4501,6 +4501,165 @@ void TestCrashMidDrainReopen() {
   ReportResult(tag, true, "crash mid-drain -> reopen -> adopt -> retire");
 }
 
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 P2（M2）：PartitionTable::DeriveSplit 表级用例。
+//  P=4 边界 {c,g,m}：part0=[-∞,c) 1=[c,g) 2=[g,m) 3=[m,+∞)。覆盖：
+//  中/首/末分区 split（boundaries 插入、父 id 退役、两子 id 原位替换、
+//  路由/区间正确）、稀疏表（merge 后 {0,2,3}）split、错误路径（split_key
+//  越界/等于边界、分区不在表、hash 模式、子 id 重复/与现存冲突）。
+// ---------------------------------------------------------------------------
+void TestDeriveSplitTable() {
+  const char* tag = "DeriveSplitTable(ZeroFlushV0-P2)";
+  const auto* ucmp = rocksdb::BytewiseComparator();
+  auto make_base = [&](std::shared_ptr<zeroflush::PartitionTable>* out) {
+    return zeroflush::PartitionTable::Create(0, {"c", "g", "m"}, ucmp, out);
+  };
+  auto route_id = [](const std::shared_ptr<zeroflush::PartitionTable>& t,
+                     const char* k) {
+    return t->part_id(t->Route(k));
+  };
+  auto range_of = [](const std::shared_ptr<zeroflush::PartitionTable>& t,
+                     uint32_t idx, std::string* lo, std::string* hi) {
+    rocksdb::Slice l, h;
+    t->RangeOf(idx, &l, &h);
+    *lo = l.ToString();
+    *hi = h.ToString();
+  };
+
+  // --- 中分区（part1 [c,g) @ "e"）→ 子 id 4/5 ---
+  {
+    std::shared_ptr<zeroflush::PartitionTable> pt;
+    auto s = make_base(&pt);
+    if (!s.ok()) {
+      ReportResult(tag, false, "Create: " + s.ToString());
+      return;
+    }
+    std::shared_ptr<zeroflush::PartitionTable> nt;
+    s = pt->DeriveSplit(1, "e", /*version=*/1, /*child_left=*/4,
+                        /*child_right=*/5, &nt);
+    if (!s.ok() || nt == nullptr || nt->partitions() != 5 ||
+        nt->version() != 1) {
+      ReportResult(tag, false, "split part1: s=" + s.ToString());
+      return;
+    }
+    const uint32_t want_ids[] = {0, 4, 5, 2, 3};
+    for (uint32_t i = 0; i < 5; ++i) {
+      if (nt->part_id(i) != want_ids[i]) {
+        ReportResult(tag, false, "split part1: part_id(" +
+                                     std::to_string(i) + ")=" +
+                                     std::to_string(nt->part_id(i)));
+        return;
+      }
+    }
+    // 子分区区间与两侧邻居。
+    std::string lo, hi;
+    range_of(nt, 1, &lo, &hi);
+    if (lo != "c" || hi != "e") {
+      ReportResult(tag, false, "split part1: child-left range wrong");
+      return;
+    }
+    range_of(nt, 2, &lo, &hi);
+    if (lo != "e" || hi != "g") {
+      ReportResult(tag, false, "split part1: child-right range wrong");
+      return;
+    }
+    // 路由：既有 key 不变；父区间 key 按切点归属左右子。
+    const char* ks[] = {"a", "d", "f", "h", "n"};
+    const uint32_t ex_id[] = {0, 4, 5, 2, 3};
+    for (size_t i = 0; i < sizeof(ks) / sizeof(ks[0]); ++i) {
+      if (route_id(nt, ks[i]) != ex_id[i]) {
+        ReportResult(tag, false,
+                     std::string("split part1 route(") + ks[i] + ") id=" +
+                         std::to_string(route_id(nt, ks[i])) + " expect " +
+                         std::to_string(ex_id[i]));
+        return;
+      }
+    }
+  }
+  // --- 首分区（part0 [-∞,c) @ "a"）→ 子 id 6/7 ---
+  {
+    std::shared_ptr<zeroflush::PartitionTable> pt;
+    auto s = make_base(&pt);
+    std::shared_ptr<zeroflush::PartitionTable> nt;
+    s = pt->DeriveSplit(0, "a", 2, 6, 7, &nt);
+    if (!s.ok() || nt->part_id(0) != 6 || nt->part_id(1) != 7 ||
+        route_id(nt, "a") != 7 || route_id(nt, "b") != 7 ||
+        route_id(nt, "c") != 1) {
+      ReportResult(tag, false, "split part0 (first): wrong");
+      return;
+    }
+  }
+  // --- 末分区（part3 [m,+∞) @ "z"）→ 子 id 8/9 ---
+  {
+    std::shared_ptr<zeroflush::PartitionTable> pt;
+    auto s = make_base(&pt);
+    std::shared_ptr<zeroflush::PartitionTable> nt;
+    s = pt->DeriveSplit(3, "z", 3, 8, 9, &nt);
+    if (!s.ok() || nt->partitions() != 5 || nt->part_id(3) != 8 ||
+        nt->part_id(4) != 9 || route_id(nt, "y") != 8 ||
+        route_id(nt, "z") != 9 || route_id(nt, "m") != 8) {
+      ReportResult(tag, false, "split part3 (last): wrong");
+      return;
+    }
+  }
+  // --- 稀疏表（merge 后 v1 ids {0,2,3}，边界 {g,m}）：split id0 [-∞,g) ---
+  {
+    std::shared_ptr<zeroflush::PartitionTable> sp;
+    auto s = zeroflush::PartitionTable::CreateWithPartIds(
+        1, {"g", "m"}, {0, 2, 3}, ucmp, &sp);
+    if (!s.ok()) {
+      ReportResult(tag, false, "CreateWithPartIds: " + s.ToString());
+      return;
+    }
+    std::shared_ptr<zeroflush::PartitionTable> nt;
+    s = sp->DeriveSplit(0, "b", 2, 10, 11, &nt);
+    if (!s.ok() || nt->partitions() != 4 || nt->part_id(0) != 10 ||
+        nt->part_id(1) != 11 || nt->part_id(2) != 2 || nt->part_id(3) != 3 ||
+        route_id(nt, "a") != 10 || route_id(nt, "b") != 11 ||
+        route_id(nt, "f") != 11 || route_id(nt, "g") != 2 ||
+        route_id(nt, "z") != 3) {
+      ReportResult(tag, false, "sparse split id0: wrong");
+      return;
+    }
+  }
+  // --- 错误路径 ---
+  {
+    std::shared_ptr<zeroflush::PartitionTable> pt;
+    auto s = make_base(&pt);
+    std::shared_ptr<zeroflush::PartitionTable> nt;
+    // split_key 等于既有边界（lo 或 hi）→ 拒绝。
+    if (pt->DeriveSplit(1, "c", 1, 4, 5, &nt).ok() ||
+        pt->DeriveSplit(1, "g", 1, 4, 5, &nt).ok()) {
+      ReportResult(tag, false, "split at existing boundary must be rejected");
+      return;
+    }
+    // split_key 越出父区间 → 拒绝。
+    if (pt->DeriveSplit(1, "b", 1, 4, 5, &nt).ok() ||
+        pt->DeriveSplit(1, "h", 1, 4, 5, &nt).ok() ||
+        pt->DeriveSplit(0, "d", 1, 4, 5, &nt).ok() ||
+        pt->DeriveSplit(3, "k", 1, 4, 5, &nt).ok()) {
+      ReportResult(tag, false, "split_key outside partition must be rejected");
+      return;
+    }
+    // 分区不在表中 / hash 模式 / 子 id 冲突 → 拒绝。
+    if (pt->DeriveSplit(99, "e", 1, 4, 5, &nt).ok()) {
+      ReportResult(tag, false, "split of absent partition must be rejected");
+      return;
+    }
+    auto hash_tbl = zeroflush::PartitionTable::CreateHash(0, 4);
+    if (hash_tbl->DeriveSplit(1, "e", 1, 4, 5, &nt).ok()) {
+      ReportResult(tag, false, "hash-mode split must be rejected");
+      return;
+    }
+    if (pt->DeriveSplit(1, "e", 1, 4, 4, &nt).ok() ||
+        pt->DeriveSplit(1, "e", 1, 2, 4, &nt).ok()) {
+      ReportResult(tag, false, "duplicate/conflicting child ids must be rejected");
+      return;
+    }
+  }
+  ReportResult(tag, true);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -4586,6 +4745,8 @@ int main(int argc, char** argv) {
   run("MergeActiveTailMergeEnabled",   TestMergeActiveTailMergeEnabled);
   // ---- ZeroFlushV0 M1c② 新增 ----
   run("CrashMidDrainReopen",           TestCrashMidDrainReopen);
+  // ---- ZeroFlushV0 P2（M2）新增 ----
+  run("DeriveSplitTable",              TestDeriveSplitTable);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

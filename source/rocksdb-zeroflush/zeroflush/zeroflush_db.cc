@@ -1874,6 +1874,40 @@ void ZeroFlushContext::MaybeRetireDraining() {
   }
 }
 
+uint32_t ZeroFlushContext::AllocatePartId() {
+  // REQUIRES: DB mutex held（Split/MergePartitionLocked 的分配窗口，与
+  // InstallNewVersion 同互斥域——分配即消费 next_part_id_，无锁安全）。
+  // kRangeDelPartId（0xFFFFFFFE）为 range-del 保留 id，单调分配正常生命周期
+  // 不可能接近；仅防御。
+  assert(next_part_id_ < kRangeDelPartId && "partition id space exhausted");
+  return next_part_id_++;
+}
+
+void ZeroFlushContext::RebuildNextPartId() {
+  // Open 时调用（Recover 后）。next_part_id_ = max(全部表版本 part_ids ∪
+  // zfwal 残留文件 part) + 1。表版本在 ZFPROPS 中全量保留、文件列出实际
+  // 分区的物理 id——任意分配过的 id（含已 merge 退役、崩溃时仍有残留 WAL 的
+  // drain id）必在两者之一，故 max 重建可复现全部已用 id，无需持久化计数器。
+  uint32_t mx = 0;
+  const uint32_t cv = tables_ ? tables_->current_version() : 0;
+  for (uint32_t v = 0; v <= cv; ++v) {
+    auto t = tables_ ? tables_->Get(v) : nullptr;
+    if (t == nullptr) {
+      continue;
+    }
+    for (uint32_t pid : t->part_ids()) {
+      mx = std::max(mx, pid);
+    }
+  }
+  std::vector<std::pair<uint32_t, uint32_t>> files;
+  if (wal_ != nullptr && wal_->ListFiles(&files).ok()) {
+    for (const auto& f : files) {
+      mx = std::max(mx, f.first);
+    }
+  }
+  next_part_id_ = mx + 1;
+}
+
 ROCKSDB_NAMESPACE::Status MergePartition(ROCKSDB_NAMESPACE::DB* db,
                                          uint32_t drain_part,
                                          uint32_t* absorb_out) {
@@ -2234,6 +2268,9 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   if (!s.ok()) {
     return s;
   }
+  // ZeroFlushV0 P2（M2）：分区 id 分配器初始化（Recover 列出全部文件后——
+  // 表版本 + 文件 part 的 max 重建，见 RebuildNextPartId 注释）。
+  ctx->RebuildNextPartId();
   *db = std::move(opened);
   return ROCKSDB_NAMESPACE::Status::OK();
 }

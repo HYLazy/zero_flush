@@ -62,6 +62,20 @@ class PartitionTable {
                               uint32_t* absorb_part,
                               std::shared_ptr<PartitionTable>* out) const;
 
+  // ZeroFlushV0 P2（M2）：派生"把分区 part_id 在 split_key 处一分为二"的新
+  // 表版本。本表不变。子分区 id 由调用方（分区 id 分配器）给出——父 id 退役、
+  // 两子 id 原位替换（顺序保持）；table 保持纯函数（不持有分配器）。
+  // split_key 必须在父分区开区间内：首分区 lo=-∞ / 末分区 hi=+∞ 侧不约束，
+  // 等于任一既有边界拒绝（新边界插入后升序、无重复仍成立）。
+  // 要求：范围模式（非 hash）；part_id 在本表内；两子 id 互异且不在本表
+  // part_ids 中（分配器保证，仍防御校验）。新表分区数 = 本表 + 1，既有 key
+  // 路由不变（父区间一分为二）。
+  rocksdb::Status DeriveSplit(uint32_t part_id,
+                              const rocksdb::Slice& split_key,
+                              uint32_t version, uint32_t child_left_id,
+                              uint32_t child_right_id,
+                              std::shared_ptr<PartitionTable>* out) const;
+
   bool IsHashMode() const { return is_hash_mode_; }
   uint32_t version() const { return version_; }
   uint32_t partitions() const {

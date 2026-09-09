@@ -84,6 +84,16 @@ crash 注入（merge 后 E_D flush 前 kill → reopen 数据完整）；zf_test
 
 ### M2 P2：split + type-3 boundary-rewrite（quiescent 子集）
 目标：建立"在分位点切分区"与"跨界文件按新边界两分"两个原语。
+进度（2026-09-09）：
+- ✅ 步骤 1/2：分区 id 分配器（`AllocatePartId`/`RebuildNextPartId`，Open 在
+  Recover 后以「全部表版本 part_ids ∪ zfwal 文件 part」的 max 重建——表版本在
+  ZFPROPS 全量保留，任意分配过的 id 必在某个版本或残留文件中，故未单独持久化
+  计数器，与"随 ZFPROPS 持久化"语义等价）与 `PartitionTable::DeriveSplit`
+  （签名取两子 id 为入参，table 保持纯函数；父区间开区间内切分、首/末分区
+  -∞/+∞ 侧不约束、边界重复拒绝、子 id 互异且不在表中）。表级用例
+  TestDeriveSplitTable（中/首/末分区、稀疏表 merge 后 {0,2,3}、错误路径）。
+- 待办：步骤 3（type-3 rewrite job）→ 4（SplitPartitionLocked）→ 5
+  （e2e quiescent split + split/merge 组合用例）。
 
 **M2 实施细则（供直接开工）：**
 1. 分区 id 分配器：ctx 增 `next_part_id_`（随 ZFPROPS 持久化；恢复用 max 重建）；
