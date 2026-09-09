@@ -155,4 +155,10 @@ merge_retired++。调用点：ReleaseEpoch / ReleaseGens（epoch 回收 = 物化
    的填充模式，该用例已因触发此 bug 暂移除）。疑似并行分区任务的共享状态
    竞态（overlap 选择 / Compaction 注册 / 批次内链式替换）。与 merge 机制
    正交，需独立定位（建议先用 gtest 式最小复现 + TSAN）。
+   追踪进度（2026-09-09）：已加 env 门控（ZF_DBG_MERGE=1）逐叶子内部 key
+   有序性预检于 MaterializeMergePartition（可定位乱序叶子 = A 向量 / 某
+   B 侧文件 / 批内前序文件）；简化单写线程填充复现 12+ 轮未命中——原触发
+   还依赖 MergePartition pump（持 DB mutex 等待写组屏障）与封存交错的
+   动态，专项复现需还原该节奏（连续 pump 尝试 + 每轮 WaitAllMaterialized）
+   或多写线程 + TSAN。
 

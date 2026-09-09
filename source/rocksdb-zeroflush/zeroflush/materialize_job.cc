@@ -17,6 +17,7 @@
 #include "zeroflush/materialize_job.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <limits>
 #include <thread>
 #include <utility>
@@ -1756,6 +1757,74 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
       ROCKSDB_NAMESPACE::NewMergingIterator(
           &mc_.cfd->internal_comparator(), children.data(),
           static_cast<int>(children.size())));
+
+  // ZFDBG（2026-09-09 并行竞态定位）：ZF_DBG_MERGE=1 时打印 A/B 侧构成，
+  // 并逐叶子预检内部 key 有序性——定位 "Compaction sees out-of-order keys"
+  // 的乱序叶子（A 向量 or 某 B 侧文件 or 批内前序文件）。
+  if (getenv("ZF_DBG_MERGE") != nullptr) {
+    const ROCKSDB_NAMESPACE::InternalKeyComparator& ikc =
+        mc_.cfd->internal_comparator();
+    fprintf(stderr,
+            "ZFDBG-merge part=%u gens=%zu A_entries=%zu A_min_seq=%llu "
+            "B_existing=%zu B_l0=%zu lo=%s hi=%s\n",
+            part_id, gens.size(), keys.size(), (unsigned long long)min_seq,
+            overlap_all.size(), l0_overlap.size(), lo.ToString(true).c_str(),
+            hi.ToString(true).c_str());
+    if (!keys.empty()) {
+      const rocksdb::Slice a_first =
+          ROCKSDB_NAMESPACE::ExtractUserKey(keys.front());
+      const rocksdb::Slice a_last =
+          ROCKSDB_NAMESPACE::ExtractUserKey(keys.back());
+      fprintf(stderr, "ZFDBG-merge   A_range=[%s, %s]\n",
+              a_first.ToString(true).c_str(), a_last.ToString(true).c_str());
+    }
+    for (const auto* f : overlap_all) {
+      fprintf(stderr,
+              "ZFDBG-merge   B file=%llu size=%llu range=[%s, %s] "
+              "seq=[%llu,%llu]\n",
+              (unsigned long long)f->fd.GetNumber(),
+              (unsigned long long)f->fd.GetFileSize(),
+              f->smallest.user_key().ToString(true).c_str(),
+              f->largest.user_key().ToString(true).c_str(),
+              (unsigned long long)f->fd.smallest_seqno,
+              (unsigned long long)f->fd.largest_seqno);
+    }
+    for (const auto* f : l0_overlap) {
+      fprintf(stderr,
+              "ZFDBG-merge   L0 file=%llu size=%llu range=[%s, %s]\n",
+              (unsigned long long)f->fd.GetNumber(),
+              (unsigned long long)f->fd.GetFileSize(),
+              f->smallest.user_key().ToString(true).c_str(),
+              f->largest.user_key().ToString(true).c_str());
+    }
+    // 逐叶子有序性预检（children[0] = A 向量，其余 = B 侧文件）。
+    for (size_t ci = 0; ci < children.size(); ++ci) {
+      children[ci]->SeekToFirst();
+      bool first = true;
+      rocksdb::Slice prev_ik;
+      bool bad = false;
+      int checked = 0;
+      while (children[ci]->Valid()) {
+        const rocksdb::Slice cur = children[ci]->key();
+        if (!first && ikc.Compare(prev_ik, cur) > 0) {
+          fprintf(stderr,
+                  "ZFDBG-merge   LEAF %zu OUT-OF-ORDER: prev=%s cur=%s\n", ci,
+                  prev_ik.ToString(true).c_str(), cur.ToString(true).c_str());
+          bad = true;
+          break;
+        }
+        prev_ik = cur;
+        first = false;
+        ++checked;
+        children[ci]->Next();
+      }
+      if (bad) {
+        fprintf(stderr, "ZFDBG-merge   leaf %zu size_checked=%d\n", ci,
+                checked);
+      }
+      children[ci]->SeekToFirst();  // 复位供 MergingIterator 使用
+    }
+  }
 
   // ---- CompactionIterator（复用原生 snapshot/merge/tombstone 语义）----
   const std::string* const full_history_ts_low =
