@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <thread>
@@ -178,7 +179,13 @@ ZeroFlushContext::ZeroFlushContext(const ZeroFlushOptions& zfo,
 
 ZeroFlushContext::~ZeroFlushContext() = default;
 
-ROCKSDB_NAMESPACE::Status ZeroFlushContext::Open() { return wal_->Open(); }
+ROCKSDB_NAMESPACE::Status ZeroFlushContext::Open() {
+  const rocksdb::Status s = wal_->Open();
+  if (s.ok()) {
+    LoadDrainingFile();  // ZeroFlushV0 P1c：崩溃后重建 DRAINING 注册表
+  }
+  return s;
+}
 
 bool ZeroFlushContext::ShouldSeal() const {
   // R57 诊断：限频打印三个触发源（每 4096 次取模 + 仅 index 超 1GB 时打印）。
@@ -1677,6 +1684,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
     }
     draining_active_.store(static_cast<uint32_t>(draining_.size()),
                            std::memory_order_release);
+    SyncDrainingFile();  // ZeroFlushV0 P1c：登记落盘
   }
   merge_count_.fetch_add(1, std::memory_order_relaxed);
   if (absorb_out != nullptr) {
@@ -1694,6 +1702,134 @@ bool ZeroFlushContext::IsDrainingPartition(uint32_t part) const {
 size_t ZeroFlushContext::DrainingPartitions() const {
   std::lock_guard<std::mutex> l(draining_mu_);
   return draining_.size();
+}
+
+namespace {
+// DRAINING sidecar：每行 "part\tab absorb\tab hex(lo)\tab hex(hi)"。
+std::string HexEncode(const std::string& in) {
+  static const char* kHex = "0123456789abcdef";
+  std::string out;
+  out.reserve(in.size() * 2);
+  for (unsigned char c : in) {
+    out.push_back(kHex[c >> 4]);
+    out.push_back(kHex[c & 0xf]);
+  }
+  return out;
+}
+bool HexDecode(const std::string& in, std::string* out) {
+  if (in.size() % 2 != 0) {
+    return false;
+  }
+  auto val = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+  out->clear();
+  out->reserve(in.size() / 2);
+  for (size_t i = 0; i < in.size(); i += 2) {
+    const int hi = val(in[i]);
+    const int lo = val(in[i + 1]);
+    if (hi < 0 || lo < 0) {
+      return false;
+    }
+    out->push_back(static_cast<char>((hi << 4) | lo));
+  }
+  return true;
+}
+}  // namespace
+
+void ZeroFlushContext::SyncDrainingFile() {
+  // best-effort：DRAINING 持久化只影响崩溃后 F1/retire 的延续，读正确性不
+  // 依赖（恢复期重放按当前表路由）。写失败忽略（与学习安装的 ZFPROPS
+  // best-effort 语义一致）。
+  std::string body;
+  {
+    std::lock_guard<std::mutex> l(draining_mu_);
+    for (const auto& d : draining_) {
+      body += std::to_string(d.part) + "\t" + std::to_string(d.absorb) +
+              "\t" + HexEncode(d.lo) + "\t" + HexEncode(d.hi) + "\n";
+    }
+  }
+  const std::string path = wal_dir_ + "/ZF_DRAINING";
+  const std::string tmp = path + ".tmp";
+  {
+    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+    if (!f) {
+      return;
+    }
+    f.write(body.data(), static_cast<std::streamsize>(body.size()));
+    f.close();
+    if (!f) {
+      return;
+    }
+  }
+  if (std::rename(tmp.c_str(), path.c_str()) != 0) {
+    return;
+  }
+}
+
+void ZeroFlushContext::LoadDrainingFile() {
+  const std::string path = wal_dir_ + "/ZF_DRAINING";
+  std::ifstream f(path, std::ios::binary);
+  if (!f) {
+    return;  // 无文件 = 空注册表（首次/无合并）
+  }
+  std::vector<DrainingPart> loaded;
+  std::string line;
+  while (std::getline(f, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    // 解析 4 个 \t 分隔字段。
+    std::vector<std::string> parts;
+    size_t pos = 0;
+    while (pos <= line.size()) {
+      const size_t tab = line.find('\t', pos);
+      parts.push_back(line.substr(pos, tab == std::string::npos
+                                          ? std::string::npos
+                                          : tab - pos));
+      if (tab == std::string::npos) {
+        break;
+      }
+      pos = tab + 1;
+    }
+    if (parts.size() != 4) {
+      continue;  // 损坏行跳过
+    }
+    DrainingPart d;
+    char* endp = nullptr;
+    d.part = static_cast<uint32_t>(std::strtoul(parts[0].c_str(), &endp, 10));
+    if (endp == parts[0].c_str()) {
+      continue;
+    }
+    endp = nullptr;
+    d.absorb = static_cast<uint32_t>(std::strtoul(parts[1].c_str(), &endp, 10));
+    if (endp == parts[1].c_str()) {
+      continue;
+    }
+    if (!HexDecode(parts[2], &d.lo) || !HexDecode(parts[3], &d.hi)) {
+      continue;
+    }
+    loaded.push_back(std::move(d));
+  }
+  if (loaded.empty()) {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> l(draining_mu_);
+    for (auto& d : loaded) {
+      const bool exists =
+          std::any_of(draining_.begin(), draining_.end(),
+                      [&d](const DrainingPart& x) { return x.part == d.part; });
+      if (!exists) {
+        draining_.push_back(std::move(d));
+      }
+    }
+  }
+  draining_active_.store(static_cast<uint32_t>(draining_.size()),
+                         std::memory_order_release);
 }
 
 void ZeroFlushContext::MaybeRetireDraining() {
@@ -1726,6 +1862,7 @@ void ZeroFlushContext::MaybeRetireDraining() {
             static_cast<uint32_t>(retired.size()),
         std::memory_order_release);
     merge_retired_.fetch_add(retired.size(), std::memory_order_relaxed);
+    SyncDrainingFile();  // ZeroFlushV0 P1c：retire 清盘
   }
 }
 

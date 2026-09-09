@@ -446,6 +446,13 @@ class ZeroFlushContext {
   // 排空完成检查：DRAINING 分区无未回收 WAL 段、无 frozen 索引、无活跃
   // 字节 → RETIRED（移除登记）。在 ReleaseEpoch/ReleaseGens 等回收点调用。
   void MaybeRetireDraining();
+  // ZeroFlushV0 P1c（M1c①）：DRAINING 记录持久化（独立 sidecar 文件
+  // wal_dir/ZF_DRAINING，避开 ZFPROPS 格式改动）。登记/retire 时调用写全量
+  // 快照（原子 tmp+rename）；ZeroFlushContext::Open 时 LoadDrainingFile 重建
+  // 注册表——崩溃后 F1/retire 得以跨重启延续。读正确性不依赖它（恢复期重放
+  // 已按当前表路由落吸收方链）；文件损坏/缺失按空注册表容忍（best-effort）。
+  void SyncDrainingFile();
+  void LoadDrainingFile();
 
   // 在途写组计数（路由切换的写屏障）：写组 leader 在"路由表版本捕获"点
   // +1（持 DB mutex）；组内全部记录追加+索引插入完成后 -1（恰好一次/组，

@@ -126,15 +126,15 @@ merge_retired++。调用点：ReleaseEpoch / ReleaseGens（epoch 回收 = 物化
   D（孤儿路径代偿，无别名失效但排空路径变脏）；D 的统计（retire 计数）不跨
   重启。
 
-M1c（收尾待办，代码锚点已定）：
-1. ZFPROPS v3 增 draining 段（zeroflush_db.cc PersistZfProps 写 ~1449-1520、
-   读 ~1965+）：merge 登记时同步落 DrainingPart{part,absorb,lo,hi}；retire
-   时删段重写。
-2. Recover（zeroflush_db.cc ~1350+）读段重建注册表（draining_mu_/draining_/
-   draining_active_），使 F1/retire 恢复后继续作用于 D。
-3. 崩溃注入 e2e（参照 CrashBeforeCompact 的 fork 模式）：子进程活跃尾 merge
-   后不关闭直接 _Exit；父进程重开：D 区间尾 key 可读、后续写触发收养物化、
-   draining_partitions 归零、数据与迭代计数一致。
+M1c（收尾，代码锚点已定）：
+1. ✅ ① DRAINING 持久化（2026-09-09 提交）：独立 sidecar wal_dir/ZF_DRAINING
+   （避开 ZFPROPS 格式改动）——SyncDrainingFile（登记/retire 原子写全量快照，
+   tmp+rename）+ LoadDrainingFile（ZeroFlushContext::Open 重建注册表）。回归：
+   活跃尾两用例断言 merge 后 sidecar 1 条、retire 后 0 条。读正确性不依赖
+   它（恢复期重放按当前表路由落吸收方链）；文件损坏/缺失按空注册表容忍。
+2. 待办：崩溃注入 e2e（fork：子进程活跃尾 merge 后 _Exit → 父重开验证
+   draining_partitions>0 重建、尾 key 可读、收养物化、retire 归零）。
+3. 可选：若需与 ZFPROPS 同文件原子，可后续并入 v3（当前 sidecar 已够）。
 设计前提已具备：写路径幂等重放、F1 短路（materialize_job PlanLocked
 IsDrainingPartition）、恢复路由=当前表（RoutePartIdWithVersion）。
 

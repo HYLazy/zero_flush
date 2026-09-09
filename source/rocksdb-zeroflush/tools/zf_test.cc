@@ -3950,6 +3950,22 @@ void TestMergeColdPartitionEndToEnd() {
 //  覆盖：已排空的旧数据(L1) + 未封存的活跃尾(冻结为 E_D) → merge →
 //  排空窗口读（别名）/覆写序正确 → E_D 与吸收方 epoch 物化 → retire →
 //  重开一致。materialize_parallelism=1（绕开未修的并行物化竞态）。
+
+// M1c① 辅助：统计 DRAINING sidecar 非空行数（fopen 避免引入 fstream）。
+int DrainingSidecarLines(const std::string& dbname,
+                         const std::string& wal_subdir) {
+  const std::string sp = dbname + "/" + wal_subdir + "/ZF_DRAINING";
+  FILE* f = ::fopen(sp.c_str(), "rb");
+  if (f == nullptr) return 0;
+  int n = 0;
+  char buf[512];
+  while (::fgets(buf, sizeof(buf), f) != nullptr) {
+    if (buf[0] != '\n' && buf[0] != '\0') ++n;
+  }
+  ::fclose(f);
+  return n;
+}
+
 // ---------------------------------------------------------------------------
 void TestMergeActiveTailEndToEnd() {
   const char* tag = "MergeActiveTailEndToEnd(ZeroFlushV0-P1b)";
@@ -4093,6 +4109,10 @@ void TestMergeActiveTailEndToEnd() {
     fail("merge_retired != 1");
     return;
   }
+  if (DrainingSidecarLines(dbname, zfo.wal_subdir) != 0) {
+    fail("draining sidecar must be empty after retire (M1c1)");
+    return;
+  }
   if (!get_eq("d", 130, "vnew0130") || !get_eq("d", 125, "vnew0125") ||
       !get_eq("d", 135, "vd0135") || !get_eq("d", 5, "vd0005")) {
     fail("read after drain");
@@ -4199,6 +4219,10 @@ void TestMergeActiveTailMergeEnabled() {
       ZfMetric(db.get(), "draining_partitions") != 1) {
     fprintf(stderr, "[dbg] merge: %s\n", s.ToString().c_str());
     fail("active-tail merge under merge=true failed");
+    return;
+  }
+  if (DrainingSidecarLines(dbname, zfo.wal_subdir) != 1) {
+    fail("draining sidecar must hold 1 record after merge (M1c1)");
     return;
   }
   // 排空窗口：未覆写的尾 key 经别名/待 E_D 落地可读。
