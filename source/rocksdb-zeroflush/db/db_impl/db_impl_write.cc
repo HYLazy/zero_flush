@@ -4460,6 +4460,10 @@ Status DBImpl::ZfGovernanceTick() {
     }
     uint32_t absorb = 0;
     const Status ms = ZfMergePartition(act.part_id, &absorb);
+    if (getenv("ZF_DBG_GOV") != nullptr) {
+      fprintf(stderr, "ZFDBG-gov merge part=%u -> %s absorb=%u\n",
+              act.part_id, ms.ToString().c_str(), absorb);
+    }
     if (ms.IsBusy() || ms.IsTimedOut()) {
       policy->NoteRetry(act, env_->NowMicros());  // aging 重试
       return Status::OK();
@@ -4602,6 +4606,10 @@ Status DBImpl::ZfGovernanceTick() {
         files.push_back(f);
       }
       if (files.empty()) {
+        if (getenv("ZF_DBG_GOV") != nullptr) {
+          fprintf(stderr, "ZFDBG-gov split part=%u no base files\n",
+                  act.part_id);
+        }
         return Status::OK();
       }
       const MutableCFOptions& mcf = cfd->GetLatestMutableCFOptions();
@@ -4667,6 +4675,11 @@ Status DBImpl::ZfGovernanceTick() {
     uint32_t cl = 0, cr = 0;
     const Status ss = ZfSplitPartition(act.part_id, rocksdb::Slice(median),
                                        &cl, &cr);
+    if (getenv("ZF_DBG_GOV") != nullptr) {
+      fprintf(stderr,
+              "ZFDBG-gov split part=%u b=%s -> %s cl=%u cr=%u\n",
+              act.part_id, median.c_str(), ss.ToString().c_str(), cl, cr);
+    }
     if (ss.IsBusy() || ss.IsTimedOut()) {
       policy->NoteRetry(act, env_->NowMicros());
       return Status::OK();

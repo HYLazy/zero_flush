@@ -378,12 +378,12 @@ std::vector<GovernanceAction> GovernancePolicy::Decide(
   //  (a) 冷合并会把 P 降到"热分区的 rate 相对均值不再 ≥ θ_split×mean"
   //      的程度（1 热 + 1 冷：rate=2×mean < 3×mean）——直接杀死后续拆分；
   //  (b) 每 tick 单动作（C=1）下，merge 会抢占热拆分确认窗——拆分饿死。
-  // 判定"活跃"= 存在任一速率>0 且封存样本新近（age ≤ merge_idle_after_us）
-  // 的分区；活跃期抑制全部 merge（冷分区回收延后到负载回落/空闲期——
-  // 对应设计"设备空闲后由再锚定合并回收"）。拆分候选存在同样抑制合并。
+  // 判定"活跃"= 存在任一分区其封存样本新近（0 < age ≤ merge_idle_after_us）。
+  // 不用 rate>0 判活跃：新分区首样本前 rate=0 但明明在收写——按 rate 判会把
+  // 活跃新分区误当冷分区合并。age==0（未知/单位测试构造）不计入活跃。
   bool recent_activity = false;
   for (const auto& o : obs) {
-    if ((o.rate_fast > 0.0 || o.rate_slow > 0.0) &&
+    if (o.last_seal_age_us != 0 &&
         o.last_seal_age_us <= cfg_.merge_idle_after_us) {
       recent_activity = true;
       break;

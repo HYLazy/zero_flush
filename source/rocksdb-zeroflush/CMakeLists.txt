@@ -1713,6 +1713,11 @@ if(WITH_BENCHMARK_TOOLS)
   target_link_libraries(zf_test${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
+  add_executable(zf_govern_bench${ARTIFACT_SUFFIX}
+    tools/zf_govern_bench.cc)
+  target_link_libraries(zf_govern_bench${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
+
   add_executable(cache_bench${ARTIFACT_SUFFIX}
     cache/cache_bench.cc
     cache/cache_bench_tool.cc)
