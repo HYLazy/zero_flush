@@ -4839,6 +4839,108 @@ void TestSplitQuiescentEndToEnd() {
   ReportResult(tag, true, "quiescent split + type-3 rewrite -> 2 files");
 }
 
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 R0（并行轨）：4 分区并行合并物化 out-of-order 竞态复现 harness。
+//  默认 no-op（快 PASS）；ZF_STRESS_ROUNDS=N 时跑 N 轮：
+//    kStatic P=4、4KB 目标、materialize_parallelism=4 → 每轮四分区交替写入
+//    触发整批封存 → 连续多批 4 任务并行 kMergeBase（B 侧有 L1）；
+//    ZF_STRESS_PUMP=1 时每轮穿插 MergePartition（冷分区取消，含 Busy 重试），
+//    还原 P1B §9.4 记载的触发节奏（简化单写填充 12+ 轮未命中 → 需 pump）。
+//  任何 Get 校验失败/物化错误即 FAIL（预期输出含 "LEAF OUT-OF-ORDER" 时命中
+//  乱序叶子，可用 ZF_DBG_MERGE=1 打印逐叶预检）。
+// ---------------------------------------------------------------------------
+void TestMergeParallelStress() {
+  const char* tag = "MergeParallelStress(R0)";
+  const char* rounds_env = getenv("ZF_STRESS_ROUNDS");
+  if (rounds_env == nullptr) {
+    ReportResult(tag, true, "skipped (set ZF_STRESS_ROUNDS=N to run)");
+    return;
+  }
+  const bool pump = getenv("ZF_STRESS_PUMP") != nullptr;
+  const int rounds = std::max(1, atoi(rounds_env));
+  std::string dbname = std::string(kDbBase) + "merge_parallel_stress";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+  zfo.static_boundaries = {"c", "g", "m"};
+  zfo.partition_target_bytes = 4 * 1024;
+  zfo.epoch_target_bytes = 4 * 1024;
+  zfo.materialize_parallelism = 4;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  auto fail = [&](const std::string& why) {
+    ReportResult(tag, false, why);
+    CleanDB(dbname);
+  };
+  char k[16];
+  auto make_val = [](int round, int id) -> std::string {
+    std::string val(200, 'x');
+    snprintf(&val[0], 32, "vr%04d_%04d", round, id);
+    return val;
+  };
+  char fail_why[256];
+  for (int round = 0; round < rounds; ++round) {
+    // 四分区交替写入（b=[..c) d=[c,g) h=[g,m) n=[m,..)）。
+    const char* prefixes[] = {"b", "d", "h", "n"};
+    for (int i = 0; i < 6; ++i) {
+      for (const char* pfx : prefixes) {
+        snprintf(k, sizeof(k), "%s%04d_%04d", pfx, round, i);
+        const std::string val = make_val(round, i);
+        if (!db->Put(rocksdb::WriteOptions(), k, val).ok()) {
+          snprintf(fail_why, sizeof(fail_why), "put@round %d", round);
+          fail(fail_why);
+          return;
+        }
+      }
+    }
+    if (!WaitAllMaterialized(db.get(), 30000)) {
+      snprintf(fail_why, sizeof(fail_why), "WaitAllMaterialized@round %d", round);
+      fail(fail_why);
+      return;
+    }
+    if (pump && round % 3 == 1) {
+      uint32_t absorb = 999;
+      // 冷分区取消尝试（排空完成后）：成功/仍 Busy/已不在表（上轮已合并）
+      // 都接受——本 harness 意在叠加 merge 路由切换与封存交错的调度动态。
+      s = zeroflush::MergePartition(db.get(), /*drain_part=*/1, &absorb);
+      if (!s.ok() && !s.IsBusy() && !s.IsInvalidArgument()) {
+        snprintf(fail_why, sizeof(fail_why), "merge@round %d: %s", round,
+                 s.ToString().c_str());
+        fail(fail_why);
+        return;
+      }
+    }
+    // 抽查读：上一轮的 4 前缀 key 全对（乱序竞态若丢/错数据立即暴露）。
+    if (round >= 1) {
+      const int pr = round - 1;
+      for (const char* pfx : prefixes) {
+        for (int i = 0; i < 6; ++i) {
+          snprintf(k, sizeof(k), "%s%04d_%04d", pfx, pr, i);
+          std::string out;
+          if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() ||
+              out != make_val(pr, i)) {
+            snprintf(fail_why, sizeof(fail_why),
+                     "get@round %d key %s mismatch", pr, k);
+            fail(fail_why);
+            return;
+          }
+        }
+      }
+    }
+  }
+  db.reset();
+  CleanDB(dbname);
+  ReportResult(tag, true, "rounds=" + std::to_string(rounds) +
+                              (pump ? " pump=1" : " pump=0"));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -4927,6 +5029,8 @@ int main(int argc, char** argv) {
   // ---- ZeroFlushV0 P2（M2）新增 ----
   run("DeriveSplitTable",              TestDeriveSplitTable);
   run("SplitQuiescentEndToEnd",        TestSplitQuiescentEndToEnd);
+  // ---- ZeroFlushV0 R0（并行轨）复现 harness（默认 no-op）----
+  run("MergeParallelStress",           TestMergeParallelStress);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

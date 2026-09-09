@@ -191,4 +191,13 @@ IsDrainingPartition）、恢复路由=当前表（RoutePartIdWithVersion）。
    还依赖 MergePartition pump（持 DB mutex 等待写组屏障）与封存交错的
    动态，专项复现需还原该节奏（连续 pump 尝试 + 每轮 WaitAllMaterialized）
    或多写线程 + TSAN。
+   后续（同日晚）：R0 复现 harness 落档——TestMergeParallelStress（默认
+   no-op；ZF_STRESS_ROUNDS=N 激活，ZF_STRESS_PUMP=1 叠加冷 merge pump）：
+   kStatic P=4 + 4KB 目标 + materialize_parallelism=4 的整批 4 任务并行
+   合并循环。初跑 220 轮（60 轮 pump + 160 轮纯填充）零命中、无 LEAF
+   OUT-OF-ORDER。静态排查（批次内链式前序不可达：同批多 epoch 的
+   PlanLocked 先于全部输出 → last_batch 恒空；B 侧文件经 RegisterCompaction
+   钉住 → 无并发改写/删除）未发现确定竞态。下一步：多写线程 + TSAN 构建、
+   连续多轮 pump 尝试（不等待每轮 materialize，还原封存交错）、或对
+   A/B 叶子构造施加随机 Seek 压力定位排序契约破坏点。
 
