@@ -84,6 +84,30 @@ crash 注入（merge 后 E_D flush 前 kill → reopen 数据完整）；zf_test
 
 ### M2 P2：split + type-3 boundary-rewrite（quiescent 子集）
 目标：建立"在分位点切分区"与"跨界文件按新边界两分"两个原语。
+
+**M2 实施细则（供直接开工）：**
+1. 分区 id 分配器：ctx 增 `next_part_id_`（随 ZFPROPS 持久化；恢复用 max 重建）；
+   split 时给子分区分配新 id（父 id 退役），part_ids 保持稀疏（id/下标映射已就绪）。
+2. `PartitionTable::DeriveSplit(part, split_key, version, &child_left_id,
+   &child_right_id, &nt)`：父区间 [lo,hi) 在 split_key(b∈(lo,hi)) 处切两段；
+   boundaries 在 b 处插入一条（需 b 严格在 lo..hi 之间且不重复）；part_ids 把
+   父 id 换成两个新 id（顺序保持）。校验沿用 Create 的升序/去重。
+3. type-3 rewrite 任务（kBoundaryRewrite，zf_request.h 已声明）：
+   - 输入：跨界 L1 文件（quiescent 首版恰为父分区当前 L1 文件，≤64MB，数据
+     版本不跨 b——同 user key 恒在同一侧）；不读 WAL、不去重、不需快照水位。
+   - 执行：TableIterator 顺序扫输入，首 key ≥ b 处切换输出 TableBuilder×2；
+     纯重编码（块/索引/bloom 由两 builder 各自生成）。
+   - 安装：单点原子 VersionEdit——DeleteFile(F) + AddFile(F1) + AddFile(F2)；
+     两输出 range ⊆ 子区间（S2 硬约束由切点保证）。
+   - 挂后台任务池执行（serial 安全）；与常规物化互斥经 being_compacted/批登记。
+4. `SplitPartitionLocked(impl, cfd, part, split_key, &id_l, &id_r)`：前置 = 分区
+   完全排空（同 P1 口径：无活跃/无 frozen/无 pending）+ barrier + 切路由（安装
+   新表 + PersistZfProps）→ 登记/排队 rewrite（quiescent 下 rewrite 输入即父
+   分区 L1 文件）。暂不做"活跃尾 split"（其跨界 WAL gens 处理并入 M4）。
+5. 测试：表级 DeriveSplit（含首/末/中分区、b 越界拒绝）；e2e quiescent split
+   （直装→填满→物化→切分：两文件不重叠 ≤64MB、路由正确、读全对、reopen、
+   partition_count/routing_version 指标）；组合用例：部分划归 = split + merge。
+6. 依赖：F1/id 映射（M1 已就绪）；并行乱序竞态 R0 未修前测试 parallelism=1。
 范围：
 1. PartitionTable::DeriveSplit(part, split_key, version, 两子表, child_ids) +
    分区 id 分配器（ctx 全局 next_part_id，随 ZFPROPS 持久化；part_ids 稀疏）。
