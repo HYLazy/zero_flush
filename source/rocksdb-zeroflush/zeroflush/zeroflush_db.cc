@@ -175,6 +175,23 @@ ZeroFlushContext::ZeroFlushContext(const ZeroFlushOptions& zfo,
   sealed_cache_.reset(new SealedFileCache(env_, wal_dir_,
                                           zfo_.max_open_sealed_files,
                                           zfo_.reclaim_sealed_files));
+  // ---- ZeroFlushV0 M4：动态治理 DG 状态 ----
+  rate_tracker_.reset(new PartitionRateTracker(zfo_.governance_ewma_fast_secs,
+                                               zfo_.governance_ewma_slow_secs));
+  GovernancePolicy::Config cfg;
+  cfg.p_min = zfo_.governance_p_min;
+  cfg.p_max = zfo_.governance_p_max;
+  cfg.theta_split = zfo_.governance_split_theta;
+  cfg.theta_merge = zfo_.governance_merge_theta;
+  cfg.split_min_bytes = zfo_.governance_split_min_bytes;
+  cfg.merge_max_bytes = zfo_.governance_merge_max_bytes;
+  cfg.confirm_windows = std::max<uint32_t>(1, zfo_.governance_confirm_windows);
+  cfg.cooldown_base_us = zfo_.governance_cooldown_micros;
+  cfg.cooldown_max_us = zfo_.governance_cooldown_max_micros;
+  cfg.max_actions_per_tick =
+      std::max<uint32_t>(1, zfo_.governance_max_actions_per_tick);
+  cfg.merge_idle_after_us = zfo_.governance_merge_idle_micros;
+  governance_policy_.reset(new GovernancePolicy(cfg));
 }
 
 ZeroFlushContext::~ZeroFlushContext() = default;
@@ -353,7 +370,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
   // 孤儿代（Recover 时 AddRecoveryGens 登记），会在同一持锁窗口内被收养
   // 并入本 epoch（M3_DESIGN.md §8.1），保证读路径的 in_epoch 校验在收养
   // 期间恒成立——不再需要调用方手动并入。
-  sealed_cache_->AddEpochWithRecoveryAdoption(se);
+  RegisterSealedEpoch(se);
   // Step 3：把 epoch 标到旧 mem（即将被 SwitchMemtable 切换为 imm）。
   // 旧 mem 析构时通过 zf_ctx_->ReleaseEpoch(zf_epoch_) 归还 SealedFileCache
   // 引用；这是 I3 "iter 持有旧 SV 期间文件不删" 的内存安全基础。
@@ -387,6 +404,46 @@ size_t ZeroFlushContext::PurgeSealedFiles() {
     return sealed_cache_->PurgePending();
   }
   return 0;
+}
+
+// ---- ZeroFlushV0 M4：动态治理 DG ----
+
+void ZeroFlushContext::RegisterSealedEpoch(const SealedEpoch& se) {
+  // @封存边界速率采样（不进写路径；封存为低频事件）。每分区本代封存字节 +
+  // 当前时刻喂入速率 EWMA。随后做既有登记（收养 recovery/skip）。
+  if (rate_tracker_ != nullptr) {
+    const uint64_t now = env_ != nullptr ? env_->NowMicros() : 0;
+    for (const auto& [pid, bytes] : se.part_bytes) {
+      if (bytes > 0) {
+        rate_tracker_->RecordSeal(pid, bytes, now);
+      }
+    }
+  }
+  if (sealed_cache_ != nullptr) {
+    sealed_cache_->AddEpochWithRecoveryAdoption(se);
+  }
+}
+
+bool ZeroFlushContext::HasPendingPartData(uint32_t part_id) const {
+  // 与 MergePartitionLocked/SplitPartitionLocked 的 Busy 前置一致：
+  // pending sealed WAL gens（含 skip/recovery 收养集合）或 frozen 分区索引。
+  if (index_set_ != nullptr && index_set_->HasFrozen(part_id)) {
+    return true;
+  }
+  if (sealed_cache_ != nullptr && sealed_cache_->HasPendingPartGens(part_id)) {
+    return true;
+  }
+  return false;
+}
+
+void ZeroFlushContext::DrainingSnapshot(
+    std::vector<DrainingPart>* out) const {
+  out->clear();
+  std::lock_guard<std::mutex> l(draining_mu_);
+  out->reserve(draining_.size());
+  for (const auto& d : draining_) {
+    out->push_back(d);
+  }
 }
 
 uint64_t ZeroFlushContext::sealed_bytes() const {
@@ -476,6 +533,15 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     // 分配/回收判据用）。
     auto cur = tables_ ? tables_->current() : nullptr;
     *value = std::to_string(cur != nullptr ? cur->partitions() : 0);
+  } else if (prop == "rocksdb.zeroflush.rewrite_bytes") {
+    // ZeroFlushV0 M4：type-3 rewrite 累计输出字节（治理带宽账本）。
+    *value = std::to_string(rewrite_bytes());
+  } else if (prop == "rocksdb.zeroflush.gov_ticks") {
+    *value = std::to_string(governance_ticks());
+  } else if (prop == "rocksdb.zeroflush.gov_splits") {
+    *value = std::to_string(governance_splits());
+  } else if (prop == "rocksdb.zeroflush.gov_merges") {
+    *value = std::to_string(governance_merges());
   } else {
     return false;
   }
@@ -920,7 +986,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeBatchPartitions(
     }
   }
   wal_->ClearOverTargetFlag();
-  sealed_cache_->AddEpochWithRecoveryAdoption(se);
+  RegisterSealedEpoch(se);
   // 空 mem 切换 → imm → FlushJob 触发该 epoch 的物化（多分区 gens）。
   ROCKSDB_NAMESPACE::MemTable* old_mem = cfd->mem();
   if (old_mem != nullptr) {
@@ -975,7 +1041,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeOnePartition(
   // 清超限标志：该分区已换代（新代从 0 起）；其他分区超限由 Append 的
   // 原子检查重新置位（自愈，最多延迟一个写组）。
   wal_->ClearOverTargetFlag();
-  sealed_cache_->AddEpochWithRecoveryAdoption(se);
+  RegisterSealedEpoch(se);
   // 空 mem 切换 → imm → FlushJob 触发该 epoch 的物化（单分区 gens）。
   ROCKSDB_NAMESPACE::MemTable* old_mem = cfd->mem();
   if (old_mem != nullptr) {
@@ -1663,7 +1729,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
       se.total_bytes = fr.sealed_bytes;
     }
     wal_->ClearOverTargetFlag();
-    sealed_cache_->AddEpochWithRecoveryAdoption(se);
+    RegisterSealedEpoch(se);
     ROCKSDB_NAMESPACE::MemTable* old_mem = cfd->mem();
     if (old_mem != nullptr) {
       old_mem->SetZfEpoch(epoch);
@@ -1818,7 +1884,7 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezePartitionTailLocked(
     se.total_bytes = fr.sealed_bytes;
   }
   wal_->ClearOverTargetFlag();
-  sealed_cache_->AddEpochWithRecoveryAdoption(se);
+  RegisterSealedEpoch(se);
   ROCKSDB_NAMESPACE::MemTable* old_mem = cfd->mem();
   if (old_mem != nullptr) {
     old_mem->SetZfEpoch(epoch);
@@ -2077,6 +2143,15 @@ ROCKSDB_NAMESPACE::Status GrowPartitions(ROCKSDB_NAMESPACE::DB* db,
   }
   auto* impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(db);
   return impl->ZfGrowPartitions(splits_out);
+}
+
+ROCKSDB_NAMESPACE::Status RunGovernanceTick(ROCKSDB_NAMESPACE::DB* db) {
+  if (db == nullptr) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush::RunGovernanceTick: db must not be null");
+  }
+  auto* impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(db);
+  return impl->ZfGovernanceTick();
 }
 
 // ---------------------------------------------------------------------------
@@ -2431,6 +2506,12 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   // ZeroFlushV0 P2（M2）：分区 id 分配器初始化（Recover 列出全部文件后——
   // 表版本 + 文件 part 的 max 重建，见 RebuildNextPartId 注释）。
   ctx->RebuildNextPartId();
+  // ZeroFlushV0 M4：动态治理后台控制器（zfo.dynamic_governance=true 时启
+  // 后台线程按 governance_tick_interval_micros 周期自驱）。Close/析构时由
+  // DBImpl::ZfStopRepartitionController join。
+  if (zfo.dynamic_governance) {
+    impl->ZfStartRepartitionController();
+  }
   *db = std::move(opened);
   return ROCKSDB_NAMESPACE::Status::OK();
 }

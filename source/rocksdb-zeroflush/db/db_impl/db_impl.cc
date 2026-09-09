@@ -922,6 +922,8 @@ DBImpl::~DBImpl() {
       s.PermitUncheckedError();
     }
 
+    // ZeroFlushV0 M4：析构路径同样先停治理控制器（Close() 未走时兜底）。
+    ZfStopRepartitionController();
     ZfCloseFlush();
     closing_status_ = CloseImpl();
     closing_status_.PermitUncheckedError();
@@ -5864,6 +5866,8 @@ Status DBImpl::Close() {
     }
   }
 
+  // ZeroFlushV0 M4：先停后台治理控制器（join），再做关闭冲刷。
+  ZfStopRepartitionController();
   ZfCloseFlush();
 
   closing_status_ = CloseImpl();

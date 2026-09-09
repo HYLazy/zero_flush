@@ -45,6 +45,7 @@
 #include "table/merging_iterator.h"
 #include "zeroflush/partition_index.h"
 #include "zeroflush/partition_table.h"
+#include "zeroflush/repartition_controller.h"
 #include "zeroflush/wal_format.h"
 #include "zeroflush/zeroflush_db.h"
 
@@ -5111,6 +5112,493 @@ void TestGrowthSinglePartition() {
                               " keys=" + std::to_string(total));
 }
 
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 M4 治理决策策略单测（纯逻辑，无 DB）。
+// 覆盖：连续窗确认、热拆分/冷合并触发、P 界、同 range 冷却、Busy 重试
+// （pending aging/退避调度）、全均匀负载不动作。
+// ---------------------------------------------------------------------------
+void TestGovernancePolicyUnit() {
+  const char* tag = "GovernancePolicyUnit(M4)";
+  using zeroflush::GovernanceObs;
+  using zeroflush::GovernanceAction;
+  using zeroflush::GovernanceKind;
+  using zeroflush::GovernancePolicy;
+  const uint64_t kNow0 = 1000000000000ULL;  // 远离 0 的虚拟时钟
+
+  // ---- A) 热分区连续 3 窗后触发 split；成功后同 range 冷却 ----
+  {
+    GovernancePolicy::Config cfg;
+    cfg.p_min = 1;
+    cfg.p_max = 64;
+    cfg.confirm_windows = 3;
+    cfg.split_min_bytes = 100;
+    cfg.merge_max_bytes = 1000;
+    cfg.cooldown_base_us = 1000 * 1000;
+    cfg.cooldown_max_us = 2000 * 1000;
+    cfg.retry_backoff_base_us = 100 * 1000;
+    cfg.retry_backoff_max_us = 1000 * 1000;
+    GovernancePolicy pol(cfg);
+    auto mk = [](uint32_t id, double fast, double slow, uint64_t base,
+                 const std::string& lo, const std::string& hi) {
+      GovernanceObs o;
+      o.part_id = id;
+      o.rate_fast = fast;
+      o.rate_slow = slow;
+      o.base_bytes = base;
+      o.base_known = true;
+      o.lo = lo;
+      o.hi = hi;
+      return o;
+    };
+    // 分区 1 热（rate=1000 = 4× 均值 250 ≥ θ_split×250=750）；分区 2-4 零速
+    // 但 base 大（5000 > merge_max 1000）→ 冷合并被大小门槛排除。
+    std::vector<GovernanceObs> obs = {
+        mk(1, 1000, 1000, 500, "", "b"),  mk(2, 0, 0, 5000, "b", "c"),
+        mk(3, 0, 0, 5000, "c", "d"),      mk(4, 0, 0, 5000, "d", "")};
+    GovernanceAction act;
+    bool fired = false;
+    for (int t = 0; t < 6; ++t) {
+      auto acts = pol.Decide(obs, kNow0 + t * 1000000);
+      if (!acts.empty()) {
+        act = acts[0];
+        fired = true;
+        break;
+      }
+    }
+    if (!fired || act.kind != GovernanceKind::kSplit || act.part_id != 1) {
+      ReportResult(tag, false, "A: hot split did not fire after 3 windows");
+      return;
+    }
+    // 成功后同 range 冷却 → 下一轮（同 obs）不动作。
+    std::vector<GovernancePolicy::RangeKey> affected = {{"", "b"}};
+    pol.NoteSuccess(act, kNow0 + 6 * 1000000, affected, 0);
+    if (!pol.Decide(obs, kNow0 + 6 * 1000000 + 1).empty()) {
+      ReportResult(tag, false, "A: cooldown did not block immediate re-action");
+      return;
+    }
+  }
+
+  // ---- B) 全均匀负载：rate 恒等于均值 → 无任何动作 ----
+  {
+    GovernancePolicy::Config cfg;
+    cfg.p_min = 1;
+    cfg.p_max = 64;
+    cfg.confirm_windows = 3;
+    cfg.split_min_bytes = 100;
+    cfg.merge_max_bytes = 1000;
+    GovernancePolicy pol(cfg);
+    std::vector<GovernanceObs> obs;
+    for (uint32_t i = 0; i < 8; ++i) {
+      GovernanceObs o;
+      o.part_id = 10 + i;
+      o.rate_fast = o.rate_slow = 100.0;
+      o.base_bytes = 500;
+      o.base_known = true;
+      obs.push_back(o);
+    }
+    for (int t = 0; t < 8; ++t) {
+      if (!pol.Decide(obs, kNow0 + t * 1000000).empty()) {
+        ReportResult(tag, false, "B: uniform load must not trigger");
+        return;
+      }
+    }
+  }
+
+  // ---- C) 全空闲冷回收：P>P_min 时小分区被合并，直到 P==P_min 停 ----
+  {
+    GovernancePolicy::Config cfg;
+    cfg.p_min = 2;
+    cfg.p_max = 64;
+    cfg.confirm_windows = 1;
+    cfg.split_min_bytes = 100;
+    cfg.merge_max_bytes = 1000;
+    cfg.cooldown_base_us = 1000 * 1000;
+    cfg.cooldown_max_us = 2000 * 1000;
+    GovernancePolicy pol(cfg);
+    std::vector<GovernanceObs> obs;
+    for (uint32_t i = 0; i < 4; ++i) {
+      GovernanceObs o;
+      o.part_id = 20 + i;
+      o.rate_fast = o.rate_slow = 0.0;
+      o.base_bytes = 0;
+      o.base_known = true;
+      o.lo = i == 0 ? "" : "k" + std::to_string(i);
+      o.hi = i == 3 ? "" : "k" + std::to_string(i + 1);
+      obs.push_back(o);
+    }
+    const auto acts = pol.Decide(obs, kNow0);
+    if (acts.empty() || acts[0].kind != GovernanceKind::kMerge) {
+      ReportResult(tag, false, "C: idle cold partition did not trigger merge");
+      return;
+    }
+    // P==P_min：合并被界拦住。
+    std::vector<GovernanceObs> two = {obs[0], obs[1]};
+    for (int t = 0; t < 6; ++t) {
+      if (!pol.Decide(two, kNow0 + (t + 1) * 1000000).empty()) {
+        ReportResult(tag, false, "C: merge fired at P==P_min");
+        return;
+      }
+    }
+  }
+
+  // ---- D) Busy 重试：退避调度（到期前不动作）+ aging 保留 ----
+  {
+    GovernancePolicy::Config cfg;
+    cfg.p_min = 2;
+    cfg.p_max = 64;
+    cfg.confirm_windows = 1;
+    cfg.split_min_bytes = 100;
+    cfg.merge_max_bytes = 1000;
+    cfg.retry_backoff_base_us = 100 * 1000;
+    cfg.retry_backoff_max_us = 1000 * 1000;
+    GovernancePolicy pol(cfg);
+    std::vector<GovernanceObs> obs;
+    for (uint32_t i = 0; i < 4; ++i) {
+      GovernanceObs o;
+      o.part_id = 30 + i;
+      o.rate_fast = o.rate_slow = 0.0;
+      o.base_bytes = 0;
+      o.base_known = true;
+      o.lo = "n" + std::to_string(i);
+      o.hi = "n" + std::to_string(i + 1);
+      obs.push_back(o);
+    }
+    const auto acts0 = pol.Decide(obs, kNow0);
+    if (acts0.empty()) {
+      ReportResult(tag, false, "D: expected a merge candidate");
+      return;
+    }
+    pol.NoteRetry(acts0[0], kNow0);
+    // 退避期内：被重试的分区不得再次入选（pending 未到期；其他分区仍可作
+    // 为新候选被选中——因此只断言返回的动作不是被重试分区）。
+    {
+      const auto acts_before = pol.Decide(obs, kNow0 + 1000);
+      if (!acts_before.empty() &&
+          acts_before[0].part_id == acts0[0].part_id) {
+        ReportResult(tag, false, "D: retried partition fired before backoff");
+        return;
+      }
+    }
+    // 到期后：pending（aging 加成）优先于新候选 → 同一分区、kind 仍 merge。
+    const auto acts1 = pol.Decide(obs, kNow0 + 200 * 1000);
+    if (acts1.empty() || acts1[0].part_id != acts0[0].part_id ||
+        acts1[0].kind != GovernanceKind::kMerge) {
+      ReportResult(tag, false, "D: pending retry did not resume after backoff");
+      return;
+    }
+  }
+
+  ReportResult(tag, true, "A-D ok");
+}
+
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 M4 动态治理 e2e（确定性：手动 RunGovernanceTick 驱动）。
+// 拆两个独立子场景，各自确定性验证一条治理路径：
+//  A) 偏态热写入 → 控制器热拆分：P 增长到 P_max（空闲期合并 idle 窗设极大
+//     → 本场景无 merge 干扰，拆分确定性）；
+//  B) 全新空库（全零速率、无封存样本）→ 空闲期冷回收：merge 把 P 收到
+//     P_min 下界（全空分区、无时序依赖，确定性）。
+//  两者均校验数据正确 / P 界 / reopen 一致。
+// ---------------------------------------------------------------------------
+void TestGovernanceDynamicEndToEnd() {
+  const char* tag = "GovernanceDynamicEndToEnd(M4)";
+  const int kPmin = 2;
+  const int kPmax = 8;
+
+  // ---- A) 热拆分（偏态单调写 + 排空检查点 tick）----
+  {
+    std::string dbname = std::string(kDbBase) + "governance_m4_split";
+    CleanDB(dbname);
+    zeroflush::ZeroFlushOptions zfo;
+    zfo.partitions = 4;
+    zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+    zfo.static_boundaries = {"m", "s", "w"};
+    zfo.partition_target_bytes = 8 * 1024;
+    zfo.epoch_target_bytes = 8 * 1024;
+    zfo.dynamic_governance = false;  // 手动 tick 驱动（确定性）
+    zfo.governance_p_min = kPmin;
+    zfo.governance_p_max = kPmax;
+    zfo.governance_split_min_bytes = 4 * 1024;
+    zfo.governance_merge_max_bytes = 4 * 1024;
+    zfo.governance_confirm_windows = 2;
+    zfo.governance_cooldown_micros = 1;
+    zfo.governance_cooldown_max_micros = 1;
+    zfo.governance_ewma_fast_secs = 2;
+    zfo.governance_ewma_slow_secs = 2;
+    // 空闲期合并窗 = 极大 → 本子场景只测拆分（无 merge 干扰）。
+    zfo.governance_merge_idle_micros = 100ull << 30;
+
+    std::unique_ptr<rocksdb::DB> db;
+    auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+    if (!s.ok()) {
+      ReportResult(tag, false, "A: open: " + s.ToString());
+      return;
+    }
+    char k[24];
+    auto val = [](int id) {
+      std::string v(200, 'x');
+      snprintf(&v[0], 32, "gv%06d", id);
+      return v;
+    };
+    uint64_t total = 0;
+    const int kKeysPerRound = 90;
+    const int kRounds = 14;
+    for (int round = 0; round < kRounds; ++round) {
+      for (int i = 0; i < kKeysPerRound; ++i, ++total) {
+        snprintf(k, sizeof(k), "a%09d", static_cast<int>(total));
+        if (!db->Put(rocksdb::WriteOptions(), k, val(static_cast<int>(total)))
+                 .ok()) {
+          ReportResult(tag, false, "A: put@round");
+          db.reset();
+          CleanDB(dbname);
+          return;
+        }
+      }
+      if (!WaitAllMaterialized(db.get(), 60000)) {
+        ReportResult(tag, false, "A: WaitAllMaterialized");
+        db.reset();
+        CleanDB(dbname);
+        return;
+      }
+      for (int t = 0; t < 3; ++t) {
+        const rocksdb::Status ts = zeroflush::RunGovernanceTick(db.get());
+        if (!ts.ok()) {
+          ReportResult(tag, false, "A: tick: " + ts.ToString());
+          db.reset();
+          CleanDB(dbname);
+          return;
+        }
+      }
+      const uint64_t pc = ZfMetric(db.get(), "partition_count");
+      if (pc < kPmin || pc > kPmax) {
+        ReportResult(tag, false, "A: P out of bounds (P=" +
+                                     std::to_string(pc) + ")");
+        db.reset();
+        CleanDB(dbname);
+        return;
+      }
+    }
+    if (!WaitAllMaterialized(db.get(), 60000)) {
+      ReportResult(tag, false, "A: WaitAllMaterialized(end)");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    if (ZfMetric(db.get(), "gov_splits") < 2) {
+      ReportResult(tag, false,
+                   "A: hot skew did not split >=2 times (got " +
+                       std::to_string(ZfMetric(db.get(), "gov_splits")) + ")");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    const uint64_t pc_end = ZfMetric(db.get(), "partition_count");
+    const int64_t cnt = CountViaIterator(db.get());
+    if (cnt != static_cast<int64_t>(total)) {
+      ReportResult(tag, false, "A: iter count mismatch");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    for (int id : {0, 500, static_cast<int>(total) - 1}) {
+      snprintf(k, sizeof(k), "a%09d", id);
+      std::string out;
+      if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() ||
+          out != val(id)) {
+        ReportResult(tag, false, "A: spot read");
+        db.reset();
+        CleanDB(dbname);
+        return;
+      }
+    }
+    db.reset();
+    s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+    if (!s.ok()) {
+      ReportResult(tag, false, "A: reopen: " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+    if (ZfMetric(db.get(), "partition_count") != pc_end ||
+        CountViaIterator(db.get()) != static_cast<int64_t>(total)) {
+      ReportResult(tag, false, "A: reopen inconsistent");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    db.reset();
+    CleanDB(dbname);
+  }
+
+  // ---- B) 空闲期冷回收（全空分区合并至 P_min）----
+  {
+    std::string dbname = std::string(kDbBase) + "governance_m4_reclaim";
+    CleanDB(dbname);
+    zeroflush::ZeroFlushOptions zfo;
+    zfo.partitions = 6;
+    zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+    zfo.static_boundaries = {"b", "d", "f", "h", "j"};
+    zfo.partition_target_bytes = 8 * 1024;
+    zfo.epoch_target_bytes = 8 * 1024;
+    zfo.dynamic_governance = false;
+    zfo.governance_p_min = kPmin;
+    zfo.governance_p_max = kPmax;
+    zfo.governance_split_min_bytes = 4 * 1024;
+    zfo.governance_merge_max_bytes = 4 * 1024;
+    zfo.governance_confirm_windows = 1;
+    zfo.governance_cooldown_micros = 1;
+    zfo.governance_cooldown_max_micros = 1;
+    zfo.governance_ewma_fast_secs = 2;
+    zfo.governance_ewma_slow_secs = 2;
+    zfo.governance_merge_idle_micros = 1;  // 空库无样本 → 立即视为空闲
+
+    std::unique_ptr<rocksdb::DB> db;
+    auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+    if (!s.ok()) {
+      ReportResult(tag, false, "B: open: " + s.ToString());
+      return;
+    }
+    uint64_t pc = ZfMetric(db.get(), "partition_count");
+    int guard = 0;
+    while (pc > kPmin && guard++ < 16) {
+      const rocksdb::Status ts = zeroflush::RunGovernanceTick(db.get());
+      if (!ts.ok()) {
+        ReportResult(tag, false, "B: tick: " + ts.ToString());
+        db.reset();
+        CleanDB(dbname);
+        return;
+      }
+      pc = ZfMetric(db.get(), "partition_count");
+    }
+    if (pc != kPmin ||
+        ZfMetric(db.get(), "gov_merges") < 2) {
+      ReportResult(tag, false,
+                   "B: idle reclaim did not reach P_min (P=" +
+                       std::to_string(pc) + " merges=" +
+                       std::to_string(ZfMetric(db.get(), "gov_merges")) + ")");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    // 回收后读写一致性 + reopen。
+    char k[16];
+    for (int i = 0; i < 20; ++i) {
+      snprintf(k, sizeof(k), "k%03d", i);
+      if (!db->Put(rocksdb::WriteOptions(), k, "v").ok()) {
+        ReportResult(tag, false, "B: put after reclaim");
+        db.reset();
+        CleanDB(dbname);
+        return;
+      }
+    }
+    if (!WaitAllMaterialized(db.get(), 30000)) {
+      ReportResult(tag, false, "B: WaitAllMaterialized");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    if (CountViaIterator(db.get()) != 20) {
+      ReportResult(tag, false, "B: iter count");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    db.reset();
+    s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+    if (!s.ok() || CountViaIterator(db.get()) != 20) {
+      ReportResult(tag, false, "B: reopen");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    db.reset();
+    CleanDB(dbname);
+  }
+
+  ReportResult(tag, true, "A(split)+B(reclaim) ok");
+}
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 M4 后台自动治理 smoke（env 门控：ZF_GOV_BG=1 运行）。
+// 用真实后台控制器线程（小 tick 间隔）+ 偏态写入：验证线程启停/Close
+// join 生命周期与数据正确性（不做动作次数强断言——后台调度非确定性）。
+// ---------------------------------------------------------------------------
+void TestGovernanceBackgroundAuto() {
+  const char* tag = "GovernanceBackgroundAuto(M4)";
+  if (getenv("ZF_GOV_BG") == nullptr) {
+    ReportResult(tag, true, "skipped (set ZF_GOV_BG=1 to run)");
+    return;
+  }
+  std::string dbname = std::string(kDbBase) + "governance_m4_bg";
+  CleanDB(dbname);
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+  zfo.static_boundaries = {"m", "s", "w"};
+  zfo.partition_target_bytes = 8 * 1024;
+  zfo.epoch_target_bytes = 8 * 1024;
+  zfo.dynamic_governance = true;  // 真实后台控制器
+  zfo.governance_tick_interval_micros = 20 * 1000;
+  zfo.governance_p_min = 2;
+  zfo.governance_p_max = 16;
+  zfo.governance_split_min_bytes = 4 * 1024;
+  zfo.governance_merge_max_bytes = 4 * 1024;
+  zfo.governance_confirm_windows = 2;
+  zfo.governance_cooldown_micros = 1;
+  zfo.governance_cooldown_max_micros = 1;
+  zfo.governance_ewma_fast_secs = 2;
+  zfo.governance_ewma_slow_secs = 2;
+  zfo.governance_merge_idle_micros = 30 * 1000;  // 空闲期合并判定窗（快测）
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  auto fail = [&](const std::string& why) {
+    ReportResult(tag, false, why);
+    db.reset();
+    CleanDB(dbname);
+  };
+  char k[24];
+  std::string v(200, 'x');
+  uint64_t total = 0;
+  for (int round = 0; round < 6; ++round) {
+    for (int i = 0; i < 60; ++i, ++total) {
+      snprintf(k, sizeof(k), "a%09d", static_cast<int>(total));
+      if (!db->Put(rocksdb::WriteOptions(), k, v).ok()) {
+        fail("put@bg");
+        return;
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    if (!WaitAllMaterialized(db.get(), 30000)) {
+      fail("WaitAllMaterialized@bg");
+      return;
+    }
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));  // 让后台收敛
+  db.reset();  // Close：停止 + join 治理线程 → 关闭冲刷
+  s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    fail("reopen: " + s.ToString());
+    return;
+  }
+  const int64_t cnt = CountViaIterator(db.get());
+  const uint64_t pc = ZfMetric(db.get(), "partition_count");
+  if (cnt != static_cast<int64_t>(total)) {
+    fail("iter count mismatch after bg governance (got " +
+         std::to_string(cnt) + " want " + std::to_string(total) + ")");
+    return;
+  }
+  if (pc < zfo.governance_p_min || pc > zfo.governance_p_max) {
+    fail("P out of bounds after bg (P=" + std::to_string(pc) + ")");
+    return;
+  }
+  db.reset();
+  CleanDB(dbname);
+  ReportResult(tag, true, "bg ok P=" + std::to_string(pc));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -5203,6 +5691,10 @@ int main(int argc, char** argv) {
   run("MergeParallelStress",           TestMergeParallelStress);
   // ---- ZeroFlushV0 M3（起步生长）新增 ----
   run("GrowthSinglePartition",         TestGrowthSinglePartition);
+  // ---- ZeroFlushV0 M4（动态治理 DG）新增 ----
+  run("GovernancePolicyUnit",          TestGovernancePolicyUnit);
+  run("GovernanceDynamicEndToEnd",     TestGovernanceDynamicEndToEnd);
+  run("GovernanceBackgroundAuto",      TestGovernanceBackgroundAuto);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

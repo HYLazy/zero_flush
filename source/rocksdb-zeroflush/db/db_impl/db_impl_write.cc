@@ -6,9 +6,12 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#include <algorithm>
 #include <cinttypes>
 #include <optional>
+#include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_write_batch_transformer.h"
@@ -24,6 +27,7 @@
 #include "util/cast_util.h"
 #include "util/hash_containers.h"
 #include "zeroflush/materialize_job.h"
+#include "zeroflush/repartition_controller.h"
 #include "zeroflush/wal_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -3978,6 +3982,15 @@ Status DBImpl::ZfSplitPartition(uint32_t part, const Slice& split_key,
     // 与 ZfMergePartition 一致：持锁调度的安全点（LogAndApply 内部可能短暂
     // 释放 mutex 做 MANIFEST IO，返回时已重新持锁）。
     if (s.ok()) {
+      // ZeroFlushV0 M4：type-3 rewrite 累计输出字节（治理带宽账本/诊断）。
+      if (zf_ctx_ != nullptr) {
+        uint64_t rb = 0;
+        for (const auto& it : items) {
+          rb += it.out_l.fd.GetFileSize();
+          rb += it.out_r.fd.GetFileSize();
+        }
+        zf_ctx_->AddRewriteBytes(rb);
+      }
       MaybeScheduleFlushOrCompaction();
     }
   }
@@ -4189,6 +4202,509 @@ Status DBImpl::ZfGrowPartitions(uint32_t* splits_out) {
   if (splits_out != nullptr) {
     *splits_out = done;
   }
+  return Status::OK();
+}
+
+// ===========================================================================
+// ZeroFlushV0 M4：动态治理 DG——后台控制器 + tick + 执行器
+// ===========================================================================
+
+namespace {
+
+// 治理用：k 严格在 [lo,hi) 开区间内（空 = ±∞）——split 边界不得等于既有
+// 分区边界（DeriveSplit 拒绝）或落到区间外。
+bool ZfKeyStrictlyInside(const Comparator* ucmp, const Slice& k,
+                         const Slice& lo, const Slice& hi) {
+  if (!lo.empty() && ucmp->Compare(k, lo) <= 0) {
+    return false;
+  }
+  if (!hi.empty() && ucmp->Compare(k, hi) >= 0) {
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+void DBImpl::ZfStartRepartitionController() {
+  if (zf_ctx_ == nullptr) {
+    return;
+  }
+  if (zf_governance_thread_ != nullptr &&
+      !zf_governance_stop_.load(std::memory_order_relaxed)) {
+    return;  // 已在运行
+  }
+  zf_governance_stop_.store(false, std::memory_order_relaxed);
+  zf_governance_thread_.reset(new std::thread([this] {
+    // 后台治理循环：按 governance_tick_interval_micros 节奏 tick；以
+    // 2ms 粒度检查停止标志（Close/析构 join 的响应性）。
+    const uint64_t kSleepGranularityUs = 2000;
+    while (!zf_governance_stop_.load(std::memory_order_relaxed)) {
+      const uint64_t t0 = env_->NowMicros();
+      const Status s = ZfGovernanceTick();
+      if (!s.ok() && !s.IsBusy()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "ZeroFlush governance tick: %s", s.ToString().c_str());
+      }
+      uint64_t interval = zf_ctx_ != nullptr
+                              ? zf_ctx_->options()
+                                    .governance_tick_interval_micros
+                              : 0;
+      if (interval == 0) {
+        interval = 1000 * 1000;
+      }
+      uint64_t waited = env_->NowMicros() - t0;
+      if (waited < interval) {
+        uint64_t left = interval - waited;
+        while (left > 0 &&
+               !zf_governance_stop_.load(std::memory_order_relaxed)) {
+          const uint64_t step = std::min(left, kSleepGranularityUs);
+          env_->SleepForMicroseconds(step);
+          left -= step;
+        }
+      }
+    }
+  }));
+}
+
+void DBImpl::ZfStopRepartitionController() {
+  zf_governance_stop_.store(true, std::memory_order_relaxed);
+  if (zf_governance_thread_ != nullptr &&
+      zf_governance_thread_->joinable()) {
+    zf_governance_thread_->join();
+  }
+  zf_governance_thread_.reset();
+}
+
+uint64_t DBImpl::ZfGovernanceBaseBytesLocked(ColumnFamilyData* cfd,
+                                             uint32_t part_id,
+                                             const Slice& lo, const Slice& hi,
+                                             uint64_t now_us) {
+  // REQUIRES: DB mutex held（读 vstorage）。TTL 缓存：动作低频 + 门槛复核
+  // 高频，缓存避免每 tick 全表扫描；区间变化由调用方 Invalidate。
+  {
+    std::lock_guard<std::mutex> l(zf_base_cache_mu_);
+    auto it = zf_base_bytes_cache_.find(part_id);
+    if (it != zf_base_bytes_cache_.end() &&
+        now_us < it->second.checked_us + kGovernanceBaseStatsTtlUs) {
+      return it->second.bytes;
+    }
+  }
+  const auto* vstorage = cfd->current()->storage_info();
+  const int base = vstorage->base_level();
+  const Comparator* ucmp = cfd->user_comparator();
+  uint64_t bytes = 0;
+  for (FileMetaData* f : vstorage->LevelFiles(base)) {
+    const Slice s = f->smallest.user_key();
+    const Slice e = f->largest.user_key();
+    // 归属 = 文件足迹完全落在分区区间内（与生长扫描同口径）。
+    if (!(lo.empty() || ucmp->Compare(s, lo) >= 0) ||
+        !(hi.empty() || ucmp->Compare(e, hi) < 0)) {
+      continue;
+    }
+    bytes += f->fd.GetFileSize();
+  }
+  {
+    std::lock_guard<std::mutex> l(zf_base_cache_mu_);
+    ZfBaseBytesCache c;
+    c.checked_us = now_us;
+    c.bytes = bytes;
+    zf_base_bytes_cache_[part_id] = c;
+  }
+  return bytes;
+}
+
+void DBImpl::ZfGovernanceInvalidateBaseBytes(uint32_t part_id) {
+  std::lock_guard<std::mutex> l(zf_base_cache_mu_);
+  zf_base_bytes_cache_.erase(part_id);
+}
+
+// 单次治理 tick：观察 → 策略决策 → 至多执行一个动作（v1：C=1）。
+Status DBImpl::ZfGovernanceTick() {
+  bool expected = false;
+  if (!zf_governance_tick_running_.compare_exchange_strong(expected, true)) {
+    return Status::Busy("ZeroFlush: governance tick already running");
+  }
+  struct TickGuard {
+    std::atomic<bool>& flag;
+    ~TickGuard() { flag.store(false, std::memory_order_relaxed); }
+  } guard{zf_governance_tick_running_};
+
+  if (zf_ctx_ == nullptr) {
+    if (getenv("ZF_DBG_GOV") != nullptr) {
+      fprintf(stderr, "ZFDBG-gov tick: no ctx\n");
+    }
+    return Status::OK();
+  }
+  auto* policy = zf_ctx_->governance_policy();
+  auto* tracker = zf_ctx_->rate_tracker();
+  if (policy == nullptr || tracker == nullptr) {
+    if (getenv("ZF_DBG_GOV") != nullptr) {
+      fprintf(stderr, "ZFDBG-gov tick: no policy/tracker\n");
+    }
+    return Status::OK();
+  }
+  zf_ctx_->NoteGovernanceTick();
+  const uint64_t now = env_->NowMicros();
+  if (getenv("ZF_DBG_GOV") != nullptr) {
+    fprintf(stderr, "ZFDBG-gov tick enter now=%llu\n",
+            (unsigned long long)now);
+  }
+  const zeroflush::ZeroFlushOptions& zfo = zf_ctx_->options();
+
+  // ---- 1) 路由表快照（不可变 shared_ptr，无需 DB mutex）----
+  auto tbl = zf_ctx_->tables() ? zf_ctx_->tables()->current() : nullptr;
+  if (tbl == nullptr || tbl->IsHashMode() || tbl->partitions() < 2) {
+    return Status::OK();  // 范围表且 P≥2 才治理（P=1 生长走 M3）
+  }
+  const auto& ids = tbl->part_ids();
+  ColumnFamilyData* cfd = GetDefaultColumnFamily();
+  if (cfd == nullptr) {
+    return Status::OK();
+  }
+
+  // ---- 2) 观察（速率含时间衰减；busy/draining 各取最新快照）----
+  std::vector<zeroflush::DrainingPart> dr;
+  zf_ctx_->DrainingSnapshot(&dr);
+  std::unordered_set<uint32_t> drain_ids;
+  std::unordered_set<uint32_t> absorb_ids;
+  for (const auto& d : dr) {
+    drain_ids.insert(d.part);
+    absorb_ids.insert(d.absorb);
+  }
+  std::vector<zeroflush::GovernanceObs> obs;
+  obs.reserve(ids.size());
+  for (size_t i = 0; i < ids.size(); ++i) {
+    zeroflush::GovernanceObs o;
+    o.part_id = ids[i];
+    o.rate_fast = tracker->RateFast(o.part_id, now);
+    o.rate_slow = tracker->RateSlow(o.part_id, now);
+    rocksdb::Slice lo, hi;
+    tbl->RangeOf(static_cast<uint32_t>(i), &lo, &hi);
+    o.lo.assign(lo.data(), lo.size());
+    o.hi.assign(hi.data(), hi.size());
+    o.active_bytes = zf_ctx_->wal() != nullptr
+                         ? zf_ctx_->wal()->ActiveSize(o.part_id)
+                         : 0;
+    o.busy = zf_ctx_->HasPendingPartData(o.part_id);
+    o.draining = drain_ids.count(o.part_id) > 0 ||
+                 absorb_ids.count(o.part_id) > 0;
+    const uint64_t last_seal = tracker->LastSealMicros(o.part_id);
+    o.last_seal_age_us =
+        last_seal == 0 ? UINT64_MAX : (now > last_seal ? now - last_seal : 0);
+    obs.push_back(std::move(o));
+  }
+
+  // ---- 3) 策略决策 ----
+  const std::vector<zeroflush::GovernanceAction> actions =
+      policy->Decide(obs, now);
+  if (getenv("ZF_DBG_GOV") != nullptr) {
+    double mf = 0;
+    for (const auto& o : obs) {
+      mf += o.rate_fast;
+    }
+    mf = obs.empty() ? 0 : mf / obs.size();
+    for (const auto& o : obs) {
+      fprintf(stderr,
+              "ZFDBG-gov obs pid=%u rf=%.3g rs=%.3g base=%llu act=%llu "
+              "busy=%d drain=%d\n",
+              o.part_id, o.rate_fast, o.rate_slow,
+              (unsigned long long)o.base_bytes,
+              (unsigned long long)o.active_bytes, o.busy ? 1 : 0,
+              o.draining ? 1 : 0);
+    }
+    fprintf(stderr, "ZFDBG-gov mean_f=%.3g actions=%zu\n", mf, actions.size());
+    if (!actions.empty()) {
+      fprintf(stderr, "ZFDBG-gov decide kind=%d pid=%u urgency=%.3g\n",
+              static_cast<int>(actions[0].kind), actions[0].part_id,
+              actions[0].urgency);
+    }
+  }
+  if (actions.empty()) {
+    return Status::OK();
+  }
+  const zeroflush::GovernanceAction& act = actions.front();
+
+  // =========================================================================
+  // 执行：Merge（冷分区取消/合并）—— ZfMergePartition 内含排空前置检查。
+  // =========================================================================
+  if (act.kind == zeroflush::GovernanceKind::kMerge) {
+    // 权威复核（持 DB mutex）：分区仍在表、P 界、非 DRAINING、base 大小门槛。
+    {
+      InstrumentedMutexLock l(&mutex_);
+      auto cur = zf_ctx_->tables() ? zf_ctx_->tables()->current() : nullptr;
+      if (cur == nullptr || cur->IsHashMode()) {
+        return Status::OK();
+      }
+      if (cur->partitions() <= zfo.governance_p_min) {
+        return Status::OK();
+      }
+      const int pos = cur->IndexOfPart(act.part_id);
+      if (pos < 0) {
+        return Status::OK();  // 分区已不存在（他方已处理）——非 Busy
+      }
+      rocksdb::Slice lo, hi;
+      cur->RangeOf(static_cast<uint32_t>(pos), &lo, &hi);
+      std::vector<zeroflush::DrainingPart> dr2;
+      zf_ctx_->DrainingSnapshot(&dr2);
+      for (const auto& d : dr2) {
+        if (d.part == act.part_id || d.absorb == act.part_id) {
+          return Status::OK();  // DRAINING 相关：跳过（非 Busy——策略下轮自然重估）
+        }
+      }
+      const uint64_t base_b =
+          ZfGovernanceBaseBytesLocked(cfd, act.part_id, lo, hi, now);
+      if (base_b > zfo.governance_merge_max_bytes) {
+        return Status::OK();  // 大小门槛不符（本 tick 不动作）
+      }
+    }
+    uint32_t absorb = 0;
+    const Status ms = ZfMergePartition(act.part_id, &absorb);
+    if (ms.IsBusy() || ms.IsTimedOut()) {
+      policy->NoteRetry(act, env_->NowMicros());  // aging 重试
+      return Status::OK();
+    }
+    if (!ms.ok()) {
+      // 分区消失/不在表等：非 Busy——策略在分区消失后自然丢弃。
+      return Status::OK();
+    }
+    // 成功：登记冷却（affected = 吸收方新区间）。
+    zf_ctx_->NoteGovernanceMerge();
+    ZfGovernanceInvalidateBaseBytes(act.part_id);
+    std::vector<zeroflush::GovernancePolicy::RangeKey> affected;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      auto cur = zf_ctx_->tables() ? zf_ctx_->tables()->current() : nullptr;
+      if (cur != nullptr && !cur->IsHashMode()) {
+        const int apos = cur->IndexOfPart(absorb);
+        if (apos >= 0) {
+          rocksdb::Slice alo, ahi;
+          cur->RangeOf(static_cast<uint32_t>(apos), &alo, &ahi);
+          affected.emplace_back(alo.ToString(), ahi.ToString());
+          ZfGovernanceInvalidateBaseBytes(absorb);
+        }
+      }
+    }
+    policy->NoteSuccess(act, env_->NowMicros(), affected, /*seed_level=*/0);
+    return Status::OK();
+  }
+
+  // =========================================================================
+  // 执行：Split（热分区拆分）——排空活跃尾 → 等物化收敛 → 中位数切点。
+  // =========================================================================
+  if (act.kind == zeroflush::GovernanceKind::kSplit) {
+    uint64_t now2 = env_->NowMicros();
+    bool need_wait = false;
+    std::string split_lo;  // 父分区区间（决策时快照；切点/退避继承用）
+    std::string split_hi;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      auto cur = zf_ctx_->tables() ? zf_ctx_->tables()->current() : nullptr;
+      if (cur == nullptr || cur->IsHashMode()) {
+        return Status::OK();
+      }
+      if (cur->partitions() >= zfo.governance_p_max) {
+        return Status::OK();  // P 达上限：本 tick 不再拆
+      }
+      const int pos = cur->IndexOfPart(act.part_id);
+      if (pos < 0) {
+        return Status::OK();
+      }
+      rocksdb::Slice lo, hi;
+      cur->RangeOf(static_cast<uint32_t>(pos), &lo, &hi);
+      split_lo.assign(lo.data(), lo.size());
+      split_hi.assign(hi.data(), hi.size());
+      std::vector<zeroflush::DrainingPart> dr2;
+      zf_ctx_->DrainingSnapshot(&dr2);
+      for (const auto& d : dr2) {
+        if (d.part == act.part_id || d.absorb == act.part_id) {
+          return Status::OK();
+        }
+      }
+      const uint64_t base_b =
+          ZfGovernanceBaseBytesLocked(cfd, act.part_id, lo, hi, now2);
+      if (base_b < zfo.governance_split_min_bytes) {
+        // 大小未达门槛：退避重试（分区持续长大会再次入选），避免每 tick 空扫。
+        policy->NoteRetry(act, now2);
+        return Status::OK();
+      }
+      if (zf_ctx_->HasPendingPartData(act.part_id)) {
+        // 有未物化/未回收数据：等待其排空（重试退避防每 tick 空转）。
+        policy->NoteRetry(act, now2);
+        return Status::OK();
+      }
+      // 活跃尾（每次封存后 ~1 组残留）→ 冻结为单分区 epoch，等物化推进。
+      if (zf_ctx_->wal() != nullptr &&
+          zf_ctx_->wal()->ActiveSize(act.part_id) != 0) {
+        const Status fs = zf_ctx_->FreezePartitionTailLocked(
+            this, cfd, act.part_id, nullptr);
+        if (!fs.ok()) {
+          if (fs.IsBusy() || fs.IsTimedOut()) {
+            policy->NoteRetry(act, now2);
+          }
+          return Status::OK();
+        }
+        MaybeScheduleFlushOrCompaction();  // 持锁调度（与写路径 seal 一致）
+        need_wait = true;
+      }
+    }
+    // 排空等待（锁外轮询；注意 stop 检查——Close join 的响应性）。
+    if (need_wait) {
+      const uint64_t kDrainAttemptUs = 3ull * 1000 * 1000;  // 单次尝试上限
+      const uint64_t deadline = env_->NowMicros() + kDrainAttemptUs;
+      bool drained = false;
+      while (!zf_governance_stop_.load(std::memory_order_relaxed) &&
+             env_->NowMicros() < deadline) {
+        if (!zf_ctx_->HasPendingPartData(act.part_id) &&
+            (zf_ctx_->wal() == nullptr ||
+             zf_ctx_->wal()->ActiveSize(act.part_id) == 0)) {
+          drained = true;
+          break;
+        }
+        env_->SleepForMicroseconds(1000);
+      }
+      if (!drained) {
+        if (!zf_governance_stop_.load(std::memory_order_relaxed)) {
+          policy->NoteRetry(act, env_->NowMicros());
+        }
+        return Status::OK();
+      }
+    }
+    if (zf_governance_stop_.load(std::memory_order_relaxed)) {
+      return Status::OK();
+    }
+
+    // ---- 中位数切点（持 DB mutex 扫描 base 文件；同 M3 生长口径）----
+    std::string median;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      auto cur = zf_ctx_->tables() ? zf_ctx_->tables()->current() : nullptr;
+      if (cur == nullptr || cur->IsHashMode()) {
+        return Status::OK();
+      }
+      const int pos = cur->IndexOfPart(act.part_id);
+      if (pos < 0) {
+        return Status::OK();
+      }
+      rocksdb::Slice lo, hi;
+      cur->RangeOf(static_cast<uint32_t>(pos), &lo, &hi);
+      const auto* vstorage = cfd->current()->storage_info();
+      const int base = vstorage->base_level();
+      const Comparator* ucmp = cfd->user_comparator();
+      std::vector<FileMetaData*> files;
+      for (FileMetaData* f : vstorage->LevelFiles(base)) {
+        const Slice s = f->smallest.user_key();
+        const Slice e = f->largest.user_key();
+        if (!(lo.empty() || ucmp->Compare(s, lo) >= 0) ||
+            !(hi.empty() || ucmp->Compare(e, hi) < 0)) {
+          continue;
+        }
+        files.push_back(f);
+      }
+      if (files.empty()) {
+        return Status::OK();
+      }
+      const MutableCFOptions& mcf = cfd->GetLatestMutableCFOptions();
+      rocksdb::ReadOptions ro(Env::IOActivity::kCompaction);
+      ro.rate_limiter_priority = Env::IO_USER;
+      auto open_iter = [&](const FileMetaData& f) {
+        return std::unique_ptr<InternalIterator>(
+            cfd->table_cache()->NewIterator(
+                ro, file_options_, cfd->internal_comparator(), f,
+                nullptr /* range_del_agg */, mcf, nullptr /* table_reader_ptr */,
+                nullptr /* file_read_hist */,
+                TableReaderCaller::kCompaction, nullptr /* arena */,
+                false /* skip_filters */, base,
+                MaxFileSizeForL0MetaPin(mcf),
+                nullptr /* smallest_compaction_key */,
+                nullptr /* largest_compaction_key */,
+                false /* allow_unprepared_value */,
+                nullptr /* range_del_read_seqno */, nullptr /* range_del_iter */,
+                false /* maybe_pin_table_handle */, nullptr));
+      };
+      uint64_t total = 0;
+      for (FileMetaData* f : files) {
+        auto it = open_iter(*f);
+        if (!it->status().ok()) {
+          return it->status();
+        }
+        for (it->SeekToFirst(); it->Valid(); it->Next()) {
+          ++total;
+        }
+      }
+      if (total == 0) {
+        return Status::OK();
+      }
+      // 取中位数；若落在既有边界上（键 == lo/hi），向后找第一个严格在
+      // (lo,hi) 内的键——切点必须严格在父区间内（DeriveSplit 约束）。
+      const uint64_t rank = total / 2;
+      uint64_t idx = 0;
+      bool found = false;
+      for (FileMetaData* f : files) {
+        if (found) {
+          break;
+        }
+        auto it = open_iter(*f);
+        if (!it->status().ok()) {
+          return it->status();
+        }
+        for (it->SeekToFirst(); it->Valid(); it->Next()) {
+          const Slice uk = ExtractUserKey(it->key());
+          if (idx == rank || idx > rank) {
+            if (ZfKeyStrictlyInside(ucmp, uk, lo, hi)) {
+              median.assign(uk.data(), uk.size());
+              found = true;
+              break;
+            }
+          }
+          ++idx;
+        }
+      }
+      if (!found) {
+        return Status::OK();
+      }
+    }
+    uint32_t cl = 0, cr = 0;
+    const Status ss = ZfSplitPartition(act.part_id, rocksdb::Slice(median),
+                                       &cl, &cr);
+    if (ss.IsBusy() || ss.IsTimedOut()) {
+      policy->NoteRetry(act, env_->NowMicros());
+      return Status::OK();
+    }
+    if (!ss.ok()) {
+      return Status::OK();  // 分区消失/切点被拒等——策略自愈
+    }
+    // 成功：子分区继承父速率（防冷却结束后子分区被当"零速率"误合并）、
+    // 父退避级 +1 下发子区间、清缓存/计数。
+    zf_ctx_->NoteGovernanceSplit();
+    zf_ctx_->rate_tracker()->InheritRate(cl, act.part_id, env_->NowMicros());
+    zf_ctx_->rate_tracker()->InheritRate(cr, act.part_id, env_->NowMicros());
+    zf_ctx_->rate_tracker()->Forget(act.part_id);
+    ZfGovernanceInvalidateBaseBytes(act.part_id);
+    ZfGovernanceInvalidateBaseBytes(cl);
+    ZfGovernanceInvalidateBaseBytes(cr);
+    const uint32_t parent_level =
+        policy->CooldownLevelOf(split_lo, split_hi, env_->NowMicros());
+    std::vector<zeroflush::GovernancePolicy::RangeKey> child_ranges;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      auto cur = zf_ctx_->tables() ? zf_ctx_->tables()->current() : nullptr;
+      if (cur != nullptr && !cur->IsHashMode()) {
+        for (uint32_t cid : {cl, cr}) {
+          const int cpos = cur->IndexOfPart(cid);
+          if (cpos >= 0) {
+            rocksdb::Slice clo, chi;
+            cur->RangeOf(static_cast<uint32_t>(cpos), &clo, &chi);
+            child_ranges.emplace_back(clo.ToString(), chi.ToString());
+          }
+        }
+      }
+    }
+    policy->NoteSuccess(act, env_->NowMicros(), child_ranges,
+                        parent_level + 1);
+    return Status::OK();
+  }
+
   return Status::OK();
 }
 

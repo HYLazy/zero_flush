@@ -25,6 +25,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "db/write_thread.h"
+#include "zeroflush/repartition_controller.h"  // M4: 每分区统计 + 治理决策策略
 
 namespace ROCKSDB_NAMESPACE {
 class ColumnFamilyData;
@@ -145,6 +146,39 @@ struct ZeroFlushOptions {
   uint64_t growth_split_min_bytes = 32u << 20;
   // 两次生长拆分的最小间隔（warmup 冷却，微秒）。0 = 无冷却。
   uint64_t growth_split_cooldown_micros = 0;
+
+  // ---- ZeroFlushV0 M4：动态治理 DG（调度器）----
+  // 对应路线图 §2 M4。默认全关（v1 显式启用；既有行为零改动）。
+  bool dynamic_governance = false;  // 自动后台控制器开关（Open 时启线程）
+  // 控制器 tick 周期（微秒；路线图默认 1s）。
+  uint64_t governance_tick_interval_micros = 1000ull * 1000;
+  // P 界：合并后分区数须 > P_min 才允许；拆分前分区数须 < P_max。
+  uint32_t governance_p_min = 4;
+  uint32_t governance_p_max = 256;
+  // θ_split / θ_merge（rate 相对均值的倍数门槛）。
+  double governance_split_theta = 3.0;
+  double governance_merge_theta = 0.3;
+  // 大小门槛：热拆分要求 base ≥ split_min（默认 32MB）；冷合并要求
+  // base ≤ merge_max（默认 16MB）。
+  uint64_t governance_split_min_bytes = 32u << 20;
+  uint64_t governance_merge_max_bytes = 16u << 20;
+  // 连续窗确认数（默认 3 窗——防抖动）。
+  uint32_t governance_confirm_windows = 3;
+  // 冷却（微秒）：动作成功后同 range 冷却 base，退避倍增封顶 max。
+  uint64_t governance_cooldown_micros = 300ull * 1000 * 1000;
+  uint64_t governance_cooldown_max_micros = 600ull * 1000 * 1000;
+  // 决策队列并发上限 C（v1：每 tick 至多一个动作）。
+  uint32_t governance_max_actions_per_tick = 1;
+  // 速率 EWMA 双窗（秒）：快窗 1min / 慢窗 5min。
+  uint64_t governance_ewma_fast_secs = 60;
+  uint64_t governance_ewma_slow_secs = 300;
+  // rewrite 带宽份额上限（0.25 = 后台 rewrite 至多占 25% 写 IO 预算；
+  // v1 作为动作调度限制的记录/预留参数，见 ZEROFLUSHV0_ROADMAP §2 M4）。
+  double governance_rewrite_share = 0.25;
+  // 合并"空闲期"判定窗口（µs）：存在速率>0 且距上次封存 ≤ 该值的分区时
+  // 抑制合并（活跃期 P 预算让给热拆分）；负载回落/空闲后放行回收。默认
+  // 120s（= 2× 快窗）。0 = 任何正速率都算活跃。
+  uint64_t governance_merge_idle_micros = 120ull * 1000 * 1000;
 };
 
 class ZeroFlushContext {
@@ -528,6 +562,46 @@ class ZeroFlushContext {
     growth_last_split_micros_.store(now_micros, std::memory_order_relaxed);
   }
 
+  // ---- ZeroFlushV0 M4（动态治理 DG）：统计与决策 ----
+  // 每分区速率 EWMA 追踪器（@封存边界采样，见 repartition_controller.h）。
+  PartitionRateTracker* rate_tracker() const { return rate_tracker_.get(); }
+  // 治理决策策略（连续窗/冷却退避/pending aging；DBImpl tick 持有）。
+  GovernancePolicy* governance_policy() const { return governance_policy_.get(); }
+  // 封存登记统一入口：记录每分区速率样本后转 sealed_cache 登记。全部
+  // epoch 创建点（批次/单分区/全域/E_D/排空冻结）经此——速率统计不进写路径。
+  void RegisterSealedEpoch(const SealedEpoch& se);
+  // 该分区是否有未物化/未回收数据（执行 Busy 预判）：pending sealed WAL
+  // gens / frozen 分区索引任一存在。
+  bool HasPendingPartData(uint32_t part_id) const;
+  // DRAINING 注册表快照（控制器判断 DRAINING 方与别名吸收方）。
+  void DrainingSnapshot(std::vector<DrainingPart>* out) const;
+  // M4 诊断计数（治理 tick / 治理触发的 split / merge）。
+  void NoteGovernanceTick() {
+    gov_ticks_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void NoteGovernanceSplit() {
+    gov_splits_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void NoteGovernanceMerge() {
+    gov_merges_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t governance_ticks() const {
+    return gov_ticks_.load(std::memory_order_relaxed);
+  }
+  uint64_t governance_splits() const {
+    return gov_splits_.load(std::memory_order_relaxed);
+  }
+  uint64_t governance_merges() const {
+    return gov_merges_.load(std::memory_order_relaxed);
+  }
+  // type-3 rewrite 累计输出字节（治理带宽账本/诊断）。
+  void AddRewriteBytes(uint64_t b) {
+    rewrite_bytes_.fetch_add(b, std::memory_order_relaxed);
+  }
+  uint64_t rewrite_bytes() const {
+    return rewrite_bytes_.load(std::memory_order_relaxed);
+  }
+
   ZeroFlushOptions zfo_;
   std::string wal_dir_;       // wal_dir/zfwal
   ROCKSDB_NAMESPACE::Env* env_;
@@ -608,6 +682,13 @@ class ZeroFlushContext {
   // 下一个可分配的分区全局 id（见 AllocatePartId）。仅分配窗口（持 DB
   // mutex）读写；Open 时 RebuildNextPartId 初始化。
   uint32_t next_part_id_ = 0;
+  // ---- ZeroFlushV0 M4（动态治理 DG）成员 ----
+  std::unique_ptr<PartitionRateTracker> rate_tracker_;  // @封存边界速率 EWMA
+  std::unique_ptr<GovernancePolicy> governance_policy_;  // 决策策略状态
+  std::atomic<uint64_t> gov_ticks_{0};
+  std::atomic<uint64_t> gov_splits_{0};
+  std::atomic<uint64_t> gov_merges_{0};
+  std::atomic<uint64_t> rewrite_bytes_{0};
 };
 
 // 打开 ZeroFlush DB：
@@ -653,6 +734,14 @@ ROCKSDB_NAMESPACE::Status SplitPartition(
 // 数。调用线程不得是写组成员。
 ROCKSDB_NAMESPACE::Status GrowPartitions(ROCKSDB_NAMESPACE::DB* db,
                                          uint32_t* splits_out);
+
+// ZeroFlushV0 M4：运行一次动态治理 tick——统计/决策/至多执行一个
+// merge 或 split 动作（控制器调度而非手动 API）。后台自动模式由
+// zfo.dynamic_governance 开启（Open 时启控制器线程，按
+// governance_tick_interval_micros 周期自驱）；本入口供测试与外部低频
+// 驱动确定性调用。调用线程不得是写组成员。返回动作尝试结果（Busy 由
+// 策略 aging 自动重试，不视为失败）。
+ROCKSDB_NAMESPACE::Status RunGovernanceTick(ROCKSDB_NAMESPACE::DB* db);
 
 // 销毁 ZeroFlush DB：先调原生 DestroyDB 清理 manifest/sst/log，再递归
 // 删除 wal_dir/zfwal 子目录（含 ZFPROPS 与全部代文件）。即使原生 DB

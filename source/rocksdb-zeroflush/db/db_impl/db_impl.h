@@ -17,6 +17,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -1197,6 +1198,16 @@ class DBImpl : public DB {
   // 重试）。要求调用线程不是写组成员。splits_out 返回本次实际生长 split
   // 数（可空）。
   Status ZfGrowPartitions(uint32_t* splits_out);
+
+  // ---- ZeroFlushV0 M4（动态治理 DG）：调度器 ----
+  // 运行一次治理 tick（统计快照 → 策略决策 → 至多一个 merge/split 动作）。
+  // 供后台控制器线程与 zeroflush::RunGovernanceTick 调用；要求调用线程
+  // 不是写组成员。Busy 由策略 aging 重试（不视为失败）。
+  Status ZfGovernanceTick();
+  // 启动/停止后台治理控制器线程（Open 时按 zfo.dynamic_governance 启动；
+  // Close/析构前停止并 join）。
+  void ZfStartRepartitionController();
+  void ZfStopRepartitionController();
 
   Status WaitForCompact(
       const WaitForCompactOptions& wait_for_compact_options) override;
@@ -3494,6 +3505,30 @@ class DBImpl : public DB {
 
   // ---- ZeroFlush 运行时上下文 ----
   std::shared_ptr<zeroflush::ZeroFlushContext> zf_ctx_;
+
+  // ---- ZeroFlushV0 M4（动态治理 DG）运行时 ----
+  // 后台治理控制器线程（dynamic_governance=true 时 Open 后启动）。stop 门
+  // 默认 false：后台线程循环与执行器排空等待以它为停止信号（Close 置位并
+  // join）；手动 RunGovernanceTick 不受其门控（仅在等待中提前退出）。
+  std::atomic<bool> zf_governance_stop_{false};
+  std::unique_ptr<std::thread> zf_governance_thread_;
+  // tick 防重入（后台线程与手动 RunGovernanceTick 并发安全）。
+  std::atomic<bool> zf_governance_tick_running_{false};
+  // 分区 base 层字节（REQUIRES: DB mutex held；TTL 缓存避免每 tick 全表
+  // 扫描——范围/文件变化经 Invalidate 作废）。
+  uint64_t ZfGovernanceBaseBytesLocked(ColumnFamilyData* cfd,
+                                       uint32_t part_id, const Slice& lo,
+                                       const Slice& hi, uint64_t now_us);
+  void ZfGovernanceInvalidateBaseBytes(uint32_t part_id);
+  // base 字节缓存（治理大小门槛复核；TTL 内避免每 tick 全表扫描）。
+  struct ZfBaseBytesCache {
+    uint64_t checked_us = 0;
+    uint64_t bytes = 0;
+  };
+  mutable std::mutex zf_base_cache_mu_;
+  std::unordered_map<uint32_t, ZfBaseBytesCache> zf_base_bytes_cache_;
+  static constexpr uint64_t kGovernanceBaseStatsTtlUs = 5ull * 1000 * 1000;
+  static constexpr uint64_t kGovernanceDrainWaitUs = 30ull * 1000 * 1000;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {

@@ -1061,6 +1061,7 @@ set(SOURCES
         zeroflush/sealed_file_cache.cc
         zeroflush/slim_memtable.cc
         zeroflush/materialize_job.cc
+        zeroflush/repartition_controller.cc
         zeroflush/zeroflush_db.cc)
 
 list(APPEND SOURCES
