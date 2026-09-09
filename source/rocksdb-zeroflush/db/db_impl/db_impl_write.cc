@@ -1553,6 +1553,10 @@ Status DBImpl::WriteImpl(
           // 与邻区文件互叠（实测：part12 gen1 首条 seq62844 即学习批
           // 封存写组的 hash 记录 → L1 互叠崩）。组内全部 writer 共享
           // write_group 版本，一致。
+          // ZeroFlushV0 P1：在途写组计数进入（路由版本捕获点，持 DB
+          // mutex）——MergePartitionLocked 的路由切换屏障依赖它：计数归零
+          // 后不存在仍按旧版本路由的在途写组。
+          zf_ctx_->EnterInflightGroup();
           write_group.zf_table_version =
               zf_ctx_->tables() ? zf_ctx_->tables()->current_version() : 0;
           ROCKSDB_NAMESPACE::MemTable* zf_mem = cfd->mem();
@@ -1610,6 +1614,8 @@ Status DBImpl::WriteImpl(
           }
           // M5：路由表版本在封存后捕获（同非 parallel 分支——封存装新表
           // 时写组数据按新表路由，防 hash 记录混入换代后的新代）。
+          // ZeroFlushV0 P1：在途写组计数进入（路由版本捕获点，持 DB mutex）。
+          zf_ctx_->EnterInflightGroup();
           write_group.zf_table_version =
               zf_ctx_->tables() ? zf_ctx_->tables()->current_version() : 0;
           write_group.zf_mem = cfd->mem();
@@ -1698,6 +1704,13 @@ Status DBImpl::WriteImpl(
   }
 
   if (should_exit_batch_group) {
+    // ZeroFlushV0 P1：在途写组计数退出——本组全部记录的 WAL 追加+索引
+    // 插入已完成（parallel 组由最后完成者执行本块，恰好一次/组）。必须
+    // 在 ExitAsBatchGroupLeader（可能取 DB mutex 的组交接）之前释放计数，
+    // 否则 MergePartitionLocked 持锁等待归零时与本块互等 → 死锁。
+    if (zf_ctx_ != nullptr) {
+      zf_ctx_->ExitInflightGroup();
+    }
     if (status.ok()) {
       for (auto* tmp_w : write_group) {
         assert(tmp_w);
@@ -3782,6 +3795,25 @@ Status DBImpl::ZfSwitchMemtable(ColumnFamilyData* cfd) {
     FlushRequest flush_req;
     GenerateFlushRequest({cfd}, FlushReason::kWriteBufferFull, &flush_req);
     EnqueuePendingFlush(flush_req);
+  }
+  return s;
+}
+
+// ZeroFlushV0 P1：取消/合并冷分区（S4 merge 入口）。调用线程不得是写组
+// 成员。MergePartitionLocked 内部在持 DB mutex 期间等待在途写组归零（在
+// 途组不取 DB mutex），并完成路由切换 + ZFPROPS 落盘。
+Status DBImpl::ZfMergePartition(uint32_t drain_part, uint32_t* absorb_out) {
+  if (zf_ctx_ == nullptr) {
+    return Status::InvalidArgument("ZeroFlush is not enabled");
+  }
+  ColumnFamilyData* cfd = GetDefaultColumnFamily();
+  if (cfd == nullptr) {
+    return Status::InvalidArgument("ZeroFlush: no default column family");
+  }
+  InstrumentedMutexLock l(&mutex_);
+  Status s = zf_ctx_->MergePartitionLocked(this, cfd, drain_part, absorb_out);
+  if (s.ok()) {
+    MaybeScheduleFlushOrCompaction();
   }
   return s;
 }

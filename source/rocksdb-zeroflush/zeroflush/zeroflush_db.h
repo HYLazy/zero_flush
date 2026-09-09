@@ -370,8 +370,7 @@ class ZeroFlushContext {
   bool AddMaterializePart(uint64_t token, uint32_t part_id);
   void EndMaterializeBatch(uint64_t token);
 
-  // ---- M5P1b：学习窗 gen0 批串行槽 ----
-  // 含 gen0 代（学习期 hash 数据）的 flush 批必须串行执行（同一时刻至多
+  // ---- M5P1b：学习窗 gen0 批串行槽 ----  // 含 gen0 代（学习期 hash 数据）的 flush 批必须串行执行（同一时刻至多
   // 一个在飞）：学习批的切片输出依赖串行语义（各批按自身 gens 分区产出、
   // 互不重叠、L1 为空前提），并发会让切片与稳态安装/他批切片重叠（Release
   // 实测 #197/#207 等）。稳态批不受限（与在飞学习批的冲突由全分区登记
@@ -397,6 +396,33 @@ class ZeroFlushContext {
   }
   bool closing_flush() const {
     return closing_flush_.load(std::memory_order_relaxed);
+  }
+
+  // ---- ZeroFlushV0 P1（S4 merge：取消/合并冷分区——无在途数据版）----
+  // 把分区 drain_part 的路由区间并入相邻分区（优先左邻）。调用前提：
+  // 持 DB mutex、调用线程不是写组成员。过程：(1) 等待在途写组归零；
+  // (2) 前置检查：drain 必须无未物化数据（活跃字节 = 0、无 pending WAL
+  // 段、无 frozen 索引）——本版只支持"已完全排空的冷分区"合并；带在途
+  // 数据的 DRAINING（冻结 + 收养 + 排空窗口读别名）为 P1b，根因见
+  // MergePartitionLocked 注释；(3) 派生并安装去掉 drain 的新表版本（路由
+  // 切换，对新写即时生效；drain 历史 L1 文件保留，由吸收方后续常规合并
+  // 吸收收敛）；(4) ZFPROPS 落盘（重开路由一致）。absorb_out 返回实际
+  // 吸收方（左邻优先，drain 为首分区时右邻）。
+  ROCKSDB_NAMESPACE::Status MergePartitionLocked(
+      ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
+      uint32_t drain_part, uint32_t* absorb_out);
+
+  // 在途写组计数（路由切换的写屏障）：写组 leader 在"路由表版本捕获"点
+  // +1（持 DB mutex）；组内全部记录追加+索引插入完成后 -1（恰好一次/组，
+  // 见 db_impl_write.cc 埋点）。MergePartitionLocked 切换前等待归零——切表
+  // 后不存在仍按旧版本路由、会把记录追加进已被移除分区的在途写组。
+  void EnterInflightGroup();
+  void ExitInflightGroup();
+  uint32_t InflightWriterGroups() const;
+
+  // 已成功合并（路由切换）的分区累计数（诊断/测试）。
+  uint64_t MergeCount() const {
+    return merge_count_.load(std::memory_order_relaxed);
   }
 
   ZeroFlushOptions zfo_;
@@ -461,6 +487,10 @@ class ZeroFlushContext {
   uint32_t g0_running_ = 0;
   uint32_t g0_pending_ = 0;
   uint32_t g0_waiters_ = 0;
+  // ---- ZeroFlushV0 P1 成员 ----
+  // 在途写组计数（见 EnterInflightGroup 注释）。
+  std::atomic<uint32_t> inflight_groups_{0};
+  std::atomic<uint64_t> merge_count_{0};
 };
 
 // 打开 ZeroFlush DB：
@@ -476,6 +506,17 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
 
 // 关闭（DBImpl 析构时自动释放 ctx；此处仅显式解挂，供测试用）。
 void Close(std::shared_ptr<ROCKSDB_NAMESPACE::DB>* db);
+
+// ZeroFlushV0 P1：外部触发"取消/合并冷分区"（S4 merge 入口）。
+// 把分区 drain_part 合并进相邻分区（优先左邻），路由切换对新写即时生效；
+// drain 的历史 L1 文件保留、由吸收方后续常规合并吸收。absorb_out 返回
+// 实际吸收方。适用范围：范围路由模式（kStatic/kSampled/kAlignL1 已安装
+// 范围表后）；hash 模式或 drain 仍有未物化数据（P1b 前的限制）返回错误。
+// 线程安全：内部取 DB mutex 并等待在途写组归零；调用线程不得是写组成员
+// （正常前台/管理线程即可）。
+ROCKSDB_NAMESPACE::Status MergePartition(ROCKSDB_NAMESPACE::DB* db,
+                                         uint32_t drain_part,
+                                         uint32_t* absorb_out);
 
 // 销毁 ZeroFlush DB：先调原生 DestroyDB 清理 manifest/sst/log，再递归
 // 删除 wal_dir/zfwal 子目录（含 ZFPROPS 与全部代文件）。即使原生 DB

@@ -41,6 +41,16 @@ class PartitionTable {
   // p==P-1 时 hi 为 +∞（空 Slice）。
   void RangeOf(uint32_t p, rocksdb::Slice* lo, rocksdb::Slice* hi) const;
 
+  // ZeroFlushV0 P1（S4 merge）：派生"把分区 drain_part 合并进相邻分区"的
+  // 新表版本。本表不变；part_ids 去掉 drain_part（保留其余 id——历史
+  // gens/索引按原 id 记账），boundaries 去掉 drain 与吸收方的共享边界。
+  // 吸收方规则：优先左邻；drain 为首分区（无左邻）时吸收右邻。
+  // 要求：范围模式（非 hash）；drain_part 在本表内；分区数 ≥ 2。
+  // 输出 absorb_part = 吸收方全局 part_id；*out = version 号的新表。
+  rocksdb::Status DeriveMerge(uint32_t drain_part, uint32_t version,
+                              uint32_t* absorb_part,
+                              std::shared_ptr<PartitionTable>* out) const;
+
   bool IsHashMode() const { return is_hash_mode_; }
   uint32_t version() const { return version_; }
   uint32_t partitions() const {

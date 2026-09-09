@@ -729,6 +729,14 @@ class PartitionIndexSet {
     return false;
   }
 
+  // ZeroFlushV0 P1：该分区是否仍有 frozen 索引对象（merge retire 判定用；
+  // 物化完成后 ReleaseFrozen 会清空链，此时返回 false）。
+  bool HasFrozen(uint32_t part_id) const {
+    std::shared_lock<std::shared_mutex> l(mu_);
+    auto it = frozen_.find(part_id);
+    return it != frozen_.end() && !it->second.empty();
+  }
+
   uint64_t total_mem_bytes() const {
     return total_mem_bytes_.load(std::memory_order_relaxed);
   }

@@ -3641,6 +3641,322 @@ void TestSkipBatchMaterialize() {
   ReportResult(tag, true, "skip-batch zero-L0 end-to-end");
 }
 
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 P1：S4 merge —— 路由表派生（纯函数）
+// ---------------------------------------------------------------------------
+void TestMergePartitionTableDerive() {
+  const char* tag = "MergePartitionTableDerive(ZeroFlushV0-P1)";
+  const auto* ucmp = rocksdb::BytewiseComparator();
+  // P=4, 边界 c/g/m：part0=[-∞,c) 1=[c,g) 2=[g,m) 3=[m,+∞)
+  std::vector<std::string> boundaries = {"c", "g", "m"};
+  std::shared_ptr<zeroflush::PartitionTable> pt;
+  auto s = zeroflush::PartitionTable::Create(0, boundaries, ucmp, &pt);
+  if (!s.ok()) {
+    ReportResult(tag, false, "Create: " + s.ToString());
+    return;
+  }
+  const auto route_of = [&](const std::shared_ptr<zeroflush::PartitionTable>& t,
+                            const char* k) { return t->Route(k); };
+
+  // --- 合并 part1 → 吸收左邻 part0：去掉边界 c，ids [0,2,3] ---
+  {
+    uint32_t absorb = 999;
+    std::shared_ptr<zeroflush::PartitionTable> nt;
+    s = pt->DeriveMerge(1, /*version=*/1, &absorb, &nt);
+    if (!s.ok() || absorb != 0 || nt == nullptr) {
+      ReportResult(tag, false,
+                   "merge part1: s=" + s.ToString() + " absorb=" +
+                       std::to_string(absorb));
+      return;
+    }
+    if (nt->partitions() != 3 || nt->version() != 1) {
+      ReportResult(tag, false, "merge part1: partitions/version wrong");
+      return;
+    }
+    // part1 旧区间 [c,g) 的 key 现归吸收方 part0；part2/3 保持原区间。
+    // Route 返回分区下标（part_ids=[0,2,3] → id 序 0,2,3）。
+    const char* ks[] = {"a", "d", "f", "g", "k", "m", "z"};
+    const uint32_t ex_idx[] = {0, 0, 0, 1, 1, 2, 2};
+    const uint32_t ex_id[] = {0, 0, 0, 2, 2, 3, 3};
+    for (size_t i = 0; i < sizeof(ks) / sizeof(ks[0]); ++i) {
+      const uint32_t got = route_of(nt, ks[i]);
+      const uint32_t got_id = nt->part_id(got);
+      if (got != ex_idx[i] || got_id != ex_id[i]) {
+        ReportResult(tag, false,
+                     std::string("route(") + ks[i] + ")=" +
+                         std::to_string(got) + " (id=" + std::to_string(got_id) +
+                         ") expected idx=" + std::to_string(ex_idx[i]) +
+                         " id=" + std::to_string(ex_id[i]));
+        return;
+      }
+    }
+    rocksdb::Slice lo, hi;
+    nt->RangeOf(0, &lo, &hi);
+    if (lo.size() != 0 || hi.ToString() != "g") {
+      ReportResult(tag, false, "merged part0 range wrong");
+      return;
+    }
+  }
+  // --- 合并 part0（首分区）→ 吸收右邻 part1：ids [1,2,3] ---
+  {
+    uint32_t absorb = 999;
+    std::shared_ptr<zeroflush::PartitionTable> nt;
+    s = pt->DeriveMerge(0, 2, &absorb, &nt);
+    if (!s.ok() || absorb != 1) {
+      ReportResult(tag, false,
+                   "merge part0: s=" + s.ToString() + " absorb=" +
+                       std::to_string(absorb));
+      return;
+    }
+    if (nt->part_id(route_of(nt, "b")) != 1 || nt->part_id(route_of(nt, "z")) != 3) {
+      ReportResult(tag, false, "merge part0 route wrong");
+      return;
+    }
+  }
+  // --- 合并 part3（末分区）→ 吸收左邻 part2 ---
+  {
+    uint32_t absorb = 999;
+    std::shared_ptr<zeroflush::PartitionTable> nt;
+    s = pt->DeriveMerge(3, 3, &absorb, &nt);
+    if (!s.ok() || absorb != 2) {
+      ReportResult(tag, false,
+                   "merge part3: s=" + s.ToString() + " absorb=" +
+                       std::to_string(absorb));
+      return;
+    }
+    if (route_of(nt, "n") != 2 || route_of(nt, "b") != 0) {
+      ReportResult(tag, false, "merge part3 route wrong");
+      return;
+    }
+  }
+  // --- 错误路径：hash 模式 / drain 不在表中 ---
+  {
+    auto hash_tbl = zeroflush::PartitionTable::CreateHash(0, 4);
+    uint32_t absorb = 999;
+    std::shared_ptr<zeroflush::PartitionTable> nt;
+    s = hash_tbl->DeriveMerge(1, 1, &absorb, &nt);
+    if (s.ok()) {
+      ReportResult(tag, false, "hash-mode merge must be rejected");
+      return;
+    }
+    s = pt->DeriveMerge(99, 1, &absorb, &nt);
+    if (s.ok()) {
+      ReportResult(tag, false, "merge of absent partition must be rejected");
+      return;
+    }
+  }
+  ReportResult(tag, true);
+}
+
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 P1：S4 merge e2e —— 冷分区取消/合并（无在途数据版）
+//  覆盖：带在途数据拒绝（Busy）→ 排空后成功合并 → 新写归属吸收方 →
+//  中途读/覆写正确 → 物化收敛 → 重开一致。
+// ---------------------------------------------------------------------------
+void TestMergeColdPartitionEndToEnd() {
+  const char* tag = "MergeColdPartitionEndToEnd(ZeroFlushV0-P1)";
+  std::string dbname = std::string(kDbBase) + "mergecold";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+  zfo.static_boundaries = {"c", "g", "m"};
+  zfo.partition_target_bytes = 16 * 1024;
+  zfo.epoch_target_bytes = 16 * 1024;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  auto fail = [&](const std::string& why) {
+    ReportResult(tag, false, why);
+    CleanDB(dbname);
+  };
+  // 写辅助：key = prefix(1B) + %04d；value = "v<prefix>" + %04d。
+  // prefix ∈ {b,d,c,h,n} 按字节序落在区间：b< c <d< g<h< m<n。
+  char k[16], v[224];
+  auto put = [&](const char* prefix, int id) -> bool {
+    snprintf(k, sizeof(k), "%s%04d", prefix, id);
+    snprintf(v, sizeof(v), "v%s%04d", prefix, id);
+    return db->Put(rocksdb::WriteOptions(), k, v).ok();
+  };
+  auto get_ok = [&](const char* prefix, int id,
+                    const char* expect) -> bool {
+    snprintf(k, sizeof(k), "%s%04d", prefix, id);
+    std::string out;
+    if (!db->Get(rocksdb::ReadOptions(), k, &out).ok()) {
+      fprintf(stderr, "[dbg] get(%s) failed\n", k);
+      return false;
+    }
+    if (expect != nullptr && out != expect) {
+      fprintf(stderr, "[dbg] get(%s)=%s expect=%s\n", k, out.c_str(), expect);
+      return false;
+    }
+    return true;
+  };
+
+  // Phase 0：part1（drain，区间 [c,g)）少量在途数据 → merge 必须被拒绝。
+  for (int i = 0; i < 30; ++i) {
+    if (!put("d", i)) {
+      fail("put@phase0");
+      return;
+    }
+  }
+  uint32_t absorb = 999;
+  s = zeroflush::MergePartition(db.get(), /*drain_part=*/1, &absorb);
+  if (s.ok()) {
+    fail("merge with active drain data must be rejected (Busy)");
+    return;
+  }
+
+  // Phase 1：写满四分区（触发封存/物化），等待 part1 完全排空。
+  for (int i = 0; i < 200; ++i) {
+    if (!put("b", i) || !put("d", 30 + i) || !put("h", i) || !put("n", i)) {
+      fail("put@phase1");
+      return;
+    }
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    fail("WaitAllMaterialized(phase1) timeout");
+    return;
+  }
+  // 排空泵：可能残留 < 阈值的活跃尾巴 → 追加写入触发封存后重试（≤6 次）。
+  absorb = 999;
+  for (int attempts = 0; attempts < 6; ++attempts) {
+    s = zeroflush::MergePartition(db.get(), 1, &absorb);
+    if (s.ok()) break;
+    for (int i = 0; i < 256; ++i) {
+      if (!put("b", 1000 + attempts * 256 + i)) {
+        fail("put@drain-pump");
+        return;
+      }
+    }
+    if (!WaitAllMaterialized(db.get())) {
+      fail("WaitAllMaterialized(pump) timeout");
+      return;
+    }
+  }
+  if (!s.ok()) {
+    fprintf(stderr, "[dbg] merge rejected: %s\n", s.ToString().c_str());
+    fail("merge after drain rejected");
+    return;
+  }
+  if (absorb != 0) {
+    fail("absorb expected left neighbor part0, got " + std::to_string(absorb));
+    return;
+  }
+  if (ZfMetric(db.get(), "merges") != 1) {
+    fail("merges metric != 1");
+    return;
+  }
+
+  // Phase 2：合并后读（part1 旧数据在 L1）、覆写与新写（归吸收方 part0）。
+  char exp[224];
+  snprintf(exp, sizeof(exp), "vd%04d", 30);
+  if (!get_ok("d", 30, exp)) {
+    fail("read old part1 key after merge");
+    return;
+  }
+  snprintf(exp, sizeof(exp), "vd%04d", 29);
+  if (!get_ok("d", 29, exp)) {
+    fail("read phase0 part1 key after merge");
+    return;
+  }
+  snprintf(k, sizeof(k), "d%04d", 30);  // 覆写 part1 旧 key
+  snprintf(v, sizeof(v), "vnew%04d", 30);
+  if (!db->Put(rocksdb::WriteOptions(), k, v).ok()) {
+    fail("put overwrite");
+    return;
+  }
+  for (int i = 240; i < 260; ++i) {
+    if (!put("d", i)) {
+      fail("put@phase2-d");
+      return;
+    }
+  }
+  for (int i = 0; i < 10; ++i) {
+    if (!put("c", i)) {
+      fail("put c-range");
+      return;
+    }
+  }
+  // 立即读（数据在吸收方活跃索引/封存索引）。
+  if (!get_ok("d", 30, "vnew0030")) {
+    fail("read overwrite");
+    return;
+  }
+  if (!get_ok("d", 250, "vd0250")) {
+    fail("read new d key");
+    return;
+  }
+  if (!get_ok("c", 5, "vc0005")) {
+    fail("read new c key");
+    return;
+  }
+
+  // Phase 3：物化收敛（吸收方与 part1 旧 L1 文件合并），L0 不异常。
+  for (int i = 0; i < 200; ++i) {
+    if (!put("b", 2000 + i)) {
+      fail("put@phase3");
+      return;
+    }
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    fail("WaitAllMaterialized(phase3) timeout");
+    return;
+  }
+  const uint64_t l0 = NumFilesAtLevel(db.get(), 0);
+  if (!get_ok("d", 30, "vnew0030")) {
+    fail("read overwrite after flush");
+    return;
+  }
+  if (!get_ok("d", 250, "vd0250")) {
+    fail("read new d key after flush");
+    return;
+  }
+  if (l0 > 6) {
+    fprintf(stderr, "[dbg] level0 files=%llu (post-merge install residue)\n",
+            (unsigned long long)l0);
+    fail("level0 file count unexpectedly high");
+    return;
+  }
+
+  // Phase 4：重开（ZFPROPS 持久化合并后的路由表）→ 迭代计数与取值一致。
+  const int64_t cnt_before = CountViaIterator(db.get());
+  db.reset();
+  s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    fail("reopen: " + s.ToString());
+    return;
+  }
+  const int64_t cnt_after = CountViaIterator(db.get());
+  if (cnt_after != cnt_before) {
+    fprintf(stderr, "[dbg] iter before=%lld after=%lld\n",
+            (long long)cnt_before, (long long)cnt_after);
+    fail("iter count mismatch after reopen");
+    return;
+  }
+  if (!get_ok("d", 30, "vnew0030")) {
+    fail("read overwrite after reopen");
+    return;
+  }
+  if (!get_ok("d", 250, "vd0250")) {
+    fail("read new d key after reopen");
+    return;
+  }
+  if (!get_ok("b", 5, "vb0005")) {
+    fail("read b key after reopen");
+    return;
+  }
+
+  db.reset();
+  CleanDB(dbname);
+  ReportResult(tag, true, "absorb=" + std::to_string(absorb));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -3718,6 +4034,10 @@ int main(int argc, char** argv) {
 
   // ---- M4.5b 新增 ----
   run("SkipBatchMaterialize",       TestSkipBatchMaterialize);
+
+  // ---- ZeroFlushV0 P1（S4 merge）新增 ----
+  run("MergePartitionTableDerive",      TestMergePartitionTableDerive);
+  run("MergeColdPartitionEndToEnd",     TestMergeColdPartitionEndToEnd);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

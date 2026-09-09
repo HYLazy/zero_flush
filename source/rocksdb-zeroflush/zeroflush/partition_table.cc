@@ -111,6 +111,58 @@ void PartitionTable::RangeOf(uint32_t p, rocksdb::Slice* lo,
   }
 }
 
+rocksdb::Status PartitionTable::DeriveMerge(
+    uint32_t drain_part, uint32_t version, uint32_t* absorb_part,
+    std::shared_ptr<PartitionTable>* out) const {
+  if (absorb_part == nullptr || out == nullptr) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable::DeriveMerge: output pointer must not be null");
+  }
+  if (is_hash_mode_) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable::DeriveMerge: hash mode has no key ranges");
+  }
+  if (partitions() < 2) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable::DeriveMerge: need >= 2 partitions to merge");
+  }
+  const auto it = std::find(part_ids_.begin(), part_ids_.end(), drain_part);
+  if (it == part_ids_.end()) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable::DeriveMerge: drain partition not in table");
+  }
+  const size_t j = static_cast<size_t>(it - part_ids_.begin());
+  // 吸收方：优先左邻（j-1），drain 为首分区时取右邻（j+1）。
+  const bool absorb_left = (j > 0);
+  const size_t k = absorb_left ? j - 1 : j + 1;
+  // 去掉 drain 与吸收方的共享边界：吸收左邻 → boundaries[j-1]；
+  // 吸收右邻 → boundaries[j]。drain 的另一侧边界保留为合并区间的外边界。
+  const size_t shared_boundary = absorb_left ? j - 1 : j;
+  std::vector<std::string> nb;
+  nb.reserve(boundaries_.size() - 1);
+  for (size_t i = 0; i < boundaries_.size(); ++i) {
+    if (i == shared_boundary) {
+      continue;
+    }
+    nb.push_back(boundaries_[i]);
+  }
+  std::vector<uint32_t> nids;
+  nids.reserve(part_ids_.size() - 1);
+  for (size_t i = 0; i < part_ids_.size(); ++i) {
+    if (i == j) {
+      continue;
+    }
+    nids.push_back(part_ids_[i]);
+  }
+  if (absorb_part != nullptr) {
+    *absorb_part = part_ids_[k];
+  }
+  *out = std::shared_ptr<PartitionTable>(
+      new PartitionTable(version, /*is_hash_mode=*/false, std::move(nb),
+                         std::move(nids), ucmp_));
+  return rocksdb::Status::OK();
+}
+
 // ---------------------------------------------------------------------------
 // PartitionTableSet
 // ---------------------------------------------------------------------------

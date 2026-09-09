@@ -3,8 +3,10 @@
 
 #include "zeroflush/zeroflush_db.h"
 
+#include <algorithm>
 #include <cassert>
 #include <fstream>
+#include <thread>
 #include <unordered_set>
 
 #include "db/column_family.h"
@@ -434,6 +436,9 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(prof_output_bytes_.load(std::memory_order_relaxed));
   } else if (prop == "rocksdb.zeroflush.prof_tasks") {
     *value = std::to_string(prof_tasks_.load(std::memory_order_relaxed));
+  } else if (prop == "rocksdb.zeroflush.merges") {
+    // ZeroFlushV0 P1：已成功合并（路由切换）的分区累计数。
+    *value = std::to_string(MergeCount());
   } else {
     return false;
   }
@@ -1426,6 +1431,108 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::PersistZfProps() {
         "ZeroFlush: failed to write ZFPROPS v2: " + ws.ToString());
   }
   return ROCKSDB_NAMESPACE::Status::OK();
+}
+
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 P1（S4 merge：取消/合并冷分区——无在途数据版）
+// ---------------------------------------------------------------------------
+
+void ZeroFlushContext::EnterInflightGroup() {
+  inflight_groups_.fetch_add(1, std::memory_order_acq_rel);
+}
+
+void ZeroFlushContext::ExitInflightGroup() {
+  const uint32_t prev = inflight_groups_.fetch_sub(1, std::memory_order_acq_rel);
+  assert(prev > 0);  // 组计数必须配对（Enter 一次/组，Exit 恰好一次/组）
+  (void)prev;
+}
+
+uint32_t ZeroFlushContext::InflightWriterGroups() const {
+  return inflight_groups_.load(std::memory_order_acquire);
+}
+
+ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
+    ROCKSDB_NAMESPACE::DBImpl* /*impl*/,
+    ROCKSDB_NAMESPACE::ColumnFamilyData* /*cfd*/, uint32_t drain_part,
+    uint32_t* absorb_out) {
+  // REQUIRES: DB mutex held（与 InstallNewVersion 的排他窗口一致）。
+  auto tbl = tables_ ? tables_->current() : nullptr;
+  if (tbl == nullptr || tbl->IsHashMode()) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush: merge requires an active range-routing table "
+        "(kStatic/kSampled/kAlignL1 已安装后)");
+  }
+  if (drain_part == zeroflush::kRangeDelPartId) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush: cannot merge the range-deletion partition");
+  }
+  const auto& ids = tbl->part_ids();
+  if (std::find(ids.begin(), ids.end(), drain_part) == ids.end()) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush: drain partition not in current table");
+  }
+  // 写屏障：等待在途写组归零。在途写组（已在锁内捕获路由版本、正于锁外
+  // 做分区 WAL 追加 + 索引插入）不再取 DB mutex，持锁自旋无死锁；新写组
+  // 需 DB mutex 才能捕获版本 → 屏障后不存在仍按旧版本路由到 drain 的写者。
+  // 防御性超时（正常窗口 µs–ms 级）：超时不合并、状态不变，可重试。
+  const uint64_t kInflightWaitUs = 2ull * 1000 * 1000;
+  const uint64_t deadline = env_->NowMicros() + kInflightWaitUs;
+  while (InflightWriterGroups() != 0) {
+    if (env_->NowMicros() > deadline) {
+      return ROCKSDB_NAMESPACE::Status::TimedOut(
+          "ZeroFlush: inflight writer groups did not drain");
+    }
+    std::this_thread::yield();
+  }
+  // 前置：drain 必须已完全排空（无未物化数据）。带在途数据的 DRAINING
+  // 协议（冻结活跃代 + 排空窗口读别名/索引收养 + retire 判定）为 P1b——
+  // 其难点是跨分区版本序：drain 的旧版本若被 kSkip 延后到吸收方更新版本
+  // 物化之后，按层序读路径会把旧值盖在新值前（需单链收养或强制不攒批，
+  // 均改动物化决策面，P1b 与 PlanLocked 一起收口）。此处保守拒绝。
+  if (wal_ != nullptr && wal_->ActiveSize(drain_part) != 0) {
+    return ROCKSDB_NAMESPACE::Status::Busy(
+        "ZeroFlush: drain partition has active (unsealed) data");
+  }
+  if (index_set_ != nullptr && index_set_->HasFrozen(drain_part)) {
+    return ROCKSDB_NAMESPACE::Status::Busy(
+        "ZeroFlush: drain partition has unflushed frozen indexes");
+  }
+  if (sealed_cache_ != nullptr && sealed_cache_->HasPendingPartGens(drain_part)) {
+    return ROCKSDB_NAMESPACE::Status::Busy(
+        "ZeroFlush: drain partition has pending sealed WAL gens");
+  }
+  // 路由切换：派生去掉 drain 的新表版本并安装（对新写即时生效；drain 的
+  // 历史 L1 文件保留，由吸收方后续常规合并按 S1/S3 吸收收敛）。
+  uint32_t absorb = 0;
+  std::shared_ptr<PartitionTable> nt;
+  rocksdb::Status s = tbl->DeriveMerge(drain_part, tbl->version() + 1, &absorb, &nt);
+  if (!s.ok()) {
+    return s;
+  }
+  tables_->InstallNewVersion(nt);
+  // 持久化路由版本：重开后路由一致（同 kSampled/kAlignL1 学习安装）。
+  s = PersistZfProps();
+  if (!s.ok()) {
+    // 新表已在内存生效（后续写组已按新版本捕获）；落盘失败不回滚——
+    // 崩溃恢复一致性属 P5 恢复协议范畴（此处尽力而为并上抛）。
+    return s;
+  }
+  merge_count_.fetch_add(1, std::memory_order_relaxed);
+  if (absorb_out != nullptr) {
+    *absorb_out = absorb;
+  }
+  return ROCKSDB_NAMESPACE::Status::OK();
+}
+
+ROCKSDB_NAMESPACE::Status MergePartition(ROCKSDB_NAMESPACE::DB* db,
+                                         uint32_t drain_part,
+                                         uint32_t* absorb_out) {
+  if (db == nullptr) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush::MergePartition: db must not be null");
+  }
+  auto* impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(db);
+  return impl->ZfMergePartition(drain_part, absorb_out);
 }
 
 // ---------------------------------------------------------------------------

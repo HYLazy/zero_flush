@@ -147,6 +147,9 @@ class SealedFileCache {
   // M5（zeroflush0.98）§3.5-2：是否存在待收养数据（skip 攒批 gens /
   // 恢复期孤儿 gens 任一非空）——DB 关闭冲刷循环的终止判定。
   bool HasPendingGens() const;
+  // ZeroFlushV0 P1：该分区是否仍有未回收的 WAL 段引用（epoch 引用 /
+  // recovery 孤儿 / skip 攒批任一非空）——merge 的 retire 判定用。
+  bool HasPendingPartGens(uint32_t part_id) const;
 
  private:
   std::string FileName(uint32_t part, uint32_t gen) const;

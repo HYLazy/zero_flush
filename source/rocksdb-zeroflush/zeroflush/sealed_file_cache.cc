@@ -390,7 +390,27 @@ uint64_t SealedFileCache::reclaimed_epochs() const {
 
 bool SealedFileCache::HasPendingGens() const {
   rocksdb::MutexLock l(&mu_);
-  return !skip_gens_.empty() || !recovery_gens_.empty();
+  return !recovery_gens_.empty() || !skip_gens_.empty();
+}
+
+bool SealedFileCache::HasPendingPartGens(uint32_t part_id) const {
+  rocksdb::MutexLock l(&mu_);
+  const auto in_part = [part_id](ZfFileKey k) {
+    return static_cast<uint32_t>(k >> 32) == part_id;
+  };
+  for (const auto& k : recovery_gens_) {
+    if (in_part(k)) return true;
+  }
+  for (const auto& k : skip_gens_) {
+    if (in_part(k)) return true;
+  }
+  for (const auto& [epoch, refs] : gen_refs_) {
+    (void)epoch;
+    for (const auto& [k, rc] : refs) {
+      if (rc > 0 && in_part(k)) return true;
+    }
+  }
+  return false;
 }
 
 size_t SealedFileCache::recovery_count() const {

@@ -1170,6 +1170,13 @@ class DBImpl : public DB {
   // 是 write thread leader。
   Status ZfSwitchMemtable(ColumnFamilyData* cfd);
 
+  // ---- ZeroFlushV0 P1：取消/合并冷分区（S4 路由切换）----
+  // 把分区 drain_part 合并进相邻分区（优先左邻）。内部取 DB mutex、等待
+  // 在途写组归零后执行路由切换 + ZFPROPS 落盘；对新写即时生效。要求：
+  // 调用线程不是写组成员（等待屏障期间不能持有写组资源）。absorb_out
+  // 返回实际吸收方。详见 zeroflush_db.h MergePartitionLocked。
+  Status ZfMergePartition(uint32_t drain_part, uint32_t* absorb_out);
+
   Status WaitForCompact(
       const WaitForCompactOptions& wait_for_compact_options) override;
 
