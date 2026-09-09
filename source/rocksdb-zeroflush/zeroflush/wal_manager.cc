@@ -697,6 +697,59 @@ void PartitionedWalManager::EnsurePartition(uint32_t part_id) {
   parts_[part_id] = std::move(p);
 }
 
+ROCKSDB_NAMESPACE::Status PartitionedWalManager::InitPartitionsFromFiles(
+    const std::vector<uint32_t>& part_ids) {
+  // ZeroFlushV0 P2（M2）：split 子分区（id > 初始 P-1）在重开后不存在于
+  // parts_（构造只建 [0,P)）——此处按磁盘文件 MaxGen 初始化活跃代，语义与
+  // Open() 对初始分区的处理一致（否则子分区 Append 落到陈旧代文件，D4 同类）。
+  std::vector<std::pair<uint32_t, uint32_t>> all;
+  ROCKSDB_NAMESPACE::Status s = ListFiles(&all);
+  if (!s.ok()) {
+    return s;
+  }
+  for (uint32_t pid : part_ids) {
+    if (parts_.count(pid) > 0) {
+      continue;  // 初始 [0,P) 已在构造/Open 初始化，或已处理过
+    }
+    auto p = std::unique_ptr<Partition>(new Partition());
+    p->part_id = pid;
+    p->gen = 0;
+    p->flushed_size = 0;
+    p->total_size = 0;
+    bool has_file = false;
+    for (const auto& fg : all) {
+      if (fg.first == pid) {
+        has_file = true;
+        break;
+      }
+    }
+    if (!has_file) {
+      parts_[pid] = std::move(p);
+      continue;
+    }
+    const uint32_t mg = MaxGen(pid, all);
+    p->gen = mg;
+    const std::string fname = MakeFileName(dir_, pid, mg);
+    ROCKSDB_NAMESPACE::EnvOptions opts;
+    s = env_->NewRandomAccessFile(fname, &p->rfile, opts);
+    if (!s.ok()) {
+      return s;
+    }
+    uint64_t sz = 0;
+    s = env_->GetFileSize(fname, &sz);
+    if (!s.ok()) {
+      return s;
+    }
+    p->flushed_size = sz;
+    p->total_size = sz;
+    p->active_bytes.store(sz, std::memory_order_relaxed);
+    total_active_bytes_.fetch_add(sz, std::memory_order_relaxed);
+    p->buf.clear();
+    parts_[pid] = std::move(p);
+  }
+  return ROCKSDB_NAMESPACE::Status::OK();
+}
+
 bool PartitionedWalManager::HasPartition(uint32_t part_id) const {
   return parts_.count(part_id) > 0;
 }

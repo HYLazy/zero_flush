@@ -1177,6 +1177,17 @@ class DBImpl : public DB {
   // 返回实际吸收方。详见 zeroflush_db.h MergePartitionLocked。
   Status ZfMergePartition(uint32_t drain_part, uint32_t* absorb_out);
 
+  // ---- ZeroFlushV0 P2（M2）：split（quiescent 子集，含 type-3 rewrite）----
+  // 把分区 part 的路由区间在 split_key 处一分为二。内部取 DB mutex：等待
+  // 在途写组归零 → 前置（分区完全排空 + 非 DRAINING/别名方）→ 分配两子 id
+  // + DeriveSplit 切路由落盘 → 跨界 base 文件按 split_key 二分（type-3
+  // rewrite：单文件替换为两子文件，VersionEdit 原子删/加）→ 完成。对新写
+  // 即时生效（切路由先于 rewrite——rewrite 失败仅留文件未对齐，读正确）。
+  // 要求：调用线程不是写组成员。child_l/child_r 返回两子分区 id。
+  // 详见 zeroflush_db.h SplitPartitionLocked / materialize_job.h ZfSplitRewriteFile。
+  Status ZfSplitPartition(uint32_t part, const rocksdb::Slice& split_key,
+                          uint32_t* child_l, uint32_t* child_r);
+
   Status WaitForCompact(
       const WaitForCompactOptions& wait_for_compact_options) override;
 

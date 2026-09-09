@@ -23,6 +23,7 @@
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/hash_containers.h"
+#include "zeroflush/materialize_job.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -3822,6 +3823,113 @@ Status DBImpl::ZfMergePartition(uint32_t drain_part, uint32_t* absorb_out) {
   Status s = zf_ctx_->MergePartitionLocked(this, cfd, drain_part, absorb_out);
   if (s.ok()) {
     MaybeScheduleFlushOrCompaction();
+  }
+  return s;
+}
+
+// ZeroFlushV0 P2（M2）：split（quiescent 子集 + type-3 rewrite 内联执行）。
+Status DBImpl::ZfSplitPartition(uint32_t part, const Slice& split_key,
+                                uint32_t* child_l, uint32_t* child_r) {
+  if (zf_ctx_ == nullptr) {
+    return Status::InvalidArgument("ZeroFlush is not enabled");
+  }
+  ColumnFamilyData* cfd = GetDefaultColumnFamily();
+  if (cfd == nullptr) {
+    return Status::InvalidArgument("ZeroFlush: no default column family");
+  }
+  Status s;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    // 1) 路由拆分（前置 + 分配器 + DeriveSplit + 切路由 + ZFPROPS 落盘）。
+    s = zf_ctx_->SplitPartitionLocked(this, cfd, part, split_key, child_l,
+                                      child_r);
+    if (!s.ok()) {
+      return s;
+    }
+    // 2) type-3 rewrite：跨界 base 文件按 split_key 二分。quiescent 版只处理
+    //    base 层单个跨界文件（L0 / 多文件跨界的文件对齐并入后续版本——路由
+    //    已切，读正确不受影响，文件跨界仅影响后续压缩的 1:1 对齐）。持 DB
+    //    mutex 全程执行：期间无并发 compaction 可取用该文件，无需注册
+    //    being_compacted；LogAndApply 单点原子替换。
+    const auto* vstorage = cfd->current()->storage_info();
+    const int base_level = vstorage->base_level();
+    const Comparator* ucmp = cfd->user_comparator();
+    FileMetaData* straddle = nullptr;
+    for (FileMetaData* f : vstorage->LevelFiles(base_level)) {
+      if (ucmp->Compare(f->smallest.user_key(), split_key) < 0 &&
+          ucmp->Compare(f->largest.user_key(), split_key) >= 0) {
+        straddle = f;
+        break;
+      }
+    }
+    if (straddle != nullptr) {
+      if (straddle->fd.GetFileSize() > (256ull << 20)) {
+        return Status::Busy(
+            "ZeroFlush: straddling base file exceeds type-3 rewrite v1 size "
+            "limit");
+      }
+      zeroflush::ZfRewriteParams rp;
+      rp.cfd = cfd;
+      rp.db_options = &immutable_db_options_;
+      rp.mutable_cf_options = &cfd->GetLatestMutableCFOptions();
+      rp.file_options = &file_options_;
+      rp.versions = versions_.get();
+      rp.io_priority = Env::IO_USER;
+      rp.stats = stats_;
+      rp.event_logger = &event_logger_;
+      rp.io_tracer = io_tracer_;
+      rp.db_id = db_id_;
+      rp.db_session_id = db_session_id_;
+      rp.output_compression = cfd->GetLatestMutableCFOptions().compression;
+      FileMetaData out_l, out_r;
+      s = zeroflush::ZfSplitRewriteFile(rp, *straddle, split_key, base_level,
+                                        &out_l, &out_r);
+      if (!s.ok()) {
+        return s;
+      }
+      if (out_l.fd.GetNumber() == 0 || out_r.fd.GetNumber() == 0) {
+        // 跨界判定保证两侧均有数据；理论不可达（防御）。
+        if (out_l.fd.GetNumber() != 0) {
+          cfd->ioptions().env->DeleteFile(TableFileName(
+              cfd->ioptions().cf_paths, out_l.fd.GetNumber(), 0))
+              .PermitUncheckedError();
+        }
+        if (out_r.fd.GetNumber() != 0) {
+          cfd->ioptions().env->DeleteFile(TableFileName(
+              cfd->ioptions().cf_paths, out_r.fd.GetNumber(), 0))
+              .PermitUncheckedError();
+        }
+        return Status::Corruption(
+            "ZeroFlush: boundary rewrite produced an empty side");
+      }
+      fprintf(stderr,
+              "ZFDBG-rewrite part=%u b=%s file=%llu -> left=%llu[%s,%s] "
+              "right=%llu[%s,%s] lvl=%d\n",
+              part, split_key.ToString(true).c_str(),
+              (unsigned long long)straddle->fd.GetNumber(),
+              (unsigned long long)out_l.fd.GetNumber(),
+              out_l.smallest.user_key().ToString(true).c_str(),
+              out_l.largest.user_key().ToString(true).c_str(),
+              (unsigned long long)out_r.fd.GetNumber(),
+              out_r.smallest.user_key().ToString(true).c_str(),
+              out_r.largest.user_key().ToString(true).c_str(), base_level);
+      // 3) 单点原子安装：删除跨界文件 + 加两个子文件（同一 base 层，children
+      //    范围 ⊆ 原文件范围 → 层内仍无重叠）。被删文件随后由常规 purge 回收。
+      VersionEdit edit;
+      edit.SetColumnFamily(cfd->GetID());
+      edit.DeleteFile(base_level, straddle->fd.GetNumber());
+      edit.AddFile(base_level, out_l);
+      edit.AddFile(base_level, out_r);
+      s = versions_->LogAndApply(
+          cfd, ReadOptions(Env::IOActivity::kCompaction),
+          WriteOptions(Env::IOActivity::kCompaction), &edit, &mutex_,
+          nullptr /* directory */);
+    }
+    // 与 ZfMergePartition 一致：持锁调度的安全点（LogAndApply 内部可能短暂
+    // 释放 mutex 做 MANIFEST IO，返回时已重新持锁）。
+    if (s.ok()) {
+      MaybeScheduleFlushOrCompaction();
+    }
   }
   return s;
 }

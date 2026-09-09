@@ -171,6 +171,14 @@ class PartitionedWalManager {
   // 返回指向该分区的指针（保证非空）。
   void EnsurePartition(uint32_t part_id);
 
+  // ZeroFlushV0 P2（M2）：重开后为新分区（split 子分区 id 可能 > 初始 P-1）
+  // 创建 partition 对象并按磁盘文件 MaxGen 探测活跃代（语义与 Open() 对
+  // [0,P) 的初始化相同——否则重开后的子分区 Append 会落到陈旧代文件）。
+  // 由 ZeroFlushContext::Open 在 wal_->Open() 后以当前路由表全部 part_ids
+  // 调用（幂等；已存在的分区跳过）。
+  ROCKSDB_NAMESPACE::Status InitPartitionsFromFiles(
+      const std::vector<uint32_t>& part_ids);
+
   // M3.1：检查分区 id 是否已被管理（用于 ReadValue 的上界校验替代
   // "part_id < partitions_"）。
   bool HasPartition(uint32_t part_id) const;

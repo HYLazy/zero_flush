@@ -182,6 +182,13 @@ ZeroFlushContext::~ZeroFlushContext() = default;
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::Open() {
   const rocksdb::Status s = wal_->Open();
   if (s.ok()) {
+    // ZeroFlushV0 P2（M2）：split 子分区（id > 初始 P-1）在 parts_ 中不存在
+    // ——按当前路由表全部 part_ids 补齐并按磁盘文件初始化活跃代（幂等）。
+    std::vector<uint32_t> ids;
+    if (tables_ && tables_->current()) {
+      ids = tables_->current()->part_ids();
+    }
+    wal_->InitPartitionsFromFiles(ids).PermitUncheckedError();
     LoadDrainingFile();  // ZeroFlushV0 P1c：崩溃后重建 DRAINING 注册表
   }
   return s;
@@ -451,6 +458,9 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
   } else if (prop == "rocksdb.zeroflush.merges") {
     // ZeroFlushV0 P1：已成功合并（路由切换）的分区累计数。
     *value = std::to_string(MergeCount());
+  } else if (prop == "rocksdb.zeroflush.splits") {
+    // ZeroFlushV0 P2（M2）：已成功 split（路由切换）的分区累计数。
+    *value = std::to_string(SplitCount());
   } else if (prop == "rocksdb.zeroflush.merge_retired") {
     // ZeroFlushV0 P1b/M1a：已 RETIRED（排空完成）的合并分区累计数。
     *value = std::to_string(MergeRetired());
@@ -1693,6 +1703,98 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
   return ROCKSDB_NAMESPACE::Status::OK();
 }
 
+ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
+    ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
+    uint32_t part, const ROCKSDB_NAMESPACE::Slice& split_key,
+    uint32_t* child_l, uint32_t* child_r) {
+  // REQUIRES: DB mutex held（与 InstallNewVersion 的排他窗口一致）。
+  (void)cfd;
+  auto tbl = tables_ ? tables_->current() : nullptr;
+  if (tbl == nullptr || tbl->IsHashMode()) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush: split requires an active range-routing table "
+        "(kStatic/kSampled/kAlignL1 已安装后)");
+  }
+  if (part == zeroflush::kRangeDelPartId) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush: cannot split the range-deletion partition");
+  }
+  const auto& ids = tbl->part_ids();
+  if (std::find(ids.begin(), ids.end(), part) == ids.end()) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush: split partition not in current table");
+  }
+  // 写屏障：等待在途写组归零（同 MergePartitionLocked——切表后不存在仍按
+  // 旧版本路由的写者）。
+  const uint64_t kInflightWaitUs = 2ull * 1000 * 1000;
+  const uint64_t deadline = env_->NowMicros() + kInflightWaitUs;
+  while (InflightWriterGroups() != 0) {
+    if (env_->NowMicros() > deadline) {
+      return ROCKSDB_NAMESPACE::Status::TimedOut(
+          "ZeroFlush: inflight writer groups did not drain");
+    }
+    std::this_thread::yield();
+  }
+  // ---- 前置（quiescent 子集）：分区完全排空 ----
+  // 允许 split 的只有"数据全在 SST"的冷分区：无活跃字节、无 frozen 索引、
+  // 无 pending sealed/skip/recovery WAL 残留。活跃尾/frozen 尾的跨界处理
+  // 并入 M4（其 WAL gens 需按新边界切分，本版不支持）。
+  if (index_set_ != nullptr && index_set_->HasFrozen(part)) {
+    return ROCKSDB_NAMESPACE::Status::Busy(
+        "ZeroFlush: split partition has unflushed frozen indexes");
+  }
+  if (sealed_cache_ != nullptr &&
+      sealed_cache_->HasPendingPartGens(part)) {
+    return ROCKSDB_NAMESPACE::Status::Busy(
+        "ZeroFlush: split partition has pending sealed WAL gens");
+  }
+  if (wal_ != nullptr && wal_->ActiveSize(part) != 0) {
+    return ROCKSDB_NAMESPACE::Status::Busy(
+        "ZeroFlush: split partition must be fully drained (no active bytes)");
+  }
+  // 分区不得是 DRAINING 方（排空未完成，其别名区间跨切点会错位）或别名
+  // 目标（drain 区间 key 的别名回查依赖 absorb 单一 id）。
+  {
+    std::lock_guard<std::mutex> l(draining_mu_);
+    for (const auto& d : draining_) {
+      if (d.part == part || d.absorb == part) {
+        return ROCKSDB_NAMESPACE::Status::Busy(
+            "ZeroFlush: split partition involved in active drain");
+      }
+    }
+  }
+  // ---- 分配两子 id + 派生新表 + 切路由（对新写即时生效）----
+  const uint32_t l = AllocatePartId();
+  const uint32_t r = AllocatePartId();
+  // 子分区 id 可能 > 初始 P-1——先建 WAL 分区对象（gen0；首写延迟开文件）。
+  // 分区索引由写路径 Insert 首触达自建（active 索引 + bloom）。
+  if (wal_ != nullptr) {
+    wal_->EnsurePartition(l);
+    wal_->EnsurePartition(r);
+  }
+  std::shared_ptr<PartitionTable> nt;
+  rocksdb::Status s =
+      tbl->DeriveSplit(part, split_key, tbl->version() + 1, l, r, &nt);
+  if (!s.ok()) {
+    return s;
+  }
+  tables_->InstallNewVersion(nt);
+  // 持久化路由版本：重开后路由一致（同 kSampled/kAlignL1 学习安装）。
+  s = PersistZfProps();
+  if (!s.ok()) {
+    // 新表已在内存生效；落盘失败不回滚（同 merge 的崩溃恢复一致性语义）。
+    return s;
+  }
+  split_count_.fetch_add(1, std::memory_order_relaxed);
+  if (child_l != nullptr) {
+    *child_l = l;
+  }
+  if (child_r != nullptr) {
+    *child_r = r;
+  }
+  return ROCKSDB_NAMESPACE::Status::OK();
+}
+
 bool ZeroFlushContext::IsDrainingPartition(uint32_t part) const {
   std::lock_guard<std::mutex> l(draining_mu_);
   return std::any_of(draining_.begin(), draining_.end(),
@@ -1917,6 +2019,19 @@ ROCKSDB_NAMESPACE::Status MergePartition(ROCKSDB_NAMESPACE::DB* db,
   }
   auto* impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(db);
   return impl->ZfMergePartition(drain_part, absorb_out);
+}
+
+ROCKSDB_NAMESPACE::Status SplitPartition(ROCKSDB_NAMESPACE::DB* db,
+                                         uint32_t part,
+                                         const ROCKSDB_NAMESPACE::Slice& split_key,
+                                         uint32_t* child_l,
+                                         uint32_t* child_r) {
+  if (db == nullptr) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush::SplitPartition: db must not be null");
+  }
+  auto* impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(db);
+  return impl->ZfSplitPartition(part, split_key, child_l, child_r);
 }
 
 // ---------------------------------------------------------------------------

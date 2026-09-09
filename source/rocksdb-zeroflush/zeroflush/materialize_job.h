@@ -105,6 +105,41 @@ struct MaterializeTask {
 ROCKSDB_NAMESPACE::Status RunMaterializeTaskPool(
     std::vector<MaterializeTask>* tasks, uint32_t workers);
 
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 P2（M2）：type-3 boundary rewrite（kBoundaryRewrite，quiescent）
+// ---------------------------------------------------------------------------
+// 单次 rewrite 的上下文（DBImpl::ZfSplitPartition 组装——quiescent 拆分在持
+// DB mutex 的外部 API 线程内联执行，无需 FlushJob 的 job_context：纯重编码
+// 不改版本语义，不依赖 snapshot/merge 裁决）。
+struct ZfRewriteParams {
+  ROCKSDB_NAMESPACE::ColumnFamilyData* cfd = nullptr;
+  const ROCKSDB_NAMESPACE::ImmutableDBOptions* db_options = nullptr;
+  const ROCKSDB_NAMESPACE::MutableCFOptions* mutable_cf_options = nullptr;
+  const ROCKSDB_NAMESPACE::FileOptions* file_options = nullptr;
+  ROCKSDB_NAMESPACE::VersionSet* versions = nullptr;
+  ROCKSDB_NAMESPACE::Env::IOPriority io_priority = ROCKSDB_NAMESPACE::Env::IO_USER;
+  ROCKSDB_NAMESPACE::Statistics* stats = nullptr;
+  ROCKSDB_NAMESPACE::EventLogger* event_logger = nullptr;
+  std::shared_ptr<ROCKSDB_NAMESPACE::IOTracer> io_tracer;
+  std::string db_id;
+  std::string db_session_id;
+  ROCKSDB_NAMESPACE::CompressionType output_compression =
+      ROCKSDB_NAMESPACE::kNoCompression;
+};
+
+// type-3：把跨界 base 文件 input 按 boundary_user_key 一分为二（纯重编码，
+// 内部条目逐条搬移、版本/seq/tombstone 语义不变）。返回两个子文件 meta
+// （left = user key < boundary，right = user key ≥ boundary）；某侧为空时
+// 该 out 的 fd.GetNumber()==0（调用方不安装）。调用方须持 DB mutex（input
+// 不被并发改写；output_level 为 input 所在层——children 替换后同层无重叠）。
+// 限制：input 含 range tombstone 时拒绝（ZF 常规分区文件不含——route-del
+// 数据在独立分区；防御断言）。输入文件大小上界由调用方把关。
+ROCKSDB_NAMESPACE::Status ZfSplitRewriteFile(
+    const ZfRewriteParams& p, const ROCKSDB_NAMESPACE::FileMetaData& input,
+    const ROCKSDB_NAMESPACE::Slice& boundary_user_key, int output_level,
+    ROCKSDB_NAMESPACE::FileMetaData* left_out,
+    ROCKSDB_NAMESPACE::FileMetaData* right_out);
+
 // FlushJob 把自身成员打包进本结构传给 ZfMaterializeJob（避免 20+ 参数构造）。
 struct ZfMaterializeCtx {
   // DB 目录（BuildTable 的文件名/监听器用；VersionSet 无公开 dbname() 访问器）。

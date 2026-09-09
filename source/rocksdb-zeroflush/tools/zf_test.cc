@@ -4660,6 +4660,185 @@ void TestDeriveSplitTable() {
   ReportResult(tag, true);
 }
 
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 P2（M2）：quiescent split e2e —— type-3 rewrite 端到端。
+//  part1 [c,g) 种子数据封存物化（无活跃字节 = quiescent）→ 在数据中点 split
+//  → 跨界 base 文件二分为两子文件（子 id 4/5，路由即时生效；splits/
+//  partition_count/routing_version/SST+1 断言）→ 两子分区续写（c*=left、
+//  f*=right）→ 物化 → 读全对 → reopen 路由与数据一致。
+// ---------------------------------------------------------------------------
+void TestSplitQuiescentEndToEnd() {
+  const char* tag = "SplitQuiescentEndToEnd(ZeroFlushV0-P2)";
+  std::string dbname = std::string(kDbBase) + "split_quiescent";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+  zfo.static_boundaries = {"c", "g", "m"};
+  zfo.partition_target_bytes = 64 * 1024;
+  zfo.epoch_target_bytes = 64 * 1024;
+  zfo.materialize_parallelism = 1;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  auto fail = [&](const std::string& why) {
+    ReportResult(tag, false, why);
+    CleanDB(dbname);
+  };
+  char k[16];
+  auto make_val = [](const char* prefix, int id) -> std::string {
+    std::string val(200, 'x');
+    snprintf(&val[0], 32, "v%s%04d", prefix, id);
+    return val;
+  };
+  auto put = [&](const char* prefix, int id) -> bool {
+    snprintf(k, sizeof(k), "%s%04d", prefix, id);
+    const std::string val = make_val(prefix, id);
+    return db->Put(rocksdb::WriteOptions(), k, val).ok();
+  };
+  auto get_eq = [&](const char* prefix, int id) -> bool {
+    snprintf(k, sizeof(k), "%s%04d", prefix, id);
+    std::string out;
+    if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() ||
+        out != make_val(prefix, id)) {
+      fprintf(stderr, "[dbg] get(%s%04d) mismatch\n", prefix, id);
+      return false;
+    }
+    return true;
+  };
+  auto total_sst = [&](rocksdb::DB* d) -> uint64_t {
+    uint64_t n = 0;
+    for (int l = 0; l <= 6; ++l) n += NumFilesAtLevel(d, l);
+    return n;
+  };
+
+  // ---- 1) 种子：part1 [c,g) 活跃数据（< partition_target，不触发封存）；
+  // 再由 b/h 追加使总活跃 ≥ epoch_target → 批次封存冻结全部有数据分区
+  // （含 part1）→ 物化 → part1 无活跃字节（quiescent；后续写只落 b/h，
+  // part1 不再收写）。----
+  const uint64_t sealed_before = ZfMetric(db.get(), "epochs_sealed");
+  const int d_total = 200;  // ≈ 43KB < 64KB 分区阈值
+  for (int i = 0; i < d_total; ++i) {
+    if (!put("d", i)) {
+      fail("put@seed");
+      return;
+    }
+  }
+  int extra = 0;
+  for (; extra < 2000; ++extra) {
+    if (!put("b", extra) || !put("h", extra)) {
+      fail("put@seed-bh");
+      return;
+    }
+    if (ZfMetric(db.get(), "epochs_sealed") > sealed_before) {
+      break;
+    }
+  }
+  if (ZfMetric(db.get(), "epochs_sealed") == sealed_before) {
+    fail("seed never triggered a seal");
+    return;
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    fail("WaitAllMaterialized(seed) timeout");
+    return;
+  }
+  // 数据中点作为切点（d0000.. < b < d0199 → 必跨界）。
+  const int split_idx = d_total / 2;
+  char split_key[16];
+  snprintf(split_key, sizeof(split_key), "d%04d", split_idx);
+  const uint64_t sst_before = total_sst(db.get());
+  const int64_t cnt_before = CountViaIterator(db.get());
+
+  // ---- 2) split part1 @ split_key（quiescent）→ type-3 rewrite ----
+  uint32_t child_l = 999, child_r = 999;
+  s = zeroflush::SplitPartition(db.get(), /*part=*/1,
+                                rocksdb::Slice(split_key), &child_l, &child_r);
+  if (!s.ok()) {
+    fail("split: " + s.ToString());
+    return;
+  }
+  if (child_l != 4 || child_r != 5 ||
+      ZfMetric(db.get(), "splits") != 1 ||
+      ZfMetric(db.get(), "partition_count") != 5 ||
+      ZfMetric(db.get(), "routing_version") != 1) {
+    fail("split metrics/child ids wrong");
+    return;
+  }
+  if (total_sst(db.get()) != sst_before + 1) {
+    fail("straddling base file must be rewritten into two files (+1 SST)");
+    return;
+  }
+  if (CountViaIterator(db.get()) != cnt_before) {
+    fail("iter count mismatch after split rewrite");
+    return;
+  }
+  for (int i = 0; i < d_total; ++i) {
+    if (!get_eq("d", i)) {
+      fail("read seed after split");
+      return;
+    }
+  }
+
+  // ---- 3) 两子分区续写（left=[c,b)：c*；right=[b,g)：f*）→ 物化 ----
+  const uint64_t sealed_b2 = ZfMetric(db.get(), "epochs_sealed");
+  int c_n = 0, f_n = 0;
+  for (; c_n < 2000; ++c_n) {
+    if (!put("c", c_n) || !put("f", c_n)) {
+      fail("put@children");
+      return;
+    }
+    ++f_n;
+    if (ZfMetric(db.get(), "epochs_sealed") > sealed_b2) {
+      ++c_n;
+      break;
+    }
+  }
+  if (c_n < 100 || f_n < 100) {
+    fail("children writes too small");
+    return;
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    fail("WaitAllMaterialized(children) timeout");
+    return;
+  }
+  if (!get_eq("c", 0) || !get_eq("c", c_n / 2) || !get_eq("f", 0) ||
+      !get_eq("f", f_n - 1) || !get_eq("d", split_idx) ||
+      !get_eq("d", d_total - 1)) {
+    fail("read after children materialize");
+    return;
+  }
+  // ---- 4) reopen：路由（ZFPROPS）与数据一致 ----
+  const int64_t cnt_final = CountViaIterator(db.get());
+  db.reset();
+  s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    fail("reopen: " + s.ToString());
+    return;
+  }
+  if (ZfMetric(db.get(), "partition_count") != 5 ||
+      ZfMetric(db.get(), "routing_version") != 1) {
+    fail("route persisted wrong across reopen");
+    return;
+  }
+  if (CountViaIterator(db.get()) != cnt_final) {
+    fail("iter count mismatch after reopen");
+    return;
+  }
+  if (!get_eq("d", 0) || !get_eq("d", split_idx) ||
+      !get_eq("d", d_total - 1) || !get_eq("c", 0) || !get_eq("f", 0)) {
+    fail("spot read after reopen");
+    return;
+  }
+  db.reset();
+  CleanDB(dbname);
+  ReportResult(tag, true, "quiescent split + type-3 rewrite -> 2 files");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -4747,6 +4926,7 @@ int main(int argc, char** argv) {
   run("CrashMidDrainReopen",           TestCrashMidDrainReopen);
   // ---- ZeroFlushV0 P2（M2）新增 ----
   run("DeriveSplitTable",              TestDeriveSplitTable);
+  run("SplitQuiescentEndToEnd",        TestSplitQuiescentEndToEnd);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

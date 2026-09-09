@@ -2163,4 +2163,226 @@ int ZfMaterializeJob::PickInstallLevel(
   return base;  // 直装 base_level
 }
 
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 P2（M2）：type-3 boundary rewrite——跨界 base 文件按新边界二分。
+//  纯重编码（内部条目逐条搬移，版本/seq/type 语义不变）；输出层 = 输入层
+//  （children 范围 ⊆ 输入范围 → 替换后同层无重叠）。quiescent 场景在持 DB
+//  mutex 的外部 API 线程内联执行（无 snapshot/merge 裁决需求）。
+// ---------------------------------------------------------------------------
+ROCKSDB_NAMESPACE::Status ZfSplitRewriteFile(
+    const ZfRewriteParams& p, const ROCKSDB_NAMESPACE::FileMetaData& input,
+    const ROCKSDB_NAMESPACE::Slice& boundary_user_key, int output_level,
+    ROCKSDB_NAMESPACE::FileMetaData* left_out,
+    ROCKSDB_NAMESPACE::FileMetaData* right_out) {
+  if (p.cfd == nullptr || p.db_options == nullptr ||
+      p.mutable_cf_options == nullptr || p.file_options == nullptr ||
+      p.versions == nullptr || left_out == nullptr || right_out == nullptr) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZfSplitRewriteFile: incomplete params");
+  }
+  *left_out = ROCKSDB_NAMESPACE::FileMetaData();
+  *right_out = ROCKSDB_NAMESPACE::FileMetaData();
+  const ROCKSDB_NAMESPACE::MutableCFOptions& mcf = *p.mutable_cf_options;
+  const auto* ucmp = p.cfd->user_comparator();
+  ROCKSDB_NAMESPACE::ReadOptions read_options(
+      ROCKSDB_NAMESPACE::Env::IOActivity::kCompaction);
+  read_options.rate_limiter_priority = p.io_priority;
+  const ROCKSDB_NAMESPACE::WriteOptions write_options(
+      p.io_priority, ROCKSDB_NAMESPACE::Env::IOActivity::kCompaction);
+
+  int64_t _current_time = 0;
+  ROCKSDB_NAMESPACE::Status ts =
+      p.db_options->clock->GetCurrentTime(&_current_time);
+  if (!ts.ok()) {
+    _current_time = 0;
+  }
+  const uint64_t current_time = static_cast<uint64_t>(_current_time);
+  const uint64_t oldest_key_time = current_time;
+  ROCKSDB_NAMESPACE::FileOptions fo_copy = *p.file_options;
+  fo_copy.write_hint = ROCKSDB_NAMESPACE::Env::WLTH_NOT_SET;
+
+  // 输入表全量点条目迭代（输出流 = 输入流，只按边界重分文件）。
+  std::unique_ptr<ROCKSDB_NAMESPACE::InternalIterator> it(
+      p.cfd->table_cache()->NewIterator(
+          read_options, *p.file_options, p.cfd->internal_comparator(), input,
+          nullptr /* range_del_agg */, mcf, nullptr /* table_reader_ptr */,
+          nullptr /* file_read_hist */,
+          ROCKSDB_NAMESPACE::TableReaderCaller::kCompaction,
+          nullptr /* arena */, false /* skip_filters */, output_level,
+          ROCKSDB_NAMESPACE::MaxFileSizeForL0MetaPin(mcf),
+          nullptr /* smallest_compaction_key */,
+          nullptr /* largest_compaction_key */,
+          false /* allow_unprepared_value */, nullptr /* range_del_read_seqno */,
+          nullptr /* range_del_iter */, false /* maybe_pin_table_handle */,
+          nullptr /* file_open_metadata */));
+  ROCKSDB_NAMESPACE::Status s = it->status();
+  if (!s.ok()) {
+    return s;
+  }
+
+  struct Side {
+    ROCKSDB_NAMESPACE::TableBuilder* builder = nullptr;
+    std::unique_ptr<ROCKSDB_NAMESPACE::WritableFileWriter> writer;
+    ROCKSDB_NAMESPACE::FileMetaData meta;
+    std::string fname;
+  } sides[2];
+
+  auto open_side = [&](int idx) -> ROCKSDB_NAMESPACE::Status {
+    Side* sd = &sides[idx];
+    sd->meta.fd = ROCKSDB_NAMESPACE::FileDescriptor(
+        p.versions->NewFileNumber(), 0, 0);
+    sd->fname = ROCKSDB_NAMESPACE::TableFileName(
+        p.cfd->ioptions().cf_paths, sd->meta.fd.GetNumber(), 0);
+    std::unique_ptr<ROCKSDB_NAMESPACE::FSWritableFile> file;
+    ROCKSDB_NAMESPACE::IOStatus io_s = ROCKSDB_NAMESPACE::NewWritableFile(
+        p.db_options->fs.get(), sd->fname, &file, fo_copy);
+    if (!io_s.ok()) {
+      p.db_options->env->DeleteFile(sd->fname).PermitUncheckedError();
+      return io_s;
+    }
+    file->SetIOPriority(p.io_priority);
+    file->SetWriteLifeTimeHint(fo_copy.write_hint);
+    sd->writer.reset(new ROCKSDB_NAMESPACE::WritableFileWriter(
+        std::move(file), sd->fname, *p.file_options, p.db_options->clock,
+        p.io_tracer, p.stats, ROCKSDB_NAMESPACE::Histograms::SST_WRITE_MICROS,
+        p.cfd->ioptions().listeners,
+        p.cfd->ioptions().file_checksum_gen_factory.get(),
+        p.cfd->ioptions().checksum_handoff_file_types.Contains(
+            ROCKSDB_NAMESPACE::FileType::kTableFile),
+        false /* buffered_data_with_checksum */));
+    ROCKSDB_NAMESPACE::TableBuilderOptions tboptions(
+        p.cfd->ioptions(), mcf, read_options, write_options,
+        p.cfd->internal_comparator(),
+        p.cfd->internal_tbl_prop_coll_factories(), p.output_compression,
+        mcf.compression_opts, p.cfd->GetID(), p.cfd->GetName(),
+        output_level, current_time /* newest_key_time */,
+        false /* is_bottommost */,
+        ROCKSDB_NAMESPACE::TableFileCreationReason::kCompaction,
+        oldest_key_time, current_time, p.db_id, p.db_session_id,
+        0 /* target_file_size */, sd->meta.fd.GetNumber(),
+        ROCKSDB_NAMESPACE::kMaxSequenceNumber /* preclude_last_level_min_seqno */);
+    sd->builder = ROCKSDB_NAMESPACE::NewTableBuilder(tboptions, sd->writer.get());
+    return ROCKSDB_NAMESPACE::Status::OK();
+  };
+
+  // 收尾一侧文件：Finish → Sync → Close → 填 meta → 拷出；空/失败删除物理文件。
+  auto finish_side = [&](int idx, ROCKSDB_NAMESPACE::Status status)
+      -> ROCKSDB_NAMESPACE::Status {
+    Side* sd = &sides[idx];
+    if (sd->builder == nullptr) {
+      return status;
+    }
+    ROCKSDB_NAMESPACE::Status ss = status;
+    if (ss.ok() && sd->builder->IsEmpty()) {
+      sd->builder->Abandon();
+      sd->builder = nullptr;
+      sd->writer.reset();
+      p.db_options->env->DeleteFile(sd->fname).PermitUncheckedError();
+      return ss;
+    }
+    if (ss.ok()) {
+      ss = sd->builder->Finish();
+    }
+    if (ss.ok()) {
+      ROCKSDB_NAMESPACE::IOOptions opts;
+      ROCKSDB_NAMESPACE::IOStatus io_s =
+          ROCKSDB_NAMESPACE::WritableFileWriter::PrepareIOOptions(write_options,
+                                                                  opts);
+      if (io_s.ok()) {
+        io_s = sd->writer->Sync(opts, p.cfd->ioptions().use_fsync);
+      }
+      if (io_s.ok()) {
+        io_s = sd->writer->Close(opts);
+      }
+      ss = io_s;
+    }
+    if (ss.ok()) {
+      sd->meta.fd.file_size = sd->builder->FileSize();
+      sd->meta.tail_size = sd->builder->GetTailSize();
+      sd->meta.marked_for_compaction = sd->builder->NeedCompact();
+      sd->meta.user_defined_timestamps_persisted =
+          p.cfd->ioptions().persist_user_defined_timestamps;
+      sd->meta.file_checksum = sd->writer->GetFileChecksum();
+      sd->meta.file_checksum_func_name = sd->writer->GetFileChecksumFuncName();
+      if (!p.db_id.empty() && !p.db_session_id.empty()) {
+        if (!ROCKSDB_NAMESPACE::GetSstInternalUniqueId(
+                 p.db_id, p.db_session_id, sd->meta.fd.GetNumber(),
+                 &sd->meta.unique_id)
+                 .ok()) {
+          sd->meta.unique_id = ROCKSDB_NAMESPACE::kNullUniqueId64x2;
+        }
+      }
+      sd->meta.epoch_number = p.cfd->NewEpochNumber();
+      if (idx == 0) {
+        *left_out = std::move(sd->meta);
+      } else {
+        *right_out = std::move(sd->meta);
+      }
+    } else {
+      p.db_options->env->DeleteFile(sd->fname).PermitUncheckedError();
+    }
+    sd->builder = nullptr;
+    sd->writer.reset();
+    return ss;
+  };
+
+  it->SeekToFirst();
+  int cur_side = -1;
+  for (; it->Valid(); it->Next()) {
+    const ROCKSDB_NAMESPACE::Slice& key = it->key();
+    const ROCKSDB_NAMESPACE::Slice& value = it->value();
+    ROCKSDB_NAMESPACE::ParsedInternalKey pik;
+    if (!ROCKSDB_NAMESPACE::ParseInternalKey(key, &pik, false).ok()) {
+      s = ROCKSDB_NAMESPACE::Status::Corruption(
+          "ZfSplitRewriteFile: undecodable internal key");
+      break;
+    }
+    // user key < boundary → 左子；≥ boundary → 右子（同 user key 连续 →
+    // 单向切换一次，不会回退）。
+    const int side =
+        ucmp->Compare(pik.user_key, boundary_user_key) < 0 ? 0 : 1;
+    if (side < cur_side) {
+      s = ROCKSDB_NAMESPACE::Status::Corruption(
+          "ZfSplitRewriteFile: out-of-order side switch");
+      break;
+    }
+    if (cur_side != side) {
+      s = open_side(side);
+      if (!s.ok()) {
+        break;
+      }
+      cur_side = side;
+    }
+    s = sides[side].meta.UpdateBoundaries(key, value, pik.sequence, pik.type);
+    if (!s.ok()) {
+      break;
+    }
+    sides[side].builder->Add(key, value);
+    if (!sides[side].builder->status().ok()) {
+      s = sides[side].builder->status();
+      break;
+    }
+  }
+  if (s.ok() && !it->status().ok()) {
+    s = it->status();
+  }
+  s = finish_side(0, s);
+  if (s.ok()) {
+    s = finish_side(1, s);
+  }
+  if (!s.ok()) {
+    // 收尾已清理各自的文件；未收尾侧若仍有 open builder（错误路径）清理。
+    for (int i = 0; i < 2; ++i) {
+      if (sides[i].builder != nullptr) {
+        sides[i].builder->Abandon();
+        sides[i].builder = nullptr;
+        sides[i].writer.reset();
+        p.db_options->env->DeleteFile(sides[i].fname).PermitUncheckedError();
+      }
+    }
+    return s;
+  }
+  return ROCKSDB_NAMESPACE::Status::OK();
+}
+
 }  // namespace zeroflush

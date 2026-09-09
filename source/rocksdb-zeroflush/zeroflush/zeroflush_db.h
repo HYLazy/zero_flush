@@ -435,6 +435,21 @@ class ZeroFlushContext {
       ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
       uint32_t drain_part, uint32_t* absorb_out);
 
+  // ---- ZeroFlushV0 P2（M2）：split（quiescent 子集）----
+  // 把分区 part 的路由区间在 split_key 处一分为二。调用前提：持 DB mutex、
+  // 调用线程不是写组成员。过程：(1) 等待在途写组归零；(2) 前置检查：分区
+  // 完全排空（无活跃字节、无 frozen 索引、无 pending sealed/skip/recovery
+  // 残留）且不处于 DRAINING/别名方；(3) 分配两个子分区 id（父 id 退役）；
+  // (4) DeriveSplit 派生新表版本并安装（路由切换，对新写即时生效——两子
+  // 分区收新写）；(5) ZFPROPS 落盘（重开路由一致）。返回两子分区 id。
+  // 物理层（跨界 base 文件按 b 二分 = type-3 rewrite）由调用方
+  // （DBImpl::ZfSplitPartition）在返回后执行——本方法不触碰 SST；若 rewrite
+  // 失败路由已切换但数据仍完整（文件未对齐仅影响后续压缩效率，读不受影响）。
+  ROCKSDB_NAMESPACE::Status SplitPartitionLocked(
+      ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
+      uint32_t part, const ROCKSDB_NAMESPACE::Slice& split_key,
+      uint32_t* child_l, uint32_t* child_r);
+
   // 分区是否处于 DRAINING（被合并、排空未完成）。PlanLocked F1 与读别名共用。
   bool IsDrainingPartition(uint32_t part) const;
   // DRAINING 分区数（诊断/测试：rocksdb.zeroflush.draining_partitions）。
@@ -476,6 +491,12 @@ class ZeroFlushContext {
   // 已成功合并（路由切换）的分区累计数（诊断/测试）。
   uint64_t MergeCount() const {
     return merge_count_.load(std::memory_order_relaxed);
+  }
+
+  // ZeroFlushV0 P2（M2）：已成功 split（路由切换）的分区累计数（诊断/测试：
+  // rocksdb.zeroflush.splits）。
+  uint64_t SplitCount() const {
+    return split_count_.load(std::memory_order_relaxed);
   }
 
   ZeroFlushOptions zfo_;
@@ -544,6 +565,8 @@ class ZeroFlushContext {
   // 在途写组计数（见 EnterInflightGroup 注释）。
   std::atomic<uint32_t> inflight_groups_{0};
   std::atomic<uint64_t> merge_count_{0};
+  // ZeroFlushV0 P2（M2）：已成功 split 的分区累计数（SplitCount）。
+  std::atomic<uint64_t> split_count_{0};
   // DRAINING 分区登记（别名读回查 + retire 判定）。
   mutable std::mutex draining_mu_;
   std::vector<DrainingPart> draining_;
@@ -580,6 +603,18 @@ void Close(std::shared_ptr<ROCKSDB_NAMESPACE::DB>* db);
 ROCKSDB_NAMESPACE::Status MergePartition(ROCKSDB_NAMESPACE::DB* db,
                                          uint32_t drain_part,
                                          uint32_t* absorb_out);
+
+// ZeroFlushV0 P2（M2）：外部触发"切分分区"（split 入口，quiescent 子集 +
+// type-3 rewrite）。把分区 part 的路由区间在 split_key 处一分为二：分区须
+// 完全排空（数据全在 SST）且不处于 DRAINING/别名窗口；跨界 base 文件按
+// split_key 二分（单文件替换为两子文件）。child_l/child_r 返回两子分区 id。
+// 适用范围：范围路由模式。线程安全：内部取 DB mutex 并等待在途写组归零；
+// 调用线程不得是写组成员（正常前台/管理线程即可）。注意 rewrite 为持锁
+// 内联执行（v1），跨界文件 ≤256MB。
+ROCKSDB_NAMESPACE::Status SplitPartition(
+    ROCKSDB_NAMESPACE::DB* db, uint32_t part,
+    const ROCKSDB_NAMESPACE::Slice& split_key, uint32_t* child_l,
+    uint32_t* child_r);
 
 // 销毁 ZeroFlush DB：先调原生 DestroyDB 清理 manifest/sst/log，再递归
 // 删除 wal_dir/zfwal 子目录（含 ZFPROPS 与全部代文件）。即使原生 DB

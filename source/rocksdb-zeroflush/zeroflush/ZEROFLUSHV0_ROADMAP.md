@@ -92,8 +92,22 @@ crash 注入（merge 后 E_D flush 前 kill → reopen 数据完整）；zf_test
   （签名取两子 id 为入参，table 保持纯函数；父区间开区间内切分、首/末分区
   -∞/+∞ 侧不约束、边界重复拒绝、子 id 互异且不在表中）。表级用例
   TestDeriveSplitTable（中/首/末分区、稀疏表 merge 后 {0,2,3}、错误路径）。
-- 待办：步骤 3（type-3 rewrite job）→ 4（SplitPartitionLocked）→ 5
-  （e2e quiescent split + split/merge 组合用例）。
+- ✅ 步骤 3/4/5：type-3 rewrite（`ZfSplitRewriteFile`，materialize_job：跨界
+  base 文件纯重编码二分——内部条目逐条搬移，输出左右两文件；`ZfRewriteParams`
+  由 DBImpl 组装，持 DB mutex 内联执行）+ `SplitPartitionLocked`/外部 API
+  `zeroflush::SplitPartition`（quiescent 前置：无活跃字节/无 frozen/pending/
+  非 DRAINING 方/别名方 → 分配器取两子 id → DeriveSplit 切路由落盘 →
+  DBImpl::ZfSplitPartition 查跨界 base 文件 → rewrite → 单点 VersionEdit
+  删 F 加 F1/F2）。配套：WAL 管理器 `EnsurePartition`（运行时子分区）与
+  `InitPartitionsFromFiles`（重开子分区按磁盘 MaxGen 建对象，防 D4 类落陈旧
+  代）；`rocksdb.zeroflush.splits` 指标。e2e TestSplitQuiescentEndToEnd
+  （种子单 base 文件 → 中点 split → SST+1、路由/指标断言 → 两子分区续写物化
+  → 读全对 → reopen 一致）。
+- v1 限制（后续版本收口）：rewrite 只处理 base 层单个跨界文件（≤256MB）；
+  L0/多文件跨界的文件对齐未做（路由已切，读正确不受影响，仅后续压缩 1:1
+  对齐受影响）；活跃尾/frozen 尾 split 未做（其跨界 WAL gens 处理并入 M4）；
+  与并发 flush 的 LogAndApply 让锁窗口竞态未做 being_compacted 防护（quiescent
+  显式 API 场景无并发写，可接受；M4 前补）。
 
 **M2 实施细则（供直接开工）：**
 1. 分区 id 分配器：ctx 增 `next_part_id_`（随 ZFPROPS 持久化；恢复用 max 重建）；
