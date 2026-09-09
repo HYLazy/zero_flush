@@ -58,7 +58,9 @@ sealed/skip/recovery pending"。依据 P1B_DESIGN §2/§4 的 (c)+(F1)。
 标映射正确性修复（写/读/物化/恢复）。F1 已完整接线并解除 Busy 门
 （8182426 → 本轮）：PlanLocked 对 DRAINING 分区强制孤儿直装、永不 kSkip，
 活跃尾合并覆盖 merge_into_base_level=true（MergeActiveTailMergeEnabled 序
-回归，zf_test 42/42）。M1 剩余：DRAINING 持久化（ZFPROPS）与崩溃注入用例。
+回归，zf_test 42/42）。M1 正确性内核完成；收尾（M1c，代码锚点已记录于
+P1B_DESIGN §7）：DRAINING 持久化（ZFPROPS v3 draining 段 + Recover 重建）
+与崩溃注入 e2e。
 范围：
 1. 恢复 DRAINING 注册表（DrainingPart{part,absorb,lo,hi} + mutex）与
    IsDrainingPartition / DrainingPartitions / MergeRetired 指标。

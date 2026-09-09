@@ -114,15 +114,29 @@ merge_retired++。调用点：ReleaseEpoch / ReleaseGens（epoch 回收 = 物化
 推进点）；skip/recovery 中转由 F1 排除（D 不再被 skip），故只需 epoch 回收
 钩子。D 的活跃代在 merge 时已冻结（E_D）且无新写 → 活跃字节恒 0。
 
-## 7. 崩溃与恢复（P5 之前的行为）
+## 7. 崩溃与恢复（M1c 待办；P5 之前的行为）
 
+现状（M1a/M1b 完成后，ZeroFlushV0）：
 - ZFPROPS 已持久化新路由表（V+1）→ 重开路由无 D，正确。
-- D 的 E_D/pending 封存 WAL：Recover 重放所有分区 WAL 文件重建索引
-  （InsertCreate 按 gen）→ D 的 sealed gens 以 recovery 孤儿登记
-  （AddRecoveryGens）→ 下个 seal 收养物化（孤儿路径，R59C 容忍）。
-- DRAINING 注册表是内存态：崩溃后丢失 → 别名查询失效窗口 = 孤儿被收养
-  物化之前（期间 D pending 数据不可见）。P5 恢复协议把 DRAINING 状态与
-  收养关系落盘（ZFPROPS/MANIFEST 扩展）后关闭该窗口。
+- 恢复期 D 的 E_D/pending 封存 WAL：Recover 重放所有分区 WAL 重建索引时，
+  记录按「当前表」路由插入（RoutePartIdWithVersion）→ D 区间 key 落吸收方
+  索引链 → 读路径无需别名即可见；其 WAL 段以 recovery 孤儿登记、由吸收方
+  后续 seal 收养物化（R59C 容忍）。
+- 代价：DRAINING 注册表是内存态，崩溃丢失 → F1/retire 在恢复后不再作用于
+  D（孤儿路径代偿，无别名失效但排空路径变脏）；D 的统计（retire 计数）不跨
+  重启。
+
+M1c（收尾待办，代码锚点已定）：
+1. ZFPROPS v3 增 draining 段（zeroflush_db.cc PersistZfProps 写 ~1449-1520、
+   读 ~1965+）：merge 登记时同步落 DrainingPart{part,absorb,lo,hi}；retire
+   时删段重写。
+2. Recover（zeroflush_db.cc ~1350+）读段重建注册表（draining_mu_/draining_/
+   draining_active_），使 F1/retire 恢复后继续作用于 D。
+3. 崩溃注入 e2e（参照 CrashBeforeCompact 的 fork 模式）：子进程活跃尾 merge
+   后不关闭直接 _Exit；父进程重开：D 区间尾 key 可读、后续写触发收养物化、
+   draining_partitions 归零、数据与迭代计数一致。
+设计前提已具备：写路径幂等重放、F1 短路（materialize_job PlanLocked
+IsDrainingPartition）、恢复路由=当前表（RoutePartIdWithVersion）。
 
 ## 8. 测试计划（P1b 验收）
 
