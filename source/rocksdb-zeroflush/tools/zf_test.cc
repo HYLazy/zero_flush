@@ -4293,6 +4293,214 @@ void TestMergeActiveTailMergeEnabled() {
   CleanDB(dbname);
   ReportResult(tag, true, "active-tail merge under merge=true -> retired");
 }
+
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 M1c②：崩溃注入 e2e（P1B_DESIGN.md §7/§8）——活跃尾 merge 后
+// E_D 未物化即崩溃（fork 子进程 _Exit），父进程重开验证：
+//  1) DRAINING 注册表经 sidecar 重建（draining_partitions==1）；
+//  2) E_D 尾 key 可读（恢复重放落吸收方链 + recovery 孤儿定点读）；
+//  3) 后续 seal 的 AddEpochWithRecoveryAdoption 收养 E_D → 物化 →
+//     ReleaseEpoch 回调 MaybeRetireDraining → retire 归零 + sidecar 清空。
+// fork 注：子进程只做同步操作（写/merge），后台 flush 线程 fork 后不执行，
+// 故 merge 冻结的 E_D 必留在封存 WAL（不物化）→ 真实崩溃窗口。
+// ---------------------------------------------------------------------------
+void TestCrashMidDrainReopen() {
+  const char* tag = "CrashMidDrainReopen(M1c-2)";
+  std::string dbname = std::string(kDbBase) + "crash_mid_drain";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+  zfo.static_boundaries = {"c", "g", "m"};
+  // 阈值放高：子进程全部 d 数据保持"活跃尾"（< 阈值不触发封存），直到
+  // merge 一次性冻结为 E_D。
+  zfo.partition_target_bytes = 256 * 1024;
+  zfo.epoch_target_bytes = 256 * 1024;
+  zfo.materialize_parallelism = 1;
+
+  // 确定性 200B value：前部文本 token + 尾部 'x' 填充。
+  auto make_val = [](const char* prefix, int id) -> std::string {
+    std::string val(200, 'x');
+    snprintf(&val[0], 32, "v%s%04d", prefix, id);
+    return val;
+  };
+
+  pid_t pid = ::fork();
+  if (pid < 0) {
+    ReportResult(tag, false, "fork failed");
+    return;
+  }
+  if (pid == 0) {
+    // ---- 子进程（崩溃注入）：写种子+活跃尾 → merge → 立即 _Exit ----
+    std::unique_ptr<rocksdb::DB> db;
+    auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+    if (!s.ok()) {
+      fprintf(stderr, "[child] open: %s\n", s.ToString().c_str());
+      fflush(stderr);
+      _exit(1);
+    }
+    char k[16];
+    auto put = [&](const char* prefix, int id) -> bool {
+      snprintf(k, sizeof(k), "%s%04d", prefix, id);
+      const std::string val = make_val(prefix, id);
+      return db->Put(rocksdb::WriteOptions(), k, val).ok();
+    };
+    auto get_eq = [&](const char* prefix, int id) -> bool {
+      snprintf(k, sizeof(k), "%s%04d", prefix, id);
+      std::string out;
+      if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() ||
+          out != make_val(prefix, id)) {
+        fprintf(stderr, "[child] get(%s%04d) mismatch\n", prefix, id);
+        return false;
+      }
+      return true;
+    };
+    // 种子 d0000..d0059（E_D 主数据）。
+    for (int i = 0; i < 60; ++i) {
+      if (!put("d", i)) {
+        fprintf(stderr, "[child] put seed@%d failed\n", i);
+        fflush(stderr);
+        _exit(1);
+      }
+    }
+    // 活跃尾 d0100..d0119（< 阈值，未封存）。
+    for (int i = 100; i < 120; ++i) {
+      if (!put("d", i)) {
+        fprintf(stderr, "[child] put tail@%d failed\n", i);
+        fflush(stderr);
+        _exit(1);
+      }
+    }
+    // merge part1（[c,g) 区间，含活跃尾）→ E_D 冻结 + DRAINING 登记落盘。
+    uint32_t absorb = 999;
+    s = zeroflush::MergePartition(db.get(), /*drain_part=*/1, &absorb);
+    if (!s.ok()) {
+      fprintf(stderr, "[child] merge: %s\n", s.ToString().c_str());
+      fflush(stderr);
+      _exit(1);
+    }
+    if (absorb != 0 || ZfMetric(db.get(), "draining_partitions") != 1) {
+      fprintf(stderr, "[child] post-merge absorb=%u draining=%llu\n", absorb,
+              (unsigned long long)ZfMetric(db.get(), "draining_partitions"));
+      fflush(stderr);
+      _exit(1);
+    }
+    if (DrainingSidecarLines(dbname, zfo.wal_subdir) != 1) {
+      fprintf(stderr, "[child] sidecar must hold 1 record after merge\n");
+      fflush(stderr);
+      _exit(1);
+    }
+    // merge 后立即读（E_D 未物化——别名/封存 WAL 路径）。
+    if (!get_eq("d", 5) || !get_eq("d", 110)) {
+      fprintf(stderr, "[child] alias-window read after merge failed\n");
+      fflush(stderr);
+      _exit(1);
+    }
+    fprintf(stderr, "[child] crash point: merge done, E_D not materialized, "
+                    "_Exit\n");
+    fflush(stderr);
+    _exit(0);
+  }
+
+  // ---- 父进程：等待子进程崩溃后直接重开验证恢复 ----
+  int st = 0;
+  if (::waitpid(pid, &st, 0) < 0 || !WIFEXITED(st) || WEXITSTATUS(st) != 0) {
+    ReportResult(tag, false, "child crash-seed phase failed (see [child] log)");
+    CleanDB(dbname);
+    return;
+  }
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "reopen: " + s.ToString());
+    CleanDB(dbname);
+    return;
+  }
+  auto fail = [&](const std::string& why) {
+    ReportResult(tag, false, why);
+    CleanDB(dbname);
+  };
+  // 1) DRAINING 注册表跨崩溃重建（sidecar）。
+  if (ZfMetric(db.get(), "draining_partitions") != 1) {
+    fail("draining_partitions != 1 after crash reopen (sidecar lost?)");
+    return;
+  }
+  if (DrainingSidecarLines(dbname, zfo.wal_subdir) != 1) {
+    fail("draining sidecar must hold 1 record after crash reopen");
+    return;
+  }
+  // 2) E_D 数据（种子 + 尾）在物化前即可读（恢复重放 → 吸收方链/孤儿读）。
+  char k[16];
+  auto get_eq = [&](const char* prefix, int id) -> bool {
+    snprintf(k, sizeof(k), "%s%04d", prefix, id);
+    std::string out;
+    if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() ||
+        out != make_val(prefix, id)) {
+      fprintf(stderr, "[dbg] get(%s%04d) after reopen mismatch\n", prefix, id);
+      return false;
+    }
+    return true;
+  };
+  if (!get_eq("d", 5) || !get_eq("d", 59) || !get_eq("d", 100) ||
+      !get_eq("d", 119)) {
+    fail("E_D read after crash reopen");
+    return;
+  }
+  // 3) 驱动物化：写 b/h 至 epoch 阈值 → seal（AddEpochWithRecoveryAdoption
+  //    收养 E_D 孤儿）→ 物化 → ReleaseEpoch → MaybeRetireDraining → retire。
+  for (int i = 0; i < 2000; ++i) {
+    snprintf(k, sizeof(k), "%s%04d", "b", i);
+    const std::string bv = make_val("b", i);
+    if (!db->Put(rocksdb::WriteOptions(), k, bv).ok()) {
+      fail("put@drive-b");
+      return;
+    }
+    snprintf(k, sizeof(k), "%s%04d", "h", i);
+    const std::string hv = make_val("h", i);
+    if (!db->Put(rocksdb::WriteOptions(), k, hv).ok()) {
+      fail("put@drive-h");
+      return;
+    }
+    // 200B value + 键/头 ≈ 212B/条；2 分区各 i 条合计 ≥ 256KB 阈值即 seal。
+    if (i >= 640) {
+      break;  // ≈ 2×641×212 ≈ 272KB，已越过 epoch_target_bytes
+    }
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    fail("WaitAllMaterialized(drive) timeout");
+    return;
+  }
+  {
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(60);
+    while (ZfMetric(db.get(), "draining_partitions") != 0) {
+      if (std::chrono::steady_clock::now() > deadline) {
+        fail("draining_partitions did not retire after reopen+drive");
+        return;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+  }
+  if (ZfMetric(db.get(), "merge_retired") != 1) {
+    fail("merge_retired != 1 after reopen+drive");
+    return;
+  }
+  if (DrainingSidecarLines(dbname, zfo.wal_subdir) != 0) {
+    fail("draining sidecar must be empty after retire (M1c1)");
+    return;
+  }
+  // 4) retire 后 E_D 数据仍在（孤儿直装 SST 承载）。
+  if (!get_eq("d", 5) || !get_eq("d", 59) || !get_eq("d", 100) ||
+      !get_eq("d", 119) || !get_eq("b", 0) || !get_eq("h", 0)) {
+    fail("read after retire/materialize");
+    return;
+  }
+  db.reset();
+  CleanDB(dbname);
+  ReportResult(tag, true, "crash mid-drain -> reopen -> adopt -> retire");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -4376,6 +4584,8 @@ int main(int argc, char** argv) {
   run("MergeColdPartitionEndToEnd",     TestMergeColdPartitionEndToEnd);
   run("MergeActiveTailEndToEnd",        TestMergeActiveTailEndToEnd);
   run("MergeActiveTailMergeEnabled",   TestMergeActiveTailMergeEnabled);
+  // ---- ZeroFlushV0 M1c② 新增 ----
+  run("CrashMidDrainReopen",           TestCrashMidDrainReopen);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

@@ -80,6 +80,49 @@ std::shared_ptr<PartitionTable> PartitionTable::CreateHash(
                          /*ucmp=*/nullptr));
 }
 
+rocksdb::Status PartitionTable::CreateWithPartIds(
+    uint32_t version, std::vector<std::string> boundaries,
+    std::vector<uint32_t> part_ids, const rocksdb::Comparator* ucmp,
+    std::shared_ptr<PartitionTable>* out) {
+  if (ucmp == nullptr) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable: ucmp must not be null");
+  }
+  if (out == nullptr) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable: output pointer must not be null");
+  }
+  if (part_ids.size() != boundaries.size() + 1) {
+    return rocksdb::Status::InvalidArgument(
+        "PartitionTable: part_ids count must equal boundaries + 1");
+  }
+  for (size_t i = 1; i < boundaries.size(); ++i) {
+    const int cmp =
+        ucmp->Compare(rocksdb::Slice(boundaries[i - 1]),
+                      rocksdb::Slice(boundaries[i]));
+    if (cmp > 0) {
+      return rocksdb::Status::InvalidArgument(
+          "PartitionTable: boundaries not in ascending order");
+    }
+    if (cmp == 0) {
+      return rocksdb::Status::InvalidArgument(
+          "PartitionTable: duplicate boundary key");
+    }
+  }
+  for (size_t i = 0; i < part_ids.size(); ++i) {
+    for (size_t j = i + 1; j < part_ids.size(); ++j) {
+      if (part_ids[i] == part_ids[j]) {
+        return rocksdb::Status::InvalidArgument(
+            "PartitionTable: duplicate part_id");
+      }
+    }
+  }
+  *out = std::shared_ptr<PartitionTable>(
+      new PartitionTable(version, /*is_hash_mode=*/false, std::move(boundaries),
+                         std::move(part_ids), ucmp));
+  return rocksdb::Status::OK();
+}
+
 uint32_t PartitionTable::Route(const rocksdb::Slice& user_key) const {
   if (is_hash_mode_) {
     const uint32_t h =

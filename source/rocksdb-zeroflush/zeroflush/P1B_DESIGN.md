@@ -132,8 +132,10 @@ M1c（收尾，代码锚点已定）：
    tmp+rename）+ LoadDrainingFile（ZeroFlushContext::Open 重建注册表）。回归：
    活跃尾两用例断言 merge 后 sidecar 1 条、retire 后 0 条。读正确性不依赖
    它（恢复期重放按当前表路由落吸收方链）；文件损坏/缺失按空注册表容忍。
-2. 待办：崩溃注入 e2e（fork：子进程活跃尾 merge 后 _Exit → 父重开验证
-   draining_partitions>0 重建、尾 key 可读、收养物化、retire 归零）。
+2. ✅ ② 崩溃注入 e2e（2026-09-09）：TestCrashMidDrainReopen（fork：子进程
+   活跃尾 merge 后 _Exit → 父重开验证 draining_partitions>0 重建、尾 key 可读、
+   收养物化、retire 归零）。过程中暴露并修复 §9.3 的 ZFPROPS 稀疏 part_ids
+   恢复缺口。
 3. 可选：若需与 ZFPROPS 同文件原子，可后续并入 v3（当前 sidecar 已够）。
 设计前提已具备：写路径幂等重放、F1 短路（materialize_job PlanLocked
 IsDrainingPartition）、恢复路由=当前表（RoutePartIdWithVersion）。
@@ -162,7 +164,21 @@ IsDrainingPartition）、恢复路由=当前表（RoutePartIdWithVersion）。
    Exit，!parallel 每组长双 Exit → 计数 underflow 断言（MergeEdges 实测）。
    修复：!parallel 组在 `WriteGroupToPartitionWal` 返回处 Exit；并行组保留
    共享尾部 Exit（仅 `in_parallel_group && should_exit`，最后完成者恰好一次）。
-3. **间歇性 "Compaction sees out-of-order keys"（未修，独立追踪）**：
+3. **ZFPROPS 恢复丢弃稀疏 part_ids → 重开后 drain 分区 id 被重新分配**
+   （M1c② CrashMidDrainReopen 实测，已修）：merge 派生的新表 part_ids 稀疏
+   （如 {0,2,3}，drain 的全局 id 保留为空缺——WAL/索引按原 id 记账的前提）。
+   ZFPROPS v2 持久化了 part_ids，但重开恢复路径只取 boundaries 调
+   `PartitionTable::Create` → 重建表退化为连续 id [0,P)。merge 已排空/retire
+   的场景无感（数据已进 SST，读由 SST 承载）；但 drain 跨崩溃仍 pending 时
+   （M1c② 场景），连续化把 drain 遗留 id 重新分给相邻分区 → 新写路由进
+   drain 的 WAL/索引 → `MaybeRetireDraining` 的 act 判据恒真（探针实测
+   act=18174 = 复写量）、排空永不收敛。修复：新增
+   `PartitionTable::CreateWithPartIds`（校验 boundaries 升序 + part_ids 互异 +
+   size==boundaries+1），ZFPROPS 恢复用持久化 part_ids 重建（失败回退默认
+   Create，容忍旧文件/损坏）。回归：TestCrashMidDrainReopen（fork 崩溃注入：
+   E_D 未物化即 _Exit → 重开验证 draining 重建、E_D 尾 key 可读、收养物化、
+   retire 归零、sidecar 清空）。
+4. **间歇性 "Compaction sees out-of-order keys"（未修，独立追踪）**：
    4 分区并行**合并**物化（kMergeBase，B 侧有 L1）场景下偶发——同批次大部
    分成功、个别乱序；复现：kStatic P=4 + 4KB 目标 + 四分区交替写入产生
    4 分区整批封存、连续多批 4 任务并行合并（MergeEdgesAndCascadeEndToEnd

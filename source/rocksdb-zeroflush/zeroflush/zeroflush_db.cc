@@ -1852,6 +1852,14 @@ void ZeroFlushContext::MaybeRetireDraining() {
         retired.push_back(p);
         it = draining_.erase(it);
       } else {
+        // M1c② 诊断：env 门控探针（ZF_DBG_RETIRE=1）——打印阻止 retire
+        // 的判据（frozen/pending/act 哪一项为真）。
+        if (getenv("ZF_DBG_RETIRE") != nullptr) {
+          fprintf(stderr,
+                  "ZFDBG-retire part=%u keep frozen=%d pending=%d act=%llu\n",
+                  p, frozen ? 1 : 0, pending ? 1 : 0,
+                  static_cast<unsigned long long>(act));
+        }
         ++it;
       }
     }
@@ -2172,8 +2180,17 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
               restored = PartitionTable::CreateHash(
                   ti.version, ti.partitions);
             } else {
-              rocksdb::Status cs = PartitionTable::Create(
-                  ti.version, ti.boundaries, ucmp, &restored);
+              // ZeroFlushV0 M1c②：必须用持久化的稀疏 part_ids 重建——
+              // Create 的默认 [0,P) 会把 merge 移除的 drain 分区 id 重新
+              // 分配（CrashMidDrainReopen 实测：重开后新写落入 drain 的
+              // WAL，排空永不完成）。part_ids 无法重建时回退默认连续 id
+              // （兼容旧文件/损坏容忍，读路径由 SST 承载不受影响）。
+              rocksdb::Status cs = PartitionTable::CreateWithPartIds(
+                  ti.version, ti.boundaries, ti.part_ids, ucmp, &restored);
+              if (!cs.ok()) {
+                cs = PartitionTable::Create(ti.version, ti.boundaries, ucmp,
+                                            &restored);
+              }
               if (!cs.ok()) {
                 // 边界无法重建（comparator 变更等）——记录日志但继续。
                 if (zfo.use_logger) {

@@ -30,6 +30,17 @@ class PartitionTable {
                                 const rocksdb::Comparator* ucmp,
                                 std::shared_ptr<PartitionTable>* out);
 
+  // ZeroFlushV0 M1c②：ZFPROPS 恢复专用——用持久化的 part_ids 重建范围表。
+  // Create 的默认 part_ids=[0,P) 在 merge 使 part_ids 稀疏后（如 {0,2,3}，
+  // drain 的全局 id 被保留为空缺）会重开错位：drain 遗留 id 被重新分给其他
+  // 分区 → 新写落入 drain 的 WAL/索引（排空永不完成，P1B_DESIGN §7/M1c②
+  // CrashMidDrainReopen 实测 act 滞留）。边界升序校验同 Create；part_ids
+  // 数量须 == boundaries.size()+1 且互异。
+  static rocksdb::Status CreateWithPartIds(
+      uint32_t version, std::vector<std::string> boundaries,
+      std::vector<uint32_t> part_ids, const rocksdb::Comparator* ucmp,
+      std::shared_ptr<PartitionTable>* out);
+
   // hash 兼容模式：无边界，Route 用 Hash(key) % partitions。
   static std::shared_ptr<PartitionTable> CreateHash(uint32_t version,
                                                     uint32_t partitions);
