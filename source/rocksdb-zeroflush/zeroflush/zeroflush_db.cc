@@ -1795,6 +1795,41 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
   return ROCKSDB_NAMESPACE::Status::OK();
 }
 
+ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezePartitionTailLocked(
+    ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
+    uint32_t part, uint64_t* epoch_out) {
+  // REQUIRES: DB mutex held。镜像 MergePartitionLocked 的 E_D 冻结段
+  //（单分区封存），但不切路由/不登记 DRAINING——供生长拆分前排空活跃尾。
+  if (wal_ == nullptr || wal_->ActiveSize(part) == 0) {
+    return ROCKSDB_NAMESPACE::Status::OK();  // 已排空，无需冻结
+  }
+  const uint64_t epoch = epoch_counter_.fetch_add(1) + 1;
+  const FreezeResult fr = wal_->Freeze(part);
+  index_set_->Freeze(part, fr.old_gen + 1);
+  SealedEpoch se;
+  se.epoch = epoch;
+  se.table_version = tables_ ? tables_->current_version() : 0;
+  if (fr.sealed_bytes > 0) {
+    se.gens.emplace_back(part, fr.old_gen);
+    if (fr.old_gen == 0) {
+      se.has_fresh_gen0 = true;
+    }
+    se.part_bytes[part] = fr.sealed_bytes;
+    se.total_bytes = fr.sealed_bytes;
+  }
+  wal_->ClearOverTargetFlag();
+  sealed_cache_->AddEpochWithRecoveryAdoption(se);
+  ROCKSDB_NAMESPACE::MemTable* old_mem = cfd->mem();
+  if (old_mem != nullptr) {
+    old_mem->SetZfEpoch(epoch);
+  }
+  const rocksdb::Status ss = impl->ZfSwitchMemtable(cfd);
+  if (epoch_out != nullptr) {
+    *epoch_out = epoch;
+  }
+  return ss;
+}
+
 bool ZeroFlushContext::IsDrainingPartition(uint32_t part) const {
   std::lock_guard<std::mutex> l(draining_mu_);
   return std::any_of(draining_.begin(), draining_.end(),
@@ -2032,6 +2067,16 @@ ROCKSDB_NAMESPACE::Status SplitPartition(ROCKSDB_NAMESPACE::DB* db,
   }
   auto* impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(db);
   return impl->ZfSplitPartition(part, split_key, child_l, child_r);
+}
+
+ROCKSDB_NAMESPACE::Status GrowPartitions(ROCKSDB_NAMESPACE::DB* db,
+                                         uint32_t* splits_out) {
+  if (db == nullptr) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush::GrowPartitions: db must not be null");
+  }
+  auto* impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(db);
+  return impl->ZfGrowPartitions(splits_out);
 }
 
 // ---------------------------------------------------------------------------

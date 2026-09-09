@@ -137,6 +137,14 @@ struct ZeroFlushOptions {
   // 批次增大时调用方应同步放大 epoch_target 保持每分区大小（融合 ratio
   // 不受影响）。
   uint32_t max_batch_partitions = 4;
+
+  // ---- M3 起步生长（P0=1 全域 → 等容生长拆分）----
+  // 生长拆分阈值：分区 base 字节 ≥ 该值 → 由 zeroflush::GrowPartitions
+  // 取该分区条目中位数调用 M2 split（排空检查点；每次切分约减半）。
+  // 0 = 关闭生长。默认 32MB（路线图 S_min_split）。
+  uint64_t growth_split_min_bytes = 32u << 20;
+  // 两次生长拆分的最小间隔（warmup 冷却，微秒）。0 = 无冷却。
+  uint64_t growth_split_cooldown_micros = 0;
 };
 
 class ZeroFlushContext {
@@ -450,6 +458,14 @@ class ZeroFlushContext {
       uint32_t part, const ROCKSDB_NAMESPACE::Slice& split_key,
       uint32_t* child_l, uint32_t* child_r);
 
+  // M3 起步生长：把分区 part 的活跃尾冻结为单分区 epoch（镜像 merge E_D 的
+  // 冻结段，不做路由切换/DRAINING——用于生长拆分前的排空：冻结后调用方
+  // Flush(wait) 把该 epoch 物化进 base，分区即 quiescent，可走正常 split）。
+  // 持 DB mutex（写路径 seal 同窗口）。ActiveSize(part)==0 时 no-op OK。
+  ROCKSDB_NAMESPACE::Status FreezePartitionTailLocked(
+      ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
+      uint32_t part, uint64_t* epoch_out);
+
   // 分区是否处于 DRAINING（被合并、排空未完成）。PlanLocked F1 与读别名共用。
   bool IsDrainingPartition(uint32_t part) const;
   // DRAINING 分区数（诊断/测试：rocksdb.zeroflush.draining_partitions）。
@@ -497,6 +513,19 @@ class ZeroFlushContext {
   // rocksdb.zeroflush.splits）。
   uint64_t SplitCount() const {
     return split_count_.load(std::memory_order_relaxed);
+  }
+
+  // ---- M3 起步生长：生长拆分冷却 ----
+  // warmup 冷却：距上次生长 split 已过 growth_split_cooldown_micros 才允许
+  // 再次生长拆分（0 = 无冷却恒真）。GrowPartitions 成功 split 后 Touch。
+  bool GrowthCooldownElapsed(uint64_t now_micros) const {
+    const uint64_t last =
+        growth_last_split_micros_.load(std::memory_order_relaxed);
+    const uint64_t cd = zfo_.growth_split_cooldown_micros;
+    return cd == 0 || last == 0 || now_micros >= last + cd;
+  }
+  void TouchGrowthSplit(uint64_t now_micros) {
+    growth_last_split_micros_.store(now_micros, std::memory_order_relaxed);
   }
 
   ZeroFlushOptions zfo_;
@@ -567,6 +596,8 @@ class ZeroFlushContext {
   std::atomic<uint64_t> merge_count_{0};
   // ZeroFlushV0 P2（M2）：已成功 split 的分区累计数（SplitCount）。
   std::atomic<uint64_t> split_count_{0};
+  // M3 起步生长：上次生长 split 时刻（NowMicros；0 = 尚未生长拆分）。
+  std::atomic<uint64_t> growth_last_split_micros_{0};
   // DRAINING 分区登记（别名读回查 + retire 判定）。
   mutable std::mutex draining_mu_;
   std::vector<DrainingPart> draining_;
@@ -615,6 +646,13 @@ ROCKSDB_NAMESPACE::Status SplitPartition(
     ROCKSDB_NAMESPACE::DB* db, uint32_t part,
     const ROCKSDB_NAMESPACE::Slice& split_key, uint32_t* child_l,
     uint32_t* child_r);
+
+// M3 起步生长入口：排空检查点生长拆分。循环把 base 字节 ≥
+// zfo.growth_split_min_bytes 的分区按条目中位数切分（≈减半），冷却窗限频；
+// 无可生长分区或分区未排空（Busy）时停止。splits_out 返回本次生长 split
+// 数。调用线程不得是写组成员。
+ROCKSDB_NAMESPACE::Status GrowPartitions(ROCKSDB_NAMESPACE::DB* db,
+                                         uint32_t* splits_out);
 
 // 销毁 ZeroFlush DB：先调原生 DestroyDB 清理 manifest/sst/log，再递归
 // 删除 wal_dir/zfwal 子目录（含 ZFPROPS 与全部代文件）。即使原生 DB

@@ -168,6 +168,15 @@ split+merge）。
 文件：ZeroFlushOptions（partitions/边界）、zeroflush_db.cc Open、生长触发逻辑。
 验收：P0=1 fillrandom 生长至多分区：全程正确性 + L1 每 range ≤64MB 单文件、
 P 增长有界（≤ 翻倍/冷却窗）、reopen；论文 §5.2(5) 两路径口径的代码落地版。
+进度（2026-09-09）：✅ 代码落地版——ZeroFlushOptions 增 growth_split_min_bytes
+（默认 32MB，0=关）与 growth_split_cooldown_micros；zeroflush::GrowPartitions
+外部入口 → DBImpl::ZfGrowPartitions（排空检查点生长拆分：base 字节 ≥ 阈值的
+最大分区 → 取 base 文件条目中位数 → M2 SplitPartition，冷却窗限频，迭代上限
+64）；预排空处理 seal 残留活跃尾（FreezePartitionTailLocked 冻结 → 调度
+flush → 轮询物化推进——P0=1 全域单分区无法用"他分区触发批次封存"排空）。
+P0=1（kStatic 空边界）Open/物化/生长全链路验证：e2e GrowthSinglePartition
+（700 keys → 15 分区 / 14 次生长拆分，读全对、迭代计数稳定、reopen 一致）。
+全量 zf_test 47/47。
 
 ### M4 动态治理 DG（调度器）
 目标：治理层成型——统计、触发、队列/aging、冷却、参数化；merge(P1b)/split(M2)

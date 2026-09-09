@@ -24,6 +24,7 @@
 #include "util/cast_util.h"
 #include "util/hash_containers.h"
 #include "zeroflush/materialize_job.h"
+#include "zeroflush/wal_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -3981,6 +3982,214 @@ Status DBImpl::ZfSplitPartition(uint32_t part, const Slice& split_key,
     }
   }
   return s;
+}
+
+// M3 起步生长：排空检查点生长拆分（详见 db_impl.h）。
+Status DBImpl::ZfGrowPartitions(uint32_t* splits_out) {
+  if (splits_out != nullptr) {
+    *splits_out = 0;
+  }
+  if (zf_ctx_ == nullptr) {
+    return Status::InvalidArgument("ZeroFlush is not enabled");
+  }
+  const uint64_t min_bytes = zf_ctx_->options().growth_split_min_bytes;
+  if (min_bytes == 0) {
+    return Status::OK();  // 生长关闭
+  }
+  ColumnFamilyData* cfd = GetDefaultColumnFamily();
+  if (cfd == nullptr) {
+    return Status::InvalidArgument("ZeroFlush: no default column family");
+  }
+  SystemClock* clock = immutable_db_options_.clock;
+  uint32_t done = 0;
+  bool need_flush = false;
+  uint64_t mat_before = 0;
+  // 迭代上限：每次成功拆分使该分区约减半，64 次足够覆盖到字节 < 阈值；
+  // 防异常输入下失控。
+  for (int iter = 0; iter < 64; ++iter) {
+    uint32_t best_part = 0;
+    std::string median;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      const uint64_t now = clock->NowMicros();
+      if (!zf_ctx_->GrowthCooldownElapsed(now)) {
+        break;
+      }
+      auto tbl = zf_ctx_->tables() ? zf_ctx_->tables()->current() : nullptr;
+      if (tbl == nullptr || tbl->IsHashMode()) {
+        break;  // 生长拆分只作用于范围路由表
+      }
+      const auto* vstorage = cfd->current()->storage_info();
+      const int base = vstorage->base_level();
+      const Comparator* ucmp = cfd->user_comparator();
+      const std::vector<FileMetaData*>& lvl = vstorage->LevelFiles(base);
+      const auto& ids = tbl->part_ids();
+      // 候选 = base 字节最大的分区（文件范围须完全落在分区区间内）。
+      uint64_t best_bytes = 0;
+      std::vector<FileMetaData*> best_files;
+      for (size_t i = 0; i < ids.size(); ++i) {
+        rocksdb::Slice lo, hi;
+        tbl->RangeOf(static_cast<uint32_t>(i), &lo, &hi);
+        uint64_t bytes = 0;
+        std::vector<FileMetaData*> files;
+        for (FileMetaData* f : lvl) {
+          const rocksdb::Slice s = f->smallest.user_key();
+          const rocksdb::Slice e = f->largest.user_key();
+          if (!(lo.empty() || ucmp->Compare(s, lo) >= 0) ||
+              !(hi.empty() || ucmp->Compare(e, hi) < 0)) {
+            continue;
+          }
+          bytes += f->fd.GetFileSize();
+          files.push_back(f);
+        }
+        if (bytes > best_bytes) {
+          best_bytes = bytes;
+          best_part = ids[i];
+          best_files = std::move(files);
+        }
+      }
+      if (getenv("ZF_DBG_GROWTH") != nullptr) {
+        fprintf(stderr,
+                "ZFDBG-grow iter=%d best_part=%u best_bytes=%llu "
+                "active=%llu nfiles=%zu pc=%zu\n",
+                iter, best_part, (unsigned long long)best_bytes,
+                (unsigned long long)(zf_ctx_->wal()
+                                         ? zf_ctx_->wal()->ActiveSize(best_part)
+                                         : 0),
+                best_files.size(), ids.size());
+      }
+      if (best_bytes < min_bytes || best_files.empty()) {
+        break;  // 无可生长分区
+      }
+      // 预排空：候选分区若有活跃尾（seal 先于本组追加 → 每次封存残留 ~1 组
+      // 记录），先冻结为 epoch；锁外 Flush(wait) 物化后再拆——否则 split 的
+      // quiescent 前置（ActiveSize==0）不满足。
+      if (zf_ctx_->wal() != nullptr &&
+          zf_ctx_->wal()->ActiveSize(best_part) != 0) {
+        mat_before = zf_ctx_->epochs_materialized();
+        if (getenv("ZF_DBG_GROWTH") != nullptr) {
+          fprintf(stderr,
+                  "ZFDBG-grow freeze tail part=%u sealed=%llu mat=%llu\n",
+                  best_part,
+                  (unsigned long long)zf_ctx_->epoch_counter(),
+                  (unsigned long long)zf_ctx_->epochs_materialized());
+        }
+        Status fs =
+            zf_ctx_->FreezePartitionTailLocked(this, cfd, best_part, nullptr);
+        if (!fs.ok()) {
+          return fs;
+        }
+        MaybeScheduleFlushOrCompaction();  // 持锁调度（与写路径 seal 一致）
+        need_flush = true;
+      }
+      // 条目中位数（两趟：先计数后定位到 rank 处）。生长拆分为低频操作，
+      // 持锁扫描可接受；文件通常每分区一个（融合后）。
+      const ROCKSDB_NAMESPACE::MutableCFOptions& mcf =
+          cfd->GetLatestMutableCFOptions();
+      ROCKSDB_NAMESPACE::ReadOptions ro(
+          ROCKSDB_NAMESPACE::Env::IOActivity::kCompaction);
+      ro.rate_limiter_priority = ROCKSDB_NAMESPACE::Env::IO_USER;
+      auto open_iter = [&](const ROCKSDB_NAMESPACE::FileMetaData& f) {
+        return std::unique_ptr<ROCKSDB_NAMESPACE::InternalIterator>(
+            cfd->table_cache()->NewIterator(
+                ro, file_options_, cfd->internal_comparator(), f,
+                nullptr /* range_del_agg */, mcf, nullptr /* table_reader_ptr */,
+                nullptr /* file_read_hist */,
+                ROCKSDB_NAMESPACE::TableReaderCaller::kCompaction,
+                nullptr /* arena */, false /* skip_filters */, base,
+                ROCKSDB_NAMESPACE::MaxFileSizeForL0MetaPin(mcf),
+                nullptr /* smallest_compaction_key */,
+                nullptr /* largest_compaction_key */,
+                false /* allow_unprepared_value */,
+                nullptr /* range_del_read_seqno */, nullptr /* range_del_iter */,
+                false /* maybe_pin_table_handle */, nullptr));
+      };
+      uint64_t total = 0;
+      for (FileMetaData* f : best_files) {
+        auto it = open_iter(*f);
+        if (!it->status().ok()) {
+          return it->status();
+        }
+        for (it->SeekToFirst(); it->Valid(); it->Next()) {
+          ++total;
+        }
+      }
+      if (total == 0) {
+        break;
+      }
+      uint64_t rank = total / 2;
+      bool found = false;
+      for (FileMetaData* f : best_files) {
+        auto it = open_iter(*f);
+        if (!it->status().ok()) {
+          return it->status();
+        }
+        for (it->SeekToFirst(); it->Valid(); it->Next()) {
+          if (rank == 0) {
+            const rocksdb::Slice uk =
+                ROCKSDB_NAMESPACE::ExtractUserKey(it->key());
+            median.assign(uk.data(), uk.size());
+            found = true;
+            break;
+          }
+          --rank;
+        }
+        if (found) {
+          break;
+        }
+      }
+      if (!found || median.empty()) {
+        break;
+      }
+    }
+    if (need_flush) {
+      // 活跃尾已冻结为 epoch——调度后台物化并轮询推进（与写路径触发的
+      // WaitAllMaterialized 同语义；manual Flush 不处理 ZF imm epoch）。
+      need_flush = false;
+      const uint64_t poll_deadline =
+          clock->NowMicros() + 30ull * 1000 * 1000;  // 30s
+      while (zf_ctx_->epochs_materialized() <= mat_before &&
+             clock->NowMicros() < poll_deadline) {
+        env_->SleepForMicroseconds(1000);
+      }
+      if (zf_ctx_->epochs_materialized() <= mat_before) {
+        if (getenv("ZF_DBG_GROWTH") != nullptr) {
+          fprintf(stderr,
+                  "ZFDBG-grow freeze epoch not materialized (sealed=%llu "
+                  "mat=%llu)\n",
+                  (unsigned long long)zf_ctx_->epoch_counter(),
+                  (unsigned long long)zf_ctx_->epochs_materialized());
+        }
+        break;  // 冻结 epoch 未收敛（理论不达）——本调用不再拆分
+      }
+      continue;
+    }
+    if (getenv("ZF_DBG_GROWTH") != nullptr) {
+      fprintf(stderr, "ZFDBG-grow split part=%u b=%s\n", best_part,
+              median.c_str());
+    }
+    uint32_t cl = 0, cr = 0;
+    Status s = ZfSplitPartition(best_part, rocksdb::Slice(median), &cl, &cr);
+    if (getenv("ZF_DBG_GROWTH") != nullptr) {
+      fprintf(stderr, "ZFDBG-grow split status: %s\n", s.ToString().c_str());
+    }
+    if (!s.ok()) {
+      // 未排空/占用 → 停止生长（调用方应在排空检查点重试）；其他错误上抛。
+      if (s.IsBusy()) {
+        break;
+      }
+      return s;
+    }
+    zf_ctx_->TouchGrowthSplit(clock->NowMicros());
+    ++done;
+    if (zf_ctx_->options().growth_split_cooldown_micros > 0) {
+      break;  // 冷却 > 0：每次调用至多拆一次，由调用方按冷却节奏重试
+    }
+  }
+  if (splits_out != nullptr) {
+    *splits_out = done;
+  }
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

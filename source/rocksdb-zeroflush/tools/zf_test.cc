@@ -4978,6 +4978,139 @@ void TestMergeParallelStress() {
                               (overwrite ? " overwrite=1" : ""));
 }
 
+// ---------------------------------------------------------------------------
+// M3 起步生长 e2e：P0=1 全域单分区 → 排空检查点生长拆分至多分区。
+//  kStatic partitions=1 空边界（全域分区）；小阈值使每轮封存/生长快速发生。
+//  流程：写种子 → WaitAllMaterialized → GrowPartitions（控制器内部冻结活跃
+//  残留尾 + Flush 排空 + 条目中位数 split）→ 断言 partition_count 增长、
+//  迭代计数稳定、全部 key 可读 → 多轮生长 → reopen 路由与数据一致。
+// ---------------------------------------------------------------------------
+void TestGrowthSinglePartition() {
+  const char* tag = "GrowthSinglePartition(M3)";
+  std::string dbname = std::string(kDbBase) + "growth_p0_1";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 1;  // P0=1 全域
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+  // static_boundaries 为空 → 单分区覆盖 [-∞, +∞)。
+  zfo.partition_target_bytes = 24 * 1024;
+  zfo.epoch_target_bytes = 24 * 1024;
+  zfo.growth_split_min_bytes = 16 * 1024;  // S_min_split（测试用小阈值）
+  zfo.growth_split_cooldown_micros = 0;
+  zfo.materialize_parallelism = 8;
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  auto fail = [&](const std::string& why) {
+    ReportResult(tag, false, why);
+    CleanDB(dbname);
+  };
+  if (ZfMetric(db.get(), "partition_count") != 1) {
+    fail("P0 must start at 1 partition");
+    return;
+  }
+  char k[16];
+  auto make_val = [](int id) -> std::string {
+    std::string val(200, 'x');
+    snprintf(&val[0], 32, "vg%04d", id);
+    return val;
+  };
+  auto put = [&](int id) -> bool {
+    snprintf(k, sizeof(k), "d%04d", id);
+    const std::string val = make_val(id);
+    return db->Put(rocksdb::WriteOptions(), k, val).ok();
+  };
+  auto get_eq = [&](int id) -> bool {
+    snprintf(k, sizeof(k), "d%04d", id);
+    std::string out;
+    if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() ||
+        out != make_val(id)) {
+      fprintf(stderr, "[dbg] get(d%04d) mismatch\n", id);
+      return false;
+    }
+    return true;
+  };
+
+  uint32_t total_splits = 0;
+  uint64_t prev_pc = 1;
+  int total = 0;
+  for (int round = 0; round < 10 && total < 700; ++round) {
+    // 每轮 130 条（≈28KB）> 24KB 封存阈值 → 必然产生 base 文件。
+    for (int i = 0; i < 130 && total < 700; ++i, ++total) {
+      if (!put(total)) {
+        fail("put@seed");
+        return;
+      }
+    }
+    if (!WaitAllMaterialized(db.get())) {
+      fail("WaitAllMaterialized(seed) timeout");
+      return;
+    }
+    const int64_t cnt_before = CountViaIterator(db.get());
+    uint32_t sp = 0;
+    s = zeroflush::GrowPartitions(db.get(), &sp);
+    if (!s.ok()) {
+      fail("GrowPartitions: " + s.ToString());
+      return;
+    }
+    total_splits += sp;
+    if (CountViaIterator(db.get()) != cnt_before) {
+      fail("iter count changed across growth split");
+      return;
+    }
+    const uint64_t pc = ZfMetric(db.get(), "partition_count");
+    if (pc < prev_pc) {
+      fail("partition_count regressed");
+      return;
+    }
+    prev_pc = pc;
+  }
+  if (total_splits < 2 || prev_pc < 3) {
+    fail("growth did not split P0=1 into multiple partitions (splits=" +
+         std::to_string(total_splits) + " pc=" + std::to_string(prev_pc) + ")");
+    return;
+  }
+  // 全量抽查读（首/中/尾 + 各轮边界附近）。
+  for (int id : {0, total / 4, total / 2, total - 1}) {
+    if (!get_eq(id)) {
+      fail("read after growth");
+      return;
+    }
+  }
+  // reopen：路由（ZFPROPS 多版本）与数据一致。
+  const int64_t cnt_final = CountViaIterator(db.get());
+  db.reset();
+  s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    fail("reopen: " + s.ToString());
+    return;
+  }
+  if (ZfMetric(db.get(), "partition_count") != prev_pc) {
+    fail("partition_count persisted wrong across reopen");
+    return;
+  }
+  if (CountViaIterator(db.get()) != cnt_final) {
+    fail("iter count mismatch after reopen");
+    return;
+  }
+  for (int id : {0, total / 3, total / 2, total - 1}) {
+    if (!get_eq(id)) {
+      fail("spot read after reopen");
+      return;
+    }
+  }
+  db.reset();
+  CleanDB(dbname);
+  ReportResult(tag, true, "P0=1 -> partitions=" + std::to_string(prev_pc) +
+                              " splits=" + std::to_string(total_splits) +
+                              " keys=" + std::to_string(total));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -5068,6 +5201,8 @@ int main(int argc, char** argv) {
   run("SplitQuiescentEndToEnd",        TestSplitQuiescentEndToEnd);
   // ---- ZeroFlushV0 R0（并行轨）复现 harness（默认 no-op）----
   run("MergeParallelStress",           TestMergeParallelStress);
+  // ---- ZeroFlushV0 M3（起步生长）新增 ----
+  run("GrowthSinglePartition",         TestGrowthSinglePartition);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

@@ -1189,6 +1189,15 @@ class DBImpl : public DB {
   Status ZfSplitPartition(uint32_t part, const rocksdb::Slice& split_key,
                           uint32_t* child_l, uint32_t* child_r);
 
+  // ---- M3 起步生长：排空检查点生长拆分 ----
+  // 循环执行：当前表内 base 字节 ≥ zfo.growth_split_min_bytes 的最大分区
+  // → 取其 base 文件条目中位数 → ZfSplitPartition（每次约减半）→ 冷却窗
+  // 限频（growth_split_cooldown_micros，>0 时每次调用至多拆一次）。分区
+  // 未排空/被占用（ZfSplitPartition Busy）即停止（调用方应在排空检查点
+  // 重试）。要求调用线程不是写组成员。splits_out 返回本次实际生长 split
+  // 数（可空）。
+  Status ZfGrowPartitions(uint32_t* splits_out);
+
   Status WaitForCompact(
       const WaitForCompactOptions& wait_for_compact_options) override;
 
