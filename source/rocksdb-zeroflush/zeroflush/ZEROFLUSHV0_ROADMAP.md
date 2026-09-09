@@ -103,11 +103,13 @@ crash 注入（merge 后 E_D flush 前 kill → reopen 数据完整）；zf_test
   代）；`rocksdb.zeroflush.splits` 指标。e2e TestSplitQuiescentEndToEnd
   （种子单 base 文件 → 中点 split → SST+1、路由/指标断言 → 两子分区续写物化
   → 读全对 → reopen 一致）。
-- v1 限制（后续版本收口）：rewrite 只处理 base 层单个跨界文件（≤256MB）；
-  L0/多文件跨界的文件对齐未做（路由已切，读正确不受影响，仅后续压缩 1:1
-  对齐受影响）；活跃尾/frozen 尾 split 未做（其跨界 WAL gens 处理并入 M4）；
-  与并发 flush 的 LogAndApply 让锁窗口竞态未做 being_compacted 防护（quiescent
-  显式 API 场景无并发写，可接受；M4 前补）。
+- ✅ v1 限制收口（L0/多文件跨界）：rewrite 从"base 层单跨界文件"泛化为
+  "任意层全部跨界文件"（非 L0 层文件不相交 → 每层至多一个含 b；L0 允许
+  重叠 → 多个）——逐文件 ZfSplitRewriteFile + 单次 VersionEdit 原子
+  删/加。跨界文件 ≤256MB/个上限保留。剩余 v1 限制：活跃尾/frozen 尾
+  split 未做（跨界 WAL gens 处理并入 M4）；与并发 flush 的 LogAndApply
+  让锁窗口竞态未做 being_compacted 防护（quiescent 显式 API 场景无并发
+  写，可接受；M4 前补）。
 
 **M2 实施细则（供直接开工）：**
 1. 分区 id 分配器：ctx 增 `next_part_id_`（随 ZFPROPS 持久化；恢复用 max 重建）；
