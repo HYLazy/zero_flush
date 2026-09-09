@@ -3798,23 +3798,11 @@ void TestMergeColdPartitionEndToEnd() {
     return true;
   };
 
-  // Phase 0：part1（drain，区间 [c,g)）少量在途数据 → merge 必须被拒绝。
-  for (int i = 0; i < 30; ++i) {
-    if (!put("d", i)) {
-      fail("put@phase0");
-      return;
-    }
-  }
-  uint32_t absorb = 999;
-  s = zeroflush::MergePartition(db.get(), /*drain_part=*/1, &absorb);
-  if (s.ok()) {
-    fail("merge with active drain data must be rejected (Busy)");
-    return;
-  }
-
   // Phase 1：写满四分区（触发封存/物化），等待 part1 完全排空。
-  for (int i = 0; i < 200; ++i) {
-    if (!put("b", i) || !put("d", 30 + i) || !put("h", i) || !put("n", i)) {
+  // （ZeroFlushV0 P1b 起活跃尾可合并，旧"带在途数据必须拒绝"断言已由
+  // MergeActiveTailEndToEnd 覆盖；本用例专注"已排空冷分区"合并。）
+  for (int i = 0; i < 230; ++i) {
+    if (!put("b", i) || !put("d", i) || !put("h", i) || !put("n", i)) {
       fail("put@phase1");
       return;
     }
@@ -3824,7 +3812,7 @@ void TestMergeColdPartitionEndToEnd() {
     return;
   }
   // 排空泵：可能残留 < 阈值的活跃尾巴 → 追加写入触发封存后重试（≤6 次）。
-  absorb = 999;
+  uint32_t absorb = 999;
   for (int attempts = 0; attempts < 6; ++attempts) {
     s = zeroflush::MergePartition(db.get(), 1, &absorb);
     if (s.ok()) break;
@@ -3956,6 +3944,188 @@ void TestMergeColdPartitionEndToEnd() {
   CleanDB(dbname);
   ReportResult(tag, true, "absorb=" + std::to_string(absorb));
 }
+
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 P1b/M1a：带"活跃尾"数据的 DRAINING merge e2e。
+//  覆盖：已排空的旧数据(L1) + 未封存的活跃尾(冻结为 E_D) → merge →
+//  排空窗口读（别名）/覆写序正确 → E_D 与吸收方 epoch 物化 → retire →
+//  重开一致。materialize_parallelism=1（绕开未修的并行物化竞态）。
+// ---------------------------------------------------------------------------
+void TestMergeActiveTailEndToEnd() {
+  const char* tag = "MergeActiveTailEndToEnd(ZeroFlushV0-P1b)";
+  std::string dbname = std::string(kDbBase) + "mergeactivetail";
+  CleanDB(dbname);
+
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+  zfo.static_boundaries = {"c", "g", "m"};
+  zfo.partition_target_bytes = 16 * 1024;
+  zfo.epoch_target_bytes = 16 * 1024;
+  zfo.materialize_parallelism = 1;  // 串行任务，绕开未修的并行物化竞态
+
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  auto fail = [&](const std::string& why) {
+    ReportResult(tag, false, why);
+    CleanDB(dbname);
+  };
+  char k[16], v[224];
+  auto put = [&](const char* prefix, int id) -> bool {
+    snprintf(k, sizeof(k), "%s%04d", prefix, id);
+    ::memset(v, 'x', 200);
+    snprintf(v, sizeof(v), "v%s%04d", prefix, id);
+    return db->Put(rocksdb::WriteOptions(), k, v).ok();
+  };
+  auto get = [&](const char* prefix, int id, std::string* out) -> bool {
+    snprintf(k, sizeof(k), "%s%04d", prefix, id);
+    return db->Get(rocksdb::ReadOptions(), k, out).ok();
+  };
+  auto get_eq = [&](const char* prefix, int id, const char* expect) -> bool {
+    std::string out;
+    if (!get(prefix, id, &out) || out != expect) {
+      fprintf(stderr, "[dbg] get(%s%04d) mismatch\n", prefix, id);
+      return false;
+    }
+    return true;
+  };
+
+  // ---- Phase 0：part1（drain，区间 [c,g)）旧数据全量落 L1 + 活跃尾 ----
+  for (int i = 0; i < 120; ++i) {
+    if (!put("d", i)) {
+      fail("put@seed");
+      return;
+    }
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    fail("WaitAllMaterialized(seed) timeout");
+    return;
+  }
+  for (int i = 0; i < 10; ++i) {
+    if (!put("b", i)) {  // 吸收方 part0 少量旧数据
+      fail("put@seed-b");
+      return;
+    }
+  }
+  // 活跃尾：d0120..d0139（< 16KB 阈值，保持未封存 = 在途活跃数据）。
+  for (int i = 120; i < 140; ++i) {
+    if (!put("d", i)) {
+      fail("put@tail");
+      return;
+    }
+  }
+
+  // ---- Phase 1：merge part1（含活跃尾）→ 应成功；DRAINING 登记 ----
+  uint32_t absorb = 999;
+  s = zeroflush::MergePartition(db.get(), /*drain_part=*/1, &absorb);
+  if (!s.ok()) {
+    fprintf(stderr, "[dbg] merge: %s\n", s.ToString().c_str());
+    fail("merge with active tail failed");
+    return;
+  }
+  if (absorb != 0 || ZfMetric(db.get(), "draining_partitions") != 1 ||
+      ZfMetric(db.get(), "routing_version") != 1) {
+    fail("absorb/draining/routing_version wrong after merge");
+    return;
+  }
+
+  // ---- Phase 2：排空窗口读（E_D 可能尚未物化——别名回查）----
+  // 旧数据（在 L1，走原生）+ 尾 key（未覆写，需别名/待 E_D 落 L1）。
+  if (!get_eq("d", 5, "vd0005")) {
+    fail("read seeded key after merge");
+    return;
+  }
+  if (!get_eq("d", 130, "vd0130")) {
+    fail("read tail key after merge (alias window)");
+    return;
+  }
+  // 覆写序：尾 key 覆写归吸收方（part0）；立即读必须为新值（吸收方链优先，
+  // 别名/旧版本不得盖过）。
+  snprintf(k, sizeof(k), "d%04d", 130);
+  snprintf(v, sizeof(v), "vnew0130");
+  if (!db->Put(rocksdb::WriteOptions(), k, v).ok()) {
+    fail("put overwrite");
+    return;
+  }
+  snprintf(k, sizeof(k), "d%04d", 125);
+  snprintf(v, sizeof(v), "vnew0125");
+  if (!db->Put(rocksdb::WriteOptions(), k, v).ok()) {
+    fail("put overwrite#2");
+    return;
+  }
+  if (!get_eq("d", 130, "vnew0130") || !get_eq("d", 125, "vnew0125")) {
+    fail("read overwritten tail key (must be new)");
+    return;
+  }
+  if (!get_eq("d", 135, "vd0135")) {
+    fail("read unoverwritten tail key after overwrites");
+    return;
+  }
+
+  // ---- Phase 3：驱动物化（E_D + 吸收方 post-merge epochs）→ retire ----
+  for (int i = 0; i < 300; ++i) {
+    if (!put("b", 100 + i) || !put("h", 100 + i) || !put("n", 100 + i)) {
+      fail("put@phase3");
+      return;
+    }
+  }
+  if (!WaitAllMaterialized(db.get())) {
+    fail("WaitAllMaterialized(phase3) timeout");
+    return;
+  }
+  // 等 DRAINING 排空（==0，WaitForZfMetric 是 >= 语义不能用于 0 目标）。
+  {
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(60);
+    while (ZfMetric(db.get(), "draining_partitions") != 0) {
+      if (std::chrono::steady_clock::now() > deadline) {
+        fail("draining_partitions did not retire (timeout)");
+        return;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+  }
+  if (ZfMetric(db.get(), "merge_retired") != 1) {
+    fail("merge_retired != 1");
+    return;
+  }
+  if (!get_eq("d", 130, "vnew0130") || !get_eq("d", 125, "vnew0125") ||
+      !get_eq("d", 135, "vd0135") || !get_eq("d", 5, "vd0005")) {
+    fail("read after drain");
+    return;
+  }
+  if (!get_eq("b", 5, "vb0005")) {
+    fail("read b key after drain");
+    return;
+  }
+
+  // ---- Phase 4：重开（ZFPROPS 持久化合并后路由）----
+  const int64_t cnt_before = CountViaIterator(db.get());
+  db.reset();
+  s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    fail("reopen: " + s.ToString());
+    return;
+  }
+  if (CountViaIterator(db.get()) != cnt_before) {
+    fail("iter count mismatch after reopen");
+    return;
+  }
+  if (!get_eq("d", 130, "vnew0130") || !get_eq("d", 135, "vd0135") ||
+      !get_eq("d", 5, "vd0005")) {
+    fail("spot read after reopen");
+    return;
+  }
+
+  db.reset();
+  CleanDB(dbname);
+  ReportResult(tag, true, "absorb=0 drain->retired");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -4037,6 +4207,7 @@ int main(int argc, char** argv) {
   // ---- ZeroFlushV0 P1（S4 merge）新增 ----
   run("MergePartitionTableDerive",      TestMergePartitionTableDerive);
   run("MergeColdPartitionEndToEnd",     TestMergeColdPartitionEndToEnd);
+  run("MergeActiveTailEndToEnd",        TestMergeActiveTailEndToEnd);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

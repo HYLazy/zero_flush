@@ -46,6 +46,20 @@ class PartitionIndexSet;  // M4.3：终态分区索引（partition_index.h）
 class PartitionedWalManager;
 struct SealedEpoch;
 
+// ZeroFlushV0 P1b（M1）：DRAINING 分区登记（S4 merge 的排空窗口态）。
+// merge 把 drain_part 的路由区间并入相邻分区（absorb_part）后：drain 不再
+// 收新写（路由表已不含它），其封存数据（merge 时冻结的活跃尾 E_D + 此前已
+// 物化进 L1 的历史文件）由既有 epoch 流水排空；E_D 排空完成前，drain 原
+// 区间内 key 路由到吸收方，读路径需在吸收方 miss 后回查 drain 的分区索引
+// （别名查找，见 GetFromPartitionIndex）。排空完成（无未回收 WAL 段、无
+// frozen 索引、无活跃字节）→ MaybeRetireDraining 移除登记。
+struct DrainingPart {
+  uint32_t part = 0;    // 被合并（DRAINING）分区
+  uint32_t absorb = 0;  // 吸收方分区（drain 区间 key 的新路由宿主）
+  std::string lo;       // drain 原路由区间 [lo, hi)（合并时刻快照，别名判定用）
+  std::string hi;
+};
+
 // ZeroFlush 扩展选项（对应设计文档 §10.1 zf 命名空间；M1 仅路由相关）。
 struct ZeroFlushOptions {
   uint32_t partitions = 64;  // P：分区数（M1 hash 路由；M2 起由 PartitionTable 接替）
@@ -211,6 +225,11 @@ class ZeroFlushContext {
   // 数据路由与物化（se.table_version）用同一表 → 范围断言一致）。
   uint32_t RouteWithVersion(const ROCKSDB_NAMESPACE::Slice& user_key,
                             uint32_t table_version) const;
+  // ZeroFlushV0 P1b：Route 下标 → 实际分区 id（合并使 part_ids 稀疏后
+  // 下标≠id；写/读路径按 id 记账，必须映射）。hash/无表回退 = 原下标。
+  uint32_t RoutePartId(const ROCKSDB_NAMESPACE::Slice& user_key) const;
+  uint32_t RoutePartIdWithVersion(const ROCKSDB_NAMESPACE::Slice& user_key,
+                                  uint32_t table_version) const;
 
   // 单条记录：分区 WAL 追加 + Slim MemTable 索引插入（ZfBatchHandler 调用）。
   // M4.1c：并发插入路径（allow_concurrent=true），ppi 按 mem 累计，组
@@ -398,19 +417,35 @@ class ZeroFlushContext {
     return closing_flush_.load(std::memory_order_relaxed);
   }
 
-  // ---- ZeroFlushV0 P1（S4 merge：取消/合并冷分区——无在途数据版）----
+  // ---- ZeroFlushV0 P1/P1b（S4 merge：取消/合并分区）----
   // 把分区 drain_part 的路由区间并入相邻分区（优先左邻）。调用前提：
   // 持 DB mutex、调用线程不是写组成员。过程：(1) 等待在途写组归零；
-  // (2) 前置检查：drain 必须无未物化数据（活跃字节 = 0、无 pending WAL
-  // 段、无 frozen 索引）——本版只支持"已完全排空的冷分区"合并；带在途
-  // 数据的 DRAINING（冻结 + 收养 + 排空窗口读别名）为 P1b，根因见
-  // MergePartitionLocked 注释；(3) 派生并安装去掉 drain 的新表版本（路由
-  // 切换，对新写即时生效；drain 历史 L1 文件保留，由吸收方后续常规合并
-  // 吸收收敛）；(4) ZFPROPS 落盘（重开路由一致）。absorb_out 返回实际
-  // 吸收方（左邻优先，drain 为首分区时右邻）。
+  // (2) 前置检查：drain 不得有 pending sealed/skip/recovery 残留（frozen
+  // 索引、未回收 WAL 段必须为空）——仅允许"活跃尾"（ActiveSize>0，本次
+  // 就地冻结）或完全排空的冷分区；(3) 若有活跃尾：单分区封存为 epoch E_D
+  //（se.table_version = 当前表 V，drain 仍在 V 中 → E_D 按 drain 原区间
+  // 干净排空，先于吸收方任何 post-merge epoch 的 FIFO 保证读序正确）；(4)
+  // 派生并安装去掉 drain 的新表版本（路由切换，对新写即时生效）；(5) 登记
+  // DRAINING（排空窗口别名读 + retire）；(6) ZFPROPS 落盘（重开路由一致）。
+  // 正确性：drain 旧版本只在 E_D（及其后无新写）中，先于吸收方更新版本
+  // 落地（FIFO + 本版默认 merge-off 下 drain 直装不攒批，F1 平凡满足）；
+  // merge_into_base_level=true 的 F1 强制收口见 M1b（PlanLocked）。
+  // absorb_out 返回实际吸收方（左邻优先，drain 为首分区时右邻）。
   ROCKSDB_NAMESPACE::Status MergePartitionLocked(
       ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
       uint32_t drain_part, uint32_t* absorb_out);
+
+  // 分区是否处于 DRAINING（被合并、排空未完成）。PlanLocked F1 与读别名共用。
+  bool IsDrainingPartition(uint32_t part) const;
+  // DRAINING 分区数（诊断/测试：rocksdb.zeroflush.draining_partitions）。
+  size_t DrainingPartitions() const;
+  // 已 RETIRED（排空完成移除登记）的合并分区累计数。
+  uint64_t MergeRetired() const {
+    return merge_retired_.load(std::memory_order_relaxed);
+  }
+  // 排空完成检查：DRAINING 分区无未回收 WAL 段、无 frozen 索引、无活跃
+  // 字节 → RETIRED（移除登记）。在 ReleaseEpoch/ReleaseGens 等回收点调用。
+  void MaybeRetireDraining();
 
   // 在途写组计数（路由切换的写屏障）：写组 leader 在"路由表版本捕获"点
   // +1（持 DB mutex）；组内全部记录追加+索引插入完成后 -1（恰好一次/组，
@@ -487,10 +522,16 @@ class ZeroFlushContext {
   uint32_t g0_running_ = 0;
   uint32_t g0_pending_ = 0;
   uint32_t g0_waiters_ = 0;
-  // ---- ZeroFlushV0 P1 成员 ----
+  // ---- ZeroFlushV0 P1/P1b 成员 ----
   // 在途写组计数（见 EnterInflightGroup 注释）。
   std::atomic<uint32_t> inflight_groups_{0};
   std::atomic<uint64_t> merge_count_{0};
+  // DRAINING 分区登记（别名读回查 + retire 判定）。
+  mutable std::mutex draining_mu_;
+  std::vector<DrainingPart> draining_;
+  // 登记数快照（别名读热路径的免锁门：为 0 时 Get 不取 draining_mu_）。
+  std::atomic<uint32_t> draining_active_{0};
+  std::atomic<uint64_t> merge_retired_{0};
 };
 
 // 打开 ZeroFlush DB：

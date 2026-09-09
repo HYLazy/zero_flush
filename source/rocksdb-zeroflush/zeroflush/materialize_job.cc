@@ -231,16 +231,21 @@ void ZfMaterializeJob::CollectTasks(std::vector<MaterializeTask>* tasks) {
   }
 }
 
-// R59C：见头文件注释。table_ 为 null/hash 或 pid 越界 → 全范围。
+// R59C：见头文件注释。table_ 为 null/hash 或 pid 不在本表（孤儿）→ 全范围。
 bool ZfMaterializeJob::GetPartRange(uint32_t pid, ROCKSDB_NAMESPACE::Slice* lo,
                                     ROCKSDB_NAMESPACE::Slice* hi) const {
   lo->clear();
   hi->clear();
-  if (table_ == nullptr || table_->IsHashMode() ||
-      pid >= table_->partitions()) {
+  if (table_ == nullptr || table_->IsHashMode()) {
     return false;
   }
-  table_->RangeOf(pid, lo, hi);
+  // ZeroFlushV0 P1b：pid 为全局分区 id（merge 使 part_ids 稀疏），RangeOf
+  // 需要位置下标——经 IndexOfPart 映射；不在本表 = 孤儿（旧表残余）。
+  const int idx = table_->IndexOfPart(pid);
+  if (idx < 0) {
+    return false;
+  }
+  table_->RangeOf(static_cast<uint32_t>(idx), lo, hi);
   return true;
 }
 

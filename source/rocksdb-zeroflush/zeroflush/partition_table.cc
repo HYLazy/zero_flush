@@ -111,6 +111,15 @@ void PartitionTable::RangeOf(uint32_t p, rocksdb::Slice* lo,
   }
 }
 
+int PartitionTable::IndexOfPart(uint32_t part_id) const {
+  for (size_t i = 0; i < part_ids_.size(); ++i) {
+    if (part_ids_[i] == part_id) {
+      return static_cast<int>(i);
+    }
+  }
+  return -1;
+}
+
 rocksdb::Status PartitionTable::DeriveMerge(
     uint32_t drain_part, uint32_t version, uint32_t* absorb_part,
     std::shared_ptr<PartitionTable>* out) const {

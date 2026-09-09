@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <fstream>
 #include <thread>
 #include <unordered_set>
@@ -358,7 +359,11 @@ uint64_t ZeroFlushContext::ReleaseEpoch(uint64_t epoch) {
   // 之前——ReleaseEpoch 内先释放索引再归还缓存引用。
   ReleaseFrozenIndexes(epoch);
   if (sealed_cache_ != nullptr) {
-    return sealed_cache_->ReleaseEpoch(epoch);
+    const uint64_t b = sealed_cache_->ReleaseEpoch(epoch);
+    // ZeroFlushV0 P1b/M1a：epoch 回收是 DRAINING 分区的排空推进点——
+    // 检查是否有分区已排空可 RETIRED。
+    MaybeRetireDraining();
+    return b;
   }
   return 0;
 }
@@ -439,6 +444,12 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
   } else if (prop == "rocksdb.zeroflush.merges") {
     // ZeroFlushV0 P1：已成功合并（路由切换）的分区累计数。
     *value = std::to_string(MergeCount());
+  } else if (prop == "rocksdb.zeroflush.merge_retired") {
+    // ZeroFlushV0 P1b/M1a：已 RETIRED（排空完成）的合并分区累计数。
+    *value = std::to_string(MergeRetired());
+  } else if (prop == "rocksdb.zeroflush.draining_partitions") {
+    // ZeroFlushV0 P1b/M1a：当前 DRAINING（排空未完成）分区数。
+    *value = std::to_string(DrainingPartitions());
   } else if (prop == "rocksdb.zeroflush.routing_version") {
     // ZeroFlushV0 P1：当前路由表版本（merge 每次切换 +1；重开经 ZFPROPS
     // 恢复）。诊断与重划分触发判据用。
@@ -709,6 +720,26 @@ uint32_t ZeroFlushContext::RouteWithVersion(
   return h % zfo_.partitions;
 }
 
+uint32_t ZeroFlushContext::RoutePartId(
+    const ROCKSDB_NAMESPACE::Slice& user_key) const {
+  auto tbl = current_table();
+  if (tbl && !tbl->IsHashMode()) {
+    return tbl->part_id(tbl->Route(user_key));
+  }
+  // hash / 未初始化：下标即 id。
+  return Route(user_key);
+}
+
+uint32_t ZeroFlushContext::RoutePartIdWithVersion(
+    const ROCKSDB_NAMESPACE::Slice& user_key, uint32_t table_version) const {
+  auto tbl = tables_ ? tables_->Get(table_version) : nullptr;
+  if (tbl && !tbl->IsHashMode()) {
+    return tbl->part_id(tbl->Route(user_key));
+  }
+  uint32_t h = ROCKSDB_NAMESPACE::Hash(user_key.data(), user_key.size(), 0);
+  return h % zfo_.partitions;
+}
+
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
     ROCKSDB_NAMESPACE::MemTable* mem, const ROCKSDB_NAMESPACE::Slice& key,
     const ROCKSDB_NAMESPACE::Slice& value, ROCKSDB_NAMESPACE::ValueType type,
@@ -717,10 +748,12 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
     uint32_t table_version) {
   // 1) 路由 + 分区 WAL 追加（value 的唯一持久副本）
   const uint64_t wg_t0 = env_->NowMicros();
+  // ZeroFlushV0 P1b：路由返回下标，此处映射为实际分区 id——merge 后
+  // part_ids 稀疏（如 [0,2,3]），下标≠id，按 id 记账（WAL/索引/locator）。
   const uint32_t part =
       (type == ROCKSDB_NAMESPACE::kTypeRangeDeletion)
           ? kRangeDelPartId
-          : RouteWithVersion(key, table_version);
+          : RoutePartIdWithVersion(key, table_version);
   const uint64_t wg_t1 = env_->NowMicros();
   WalRecordRef ref;
   ROCKSDB_NAMESPACE::Status s =
@@ -1004,82 +1037,114 @@ bool ZeroFlushContext::GetFromPartitionIndex(
     ROCKSDB_NAMESPACE::Status* s, std::string* value,
     ROCKSDB_NAMESPACE::MergeContext* merge_context,
     const ROCKSDB_NAMESPACE::MergeOperator* merge_op) const {
-  const uint32_t part = Route(user_key);
+  const uint32_t part = RoutePartId(user_key);
+  // ZeroFlushV0 P1b/M1a：DRAINING 别名回查。merge 切路由后，被合并分区
+  // 的 E_D 冻结索引在排空完成前仍持有其原区间内 key 的（最新）版本；该
+  // 区间 key 现路由到吸收方——吸收方索引链 miss 后必须回查被合并分区的
+  // 索引链，否则排空窗口内（未覆写的）旧 key 读缺失。序正确性：吸收方链
+  // 优先（其版本更新）；E_D 先于吸收方任何 post-merge epoch 落地（FIFO +
+  // 默认 merge-off 直装不攒批），故别名命中不可能盖过已落地的吸收方新值。
+  // 热路径免锁门：无 DRAINING 登记时（常态）不取 draining_mu_。
+  std::vector<uint32_t> extra;
+  if (draining_active_.load(std::memory_order_acquire) != 0 && ucmp_ != nullptr) {
+    std::lock_guard<std::mutex> l(draining_mu_);
+    for (const auto& d : draining_) {
+      if (d.absorb != part) {
+        continue;
+      }
+      if (d.lo.size() > 0 &&
+          ucmp_->Compare(user_key, ROCKSDB_NAMESPACE::Slice(d.lo)) < 0) {
+        continue;
+      }
+      if (d.hi.size() > 0 &&
+          ucmp_->Compare(user_key, ROCKSDB_NAMESPACE::Slice(d.hi)) >= 0) {
+        continue;
+      }
+      extra.push_back(d.part);
+    }
+  }
   ROCKSDB_NAMESPACE::Slice loc;
   ROCKSDB_NAMESPACE::ValueType type;
   ROCKSDB_NAMESPACE::SequenceNumber seq;
-  if (!index_set_->Get(part, user_key, snapshot, &loc, &type, &seq)) {
+  // 先查路由分区；miss 且存在别名候选时再查 DRAINING 分区链。
+  for (size_t pass = 0; pass < 1 + extra.size(); ++pass) {
+    const uint32_t cand = (pass == 0) ? part : extra[pass - 1];
+    if (index_set_->Get(cand, user_key, snapshot, &loc, &type, &seq)) {
+      // M3.4：命中时也检查 tombstone 覆盖（DeleteRange 后写的 range 删除
+      // 该 key——tombstone seq 更大则覆盖）。精细 seq 比较（数据后写覆盖
+      // 旧 tombstone）留后续；当前按"tombstone ≤ snapshot 即覆盖"。
+      if (CheckRangeDelCover(user_key, snapshot)) {
+        *s = ROCKSDB_NAMESPACE::Status::NotFound();
+        return true;
+      }
+      if (type == ROCKSDB_NAMESPACE::kTypeDeletion ||
+          type == ROCKSDB_NAMESPACE::kTypeSingleDeletion ||
+          type == ROCKSDB_NAMESPACE::kTypeRangeDeletion) {
+        *s = ROCKSDB_NAMESPACE::Status::NotFound();
+        return true;
+      }
+      ROCKSDB_NAMESPACE::Status rs = ReadValue(loc, value);
+      if (!rs.ok()) {
+        return false;
+      }
+      if (type == ROCKSDB_NAMESPACE::kTypeMerge && merge_context != nullptr) {
+        // M3.4：收集同 key 全部版本（seq 降序）——分离 base 与 operands。
+        std::vector<std::string> versions;
+        std::vector<ROCKSDB_NAMESPACE::ValueType> vtypes;
+        auto read_value = [this](const ROCKSDB_NAMESPACE::Slice& locator,
+                                 std::string* out) {
+          return ReadValue(locator, out);
+        };
+        index_set_->CollectVersions(cand, user_key, snapshot, read_value,
+                                    &versions, &vtypes);
+        std::string base;
+        bool has_base = false;
+        for (size_t i = 0; i < versions.size(); ++i) {
+          if (vtypes[i] == ROCKSDB_NAMESPACE::kTypeValue && !has_base) {
+            base = versions[i];
+            has_base = true;
+            break;
+          }
+          merge_context->PushOperand(versions[i]);
+        }
+        if (has_base && merge_context->GetNumOperands() > 0 &&
+            merge_op != nullptr) {
+          ROCKSDB_NAMESPACE::MergeOperator::MergeOperationInputV3 input(
+              user_key,
+              ROCKSDB_NAMESPACE::MergeOperator::MergeOperationInputV3::
+                  ExistingValue(std::in_place_type<ROCKSDB_NAMESPACE::Slice>,
+                                base),
+              merge_context->GetOperands(), nullptr /* logger */);
+          ROCKSDB_NAMESPACE::MergeOperator::MergeOperationOutputV3 output;
+          if (merge_op->FullMergeV3(input, &output)) {
+            if (auto* v = std::get_if<std::string>(&output.new_value)) {
+              *value = *v;
+              *s = ROCKSDB_NAMESPACE::Status::OK();
+              return true;
+            }
+          }
+          // FullMergeV3 失败/非字符串结果——回退 MergeInProgress（SST 兜底）。
+        }
+        *s = ROCKSDB_NAMESPACE::Status::MergeInProgress();
+        return false;
+      }
+      *s = ROCKSDB_NAMESPACE::Status::OK();
+      return true;
+    }
     // M5 诊断：索引未命中（Concurrent 用例 NotFound 定位——key 不在
     // frozen/active 链）。
     static uint64_t zf_ixmiss_dbg = 0;
     if (zf_ixmiss_dbg++ < 32) {
-      fprintf(stderr, "ZFDBG-ixmiss part=%u key=%s\n", part,
+      fprintf(stderr, "ZFDBG-ixmiss part=%u key=%s\n", cand,
               user_key.ToString(true).c_str());
     }
-    if (CheckRangeDelCover(user_key, snapshot)) {
-      *s = ROCKSDB_NAMESPACE::Status::NotFound();
-      return true;
-    }
-    return false;
   }
-  // M3.4：命中时也检查 tombstone 覆盖（DeleteRange 后写的 range 删除
-  // 该 key——tombstone seq 更大则覆盖）。精细 seq 比较（数据后写覆盖
-  // 旧 tombstone）留后续；当前按"tombstone ≤ snapshot 即覆盖"。
+  // M3.4：未 compact 窗口的 range tombstone 覆盖检查（无索引命中时）。
   if (CheckRangeDelCover(user_key, snapshot)) {
     *s = ROCKSDB_NAMESPACE::Status::NotFound();
     return true;
   }
-  if (type == ROCKSDB_NAMESPACE::kTypeDeletion ||
-      type == ROCKSDB_NAMESPACE::kTypeSingleDeletion ||
-      type == ROCKSDB_NAMESPACE::kTypeRangeDeletion) {
-    *s = ROCKSDB_NAMESPACE::Status::NotFound();
-    return true;
-  }
-  ROCKSDB_NAMESPACE::Status rs = ReadValue(loc, value);
-  if (!rs.ok()) {
-    return false;
-  }
-  if (type == ROCKSDB_NAMESPACE::kTypeMerge && merge_context != nullptr) {
-    // M3.4：收集同 key 全部版本（seq 降序）——分离 base 与 operands。
-    std::vector<std::string> versions;
-    std::vector<ROCKSDB_NAMESPACE::ValueType> vtypes;
-    auto read_value = [this](const ROCKSDB_NAMESPACE::Slice& locator,
-                             std::string* out) {
-      return ReadValue(locator, out);
-    };
-    index_set_->CollectVersions(part, user_key, snapshot, read_value,
-                                &versions, &vtypes);
-    std::string base;
-    bool has_base = false;
-    for (size_t i = 0; i < versions.size(); ++i) {
-      if (vtypes[i] == ROCKSDB_NAMESPACE::kTypeValue && !has_base) {
-        base = versions[i];
-        has_base = true;
-        break;
-      }
-      merge_context->PushOperand(versions[i]);
-    }
-    if (has_base && merge_context->GetNumOperands() > 0 && merge_op != nullptr) {
-      ROCKSDB_NAMESPACE::MergeOperator::MergeOperationInputV3 input(
-          user_key,
-          ROCKSDB_NAMESPACE::MergeOperator::MergeOperationInputV3::ExistingValue(
-              std::in_place_type<ROCKSDB_NAMESPACE::Slice>, base),
-          merge_context->GetOperands(), nullptr /* logger */);
-      ROCKSDB_NAMESPACE::MergeOperator::MergeOperationOutputV3 output;
-      if (merge_op->FullMergeV3(input, &output)) {
-        if (auto* v = std::get_if<std::string>(&output.new_value)) {
-          *value = *v;
-          *s = ROCKSDB_NAMESPACE::Status::OK();
-          return true;
-        }
-      }
-      // FullMergeV3 失败/非字符串结果——回退 MergeInProgress（SST 兜底）。
-    }
-    *s = ROCKSDB_NAMESPACE::Status::MergeInProgress();
-    return false;
-  }
-  *s = ROCKSDB_NAMESPACE::Status::OK();
-  return true;
+  return false;
 }
 
 // M3.4：未 compact 窗口的 range tombstone 覆盖检查。
@@ -1131,9 +1196,16 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::WriteGroupToPartitionWal(
   // 调 SyncTouchedPartitions 做 fdatasync。
   if (touched != nullptr) {
     touched->clear();
+    const auto tbl_v = tables_ ? tables_->Get(wg.zf_table_version) : nullptr;
     for (uint32_t p = 0; p < 64 && touched_set != 0; ++p) {
       if (touched_set & (uint64_t{1} << p)) {
-        touched->push_back(p == 63 ? zeroflush::kRangeDelPartId : p);
+        uint32_t pid = zeroflush::kRangeDelPartId;
+        if (p != 63) {
+          pid = (tbl_v != nullptr && !tbl_v->IsHashMode())
+                    ? tbl_v->part_id(p)  // ZeroFlushV0 P1b：下标→id
+                    : p;
+        }
+        touched->push_back(pid);
         touched_set &= ~(uint64_t{1} << p);
       }
     }
@@ -1163,9 +1235,16 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::InsertWriterToPartitionWal(
   }
   if (write_options.sync && touched_set != 0) {
     std::vector<uint32_t> touched;
+    const auto tbl_v = tables_ ? tables_->Get(table_version) : nullptr;
     for (uint32_t p = 0; p < 64 && touched_set != 0; ++p) {
       if (touched_set & (uint64_t{1} << p)) {
-        touched.push_back(p == 63 ? zeroflush::kRangeDelPartId : p);
+        uint32_t pid = zeroflush::kRangeDelPartId;
+        if (p != 63) {
+          pid = (tbl_v != nullptr && !tbl_v->IsHashMode())
+                    ? tbl_v->part_id(p)  // ZeroFlushV0 P1b：下标→id
+                    : p;
+        }
+        touched.push_back(pid);
         touched_set &= ~(uint64_t{1} << p);
       }
     }
@@ -1351,7 +1430,8 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
       ROCKSDB_NAMESPACE::PutFixed64(
           &ik, ROCKSDB_NAMESPACE::PackSequenceAndType(
                    h.seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(h.type)));
-      const uint32_t rpart = RouteWithVersion(key, tables_->current_version());
+      const uint32_t rpart =
+          RoutePartIdWithVersion(key, tables_->current_version());
       index_set_->InsertCreate(rpart, gen, ik, loc_slice);
       if (h.seq > max_seq) {
         max_seq = h.seq;
@@ -1461,9 +1541,8 @@ uint32_t ZeroFlushContext::InflightWriterGroups() const {
 }
 
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
-    ROCKSDB_NAMESPACE::DBImpl* /*impl*/,
-    ROCKSDB_NAMESPACE::ColumnFamilyData* /*cfd*/, uint32_t drain_part,
-    uint32_t* absorb_out) {
+    ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
+    uint32_t drain_part, uint32_t* absorb_out) {
   // REQUIRES: DB mutex held（与 InstallNewVersion 的排他窗口一致）。
   auto tbl = tables_ ? tables_->current() : nullptr;
   if (tbl == nullptr || tbl->IsHashMode()) {
@@ -1493,28 +1572,40 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
     }
     std::this_thread::yield();
   }
-  // 前置：drain 必须已完全排空（无未物化数据）。带在途数据的 DRAINING
-  // 协议（冻结活跃代 + 排空窗口读别名/索引收养 + retire 判定）为 P1b——
-  // 其难点是跨分区版本序：drain 的旧版本若被 kSkip 延后到吸收方更新版本
-  // 物化之后，按层序读路径会把旧值盖在新值前（需单链收养或强制不攒批，
-  // 均改动物化决策面，P1b 与 PlanLocked 一起收口）。此处保守拒绝。
-  if (wal_ != nullptr && wal_->ActiveSize(drain_part) != 0) {
-    return ROCKSDB_NAMESPACE::Status::Busy(
-        "ZeroFlush: drain partition has active (unsealed) data");
-  }
+  // ---- 前置（ZeroFlushV0 P1b/M1a）：drain 不得有"非活跃"的未物化残留 ----
+  // 允许：(a) 完全排空（ActiveSize==0），或 (b) 活跃尾（ActiveSize>0，本次
+  // 就地冻结为 E_D）。禁止：frozen 索引 / pending sealed WAL gens / skip·
+  // recovery 残留——它们会延后进 post-merge epoch，其序保障需要 PlanLocked
+  // 的 F1 强物化（merge_into_base_level=true 时），属 M1b 范围；默认
+  // merge-off 下 drain 直装不攒批，无此残留即可保证排空先于吸收方。
   if (index_set_ != nullptr && index_set_->HasFrozen(drain_part)) {
     return ROCKSDB_NAMESPACE::Status::Busy(
         "ZeroFlush: drain partition has unflushed frozen indexes");
   }
-  if (sealed_cache_ != nullptr && sealed_cache_->HasPendingPartGens(drain_part)) {
+  if (sealed_cache_ != nullptr &&
+      sealed_cache_->HasPendingPartGens(drain_part)) {
     return ROCKSDB_NAMESPACE::Status::Busy(
         "ZeroFlush: drain partition has pending sealed WAL gens");
   }
-  // 路由切换：派生去掉 drain 的新表版本并安装（对新写即时生效；drain 的
-  // 历史 L1 文件保留，由吸收方后续常规合并按 S1/S3 吸收收敛）。
+  const uint64_t active_bytes =
+      wal_ != nullptr ? wal_->ActiveSize(drain_part) : 0;
+
+  // ---- 路由切换（先于冻结；纯内存+落盘，不释放 DB mutex）----
+  // 派生去掉 drain 的新表版本并安装（对新写即时生效；drain 历史 L1 文件
+  // 保留，由吸收方后续常规合并按 S1/S3 吸收收敛）。切路由必须先于冻结：
+  // 冻结中的 ZfSwitchMemtable 会临时释放 DB mutex（M2.3：WAL 创建让锁），
+  // 若冻结先行，让锁窗口内新写组按旧版本捕获 → 追加进 drain 新活跃代 →
+  // 滞留（MergeActiveTail 实测 act 回涨）。先切表后，让锁窗口内的写组按
+  // 新版本路由 → 全部归吸收方，drain 无新写。
+  const auto& dids = tbl->part_ids();
+  const size_t idx = static_cast<size_t>(
+      std::find(dids.begin(), dids.end(), drain_part) - dids.begin());
+  rocksdb::Slice lo_s, hi_s;
+  tbl->RangeOf(static_cast<uint32_t>(idx), &lo_s, &hi_s);
   uint32_t absorb = 0;
   std::shared_ptr<PartitionTable> nt;
-  rocksdb::Status s = tbl->DeriveMerge(drain_part, tbl->version() + 1, &absorb, &nt);
+  rocksdb::Status s =
+      tbl->DeriveMerge(drain_part, tbl->version() + 1, &absorb, &nt);
   if (!s.ok()) {
     return s;
   }
@@ -1526,11 +1617,111 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
     // 崩溃恢复一致性属 P5 恢复协议范畴（此处尽力而为并上抛）。
     return s;
   }
+
+  // ---- 冻结活跃尾为 E_D（切路由后；se.table_version = 新表版本）----
+  // 与 FreezeBatchPartitions 的单分区语义同构：wal Freeze + index
+  // Freeze(gen+1) + epoch 登记（AddEpochWithRecoveryAdoption 顺带收养既有
+  // skip/recovery——前置保证其中不含 drain 的，其他分区的照常收养无碍）+
+  // 空 mem 切表触发该 epoch 的物化。drain 已不在新表中 → E_D 按孤儿路径
+  // 直装（R59C：lo/hi 空 → 按实际数据范围建单文件，冲突落 L0，随后被
+  // l0_overlap 融合吸收；读序由 L0 的'同 key 取最大 seq'保证）。
+  if (active_bytes > 0) {
+    const uint64_t epoch = epoch_counter_.fetch_add(1) + 1;
+    const FreezeResult fr = wal_->Freeze(drain_part);
+    index_set_->Freeze(drain_part, fr.old_gen + 1);
+    SealedEpoch se;
+    se.epoch = epoch;
+    se.table_version = tables_ ? tables_->current_version() : 0;
+    if (fr.sealed_bytes > 0) {
+      se.gens.emplace_back(drain_part, fr.old_gen);
+      if (fr.old_gen == 0) {
+        se.has_fresh_gen0 = true;
+      }
+      se.part_bytes[drain_part] = fr.sealed_bytes;
+      se.total_bytes = fr.sealed_bytes;
+    }
+    wal_->ClearOverTargetFlag();
+    sealed_cache_->AddEpochWithRecoveryAdoption(se);
+    ROCKSDB_NAMESPACE::MemTable* old_mem = cfd->mem();
+    if (old_mem != nullptr) {
+      old_mem->SetZfEpoch(epoch);
+    }
+    const rocksdb::Status ss = impl->ZfSwitchMemtable(cfd);
+    if (!ss.ok()) {
+      return ss;
+    }
+  }
+  // 登记 DRAINING（仅活跃尾合并需要：E_D 排空完成前，drain 原区间 key 的
+  // 别名读与 retire 判定依赖本记录）。完全排空的合并（无冻结）不登记。
+  if (active_bytes > 0) {
+    DrainingPart dp;
+    dp.part = drain_part;
+    dp.absorb = absorb;
+    dp.lo.assign(lo_s.data(), lo_s.size());
+    dp.hi.assign(hi_s.data(), hi_s.size());
+    {
+      std::lock_guard<std::mutex> l(draining_mu_);
+      const bool exists =
+          std::any_of(draining_.begin(), draining_.end(),
+                      [drain_part](const DrainingPart& d) {
+                        return d.part == drain_part;
+                      });
+      if (!exists) {
+        draining_.push_back(std::move(dp));
+      }
+    }
+    draining_active_.store(static_cast<uint32_t>(draining_.size()),
+                           std::memory_order_release);
+  }
   merge_count_.fetch_add(1, std::memory_order_relaxed);
   if (absorb_out != nullptr) {
     *absorb_out = absorb;
   }
   return ROCKSDB_NAMESPACE::Status::OK();
+}
+
+bool ZeroFlushContext::IsDrainingPartition(uint32_t part) const {
+  std::lock_guard<std::mutex> l(draining_mu_);
+  return std::any_of(draining_.begin(), draining_.end(),
+                     [part](const DrainingPart& d) { return d.part == part; });
+}
+
+size_t ZeroFlushContext::DrainingPartitions() const {
+  std::lock_guard<std::mutex> l(draining_mu_);
+  return draining_.size();
+}
+
+void ZeroFlushContext::MaybeRetireDraining() {
+  // DRAINING 分区排空完成（无未回收 WAL 段、无 frozen 索引、无活跃字节）
+  // → RETIRED（移除登记）。在 ReleaseEpoch/ReleaseGens 等 epoch 回收点调用。
+  if (draining_active_.load(std::memory_order_acquire) == 0) {
+    return;
+  }
+  std::vector<uint32_t> retired;
+  {
+    std::lock_guard<std::mutex> l(draining_mu_);
+    for (auto it = draining_.begin(); it != draining_.end();) {
+      const uint32_t p = it->part;
+      const bool frozen =
+          index_set_ != nullptr && index_set_->HasFrozen(p);
+      const bool pending =
+          sealed_cache_ != nullptr && sealed_cache_->HasPendingPartGens(p);
+      const uint64_t act = wal_ != nullptr ? wal_->ActiveSize(p) : 0;
+      if (!frozen && !pending && act == 0) {
+        retired.push_back(p);
+        it = draining_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  if (!retired.empty()) {
+    draining_active_.store(
+        draining_active_.load(std::memory_order_relaxed) -
+            static_cast<uint32_t>(retired.size()),
+        std::memory_order_release);
+    merge_retired_.fetch_add(retired.size(), std::memory_order_relaxed);
+  }
 }
 
 ROCKSDB_NAMESPACE::Status MergePartition(ROCKSDB_NAMESPACE::DB* db,

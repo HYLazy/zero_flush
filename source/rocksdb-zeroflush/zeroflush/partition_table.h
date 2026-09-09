@@ -64,6 +64,11 @@ class PartitionTable {
   // 该表中第 i 个分区对应的全局 part_id (i ∈ [0, partitions))。
   uint32_t part_id(uint32_t i) const { return part_ids_[i]; }
 
+  // ZeroFlushV0 P1b：全局 part_id → 本表位置下标；不在本表（孤儿）返回 -1。
+  // Route 返回下标、业务（WAL/索引/统计）用全局 id——merge 使 part_ids 稀疏
+  // 后二者不再相等，所有"下标当 id 用"的消费点必须经此映射。
+  int IndexOfPart(uint32_t part_id) const;
+
  private:
   PartitionTable(uint32_t version, bool is_hash_mode,
                  std::vector<std::string> boundaries,
