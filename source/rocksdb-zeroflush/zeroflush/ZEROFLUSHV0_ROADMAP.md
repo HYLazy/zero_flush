@@ -181,9 +181,18 @@ P0=1（kStatic 空边界）Open/物化/生长全链路验证：e2e GrowthSingleP
 ### M4 动态治理 DG（调度器）
 目标：治理层成型——统计、触发、队列/aging、冷却、参数化；merge(P1b)/split(M2)
 由控制器按策略调度而非手动 API。
+进度（2026-09-09）：✅ v1 落地——新 `zeroflush/repartition_controller.{h,cc}`
+（PartitionRateTracker @封存边界 EWMA 双窗+时间衰减；GovernancePolicy 纯决策
+状态机）+ DBImpl::ZfGovernanceTick（观察→策略→执行）+ 后台控制器线程
+（Open 启 / Close join）+ `zeroflush::RunGovernanceTick` 外部确定性入口。
+v1 语义取舍见 `M4_DG_DESIGN.md`：活跃期只拆不合（防 P 塌缩饿死拆分）、空闲
+期冷回收（对应"设备空闲后由再锚定合并回收"）；C=1；rewrite 带宽/意图持久化
+完整版留 M5。测试：GovernancePolicyUnit / GovernanceDynamicEndToEnd
+（A 热拆分 + B 空闲回收子场景）/ GovernanceBackgroundAuto（ZF_GOV_BG 门控）
++ 全量 zf_test 回归（50/50 全绿）。
 范围：
 1. 每分区统计（@封存边界，不进写路径）：速率=封存字节/(t−t_sealed)，EWMA
-   双窗（1/5min）；pending=HasPendingPartGens 口径；S_min 阈值。
+   双窗（1/5min，可配）；pending=HasPendingPartGens 口径；S_min 阈值。
 2. 触发判定（控制器 tick 1s，O(P)）：θ_split=3×均值 & ≥32MB & 3 窗；
    θ_merge=0.3×均值 & ≤16MB & 3 窗；冷却 300–600s + 同 range 退避倍增。
 3. 决策队列：并发 ≤C(1–2)，urgency=热度×等待（aging）；rewrite 优先于常规
