@@ -1182,10 +1182,14 @@ Status DBImpl::WriteImpl(
         HandleMemTableInsertFailure(w.status);
       }
       // M4.1c：ZF parallel 组完成（follower 是 last worker），释放 leader
-      // 在锁内捕获的 mem 引用。
+      // 在锁内捕获的 mem 引用。Unref 须持 DB mutex（同 !parallel 路径——
+      // 防与 flush 的 InstallSuperVersion Ref/Unref 竞态，TSAN 实测）。
       auto* zf_write_group = w.write_group;
       if (zf_write_group != nullptr && zf_write_group->zf_mem != nullptr) {
-        zf_write_group->zf_mem->Unref();
+        {
+          InstrumentedMutexLock l(&mutex_);
+          zf_write_group->zf_mem->Unref();
+        }
         zf_write_group->zf_mem = nullptr;
       }
       write_thread_.ExitAsBatchGroupFollower(&w);
@@ -1581,7 +1585,14 @@ Status DBImpl::WriteImpl(
           if (w.status.ok() && write_options.sync && !zf_touched.empty()) {
             w.status = zf_ctx_->SyncTouchedPartitions(zf_touched);
           }
-          zf_mem->Unref();
+          // MemTable refcount 修改须持 DB mutex（Ref/Unref 的 REQUIRES 外部
+          // 同步）：本组捕获的 mem 可能在锁外窗口被并发 leader 切为 imm
+          // （flush 线程在持锁的 InstallSuperVersion 中 Ref/Unref 同一
+          // memtable）——无锁 Unref 与之竞态（TSAN 实测 data race on refs_）。
+          {
+            InstrumentedMutexLock l(&mutex_);
+            zf_mem->Unref();
+          }
           // M3.0 R4：调试输出改用 ROCKS_LOG_DEBUG（仅 use_logger 时生效，
           // 见 M3_DESIGN.md §13）；默认 info_log 为 nullptr 时零开销。
           if (zf_ctx_->options().use_logger) {
@@ -1747,9 +1758,13 @@ Status DBImpl::WriteImpl(
       HandleMemTableInsertFailure(w.status);
     }
     // M4.1c：ZF parallel 组完成（leader 是 last worker），释放锁内捕获的
-    // mem 引用（follower last 时在 follower 段释放，二者互斥）。
+    // mem 引用（follower last 时在 follower 段释放，二者互斥）。Unref 须
+    // 持 DB mutex（同 !parallel 路径）。
     if (write_group.zf_mem != nullptr) {
-      write_group.zf_mem->Unref();
+      {
+        InstrumentedMutexLock l(&mutex_);
+        write_group.zf_mem->Unref();
+      }
       write_group.zf_mem = nullptr;
     }
     write_thread_.ExitAsBatchGroupLeader(write_group, status);

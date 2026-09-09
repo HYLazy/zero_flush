@@ -347,7 +347,7 @@ class PartitionIndexSet {
     }
     auto idx = std::make_shared<PartitionIndex>(part_id, 0, cmp_);
     active_.emplace(part_id, idx);
-    blooms_.emplace(part_id, PartitionBloom());
+    blooms_.emplace(part_id, std::make_shared<PartitionBloom>());
     return idx;
   }
 
@@ -360,8 +360,8 @@ class PartitionIndexSet {
                   const ROCKSDB_NAMESPACE::Slice& locator) {
     // M5 诊断：写路由 vs 读路由一致性（Concurrent 用例定位）。
     {
-      static uint64_t zf_ins_dbg = 0;
-      if (zf_ins_dbg++ < 2000) {
+      static std::atomic<uint64_t> zf_ins_dbg {0};
+      if (zf_ins_dbg.fetch_add(1, std::memory_order_relaxed) < 2000) {
         const auto uk = ROCKSDB_NAMESPACE::ExtractUserKey(internal_key);
         if (uk.size() >= 9 && memcmp(uk.data(), "k00000035", 9) == 0) {
           uint64_t off = 0;
@@ -390,7 +390,7 @@ class PartitionIndexSet {
         } else {
           auto ni = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
           active_.emplace(part_id, ni);
-          blooms_.emplace(part_id, PartitionBloom());
+          blooms_.emplace(part_id, std::make_shared<PartitionBloom>());
           idx = ni;
         }
       } else {
@@ -429,8 +429,8 @@ class PartitionIndexSet {
       // gen 已物化并释放（数据已进 SST）——索引插入丢弃，数据由 SST 承载。
       // M5 诊断：插入丢弃（Concurrent 定位）。
       {
-        static uint64_t zf_insdrop_dbg = 0;
-        if (zf_insdrop_dbg++ < 64) {
+        static std::atomic<uint64_t> zf_insdrop_dbg {0};
+        if (zf_insdrop_dbg.fetch_add(1, std::memory_order_relaxed) < 64) {
           const auto uk = ROCKSDB_NAMESPACE::ExtractUserKey(internal_key);
           if (uk.size() >= 9 && memcmp(uk.data(), "k00000035", 9) == 0) {
             fprintf(stderr, "ZFDBG-insdrop part=%u gen=%u\n", part_id, gen);
@@ -453,7 +453,7 @@ class PartitionIndexSet {
     if (!idx->Insert(internal_key, locator, &added)) {
       return 0;
     }
-    blooms_[part_id].Add(ROCKSDB_NAMESPACE::ExtractUserKey(internal_key));
+    BloomAdd(part_id, ROCKSDB_NAMESPACE::ExtractUserKey(internal_key));
     total_mem_bytes_.fetch_add(added, std::memory_order_relaxed);
     return added;
   }
@@ -536,14 +536,37 @@ class PartitionIndexSet {
         }
       }
     }
-    PartitionBloom nb;
+    auto nb = std::make_shared<PartitionBloom>();
     for (const auto& idx : chain) {
       idx->ForEachKey([&nb](const ROCKSDB_NAMESPACE::Slice& ik) {
-        nb.Add(ROCKSDB_NAMESPACE::ExtractUserKey(ik));
+        nb->Add(ROCKSDB_NAMESPACE::ExtractUserKey(ik));
       });
     }
     std::unique_lock<std::shared_mutex> l(mu_);
     blooms_[part_id] = std::move(nb);
+  }
+
+  // R0（TSAN 实测 data race）：布隆更新——持 shared 锁快照当前 bloom 对象
+  // （shared_ptr 保活，重建期旧对象不被释放），锁外 fetch_or。写路径热路径
+  // 不加锁的代价：shared_mutex 读锁 ~10-30ns/条；重建（ReleaseFrozen）与
+  // 写并发时在锁上短暂互斥（重建持 unique 锁替换 map 值）。替换前的在途
+  // Add 落旧对象（丢弃）——该 key 同时已入 active 索引，其布隆位由后续
+  // 任何一次 Add/Rebuild 补入前可能假阴性；保守窗口与 M4.11c 注释一致
+  // （重建在物化完成时、写路径窗口小），消除的是内存不安全（vector 释放后
+  // fetch_or 的 UAF）而非该逻辑窗口。
+  void BloomAdd(uint32_t part_id, const ROCKSDB_NAMESPACE::Slice& user_key) {
+    std::shared_ptr<PartitionBloom> b;
+    {
+      std::shared_lock<std::shared_mutex> l(mu_);
+      auto it = blooms_.find(part_id);
+      if (it == blooms_.end()) {
+        return;
+      }
+      b = it->second;
+    }
+    if (b != nullptr) {
+      b->Add(user_key);
+    }
   }
 
   // M4.8：确保 active 索引存在且 gen 匹配（Recover 预创建用——防止
@@ -560,7 +583,7 @@ class PartitionIndexSet {
     }
     active_.emplace(part_id,
                     std::make_shared<PartitionIndex>(part_id, gen, cmp_));
-    blooms_.emplace(part_id, PartitionBloom());
+    blooms_.emplace(part_id, std::make_shared<PartitionBloom>());
   }
 
   // M4.3：Recover 专用插入——找不到 gen 匹配索引时创建（重开时所有 WAL
@@ -578,7 +601,7 @@ class PartitionIndexSet {
       } else if (it == active_.end()) {
         auto ni = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
         active_.emplace(part_id, ni);
-        blooms_.emplace(part_id, PartitionBloom());
+        blooms_.emplace(part_id, std::make_shared<PartitionBloom>());
         idx = ni;
       } else {
         auto fit = frozen_.find(part_id);
@@ -607,7 +630,7 @@ class PartitionIndexSet {
     }
     // M4.11c：布隆更新（Recover 重建路径——漏加会导致重开后活跃段数据
     // 被布隆预过滤误判 miss → 读不到）。
-    blooms_[part_id].Add(ROCKSDB_NAMESPACE::ExtractUserKey(internal_key));
+    BloomAdd(part_id, ROCKSDB_NAMESPACE::ExtractUserKey(internal_key));
     // R57：精确增量（同上——并发读算重复计数）。
     total_mem_bytes_.fetch_add(added, std::memory_order_relaxed);
     return added;
@@ -677,10 +700,10 @@ class PartitionIndexSet {
     {
       std::shared_lock<std::shared_mutex> l(mu_);
       auto bit = blooms_.find(part_id);
-      if (bit == blooms_.end() || !bit->second.MayContain(user_key)) {
+      if (bit == blooms_.end() || !bit->second->MayContain(user_key)) {
         // M5 诊断：bloom 预过滤未命中（Concurrent 定位）。
-        static uint64_t zf_bmiss_dbg = 0;
-        if (zf_bmiss_dbg++ < 32 && user_key.size() >= 9 &&
+        static std::atomic<uint64_t> zf_bmiss_dbg {0};
+        if (zf_bmiss_dbg.fetch_add(1, std::memory_order_relaxed) < 32 && user_key.size() >= 9 &&
             memcmp(user_key.data(), "k00000035", 9) == 0) {
           fprintf(stderr, "ZFDBG-bmiss part=%u key=%s\n", part_id,
                   user_key.ToString(true).c_str());
@@ -700,8 +723,8 @@ class PartitionIndexSet {
         chain.push_back(ait->second);
       }
       // M5 诊断：part3 链状态（Concurrent 定位——列出 frozen 各 gen）。
-      static uint64_t zf_chain_dbg = 0;
-      if (zf_chain_dbg++ < 40 && part_id == 3 && user_key.size() >= 9 &&
+      static std::atomic<uint64_t> zf_chain_dbg {0};
+      if (zf_chain_dbg.fetch_add(1, std::memory_order_relaxed) < 40 && part_id == 3 && user_key.size() >= 9 &&
           memcmp(user_key.data(), "k00000035", 9) == 0) {
         std::string gens;
         for (const auto& ci : chain) {
@@ -719,8 +742,8 @@ class PartitionIndexSet {
         return true;
       }
       // M5 诊断：链遍历未命中（记录链长与 gen 序）。
-      static uint64_t zf_cmiss_dbg = 0;
-      if (zf_cmiss_dbg++ < 32 && user_key.size() >= 9 &&
+      static std::atomic<uint64_t> zf_cmiss_dbg {0};
+      if (zf_cmiss_dbg.fetch_add(1, std::memory_order_relaxed) < 32 && user_key.size() >= 9 &&
           memcmp(user_key.data(), "k00000035", 9) == 0) {
         fprintf(stderr, "ZFDBG-cmiss part=%u chain_gen=%u\n", part_id,
                 (*c)->gen());
@@ -797,7 +820,10 @@ class PartitionIndexSet {
   std::unordered_map<uint32_t, std::vector<std::shared_ptr<PartitionIndex>>>
       frozen_;
   // M4.11c：每分区布隆（懒创建，与 active 索引同生命周期；mu_ 保护）。
-  std::unordered_map<uint32_t, PartitionBloom> blooms_;
+  // R0（TSAN 实测 data race）：重建期旧 bloom 不可释放——值存 shared_ptr，
+  // BloomAdd 先持 shared 锁快照、锁外 fetch_or（旧对象由快照保活到重建
+  // 完成后的在途 Add 结束）；RebuildBloom 以新对象替换 map 值。
+  std::unordered_map<uint32_t, std::shared_ptr<PartitionBloom>> blooms_;
   std::atomic<uint64_t> total_mem_bytes_{0};
 };
 

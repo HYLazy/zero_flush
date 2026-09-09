@@ -804,8 +804,8 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
   index_set_->Insert(part, ref.gen, ik, loc_slice);
   const uint64_t wg_t3 = env_->NowMicros();
   if (wg_t3 - wg_t0 > 200) {
-    static uint64_t zf_wg_dbg = 0;
-    if (zf_wg_dbg++ < 64) {
+    static std::atomic<uint64_t> zf_wg_dbg {0};
+    if (zf_wg_dbg.fetch_add(1, std::memory_order_relaxed) < 64) {
       fprintf(stderr,
               "ZFDBG-slowop route_us=%llu wal_us=%llu ins_us=%llu part=%u "
               "gen=%u\n",
@@ -1002,8 +1002,8 @@ void ZeroFlushContext::HandOffSkippedToRecovery(
       }
     }
   }
-  static uint64_t zf_ctxho_dbg = 0;
-  if (zf_ctxho_dbg++ < 100) {
+  static std::atomic<uint64_t> zf_ctxho_dbg {0};
+  if (zf_ctxho_dbg.fetch_add(1, std::memory_order_relaxed) < 100) {
     fprintf(stderr,
             "ZFDBG-ctxhandoff epoch=%llu gens=%zu se_ok=%d se_pb=%zu out_pb=%zu\n",
             (unsigned long long)epoch, gens.size(), (int)se_ok,
@@ -1035,8 +1035,8 @@ void ZeroFlushContext::ReleaseFrozenIndexes(uint64_t epoch) {
       fprintf(stderr, "ZFDBG-rfi epoch=%llu part=%u gen=%u\n",
               (unsigned long long)epoch, part, gen);
     } else {
-      static uint64_t zf_rfi_dbg = 0;
-      if (zf_rfi_dbg++ < 8) {
+      static std::atomic<uint64_t> zf_rfi_dbg {0};
+      if (zf_rfi_dbg.fetch_add(1, std::memory_order_relaxed) < 8) {
         fprintf(stderr, "ZFDBG-rfi epoch=%llu part=%u gen=%u\n",
                 (unsigned long long)epoch, part, gen);
       }
@@ -1150,8 +1150,8 @@ bool ZeroFlushContext::GetFromPartitionIndex(
     }
     // M5 诊断：索引未命中（Concurrent 用例 NotFound 定位——key 不在
     // frozen/active 链）。
-    static uint64_t zf_ixmiss_dbg = 0;
-    if (zf_ixmiss_dbg++ < 32) {
+    static std::atomic<uint64_t> zf_ixmiss_dbg {0};
+    if (zf_ixmiss_dbg.fetch_add(1, std::memory_order_relaxed) < 32) {
       fprintf(stderr, "ZFDBG-ixmiss part=%u key=%s\n", cand,
               user_key.ToString(true).c_str());
     }

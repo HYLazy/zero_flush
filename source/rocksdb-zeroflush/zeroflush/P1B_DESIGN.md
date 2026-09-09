@@ -198,8 +198,24 @@ IsDrainingPartition）、恢复路由=当前表（RoutePartIdWithVersion）。
    跨批互斥路径）。累计 5 组单/多 flush 变体约 400 轮（pump/tight/
    overwrite/flushes=4 × parallelism=4）零命中、无 LEAF OUT-OF-ORDER。
    静态排查结论保持：批次内链式前序不可达（同批 PlanLocked 先于全部输出
-   → last_batch 恒空）、B 侧文件经 RegisterCompaction 钉住无并发改写/删除、
-   单写线程的 seal 节奏本身难以制造原文描述的"多批 4 任务并行合并 × pump
-   交错"。下一步（决定性）：TSAN 构建跑 MergeParallelStress（多 flush +
-   overwrite + tight），或 2-4 写线程并发写；单写线程穷举节奏已到收益拐点。
+   → last_batch 恒空）、B 侧文件经 RegisterCompaction 钉住无并发改写/删除。
+   TSAN 构建（build_tsan，WITH_TSAN=ON）复跑 MergeParallelStress（flushes=4
+   + overwrite + tight）**命中三类 data race 并已全部修复**：
+   1) **memtable refs_ Ref/Unref 竞态**（db_impl_write.cc）：ZF 写组在锁内
+      Ref 捕获的 mem（zf_mem），却在 DB mutex 之外 Unref（!parallel /
+      parallel leader / parallel follower 三处）——而 flush 线程在持锁的
+      InstallSuperVersion 中 Ref/Unref 同一（切 imm 后的）memtable。
+      refs_ 修改要求外部同步 → 修复：三处 Unref 均改在持 DB mutex 下执行。
+   2) **PartitionBloom 重建期 UAF/data race**（partition_index.h）：写路径
+      无锁 `blooms_[pid].Add`（vector<atomic> 上 fetch_or）与 RebuildBloom
+      的 move-assign 替换存储并发 → 释放后写入。修复：blooms_ 值改为
+      shared_ptr<PartitionBloom>，新增 BloomAdd（持 shared 锁快照 + 锁外
+      fetch_or）；重建以新对象替换，旧对象由在途 Add 保活。
+   3) **调试限频计数器非 atomic**（写/读路径 static uint64_t zf_*_dbg++，
+      多写线程并发 → 良性但污染 TSAN）：全部改 std::atomic + fetch_add。
+   TSAN 最终确认：ConcurrentPartitionWriteRead / SplitQuiescentEndToEnd /
+   MergeParallelStress（flushes=4+overwrite+tight）零告警；普通构建全量
+   46/46 ALL PASSED。
+   注：CrashMidDrainReopen 与 MergeActiveTailMergeEnabled 在 TSAN 下分别
+   因 fork 环境与 ~10× 慢导致的 60s 物化超时失败（非竞态；普通构建通过）。
 

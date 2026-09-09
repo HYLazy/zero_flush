@@ -55,8 +55,8 @@ void SealedFileCache::AddEpochWithRecoveryAdoption(const SealedEpoch& e,
     recovery_part_bytes_.clear();
   }
   if (!skip_gens_.empty()) {
-    static uint64_t zf_adopt_dbg = 0;
-    if (zf_adopt_dbg++ < 100) {
+    static std::atomic<uint64_t> zf_adopt_dbg {0};
+    if (zf_adopt_dbg.fetch_add(1, std::memory_order_relaxed) < 100) {
       fprintf(stderr, "ZFDBG-adopt skip_gens=%zu epoch=%llu\n",
               skip_gens_.size(), (unsigned long long)e.epoch);
     }
@@ -272,8 +272,8 @@ rocksdb::Status SealedFileCache::Get(
   }
   if (!valid) {
     // M5 诊断：读路径 gen 不在册（Concurrent 用例 NotFound 定位）。
-    static uint64_t zf_getnf_dbg = 0;
-    if (zf_getnf_dbg++ < 32) {
+    static std::atomic<uint64_t> zf_getnf_dbg {0};
+    if (zf_getnf_dbg.fetch_add(1, std::memory_order_relaxed) < 32) {
       fprintf(stderr, "ZFDBG-getnf part=%u gen=%u skip=%d rec=%d\n", part,
               gen, (int)skip_gens_.count(key),
               (int)recovery_gens_.count(key));

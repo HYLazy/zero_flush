@@ -422,8 +422,8 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
           x.superseded = true;
           // M5 诊断：批内链式替换（superseded）追踪。
           {
-            static uint64_t zf_ss_dbg = 0;
-            if (zf_ss_dbg++ < 100) {
+            static std::atomic<uint64_t> zf_ss_dbg {0};
+            if (zf_ss_dbg.fetch_add(1, std::memory_order_relaxed) < 100) {
               fprintf(stderr,
                       "ZFDBG-superseded x_file=%llu by_file=%llu part=%u\n",
                       (unsigned long long)x.meta.fd.GetNumber(),
@@ -493,8 +493,8 @@ void ZfMaterializeJob::DeleteOrphanFiles() {
   for (uint64_t fn : orphan_files_) {
     // M5 诊断：孤儿文件删除（冲突/替换输出）。
     {
-      static uint64_t zf_orph_dbg = 0;
-      if (zf_orph_dbg++ < 200) {
+      static std::atomic<uint64_t> zf_orph_dbg {0};
+      if (zf_orph_dbg.fetch_add(1, std::memory_order_relaxed) < 200) {
         fprintf(stderr, "ZFDBG-orphan del_file=%llu epoch=%llu\n",
                 (unsigned long long)fn, (unsigned long long)epoch_);
       }
@@ -906,8 +906,8 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
                  &batch_skipped, &has_oob);
     // M5 诊断：决策 overlap 内容（残留 L0/互叠定位）。
     {
-      static uint64_t zf_scan_dbg = 0;
-      if (zf_scan_dbg++ < 200) {
+      static std::atomic<uint64_t> zf_scan_dbg {0};
+      if (zf_scan_dbg.fetch_add(1, std::memory_order_relaxed) < 200) {
         fprintf(stderr,
                 "ZFDBG-scan pid=%u lo=%s hi=%s n=%zu bytes=%llu ok=%d "
                 "bskip=%d l1n=%zu\n",
@@ -1087,8 +1087,8 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     if (overlap.empty() && !batch_skipped && plan.l0_overlap.empty()) {
       // M5 诊断：直装决策时的 L1 状态（区分决策视图过期 vs 逻辑缺陷）。
       {
-        static uint64_t zf_direct_dbg = 0;
-        if (zf_direct_dbg++ < 48 && vstorage != nullptr) {
+        static std::atomic<uint64_t> zf_direct_dbg {0};
+        if (zf_direct_dbg.fetch_add(1, std::memory_order_relaxed) < 48 && vstorage != nullptr) {
           uint64_t l1_files = 0, l1_bytes = 0;
           for (auto* f : vstorage->LevelFiles(base)) {
             l1_files++;
@@ -2111,8 +2111,8 @@ int ZfMaterializeJob::PickInstallLevel(
   for (int l = 0; l <= base; ++l) {
     if (vstorage->OverlapInLevel(l, &u_smallest, &u_largest)) {
       // M5 诊断：冲突对象（vstorage 已装文件 vs 批内 placed）。
-      static uint64_t zf_pick_conflict = 0;
-      if (zf_pick_conflict++ < 400 && vstorage != nullptr) {
+      static std::atomic<uint64_t> zf_pick_conflict{0};
+      if (zf_pick_conflict.fetch_add(1, std::memory_order_relaxed) < 400 && vstorage != nullptr) {
         for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(l)) {
           const ROCKSDB_NAMESPACE::Slice f_lo = f->smallest.user_key();
           const ROCKSDB_NAMESPACE::Slice f_hi = f->largest.user_key();
@@ -2144,8 +2144,8 @@ int ZfMaterializeJob::PickInstallLevel(
         // 区间相交 ⟺ !(u_largest < p_smallest || p_largest < u_smallest)。
         if (ucmp->Compare(u_largest, p_smallest) >= 0 &&
             ucmp->Compare(p_largest, u_smallest) >= 0) {
-          static uint64_t zf_pick_placed = 0;
-          if (zf_pick_placed++ < 64) {
+          static std::atomic<uint64_t> zf_pick_placed{0};
+          if (zf_pick_placed.fetch_add(1, std::memory_order_relaxed) < 64) {
             fprintf(stderr,
                     "ZFDBG-pick placed lvl=%d new=[%s,%s] hit=file%llu "
                     "[%s,%s]\n",
