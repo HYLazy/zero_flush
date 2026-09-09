@@ -1571,6 +1571,12 @@ Status DBImpl::WriteImpl(
           std::vector<uint32_t> zf_touched;
           w.status = zf_ctx_->WriteGroupToPartitionWal(
               write_group, current_sequence, zf_mem, &zf_touched);
+          // ZeroFlushV0 P1：!parallel 组的在途计数退出——本组全部记录已
+          // 追加+插入完成（WriteGroupToPartitionWal 返回即收尾）。必须放
+          // 在这里而非共享尾部：!parallel 组的 leader 会额外经过共享尾部
+          // 的 should_exit 块，若在那里 Exit 会造成每组长双 Exit（计数
+          // underflow，MergeEdges 实测断言）。
+          zf_ctx_->ExitInflightGroup();
           if (w.status.ok() && write_options.sync && !zf_touched.empty()) {
             w.status = zf_ctx_->SyncTouchedPartitions(zf_touched);
           }
@@ -1704,11 +1710,13 @@ Status DBImpl::WriteImpl(
   }
 
   if (should_exit_batch_group) {
-    // ZeroFlushV0 P1：在途写组计数退出——本组全部记录的 WAL 追加+索引
-    // 插入已完成（parallel 组由最后完成者执行本块，恰好一次/组）。必须
-    // 在 ExitAsBatchGroupLeader（可能取 DB mutex 的组交接）之前释放计数，
-    // 否则 MergePartitionLocked 持锁等待归零时与本块互等 → 死锁。
-    if (zf_ctx_ != nullptr) {
+    // ZeroFlushV0 P1：在途写组计数退出——仅 parallel 组在此退出（!parallel
+    // 组已在 WriteGroupToPartitionWal 返回处退出；leader 还会经过本块，若
+    // 也退出会造成每组长双 Exit）。parallel 组由最后完成者执行本块（
+    // should_exit 恰好一次/组），且须在 ExitAsBatchGroupLeader（可能取 DB
+    // mutex 的组交接）之前释放计数，避免 MergePartitionLocked 持锁等待归
+    // 零时互等。
+    if (zf_ctx_ != nullptr && in_parallel_group) {
       zf_ctx_->ExitInflightGroup();
     }
     if (status.ok()) {

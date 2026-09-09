@@ -439,6 +439,15 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
   } else if (prop == "rocksdb.zeroflush.merges") {
     // ZeroFlushV0 P1：已成功合并（路由切换）的分区累计数。
     *value = std::to_string(MergeCount());
+  } else if (prop == "rocksdb.zeroflush.routing_version") {
+    // ZeroFlushV0 P1：当前路由表版本（merge 每次切换 +1；重开经 ZFPROPS
+    // 恢复）。诊断与重划分触发判据用。
+    *value = std::to_string(tables_ ? tables_->current_version() : 0);
+  } else if (prop == "rocksdb.zeroflush.partition_count") {
+    // ZeroFlushV0 P1：当前路由表分区数（merge 后 -1；偏态重划分的
+    // 分配/回收判据用）。
+    auto cur = tables_ ? tables_->current() : nullptr;
+    *value = std::to_string(cur != nullptr ? cur->partitions() : 0);
   } else {
     return false;
   }

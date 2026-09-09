@@ -3956,7 +3956,6 @@ void TestMergeColdPartitionEndToEnd() {
   CleanDB(dbname);
   ReportResult(tag, true, "absorb=" + std::to_string(absorb));
 }
-
 }  // namespace
 
 int main(int argc, char** argv) {

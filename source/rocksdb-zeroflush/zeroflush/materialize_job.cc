@@ -641,8 +641,18 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   const bool zf_partition_table_active =
       ctx_->tables() != nullptr && ctx_->tables()->current() != nullptr &&
       !ctx_->tables()->current()->IsHashMode();
+  // ZeroFlushV0 P1 修复：gen0 学习批机制只适用于"数据先于分区表写入"的
+  // 模式（kSampled 首 epoch hash 写后装表 / kAlignL1 对齐前）。kStatic 的
+  // 边界从 gen0 起即权威：首个封存批含全分区 gen0 时被误判为"学习齐批"
+  // 走单任务整表切片（Compaction 乱序崩，MergeEdgesAndCascadeEndToEnd 首
+  // 封存 4 分区实锤），部分批还会被误滞留等"齐批"——对 kStatic 一律走
+  // 常规 per-partition 物化。
   const bool gen0_learning =
-      !gen0_parts.empty() && zf_partition_table_active;
+      !gen0_parts.empty() && zf_partition_table_active &&
+      (ctx_->zfo_.routing_mode ==
+           zeroflush::ZeroFlushOptions::RoutingMode::kSampled ||
+       ctx_->zfo_.routing_mode ==
+           zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1);
   // 判齐：gen0 覆盖 == partitions（全分区有 gen0），或覆盖 >0 且本 epoch
   // 无自身新 gen0（学习批已封完、覆盖不再增长——部分分区无 gen0 数据的
   // 小库场景；否则覆盖永 < partitions → 滞留永不齐，RecoveryEpochMerge
