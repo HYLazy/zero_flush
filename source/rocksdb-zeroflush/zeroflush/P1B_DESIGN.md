@@ -219,3 +219,18 @@ IsDrainingPartition）、恢复路由=当前表（RoutePartIdWithVersion）。
    注：CrashMidDrainReopen 与 MergeActiveTailMergeEnabled 在 TSAN 下分别
    因 fork 环境与 ~10× 慢导致的 60s 物化超时失败（非竞态；普通构建通过）。
 
+   **TSAN 回归运行说明（R0 收尾）**：
+   1. 独立构建目录：`cmake -DCMAKE_BUILD_TYPE=Debug
+      -DROCKSDB_BUILD_SHARED=ON -DWITH_BENCHMARK_TOOLS=ON -DWITH_TSAN=ON ..`
+      （复用现有 build 的其余选项；WITH_TESTS/WITH_TOOLS=OFF 亦可）。
+   2. 运行时必须关 ASLR（新内核高熵 mmap 与 TSAN 冲突）：
+      `setarch $(uname -m) -R ./zf_test <filter>`；若环境 LD_LIBRARY_PATH
+      指向 anaconda 等旧 libstdc++，先 `env -u LD_LIBRARY_PATH
+      LD_LIBRARY_PATH=<build_tsan>:/usr/lib/x86_64-linux-gnu`。
+   3. 推荐战役：`ZF_STRESS_ROUNDS=N ZF_STRESS_FLUSHES=4
+      ZF_STRESS_OVERWRITE=1 ZF_STRESS_TIGHT=1 TSAN_OPTIONS=halt_on_error=1
+      ./zf_test MergeParallelStress` + ConcurrentPartitionWriteRead /
+      SplitQuiescentEndToEnd。
+   4. 已知环境性假阳：fork 用例（CrashMidDrainReopen）、~10× 慢导致的
+      60s 物化等待超时（MergeActiveTailMergeEnabled）——普通构建复验。
+

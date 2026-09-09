@@ -46,9 +46,16 @@ M5 意图持久化收口 + 崩溃矩阵 + §5 文字对齐
 - 手段：还原 pump 交错节奏复现（MergePartition 尝试 × 追加写入 ×
   WaitAllMaterialized），或 2–4 写线程 + 物化并行；ZF_DBG_MERGE 叶子预检
   （已提交）直接给出乱序叶子；若为批内前序文件被并发读/竞争文件号则修同步。
-- 验收：复现场景连续 N 轮零失败；zf_test 40/40；并发稳态（flushes=4 +
+- 验收：复现场景连续 N 轮零失败；zf_test 46/46；并发稳态（flushes=4 +
   parallelism=8）无回归。修复后解除 M4 的并发门。
 - 产出：独立提交；期间 M1–M3 测试统一设 materialize_parallelism=1。
+进度（2026-09-09）：单写进程穷举（~400 轮 × pump/tight/overwrite/flushes
+ 变体）未复现；TSAN 构建（build_tsan, WITH_TSAN=ON）复跑命中并修复三类
+  data race（详见 P1B §9.4）：① memtable refs_ Unref 无锁（写组三出口加
+  DB mutex）；② PartitionBloom 重建期 UAF（blooms_ 改 shared_ptr +
+  BloomAdd 锁内快照）；③ 写/读路径 static 调试计数器非 atomic（改
+  atomic+fetch_add）。TSAN 最终零告警；并发门解除——merge/split e2e 测试
+  移除 materialize_parallelism=1 钉死，恢复默认 8。
 
 ### M1 P1b：带在途尾数据的 DRAINING merge（串行正确性子集）
 目标：把 P1 前置"必须已完全排空"放宽为"仅允许活跃尾（ActiveSize>0），无

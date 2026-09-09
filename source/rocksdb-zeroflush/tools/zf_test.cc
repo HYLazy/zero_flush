@@ -3949,7 +3949,7 @@ void TestMergeColdPartitionEndToEnd() {
 // ZeroFlushV0 P1b/M1a：带"活跃尾"数据的 DRAINING merge e2e。
 //  覆盖：已排空的旧数据(L1) + 未封存的活跃尾(冻结为 E_D) → merge →
 //  排空窗口读（别名）/覆写序正确 → E_D 与吸收方 epoch 物化 → retire →
-//  重开一致。materialize_parallelism=1（绕开未修的并行物化竞态）。
+//  重开一致。R0（TSAN 三修复）后并发门解除，走默认并行物化（8）。
 
 // M1c① 辅助：统计 DRAINING sidecar 非空行数（fopen 避免引入 fstream）。
 int DrainingSidecarLines(const std::string& dbname,
@@ -3978,7 +3978,6 @@ void TestMergeActiveTailEndToEnd() {
   zfo.static_boundaries = {"c", "g", "m"};
   zfo.partition_target_bytes = 16 * 1024;
   zfo.epoch_target_bytes = 16 * 1024;
-  zfo.materialize_parallelism = 1;  // 串行任务，绕开未修的并行物化竞态
 
   std::unique_ptr<rocksdb::DB> db;
   auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
@@ -4163,7 +4162,6 @@ void TestMergeActiveTailMergeEnabled() {
   zfo.static_boundaries = {"c", "g", "m"};
   zfo.partition_target_bytes = 4 * 1024;
   zfo.epoch_target_bytes = 4 * 1024;
-  zfo.materialize_parallelism = 1;
   zfo.merge_into_base_level = true;
 
   std::unique_ptr<rocksdb::DB> db;
@@ -4317,7 +4315,6 @@ void TestCrashMidDrainReopen() {
   // merge 一次性冻结为 E_D。
   zfo.partition_target_bytes = 256 * 1024;
   zfo.epoch_target_bytes = 256 * 1024;
-  zfo.materialize_parallelism = 1;
 
   // 确定性 200B value：前部文本 token + 尾部 'x' 填充。
   auto make_val = [](const char* prefix, int id) -> std::string {
@@ -4678,7 +4675,6 @@ void TestSplitQuiescentEndToEnd() {
   zfo.static_boundaries = {"c", "g", "m"};
   zfo.partition_target_bytes = 64 * 1024;
   zfo.epoch_target_bytes = 64 * 1024;
-  zfo.materialize_parallelism = 1;
 
   std::unique_ptr<rocksdb::DB> db;
   auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
@@ -4873,7 +4869,9 @@ void TestMergeParallelStress() {
   zfo.static_boundaries = {"c", "g", "m"};
   zfo.partition_target_bytes = 4 * 1024;
   zfo.epoch_target_bytes = 4 * 1024;
-  zfo.materialize_parallelism = 4;
+  const char* par_env = getenv("ZF_STRESS_PARALLELISM");
+  zfo.materialize_parallelism =
+      par_env != nullptr ? std::max(1, atoi(par_env)) : 4;
 
   std::unique_ptr<rocksdb::DB> db;
   {
