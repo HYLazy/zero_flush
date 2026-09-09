@@ -4857,6 +4857,12 @@ void TestMergeParallelStress() {
     return;
   }
   const bool pump = getenv("ZF_STRESS_PUMP") != nullptr;
+  // tight 模式：每轮写完立刻连续 pump（不等物化——封存/物化在飞窗口内穿插
+  // merge 尝试，还原 P1B §9.4 的触发节奏）。
+  const bool tight = getenv("ZF_STRESS_TIGHT") != nullptr;
+  // overwrite 模式：每轮覆写同一组 key（A/B 侧同 user key 跨代纠缠——
+  // 制造重复/版本交错流，贴近原始触发形态）。
+  const bool overwrite = getenv("ZF_STRESS_OVERWRITE") != nullptr;
   const int rounds = std::max(1, atoi(rounds_env));
   std::string dbname = std::string(kDbBase) + "merge_parallel_stress";
   CleanDB(dbname);
@@ -4870,10 +4876,18 @@ void TestMergeParallelStress() {
   zfo.materialize_parallelism = 4;
 
   std::unique_ptr<rocksdb::DB> db;
-  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
-  if (!s.ok()) {
-    ReportResult(tag, false, "open: " + s.ToString());
-    return;
+  {
+    rocksdb::Options opt = MakeOptions();
+    const char* flushes = getenv("ZF_STRESS_FLUSHES");
+    if (flushes != nullptr) {
+      opt.max_background_flushes = std::max(1, atoi(flushes));
+      opt.max_background_jobs = opt.max_background_flushes + 2;
+    }
+    auto os = zeroflush::Open(opt, zfo, dbname, &db);
+    if (!os.ok()) {
+      ReportResult(tag, false, "open: " + os.ToString());
+      return;
+    }
   }
   auto fail = [&](const std::string& why) {
     ReportResult(tag, false, why);
@@ -4886,12 +4900,14 @@ void TestMergeParallelStress() {
     return val;
   };
   char fail_why[256];
+  rocksdb::Status s;
   for (int round = 0; round < rounds; ++round) {
     // 四分区交替写入（b=[..c) d=[c,g) h=[g,m) n=[m,..)）。
     const char* prefixes[] = {"b", "d", "h", "n"};
+    const int kround = overwrite ? 0 : round;  // overwrite：key 固定，仅值换代
     for (int i = 0; i < 6; ++i) {
       for (const char* pfx : prefixes) {
-        snprintf(k, sizeof(k), "%s%04d_%04d", pfx, round, i);
+        snprintf(k, sizeof(k), "%s%04d_%04d", pfx, kround, i);
         const std::string val = make_val(round, i);
         if (!db->Put(rocksdb::WriteOptions(), k, val).ok()) {
           snprintf(fail_why, sizeof(fail_why), "put@round %d", round);
@@ -4900,12 +4916,25 @@ void TestMergeParallelStress() {
         }
       }
     }
-    if (!WaitAllMaterialized(db.get(), 30000)) {
-      snprintf(fail_why, sizeof(fail_why), "WaitAllMaterialized@round %d", round);
-      fail(fail_why);
-      return;
-    }
-    if (pump && round % 3 == 1) {
+    if (tight) {
+      // 封存/物化在飞窗口内的密集 pump：merge 前置会看到 pending frozen/
+      // 活跃尾 → 大部分 Busy——目的正是叠加"持 DB mutex 等待屏障 × 封存
+      // 交错"的调度压力（P1B §9.4 指出的缺失节奏）。
+      for (int kk = 0; kk < 40; ++kk) {
+        uint32_t absorb = 999;
+        const uint32_t drain_part = (kk % 2 == 0) ? 1 : 3;
+        s = zeroflush::MergePartition(db.get(), drain_part, &absorb);
+        if (!s.ok() && !s.IsBusy() && !s.IsInvalidArgument()) {
+          snprintf(fail_why, sizeof(fail_why), "tight-merge@round %d: %s",
+                   round, s.ToString().c_str());
+          fail(fail_why);
+          return;
+        }
+        if (kk % 8 == 0) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+      }
+    } else if (pump && round % 3 == 1) {
       uint32_t absorb = 999;
       // 冷分区取消尝试（排空完成后）：成功/仍 Busy/已不在表（上轮已合并）
       // 都接受——本 harness 意在叠加 merge 路由切换与封存交错的调度动态。
@@ -4917,19 +4946,27 @@ void TestMergeParallelStress() {
         return;
       }
     }
-    // 抽查读：上一轮的 4 前缀 key 全对（乱序竞态若丢/错数据立即暴露）。
-    if (round >= 1) {
-      const int pr = round - 1;
-      for (const char* pfx : prefixes) {
-        for (int i = 0; i < 6; ++i) {
-          snprintf(k, sizeof(k), "%s%04d_%04d", pfx, pr, i);
-          std::string out;
-          if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() ||
-              out != make_val(pr, i)) {
-            snprintf(fail_why, sizeof(fail_why),
-                     "get@round %d key %s mismatch", pr, k);
-            fail(fail_why);
-            return;
+    if (!WaitAllMaterialized(db.get(), 30000)) {
+      snprintf(fail_why, sizeof(fail_why), "WaitAllMaterialized@round %d", round);
+      fail(fail_why);
+      return;
+    }
+    // 抽查读：全部分区 key 全对（乱序竞态若丢/错数据立即暴露）。overwrite
+    // 校验当前轮最新值；非 overwrite 校验上一轮写入（本轮已写且已物化）。
+    {
+      const int vr = overwrite ? round : (round >= 1 ? round - 1 : -1);
+      if (vr >= 0) {
+        for (const char* pfx : prefixes) {
+          for (int i = 0; i < 6; ++i) {
+            snprintf(k, sizeof(k), "%s%04d_%04d", pfx, overwrite ? 0 : vr, i);
+            std::string out;
+            if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() ||
+                out != make_val(vr, i)) {
+              snprintf(fail_why, sizeof(fail_why),
+                       "get@round %d key %s mismatch", vr, k);
+              fail(fail_why);
+              return;
+            }
           }
         }
       }
@@ -4938,7 +4975,9 @@ void TestMergeParallelStress() {
   db.reset();
   CleanDB(dbname);
   ReportResult(tag, true, "rounds=" + std::to_string(rounds) +
-                              (pump ? " pump=1" : " pump=0"));
+                              (tight ? " tight=1"
+                                     : (pump ? " pump=1" : " pump=0")) +
+                              (overwrite ? " overwrite=1" : ""));
 }
 
 }  // namespace

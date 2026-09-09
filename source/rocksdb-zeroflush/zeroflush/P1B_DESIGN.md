@@ -191,13 +191,15 @@ IsDrainingPartition）、恢复路由=当前表（RoutePartIdWithVersion）。
    还依赖 MergePartition pump（持 DB mutex 等待写组屏障）与封存交错的
    动态，专项复现需还原该节奏（连续 pump 尝试 + 每轮 WaitAllMaterialized）
    或多写线程 + TSAN。
-   后续（同日晚）：R0 复现 harness 落档——TestMergeParallelStress（默认
-   no-op；ZF_STRESS_ROUNDS=N 激活，ZF_STRESS_PUMP=1 叠加冷 merge pump）：
-   kStatic P=4 + 4KB 目标 + materialize_parallelism=4 的整批 4 任务并行
-   合并循环。初跑 220 轮（60 轮 pump + 160 轮纯填充）零命中、无 LEAF
-   OUT-OF-ORDER。静态排查（批次内链式前序不可达：同批多 epoch 的
-   PlanLocked 先于全部输出 → last_batch 恒空；B 侧文件经 RegisterCompaction
-   钉住 → 无并发改写/删除）未发现确定竞态。下一步：多写线程 + TSAN 构建、
-   连续多轮 pump 尝试（不等待每轮 materialize，还原封存交错）、或对
-   A/B 叶子构造施加随机 Seek 压力定位排序契约破坏点。
+   后续（2026-09-09 晚）：R0 复现 harness 迭代——TestMergeParallelStress
+   增补 ZF_STRESS_TIGHT（每轮写完立即连续 40 次 merge pump，不等待物化——
+   还原封存交错）、ZF_STRESS_OVERWRITE（每轮覆写同一组 key，A/B 侧同
+   user key 跨代纠缠）、ZF_STRESS_FLUSHES（>1 开启 M5P1b 并发 flush 批，
+   跨批互斥路径）。累计 5 组单/多 flush 变体约 400 轮（pump/tight/
+   overwrite/flushes=4 × parallelism=4）零命中、无 LEAF OUT-OF-ORDER。
+   静态排查结论保持：批次内链式前序不可达（同批 PlanLocked 先于全部输出
+   → last_batch 恒空）、B 侧文件经 RegisterCompaction 钉住无并发改写/删除、
+   单写线程的 seal 节奏本身难以制造原文描述的"多批 4 任务并行合并 × pump
+   交错"。下一步（决定性）：TSAN 构建跑 MergeParallelStress（多 flush +
+   overwrite + tight），或 2-4 写线程并发写；单写线程穷举节奏已到收益拐点。
 
