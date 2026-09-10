@@ -230,8 +230,12 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   （rw ≤ share/(1-share)×out）门控；超预算则 NoteRetry（退避后再试），
   metric `gov_rewrite_gated` 计数。纯判定函数由 GovernancePolicyUnit §E 覆盖；
   合并动作不产生 rewrite，不受限。
-- ⏳ 全量验收：50GB/100GB 吞吐 + 命中率门待跑；已有 8 线程连续写 2.88M 写
-  （≈1.1GB live）ON/OFF 对照 + zf_test 全量（见 output/zeroflush_m4_perf）。
+- ✅ 50GB 级全量验收（16T/1KB/连续，51.2M 写≈50GiB）：ON 33,993 vs OFF
+  29,801 ops/s（+14.1%，空闲期回收空分区 P=4 vs 8）；读命中 83.89% 一致、
+  iter 19.04M 一致、reopen 一致。⚠ 长跑热拆分未触发（split=0，rewrite=0 →
+  非限流器；短程 4M 写同参 splits=1 成功）——推断规模下 base 门槛饥饿，待确认。
+  详见 output/zeroflush_m4_perf/REPORT.md。
+- ⏳ 100GB 吞吐待跑。
   zf_test 全量现状（2026-09-10）：50 PASS / 3 FAIL，且套件可跑到底（teardown
   挂起已修）。3 FAIL 均为环境/时序性：MultiEpoch、MergeActiveTailMergeEnabled
   为基线复验同失败；SkipBatchMaterialize 单独复跑 3/3 PASS（全量后段的

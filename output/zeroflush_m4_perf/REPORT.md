@@ -103,6 +103,32 @@ force_consistency_checks 崩溃，已修）；子分区索引 miss 经 `split_or
   SplitQuiescent / Growth / MergeConcurrentWriters / MergeCold /
   MergeActiveTail / CrashMidDrainReopen 全 PASS。
 
+
+## 50GB 级全量验收（2026-09-10，16 线程 / 1KB / 连续写 / gap_ms=0）
+
+写入量 51,200,000 ops × 1KB ≈ **50GiB**；key 空间 100M，hot band 85%。
+
+| 指标 | ON（治理） | OFF（基线） | 差 |
+|---|---|---|---|
+| 写墙钟 s | 1,506 | 1,718 | ON 快 12.3% |
+| 写吞吐 ops/s | 33,993 | 29,801 | **+14.1%**（ON 空闲期回收空分区 P=4 vs 8）|
+| 终态 P | 4 | 8 | 界内 |
+| gov splits / merges | 0 / 4 | 0 / 0 | 空分区回收生效；热拆分未触发（见下）|
+| rewrite_bytes | 0 | 0 | 限流器未介入 |
+| 读命中 found/200k | 167,771 (83.89%) | 167,774 (83.89%) | 一致 |
+| iter_entries | 19,037,161 | 19,037,151 | 一致（无丢失）|
+| reopen | P=4 一致 | P=8 一致 | 通过 |
+
+### 热拆分未触发（50GB 长跑）——根因待确认
+
+同参**短程** 4M 写（16 线程/1KB/gap0）已实测 splits=1 成功（type-3 rewrite
+1.24GB、P=6、reopen 一致），说明机制可用；50GB 长跑 25 分钟内 splits=0 且
+`rewrite_bytes=0`，**限流器可排除**（rw=0 时门控必放行）。推断：规模下
+materialize 积压使热分区 base 级文件未累积（回落 L0/未物化），
+`governance_split_min_bytes` 门槛长期不满足 → 拆分持续 NoteRetry。
+待确认项：为治理观察补 base_bytes/L0 分布诊断，并评估放宽拆分大小门槛
+（如按"近期封存字节"而非 base 字节）或治理触发下的强制物化。
+
 ## 后续
 
 - 因问题 1 已修，可以多写线程复跑更大规模（数 GB）确认 P 收敛轨迹与吞吐
