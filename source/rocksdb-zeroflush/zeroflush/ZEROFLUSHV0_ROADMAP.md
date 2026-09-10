@@ -240,7 +240,8 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   iter 32.70M、reopen 一致（hold 加宽修复后；修复前同配置 7 次 L1 重叠）。
   OFF 基线臂未完成：同参 governance=0 在 73.9M/104.9M（70%）处卡滞（~48 ops/s，
   主线程 futex 阻塞、单 bg 线程活跃、无 error/corruption 日志；磁盘 95% 使用）
-  → 基线路径独立卡滞问题，待清盘后复跑/归因；OFF 对照暂以 50GB 臂为准
+  → 清盘重跑**复现**（72.5M 写/69% 再次停滞，磁盘 117G 空闲、0 Corruption）
+  = 可复现基线卡滞（~70% 写入量处），待专项归因；OFF 对照暂以 50GB 臂为准
   （29,801 ops/s）。
   zf_test 全量现状（2026-09-10）：50 PASS / 3 FAIL，且套件可跑到底（teardown
   挂起已修）。3 FAIL 均为环境/时序性：MultiEpoch、MergeActiveTailMergeEnabled
