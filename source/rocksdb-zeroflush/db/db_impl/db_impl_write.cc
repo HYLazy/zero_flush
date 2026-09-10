@@ -3896,6 +3896,12 @@ Status DBImpl::ZfSplitPartition(uint32_t part, const Slice& split_key,
                      " not drained in 30s; boundary rewrite deferred",
                      cfd->GetName().c_str(), tail_epoch);
     }
+    // 释放子分区 hold（无论是否排空；排空失败时子分区恢复产出，宽文件
+    // 由后续 rewrite/压缩吸收——不阻塞写路径）。
+    const uint64_t hold = zf_ctx_->TakeSplitTailHold(tail_epoch);
+    if (hold != 0) {
+      zf_ctx_->EndMaterializeBatch(hold);
+    }
   }
   {
     InstrumentedMutexLock l(&mutex_);

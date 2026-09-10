@@ -190,18 +190,16 @@ struct ZeroFlushOptions {
   // 抑制合并（活跃期 P 预算让给热拆分）；负载回落/空闲后放行回收。默认
   // 120s（= 2× 快窗）。0 = 任何正速率都算活跃。
   uint64_t governance_merge_idle_micros = 120ull * 1000 * 1000;
-  // ZeroFlushV0 M4：活跃尾 split（**实验，默认关**）。SplitPartition 不再要求分区
+  // ZeroFlushV0 M4：活跃尾 split（默认开）。SplitPartition 不再要求分区
   // 完全排空——切路由后把父活跃尾冻结为"父区间覆盖的孤儿尾 epoch"；该
   // epoch 物化走**融合替换**（父区间内全部文件，含子分区在切路由后并发
   // 产出的 L1，与尾数据按 seq 归并后单批替换安装——避免宽文件与子分区
   // L1 重叠），子分区索引 miss 时经 split_orphans_ 别名回查父链，排空后
   // 由 type-3 rewrite 按新边界两分。关闭则回退 M2 quiescent 语义（活跃尾
-  // 返回 Busy）。
-  // ⚠ 残留竞态（实测 16T/1KB/12.8M 写必现）：尾 epoch 的"父区间融合替换"
-  // 扫描后，子分区批次可能并发安装新 L1 文件 → VersionBuilder L1 重叠崩溃。
-  // 根治需让尾 epoch 同时按两子分区做跨批互斥登记（AddMaterializePart），
-  // 并在子分区在飞时让位；当前默认关，待实现后再开。
-  bool governance_active_tail_split = false;
+  // 返回 Busy）。跨批互斥：尾 epoch 冻结前以独立 token 占住两子分区
+  // （在飞冲突 → Busy 退避重试），排空+rewrite 后释放——杜绝"宽区间融合
+  // 替换 vs 子分区 L1 并发安装"的 L1 重叠竞态。
+  bool governance_active_tail_split = true;
 };
 
 class ZeroFlushContext {
@@ -543,6 +541,22 @@ class ZeroFlushContext {
   // （数据已进 SST，读走原生 SST 查找）。同回收点调用。
   void MaybeRetireSplitOrphans();
   size_t SplitOrphans() const;
+  // ZeroFlushV0 M5（跨批互斥）：split 尾 epoch 的两子分区 hold——拆分执行器
+  // 在切路由前以独立 token 占住两子分区（被在飞批次占用则 Busy），尾 epoch
+  // 物化/rewrite 完成后释放；期间子分区批次规划让位（kSkip→recovery，后续
+  // epoch 收养），保证尾 epoch 的父区间融合替换不与子分区 L1 安装并发。
+  void SetSplitTailHold(uint64_t epoch, uint64_t token) {
+    std::lock_guard<std::mutex> l(split_hold_mu_);
+    split_tail_holds_[epoch] = token;
+  }
+  uint64_t TakeSplitTailHold(uint64_t epoch) {
+    std::lock_guard<std::mutex> l(split_hold_mu_);
+    auto it = split_tail_holds_.find(epoch);
+    if (it == split_tail_holds_.end()) return 0;
+    const uint64_t t = it->second;
+    split_tail_holds_.erase(it);
+    return t;
+  }
   // ZeroFlushV0 P1c（M1c①）：DRAINING 记录持久化（独立 sidecar 文件
   // wal_dir/ZF_DRAINING，避开 ZFPROPS 格式改动）。登记/retire 时调用写全量
   // 快照（原子 tmp+rename）；ZeroFlushContext::Open 时 LoadDrainingFile 重建
@@ -788,6 +802,9 @@ class ZeroFlushContext {
   mutable std::mutex split_orphan_mu_;
   std::vector<SplitOrphanPart> split_orphans_;
   std::atomic<uint32_t> split_orphan_active_{0};
+  // split 尾 epoch → children hold token（见 SetSplitTailHold）。
+  mutable std::mutex split_hold_mu_;
+  std::unordered_map<uint64_t, uint64_t> split_tail_holds_;
   // ---- ZeroFlushV0 P2（M2）：分区 id 分配器状态 ----
   // 下一个可分配的分区全局 id（见 AllocatePartId）。仅分配窗口（持 DB
   // mutex）读写；Open 时 RebuildNextPartId 初始化。

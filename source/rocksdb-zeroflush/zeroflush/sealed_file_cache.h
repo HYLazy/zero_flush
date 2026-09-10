@@ -68,6 +68,12 @@ struct SealedEpoch {
   bool has_range_override = false;
   std::string range_lo;  // 空 = -∞
   std::string range_hi;  // 空 = +∞
+  // ZeroFlushV0 M5（活跃尾 split 跨批互斥）：本 epoch 是 split 尾 epoch 时
+  // 记录两子分区 id（父 id 已不在表内）。物化期由 ctx 侧的 children hold
+  // token 保证子分区批次让位（不在此并发安装 L1）。
+  bool split_tail = false;
+  uint32_t split_child_l = 0;
+  uint32_t split_child_r = 0;
 };
 
 // LRU 节点。

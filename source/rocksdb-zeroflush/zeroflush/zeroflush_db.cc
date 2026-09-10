@@ -1892,6 +1892,21 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
   // ---- 分配两子 id + 派生新表 + 切路由（对新写即时生效）----
   const uint32_t l = AllocatePartId();
   const uint32_t r = AllocatePartId();
+  // ZeroFlushV0 M5（跨批互斥）：活跃尾将被冻结为宽区间孤儿 epoch，其融合
+  // 替换安装必须与子分区批次互斥——先以独立 token 占住两子分区（任一被
+  // 在飞批次占用则 Busy，策略退避后重试）；尾 epoch 排空+rewrite 完成后由
+  // ZfSplitPartition 释放。期间子分区批次规划让位（kSkip→recovery，后续
+  // epoch 收养，序正确）。
+  uint64_t tail_hold_token = 0;
+  if (zfo_.governance_active_tail_split && active_bytes > 0) {
+    tail_hold_token = BeginMaterializeBatch();
+    if (!AddMaterializePart(tail_hold_token, l) ||
+        !AddMaterializePart(tail_hold_token, r)) {
+      EndMaterializeBatch(tail_hold_token);
+      return ROCKSDB_NAMESPACE::Status::Busy(
+          "ZeroFlush: split children busy (materialize in flight)");
+    }
+  }
   // 子分区 id 可能 > 初始 P-1——先建 WAL 分区对象（gen0；首写延迟开文件）。
   // 分区索引由写路径 Insert 首触达自建（active 索引 + bloom）。
   if (wal_ != nullptr) {
@@ -1937,6 +1952,9 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
     se.has_range_override = true;
     se.range_lo.assign(parent_lo.data(), parent_lo.size());
     se.range_hi.assign(parent_hi.data(), parent_hi.size());
+    se.split_tail = tail_hold_token != 0;
+    se.split_child_l = l;
+    se.split_child_r = r;
     wal_->ClearOverTargetFlag();
     RegisterSealedEpoch(se);
     ROCKSDB_NAMESPACE::MemTable* old_mem = cfd->mem();
@@ -1958,6 +1976,9 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
       split_orphan_active_.store(
           static_cast<uint32_t>(split_orphans_.size()),
           std::memory_order_release);
+    }
+    if (tail_hold_token != 0) {
+      SetSplitTailHold(epoch, tail_hold_token);
     }
     if (tail_epoch_out != nullptr) {
       *tail_epoch_out = epoch;

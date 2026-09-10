@@ -48,7 +48,7 @@ struct Args {
   uint64_t seed = 20260909;
   int sample_ms = 250;  // P 轨迹采样间隔
   int gap_ms = 4000;    // 排空检查点间隙（0 = 连续写，验证活跃尾 split）
-  bool active_tail = false;  // 实验：活跃尾 split（默认关，见 ZeroFlushOptions）
+  bool active_tail = true;   // 活跃尾 split（与 ZeroFlushOptions 默认一致）
 };
 
 std::string Key(uint64_t id) {
