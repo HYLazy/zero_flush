@@ -1819,10 +1819,14 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
     ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
     uint32_t part, const ROCKSDB_NAMESPACE::Slice& split_key,
-    uint32_t* child_l, uint32_t* child_r, uint64_t* tail_epoch_out) {
+    uint32_t* child_l, uint32_t* child_r, uint64_t* tail_epoch_out,
+    uint64_t* hold_token_out) {
   // REQUIRES: DB mutex held（与 InstallNewVersion 的排他窗口一致）。
   if (tail_epoch_out != nullptr) {
     *tail_epoch_out = 0;
+  }
+  if (hold_token_out != nullptr) {
+    *hold_token_out = 0;
   }
   auto tbl = tables_ ? tables_->current() : nullptr;
   if (tbl == nullptr || tbl->IsHashMode()) {
@@ -1897,15 +1901,18 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
   // 在飞批次占用则 Busy，策略退避后重试）；尾 epoch 排空+rewrite 完成后由
   // ZfSplitPartition 释放。期间子分区批次规划让位（kSkip→recovery，后续
   // epoch 收养，序正确）。
-  uint64_t tail_hold_token = 0;
-  if (zfo_.governance_active_tail_split && active_bytes > 0) {
-    tail_hold_token = BeginMaterializeBatch();
-    if (!AddMaterializePart(tail_hold_token, l) ||
-        !AddMaterializePart(tail_hold_token, r)) {
-      EndMaterializeBatch(tail_hold_token);
-      return ROCKSDB_NAMESPACE::Status::Busy(
-          "ZeroFlush: split children busy (materialize in flight)");
-    }
+  // 无条件持有（quiescent 拆分同样需要：切路由后子分区批次若先安装 L1，
+  // 随后的 type-3 rewrite 加子文件会与之重叠）。调用方（ZfSplitPartition）
+  // 在 rewrite 完成后释放。
+  uint64_t tail_hold_token = BeginMaterializeBatch();
+  if (!AddMaterializePart(tail_hold_token, l) ||
+      !AddMaterializePart(tail_hold_token, r)) {
+    EndMaterializeBatch(tail_hold_token);
+    return ROCKSDB_NAMESPACE::Status::Busy(
+        "ZeroFlush: split children busy (materialize in flight)");
+  }
+  if (hold_token_out != nullptr) {
+    *hold_token_out = tail_hold_token;
   }
   // 子分区 id 可能 > 初始 P-1——先建 WAL 分区对象（gen0；首写延迟开文件）。
   // 分区索引由写路径 Insert 首触达自建（active 索引 + bloom）。
@@ -1976,9 +1983,6 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
       split_orphan_active_.store(
           static_cast<uint32_t>(split_orphans_.size()),
           std::memory_order_release);
-    }
-    if (tail_hold_token != 0) {
-      SetSplitTailHold(epoch, tail_hold_token);
     }
     if (tail_epoch_out != nullptr) {
       *tail_epoch_out = epoch;

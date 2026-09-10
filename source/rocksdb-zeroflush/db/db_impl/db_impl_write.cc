@@ -3871,12 +3871,22 @@ Status DBImpl::ZfSplitPartition(uint32_t part, const Slice& split_key,
   }
   Status s;
   uint64_t tail_epoch = 0;
+  uint64_t split_hold = 0;
+  struct SplitHoldGuard {
+    zeroflush::ZeroFlushContext* c;
+    uint64_t tok;
+    ~SplitHoldGuard() {
+      if (tok != 0) c->EndMaterializeBatch(tok);
+    }
+  } hold_guard{zf_ctx_.get(), 0};
   {
     InstrumentedMutexLock l(&mutex_);
     // 1) 路由拆分（前置 + 分配器 + DeriveSplit + 切路由 + ZFPROPS 落盘；
-    //    活跃尾在锁内冻结尾 epoch——返回 tail_epoch>0）。
+    //    活跃尾在锁内冻结尾 epoch——返回 tail_epoch>0）。两子分区 hold
+    //    随 Rewrite 完成（函数尾）释放。
     s = zf_ctx_->SplitPartitionLocked(this, cfd, part, split_key, child_l,
-                                      child_r, &tail_epoch);
+                                      child_r, &tail_epoch, &split_hold);
+    hold_guard.tok = split_hold;
     if (!s.ok()) {
       return s;
     }
@@ -3895,12 +3905,6 @@ Status DBImpl::ZfSplitPartition(uint32_t part, const Slice& split_key,
                      "[%s] ZeroFlush: split tail epoch %" PRIu64
                      " not drained in 30s; boundary rewrite deferred",
                      cfd->GetName().c_str(), tail_epoch);
-    }
-    // 释放子分区 hold（无论是否排空；排空失败时子分区恢复产出，宽文件
-    // 由后续 rewrite/压缩吸收——不阻塞写路径）。
-    const uint64_t hold = zf_ctx_->TakeSplitTailHold(tail_epoch);
-    if (hold != 0) {
-      zf_ctx_->EndMaterializeBatch(hold);
     }
   }
   {

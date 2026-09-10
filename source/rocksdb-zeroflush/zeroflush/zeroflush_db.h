@@ -516,7 +516,8 @@ class ZeroFlushContext {
       ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
       uint32_t part, const ROCKSDB_NAMESPACE::Slice& split_key,
       uint32_t* child_l, uint32_t* child_r,
-      uint64_t* tail_epoch_out = nullptr);
+      uint64_t* tail_epoch_out = nullptr,
+      uint64_t* hold_token_out = nullptr);
 
   // M3 起步生长：把分区 part 的活跃尾冻结为单分区 epoch（镜像 merge E_D 的
   // 冻结段，不做路由切换/DRAINING——用于生长拆分前的排空：冻结后调用方
