@@ -228,6 +228,10 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   当前由 C=1 + 冷却天然受限；严格 rate-limiter（任务池优先 + 带宽账本）待做。
 - ⏳ 全量验收：50GB/100GB 吞吐 + 命中率门待跑；已有 8 线程连续写 2.88M 写
   （≈1.1GB live）ON/OFF 对照 + zf_test 全量（见 output/zeroflush_m4_perf）。
+  zf_test 全量现状（2026-09-10）：50 PASS / 3 FAIL，且套件可跑到底（teardown
+  挂起已修）。3 FAIL 均为环境/时序性：MultiEpoch、MergeActiveTailMergeEnabled
+  为基线复验同失败；SkipBatchMaterialize 单独复跑 3/3 PASS（全量后段的
+  资源/时序 flaky）。
 - P1B_DESIGN.md 保留为独立 S4（合并协议）设计档（内容自洽，不再合入）。
 
 ## 3. 性能纪律（调度器实现约束）
