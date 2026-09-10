@@ -140,6 +140,24 @@ force_consistency_checks 崩溃，已修）；子分区索引 miss 经 `split_or
 busy/timeout/other/median_notfound/pos_gone/total0/predrain、
 gov_last_split_base/l0、gov_rewrite_gated。
 
+
+## 100GB 级验收（2026-09-10，16T/1KB/连续，104.86M 写 ≈100GiB）
+
+| 指标 | ON（治理，active-tail 默认开） | 备注 |
+|---|---|---|
+| 写墙钟 | 4,651s（77.5min） | |
+| 写吞吐 | 22,545 ops/s | 高于 50GB 臂的绝对量下因 live 数据/压缩开销下降 |
+| 终态 P | 6 | ∈ [P_min,P_max] |
+| gov splits / merges | 1 / 4? → 实测 1 / 3 | 活跃尾热拆分 1 次（rewrite 23.6MB）|
+| **Corruption** | **0** | 修复前同配置 7 次 L1 重叠；hold 加宽后消除 |
+| 读命中 found/200k | 172,076（86.04%） | |
+| iter_entries | 32,698,553 | |
+| reopen | P=6 一致 | |
+
+诊断：split_attempts=1、success=1、gate_base/median/busy/timeout/other 全 0；
+last_base=7.6MB、last_l0=16.6MB。
+
+OFF 基线臂随后补（同参 governance=0）。
 ## 后续
 
 - 因问题 1 已修，可以多写线程复跑更大规模（数 GB）确认 P 收敛轨迹与吞吐
