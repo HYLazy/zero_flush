@@ -5599,6 +5599,129 @@ void TestGovernanceBackgroundAuto() {
   ReportResult(tag, true, "bg ok P=" + std::to_string(pc));
 }
 
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 M4 回归：并发写下的 merge 路由切换屏障（在途写组计数）。
+//  并行写（≥2 写线程）时写组最后完成者可能是 follower——若 ExitInflightGroup
+//  只挂在 leader 出口，计数泄漏 → MergePartitionLocked 的路由切换屏障等待
+//  归零永久 TimedOut（实测 T≥2 时 merge/split 全失败）。本用例：并发写 +
+//  重试 merge，要求至少一次成功且数据完整。
+// ---------------------------------------------------------------------------
+void TestMergeWithConcurrentWriters() {
+  const char* tag = "MergeConcurrentWriters(M4)";
+  std::string dbname = std::string(kDbBase) + "merge_concurrent_writers";
+  CleanDB(dbname);
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+  zfo.static_boundaries = {"c", "g", "m"};
+  zfo.partition_target_bytes = 16 * 1024;
+  zfo.epoch_target_bytes = 64 * 1024;
+  zfo.materialize_parallelism = 4;
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  std::atomic<bool> stop{false};
+  std::atomic<uint64_t> wcnt[2];
+  wcnt[0].store(0);
+  wcnt[1].store(0);
+  auto writer = [&](char pfx, int slot) {
+    uint64_t i = 0;
+    char k[16];
+    const std::string v(200, 'w');
+    while (!stop.load(std::memory_order_relaxed)) {
+      snprintf(k, sizeof(k), "%c%06" PRIu64, pfx, i);
+      if (!db->Put(rocksdb::WriteOptions(), k, v + k).ok()) {
+        break;
+      }
+      ++i;
+      wcnt[slot].fetch_add(1, std::memory_order_relaxed);
+    }
+  };
+  std::thread w1(writer, 'd', 0);
+  std::thread w2(writer, 'n', 1);
+  // 先让并发写跑一段（制造并行写组——泄漏 bug 只在 ≥2 writer 的组上出现，
+  // 计数滞留后屏障永久无法归零）。
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  // 主线程 merge 冷分区 2=[g,m)（写者只写分区 1/3，目标分区无数据 → 前置
+  // 平凡满足，唯一等待 = 路由切换屏障 inflight==0）。并发写者持续产生写组
+  // → 修复前计数泄漏使屏障永不归零（TimedOut），修复后应立即成功。
+  uint32_t successes = 0;
+  std::string last_status;
+  for (int attempt = 0; attempt < 60 && successes == 0; ++attempt) {
+    uint32_t absorb = 999;
+    const rocksdb::Status ms =
+        zeroflush::MergePartition(db.get(), /*drain_part=*/2, &absorb);
+    last_status = ms.ToString();
+    if (ms.ok()) {
+      ++successes;
+      break;
+    }
+    if (!ms.IsBusy() && !ms.IsTimedOut()) {
+      stop.store(true);
+      w1.join();
+      w2.join();
+      ReportResult(tag, false, "unexpected merge status: " + ms.ToString());
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  stop.store(true);
+  w1.join();
+  w2.join();
+  if (successes == 0) {
+    ReportResult(tag, false,
+                 "merge barrier never drained under concurrent writers; last=" +
+                     last_status + " inflight=" +
+                     std::to_string(ZfMetric(db.get(), "inflight_groups")));
+    db.reset();
+    CleanDB(dbname);
+    return;
+  }
+  if (!WaitAllMaterialized(db.get(), 60000)) {
+    ReportResult(tag, false, "WaitAllMaterialized");
+    db.reset();
+    CleanDB(dbname);
+    return;
+  }
+  // 数据完整性：两写者各自前缀键全部可读，迭代计数 = 两写者写入数和。
+  const uint64_t n0 = wcnt[0].load();
+  const uint64_t n1 = wcnt[1].load();
+  for (int slot = 0; slot < 2; ++slot) {
+    const char pfx = slot == 0 ? 'd' : 'n';
+    const uint64_t n = slot == 0 ? n0 : n1;
+    for (uint64_t i = 0; i < n; ++i) {
+      char k[16];
+      snprintf(k, sizeof(k), "%c%06" PRIu64, pfx, i);
+      std::string out;
+      if (!db->Get(rocksdb::ReadOptions(), k, &out).ok()) {
+        ReportResult(tag, false, "read after concurrent merge");
+        db.reset();
+        CleanDB(dbname);
+        return;
+      }
+    }
+  }
+  const int64_t cnt = CountViaIterator(db.get());
+  if (cnt != static_cast<int64_t>(n0 + n1)) {
+    ReportResult(tag, false, "iter count mismatch after concurrent merge (got " +
+                                 std::to_string(cnt) + " want " +
+                                 std::to_string(n0 + n1) + ")");
+    db.reset();
+    CleanDB(dbname);
+    return;
+  }
+  db.reset();
+  CleanDB(dbname);
+  ReportResult(tag, true,
+               "merge ok under concurrent writers (writes=" +
+                   std::to_string(n0 + n1) + ")");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -5695,6 +5818,7 @@ int main(int argc, char** argv) {
   run("GovernancePolicyUnit",          TestGovernancePolicyUnit);
   run("GovernanceDynamicEndToEnd",     TestGovernanceDynamicEndToEnd);
   run("GovernanceBackgroundAuto",      TestGovernanceBackgroundAuto);
+  run("MergeConcurrentWriters",        TestMergeWithConcurrentWriters);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

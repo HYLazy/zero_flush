@@ -1170,6 +1170,17 @@ Status DBImpl::WriteImpl(
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       // we're responsible for exit batch group
       // TODO(myabandeh): propagate status to write_group
+      // ZeroFlushV0 M4 修复：parallel 组的在途写组计数退出。最后的完成者
+      // 可能是 follower（本块），原实现只在 leader 的 should_exit 块 Exit
+      // → leader 非最后完成者时该组计数永久滞留（实测 T≥2 计数单调累积，
+      // merge/split 的路由切换屏障等待归零永久 TimedOut）。Complete 返回
+      // true 的本块恰好一次/组，与 leader 路径二选一，无重复 Exit。
+      // 必须最先执行（在下面取 DB mutex 的 Unref 之前）：路由切换屏障是
+      // "持 DB mutex 自旋等 inflight==0"，若收尾者先抢 mutex 再 Exit 会与
+      // 等待者互等（实测仍有 TimedOut）。
+      if (zf_ctx_ != nullptr) {
+        zf_ctx_->ExitInflightGroup();
+      }
       auto last_sequence = w.write_group->last_sequence;
       for (auto* tmp_w : *(w.write_group)) {
         assert(tmp_w);
