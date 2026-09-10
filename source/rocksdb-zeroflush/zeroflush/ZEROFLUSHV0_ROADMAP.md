@@ -241,8 +241,12 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   OFF 基线臂未完成：同参 governance=0 在 73.9M/104.9M（70%）处卡滞（~48 ops/s，
   主线程 futex 阻塞、单 bg 线程活跃、无 error/corruption 日志；磁盘 95% 使用）
   → 清盘重跑**复现**（72.5M 写/69% 再次停滞，磁盘 117G 空闲、0 Corruption）
-  = 可复现基线卡滞（~70% 写入量处），待专项归因；OFF 对照暂以 50GB 臂为准
-  （29,801 ops/s）。
+  = 可复现基线卡滞（~70% 写入量处）。**归因（现场数据）**：L0 积压 23k 文件/
+  11.25GB、L1 10.73GB（score≈10）→ 原生 L1→L2 持续运行（comp=1）与 ZF 物化
+  being_compacted 冲突 → 物化 kSkip 累积、sealed_wal 37.9GB 冻结、写路径卡在
+  epoch/imm 水位（is-write-stopped=0，非写停控制器）。= 基线静态分区热点 L1
+  无界的结构性限制（治理 ON 拆分后 100GB 全程完成）——治理即对策。
+  验证：ZF_MAX_L1_BYTES=1TB（禁原生 L1→L2 触发）复跑中。
   zf_test 全量现状（2026-09-10）：50 PASS / 3 FAIL，且套件可跑到底（teardown
   挂起已修）。3 FAIL 均为环境/时序性：MultiEpoch、MergeActiveTailMergeEnabled
   为基线复验同失败；SkipBatchMaterialize 单独复跑 3/3 PASS（全量后段的

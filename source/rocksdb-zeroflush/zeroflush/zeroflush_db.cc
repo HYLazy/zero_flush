@@ -2454,7 +2454,17 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   zf_opt.level0_file_num_compaction_trigger = 100000000;
   zf_opt.level0_slowdown_writes_trigger = 100000000;
   zf_opt.level0_stop_writes_trigger = 100000000;
+  // M5 归因实验：L1→L2 触发阈值可经 ZF_MAX_L1_BYTES 覆盖（默认 1GB）。
+  // 背景：100GB 基线（governance=0）时 L1≈10GB → score≈10 → 原生 L1→L2
+  // compaction 持续运行，与 ZF 物化抢文件（being_compacted 冲突 → kSkip），
+  // 物化积压（sealed_wal 37.9GB）后写路径卡滞。调大该值可隔离验证。
   zf_opt.max_bytes_for_level_base = 1ull << 30;
+  if (const char* env_l1 = getenv("ZF_MAX_L1_BYTES")) {
+    const unsigned long long v = strtoull(env_l1, nullptr, 10);
+    if (v > 0) {
+      zf_opt.max_bytes_for_level_base = v;
+    }
+  }
 
   // 2) 原生 Open（MANIFEST/VersionSet/SuperVersion 全复用）
   // M4.6-2：CURRENT 一致性预修复——在原生 Recover 之前。Open/轮换竞态

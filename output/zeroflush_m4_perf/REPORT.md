@@ -157,17 +157,33 @@ gov_last_split_base/l0、gov_rewrite_gated。
 诊断：split_attempts=1、success=1、gate_base/median/busy/timeout/other 全 0；
 last_base=7.6MB、last_l0=16.6MB。
 
-### 100GB OFF 基线臂：未完成（卡滞，独立问题待归因）
+### 100GB OFF 基线臂：卡滞归因（现场数据 + 机制）
 
-同参 governance=0 跑至 **73.9M / 104.9M 写（70%）** 后停滞：采样 5s 仅 ~240 写
-（≈48 ops/s），主线程与多数 rocksdb:high 线程 futex 阻塞、一个 bg 线程活跃；
-日志无 error/corruption/stall 文本；磁盘当时 95% 使用（97G 空余，DB 43G）。
-判定为**基线路径（无治理）卡滞**，与治理无关。清盘后同参重跑**复现**：
-于 72.5M 写（69%）再次停滞（~170→~125 写/5s，磁盘 117G 空闲、0 Corruption、
-无 error/stall 日志）→ 可复现的基线卡滞（约 70% 写入量处），疑似与写停水位/
-物化积压相关（Open 注释记载的 StopWriteToken/InstallSuperVersion 死锁类），
-需独立专项归因。100GB 级因此仅有 ON 臂数据；OFF 对照暂以 **50GB 臂**为准
-（29,801 ops/s）。
+复现：governance=0 同参两跑，均在 **~72.4M 写（69%）** 处停滞（~100 写/5s），
+磁盘空闲、0 Corruption、无 error/stall 日志。现场采样（ZF_BENCH_VERBOSE=1）：
+
+| 观测 | 值（卡点） | 含义 |
+|---|---|---|
+| is-write-stopped / delayed | 0 / 0 | **非写停控制器**（排除 StopWriteToken/DelayWrite）|
+| L0 | **23,162 文件 / 11.25GB** | 物化回落 L0 长期累积（ZF 设计禁 L0 压缩，永不消费）|
+| L1 | 105 文件 / 10.73GB（score≈10） | 热点范围 L1 无界增长 → 持续触发原生 L1→L2 |
+| L2 / L3 | 4.0GB / 7.0GB | 原生压缩在下沉 |
+| num-running-compactions | 恒 1 | 大 L1→L2 持续在跑（占 being_compacted）|
+| sealed_wal（未回收封存） | **37.93GB（冻结不再回收）** | ZF 物化侧停摆 |
+| prof_tasks / skip_count | 27,079 / 6,625（冻结） | 物化计划/任务停止推进 |
+| live_wal | 缓慢增长（~500 写/5s） | 写路径仅微幅推进后阻塞 |
+
+机制（与 ON 对照的解释）：baseline P=8 静态分区下，热键带使某分区 L1 增长到
+~10GB（违反 S1/S3 的"每分区文件有界"设计目标）；`max_bytes_for_level_base`
+=1GB → L1 score≈10 → **原生 L1→L2 compaction 持续运行**，其 being_compacted
+文件与 ZF 物化的 overlap 判定冲突 → 物化计划大量 kSkip/等待 → sealed 积压
+（37.9GB）与任务冻结 → 写线程最终卡在 epoch/imm 水位（非写停控制器）。治理
+ON 通过热拆分把每分区数据/文件规模压住（P=6），100GB 全程完成（22,545 ops/s、
+0 Corruption）——即该卡滞是**基线静态分区的结构性限制**，治理正是其对策。
+
+**验证实验（进行中）**：`ZF_MAX_L1_BYTES=1TB`（禁用原生 L1→L2 触发）复跑
+OFF 100GB——若完成则坐实"原生 L1→L2 与 ZF 物化冲突"为卡滞直接触发条件。
+
 ## 后续
 
 - 因问题 1 已修，可以多写线程复跑更大规模（数 GB）确认 P 收敛轨迹与吞吐
