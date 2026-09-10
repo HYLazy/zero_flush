@@ -246,7 +246,13 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   being_compacted 冲突 → 物化 kSkip 累积、sealed_wal 37.9GB 冻结、写路径卡在
   epoch/imm 水位（is-write-stopped=0，非写停控制器）。= 基线静态分区热点 L1
   无界的结构性限制（治理 ON 拆分后 100GB 全程完成）——治理即对策。
-  验证：ZF_MAX_L1_BYTES=1TB（禁原生 L1→L2 触发）复跑中。
+  验证（ZF_MAX_L1_BYTES=1TB 禁原生 L1→L2）：卡滞消失、写吞吐升至 ~100k ops/s
+  （坐实 L1→L2 与物化冲突为直接触发），但 69M 写（66%）即磁盘耗尽
+  （L0 22k 文件/58.7GB 只增不消 + sealed 34GB）→ 基线第二条结构性问题：
+  空间放大失控。结论：OFF 100GB 卡滞 = 热点 L1 无界（原生 L1→L2 冲突）+
+  L0 无消费空间放大；治理 ON（拆分热点）100GB 全程完成 = 对策。后续可选：
+  修物化与原生 L1→L2 互斥（让位/等待）、L0 消费路径、或按 S1/S3 收紧每
+  range 文件规模。
   zf_test 全量现状（2026-09-10）：50 PASS / 3 FAIL，且套件可跑到底（teardown
   挂起已修）。3 FAIL 均为环境/时序性：MultiEpoch、MergeActiveTailMergeEnabled
   为基线复验同失败；SkipBatchMaterialize 单独复跑 3/3 PASS（全量后段的
