@@ -898,6 +898,24 @@ void TestMultiEpoch() {
 
   // 写完后立即 500 条
   if (CountViaIterator(db.get()) != 500) {
+    // M5 诊断：对比 Get 路径（若 Get 全中而 iter 缺 → 迭代器路径缺陷）。
+    int get_ok = 0, get_miss = 0, iter_cnt = (int)CountViaIterator(db.get());
+    std::string miss_list;
+    for (int64_t i = 0; i < 500; ++i) {
+      char kk[16];
+      snprintf(kk, sizeof(kk), "me%010lld", (long long)i);
+      std::string out;
+      if (db->Get(rocksdb::ReadOptions(), rocksdb::Slice(kk, 16), &out).ok()) {
+        ++get_ok;
+      } else {
+        ++get_miss;
+        if (miss_list.size() < 160) {
+          miss_list += std::string(kk, 16) + " ";
+        }
+      }
+    }
+    fprintf(stderr, "[dbg] multiepoch iter=%d get_ok=%d get_miss=%d miss=%s\n",
+            iter_cnt, get_ok, get_miss, miss_list.c_str());
     ReportResult(tag, false, "iter after write != 500");
     return;
   }
@@ -4181,7 +4199,12 @@ void TestMergeActiveTailMergeEnabled() {
     snprintf(k, sizeof(k), "%s%04d", prefix, id);
     ::memset(v, 'x', 200);
     snprintf(v, sizeof(v), "v%s%04d", prefix, id);
-    return db->Put(rocksdb::WriteOptions(), k, v).ok();
+    const rocksdb::Status st = db->Put(rocksdb::WriteOptions(), k, v);
+    if (!st.ok()) {
+      fprintf(stderr, "[dbg] put(%s%04d) failed: %s\n", prefix, id,
+              st.ToString().c_str());
+    }
+    return st.ok();
   };
   auto get_eq = [&](const char* prefix, int id, const char* expect) -> bool {
     snprintf(k, sizeof(k), "%s%04d", prefix, id);

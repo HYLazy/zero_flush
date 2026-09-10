@@ -746,6 +746,23 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     if (ctx_->IsDrainingPartition(pid)) {
       if (mc_.materialize_token != 0) {
         ctx_->AddMaterializePart(mc_.materialize_token, pid);
+        // M5：E_D（drain 侧孤儿）输出 key range 与吸收方 L1 相交——必须与
+        // 吸收方批次互斥（两批各自按 part id 登记时互不可见 → L1 重叠：
+        // MergeActiveTailMergeEnabled 实测 'L1 has overlapping ranges'）。
+        // 吸收方在飞则本 E_D 让位（转 recovery；吸收方后续 epoch 收养）。
+        uint32_t absorb_id = 0;
+        if (ctx_->DrainingAbsorbOf(pid, &absorb_id) &&
+            !ctx_->AddMaterializePart(mc_.materialize_token, absorb_id)) {
+          if (skip_ok) {
+            plan.decision = MaterializeDecision::kSkip;
+            zf_skip_cross_batch++;
+            ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+          } else {
+            plan.decision = MaterializeDecision::kFallback;
+          }
+          plans_.push_back(std::move(plan));
+          continue;
+        }
       }
       if (mc_.batch_planned_parts != nullptr) {
         mc_.batch_planned_parts->insert(pid);

@@ -2033,6 +2033,19 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezePartitionTailLocked(
   return ss;
 }
 
+bool ZeroFlushContext::DrainingAbsorbOf(uint32_t part,
+                                        uint32_t* absorb) const {
+  if (absorb == nullptr) return false;
+  std::lock_guard<std::mutex> l(draining_mu_);
+  for (const auto& d : draining_) {
+    if (d.part == part) {
+      *absorb = d.absorb;
+      return true;
+    }
+  }
+  return false;
+}
+
 bool ZeroFlushContext::IsDrainingPartition(uint32_t part) const {
   std::lock_guard<std::mutex> l(draining_mu_);
   return std::any_of(draining_.begin(), draining_.end(),

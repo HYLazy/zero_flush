@@ -529,6 +529,9 @@ class ZeroFlushContext {
 
   // 分区是否处于 DRAINING（被合并、排空未完成）。PlanLocked F1 与读别名共用。
   bool IsDrainingPartition(uint32_t part) const;
+  // DRAINING 分区 part 的吸收方（M5：E_D 物化批需同时登记吸收方 id，防两批
+  // 各自的 L1 输出 key range 相交 → VersionBuilder L1 重叠）。
+  bool DrainingAbsorbOf(uint32_t part, uint32_t* absorb) const;
   // DRAINING 分区数（诊断/测试：rocksdb.zeroflush.draining_partitions）。
   size_t DrainingPartitions() const;
   // 已 RETIRED（排空完成移除登记）的合并分区累计数。

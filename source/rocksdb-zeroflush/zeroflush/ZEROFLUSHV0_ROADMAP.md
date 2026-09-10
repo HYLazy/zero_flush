@@ -254,9 +254,13 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   修物化与原生 L1→L2 互斥（让位/等待）、L0 消费路径、或按 S1/S3 收紧每
   range 文件规模。
   zf_test 全量现状（2026-09-10）：50 PASS / 3 FAIL，且套件可跑到底（teardown
-  挂起已修）。3 FAIL 均为环境/时序性：MultiEpoch、MergeActiveTailMergeEnabled
-  为基线复验同失败；SkipBatchMaterialize 单独复跑 3/3 PASS（全量后段的
-  资源/时序 flaky）。
+  挂起已修）。其中 **MergeActiveTailMergeEnabled 已修复转绿**（E_D 与吸收方
+  跨批互斥：E_D 批同时登记 absorb id，冲突让位转 recovery——原 'L1 has
+  overlapping ranges' 根因；3/3 稳定）。SkipBatchMaterialize 单独复跑 3/3
+  PASS（全量后段时序 flaky）。**MultiEpoch 根因定位**：写后立即读出现
+  Get 0/500 全 miss、iter 仅 455（hash 模式 + 大量 epoch + reclaim=off 调试
+  配置）→ 读路径（分区索引链）在冻结/释放边界下的缺陷，待专项修复（诊断
+  已内建：失败时打印 iter/get_ok/get_miss/前若干 miss key）。
 - P1B_DESIGN.md 保留为独立 S4（合并协议）设计档（内容自洽，不再合入）。
 
 ## 3. 性能纪律（调度器实现约束）
