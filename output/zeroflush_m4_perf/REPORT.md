@@ -119,15 +119,25 @@ force_consistency_checks 崩溃，已修）；子分区索引 miss 经 `split_or
 | iter_entries | 19,037,161 | 19,037,151 | 一致（无丢失）|
 | reopen | P=4 一致 | P=8 一致 | 通过 |
 
-### 热拆分未触发（50GB 长跑）——根因待确认
+### 热拆分未触发（50GB 长跑）——根因已定位（两个独立问题）
 
-同参**短程** 4M 写（16 线程/1KB/gap0）已实测 splits=1 成功（type-3 rewrite
-1.24GB、P=6、reopen 一致），说明机制可用；50GB 长跑 25 分钟内 splits=0 且
-`rewrite_bytes=0`，**限流器可排除**（rw=0 时门控必放行）。推断：规模下
-materialize 积压使热分区 base 级文件未累积（回落 L0/未物化），
-`governance_split_min_bytes` 门槛长期不满足 → 拆分持续 NoteRetry。
-待确认项：为治理观察补 base_bytes/L0 分布诊断，并评估放宽拆分大小门槛
-（如按"近期封存字节"而非 base 字节）或治理触发下的强制物化。
+1. **驱动 Bug（已修）**：zf_govern_bench 早期版本把 `governance_active_tail_split`
+   显式置 false，治理走旧"分区必须排空"路径；连续写下热分区永远 Busy →
+   split 在门控后静默 NoteRetry（`split_attempts>0`、base/L0 充足、
+   gate_base/median/busy/timeout 全 0）。已补 `gov_split_predrain` 计数并将
+   bench 默认对齐 ZeroFlushOptions；诊断口径：attempts/gate_base/
+   median_nofiles/busy/timeout/other/median_notfound/pos_gone/total0/predrain
+   + last_base/last_l0/rewrite_gated。
+2. **活跃尾路径跨批竞态（未修，故默认关）**：打开 active-tail 后，16T/1KB/
+   12.8M 写实测出现 `force_consistency_checks: L1 has overlapping ranges`
+   （尾 epoch 的"父区间融合替换"扫描后，子分区批次并发安装新 L1 文件）。
+   根治：尾 epoch 同时按**两个子分区**做跨批互斥登记（AddMaterializePart），
+   子分区在飞时让位/等待；实现前该能力保持实验默认关（默认路径 quiescent
+   拆分行为不变）。
+
+**诊断字段（已落地）**：gov_split_attempts/gate_base/median_nofiles/success/
+busy/timeout/other/median_notfound/pos_gone/total0/predrain、
+gov_last_split_base/l0、gov_rewrite_gated。
 
 ## 后续
 

@@ -548,6 +548,32 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(GovActionInFlight());
   } else if (prop == "rocksdb.zeroflush.gov_rewrite_gated") {
     *value = std::to_string(governance_rewrite_gated());
+  } else if (prop == "rocksdb.zeroflush.gov_split_attempts") {
+    *value = std::to_string(gov_split_attempts());
+  } else if (prop == "rocksdb.zeroflush.gov_split_gate_base") {
+    *value = std::to_string(gov_split_gate_base());
+  } else if (prop == "rocksdb.zeroflush.gov_split_median_nofiles") {
+    *value = std::to_string(gov_split_median_nofiles());
+  } else if (prop == "rocksdb.zeroflush.gov_split_success") {
+    *value = std::to_string(gov_split_success());
+  } else if (prop == "rocksdb.zeroflush.gov_last_split_base") {
+    *value = std::to_string(gov_last_split_base());
+  } else if (prop == "rocksdb.zeroflush.gov_last_split_l0") {
+    *value = std::to_string(gov_last_split_l0());
+  } else if (prop == "rocksdb.zeroflush.gov_split_busy") {
+    *value = std::to_string(gov_split_busy());
+  } else if (prop == "rocksdb.zeroflush.gov_split_timeout") {
+    *value = std::to_string(gov_split_timeout());
+  } else if (prop == "rocksdb.zeroflush.gov_split_other") {
+    *value = std::to_string(gov_split_other());
+  } else if (prop == "rocksdb.zeroflush.gov_split_median_notfound") {
+    *value = std::to_string(gov_split_median_notfound());
+  } else if (prop == "rocksdb.zeroflush.gov_split_pos_gone") {
+    *value = std::to_string(gov_split_pos_gone());
+  } else if (prop == "rocksdb.zeroflush.gov_split_total0") {
+    *value = std::to_string(gov_split_total0());
+  } else if (prop == "rocksdb.zeroflush.gov_split_predrain") {
+    *value = std::to_string(gov_split_predrain());
   } else if (prop == "rocksdb.zeroflush.inflight_groups") {
     // 诊断：在途写组计数（治理路由切换屏障等待归零；泄漏会导致所有
     // merge/split 动作 TimedOut）。

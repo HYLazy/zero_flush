@@ -190,14 +190,18 @@ struct ZeroFlushOptions {
   // 抑制合并（活跃期 P 预算让给热拆分）；负载回落/空闲后放行回收。默认
   // 120s（= 2× 快窗）。0 = 任何正速率都算活跃。
   uint64_t governance_merge_idle_micros = 120ull * 1000 * 1000;
-  // ZeroFlushV0 M4：活跃尾 split（默认开）。SplitPartition 不再要求分区
+  // ZeroFlushV0 M4：活跃尾 split（**实验，默认关**）。SplitPartition 不再要求分区
   // 完全排空——切路由后把父活跃尾冻结为"父区间覆盖的孤儿尾 epoch"；该
   // epoch 物化走**融合替换**（父区间内全部文件，含子分区在切路由后并发
   // 产出的 L1，与尾数据按 seq 归并后单批替换安装——避免宽文件与子分区
   // L1 重叠），子分区索引 miss 时经 split_orphans_ 别名回查父链，排空后
   // 由 type-3 rewrite 按新边界两分。关闭则回退 M2 quiescent 语义（活跃尾
   // 返回 Busy）。
-  bool governance_active_tail_split = true;
+  // ⚠ 残留竞态（实测 16T/1KB/12.8M 写必现）：尾 epoch 的"父区间融合替换"
+  // 扫描后，子分区批次可能并发安装新 L1 文件 → VersionBuilder L1 重叠崩溃。
+  // 根治需让尾 epoch 同时按两子分区做跨批互斥登记（AddMaterializePart），
+  // 并在子分区在飞时让位；当前默认关，待实现后再开。
+  bool governance_active_tail_split = false;
 };
 
 class ZeroFlushContext {
@@ -639,6 +643,60 @@ class ZeroFlushContext {
   uint64_t governance_rewrite_gated() const {
     return gov_rewrite_gated_.load(std::memory_order_relaxed);
   }
+  // M5 诊断：拆分准入结果分解（attempts = 进入门控的候选次数；
+  // gate_base = base 字节 < split_min；median_nofiles = base 层无本分区文件
+  // 可切；success = 成功）。gov_last_split_base/l0_bytes 为最近一次候选的
+  // base 层/L0 字节（gauge，定位"规模下热拆分饥饿"）。
+  void NoteGovSplitAttempt(uint64_t base_b, uint64_t l0_b) {
+    gov_split_attempts_.fetch_add(1, std::memory_order_relaxed);
+    gov_last_split_base_.store(base_b, std::memory_order_relaxed);
+    gov_last_split_l0_.store(l0_b, std::memory_order_relaxed);
+  }
+  void NoteGovSplitGateBase() {
+    gov_split_gate_base_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void NoteGovSplitMedianNoFiles() {
+    gov_split_median_nofiles_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void NoteGovSplitSuccess() {
+    gov_split_success_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t gov_split_attempts() const {
+    return gov_split_attempts_.load(std::memory_order_relaxed);
+  }
+  uint64_t gov_split_gate_base() const {
+    return gov_split_gate_base_.load(std::memory_order_relaxed);
+  }
+  uint64_t gov_split_median_nofiles() const {
+    return gov_split_median_nofiles_.load(std::memory_order_relaxed);
+  }
+  uint64_t gov_split_success() const {
+    return gov_split_success_.load(std::memory_order_relaxed);
+  }
+  uint64_t gov_last_split_base() const {
+    return gov_last_split_base_.load(std::memory_order_relaxed);
+  }
+  uint64_t gov_last_split_l0() const {
+    return gov_last_split_l0_.load(std::memory_order_relaxed);
+  }
+  void NoteGovSplitFail(int kind) {  // 0=busy 1=timeout 2=other 3=median-notfound
+    if (kind == 0) gov_split_busy_.fetch_add(1, std::memory_order_relaxed);
+    else if (kind == 1) gov_split_timeout_.fetch_add(1, std::memory_order_relaxed);
+    else if (kind == 2) gov_split_other_.fetch_add(1, std::memory_order_relaxed);
+    else gov_split_median_notfound_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t gov_split_busy() const { return gov_split_busy_.load(std::memory_order_relaxed); }
+  uint64_t gov_split_timeout() const { return gov_split_timeout_.load(std::memory_order_relaxed); }
+  uint64_t gov_split_other() const { return gov_split_other_.load(std::memory_order_relaxed); }
+  uint64_t gov_split_median_notfound() const { return gov_split_median_notfound_.load(std::memory_order_relaxed); }
+  void NoteGovSplitSilent(int kind) {  // 0=pos_gone 1=total0
+    if (kind == 0) gov_split_pos_gone_.fetch_add(1, std::memory_order_relaxed);
+    else gov_split_total0_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t gov_split_pos_gone() const { return gov_split_pos_gone_.load(std::memory_order_relaxed); }
+  uint64_t gov_split_total0() const { return gov_split_total0_.load(std::memory_order_relaxed); }
+  void NoteGovSplitPreDrain() { gov_split_predrain_.fetch_add(1, std::memory_order_relaxed); }
+  uint64_t gov_split_predrain() const { return gov_split_predrain_.load(std::memory_order_relaxed); }
   // 治理动作在飞（merge/split 执行中，含排空等待）——收敛/稳定判据用。
   void EnterGovAction() {
     gov_action_in_flight_.fetch_add(1, std::memory_order_relaxed);
@@ -743,6 +801,19 @@ class ZeroFlushContext {
   std::atomic<uint64_t> rewrite_bytes_{0};
   std::atomic<uint32_t> gov_action_in_flight_{0};
   std::atomic<uint64_t> gov_rewrite_gated_{0};
+  std::atomic<uint64_t> gov_split_attempts_{0};
+  std::atomic<uint64_t> gov_split_gate_base_{0};
+  std::atomic<uint64_t> gov_split_median_nofiles_{0};
+  std::atomic<uint64_t> gov_split_success_{0};
+  std::atomic<uint64_t> gov_last_split_base_{0};
+  std::atomic<uint64_t> gov_last_split_l0_{0};
+  std::atomic<uint64_t> gov_split_busy_{0};
+  std::atomic<uint64_t> gov_split_timeout_{0};
+  std::atomic<uint64_t> gov_split_other_{0};
+  std::atomic<uint64_t> gov_split_median_notfound_{0};
+  std::atomic<uint64_t> gov_split_pos_gone_{0};
+  std::atomic<uint64_t> gov_split_total0_{0};
+  std::atomic<uint64_t> gov_split_predrain_{0};
 };
 
 // 打开 ZeroFlush DB：

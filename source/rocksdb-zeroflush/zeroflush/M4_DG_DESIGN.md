@@ -89,11 +89,14 @@ split 成功后子分区继承父分区速率（双窗拷贝、末次采样时�
 - EWMA 双窗快/慢默认 1/5min；测试用小窗（快测）。窗口口径：**拆分看快窗**
   （短时高偏态/不等封存节奏下慢窗不可靠，实测会饿死热拆分），**合并看快窗
   θ_merge + 慢窗不低于均值**（更长确认防瞬时误回收）。
-- **活跃尾 split 已实现（默认开）**：SplitPartition 不再要求完全排空。
+- **活跃尾 split 已实现（实验，默认关；⚠ 残留跨批竞态，见下）**：SplitPartition 不再要求完全排空。
   切路由（原子）后把父活跃尾冻结为"父区间覆盖的孤儿尾 epoch"，其物化走
   **融合替换**——父区间内全部文件（含子分区在切路由后并发产出的 L1）与尾
   数据按 seq 归并后，单批 VersionEdit 替换安装（若走 kDirect 宽文件直装会
   与子分区 L1 重叠，实测 force_consistency_checks 崩溃）；子分区索引 miss
   经 `split_orphans_` 别名回查父链，排空后由 type-3 rewrite 按新边界两分。
-  开关 `governance_active_tail_split`（默认 true；false 回退 M2 quiescent，
-  执行器在排空检查点冻结/等待）。
+  开关 `governance_active_tail_split`（**默认 false**；true 时启用实验路径）。
+  ⚠ 未解竞态（2026-09-10 实测）：尾 epoch 融合替换扫描后，子分区批次可能
+  并发安装新 L1 文件 → L1 重叠崩溃（16T/1KB/12.8M 写必现）。根治 = 尾
+  epoch 同时按两子分区做跨批互斥登记（AddMaterializePart）+ 子分区在飞时
+  让位；实现后再开默认。

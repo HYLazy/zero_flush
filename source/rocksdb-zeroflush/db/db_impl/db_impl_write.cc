@@ -4595,8 +4595,32 @@ Status DBImpl::ZfGovernanceTick() {
       }
       const uint64_t base_b =
           ZfGovernanceBaseBytesLocked(cfd, act.part_id, lo, hi, now2);
+      // M5 诊断：候选 base/L0 字节（L0 = 更浅层与本分区范围相交文件字节，
+      // 定位"base 层无文件可切"的规模性饥饿）。
+      const auto* vst = cfd->current()->storage_info();
+      const int base_lv = vst->base_level();
+      const Comparator* ucmp_g = cfd->user_comparator();
+      uint64_t l0_b = 0;
+      for (int lev = 0; lev < base_lv; ++lev) {
+        for (FileMetaData* f : vst->LevelFiles(lev)) {
+          if (ucmp_g->Compare(f->largest.user_key(), lo) >= 0 &&
+              ucmp_g->Compare(f->smallest.user_key(), hi) < 0) {
+            l0_b += f->fd.GetFileSize();
+          }
+        }
+      }
+      zf_ctx_->NoteGovSplitAttempt(base_b, l0_b);
+      if (getenv("ZF_DBG_GOV") != nullptr) {
+        fprintf(stderr,
+                "ZFDBG-gov split-gate pid=%u base=%llu min=%llu l0=%llu "
+                "rw_ewma=%.3g out_ewma=%.3g\n",
+                act.part_id, (unsigned long long)base_b,
+                (unsigned long long)zfo.governance_split_min_bytes,
+                (unsigned long long)l0_b, gov_io_rw_ewma_, gov_io_out_ewma_);
+      }
       if (base_b < zfo.governance_split_min_bytes) {
         // 大小未达门槛：退避重试（分区持续长大会再次入选），避免每 tick 空扫。
+        zf_ctx_->NoteGovSplitGateBase();
         policy->NoteRetry(act, now2);
         return Status::OK();
       }
@@ -4606,6 +4630,7 @@ Status DBImpl::ZfGovernanceTick() {
       // SplitPartitionLocked 冻结尾 epoch（父区间覆盖），排空后 rewrite。
       if (!zfo.governance_active_tail_split) {
         if (zf_ctx_->HasPendingPartData(act.part_id)) {
+          zf_ctx_->NoteGovSplitPreDrain();  // 旧路径：非排空 → 退避
           policy->NoteRetry(act, now2);
           return Status::OK();
         }
@@ -4655,10 +4680,13 @@ Status DBImpl::ZfGovernanceTick() {
       InstrumentedMutexLock l(&mutex_);
       auto cur = zf_ctx_->tables() ? zf_ctx_->tables()->current() : nullptr;
       if (cur == nullptr || cur->IsHashMode()) {
+        if (getenv("ZF_DBG_GOV")) fprintf(stderr, "ZFDBG-gov median: no table\n");
         return Status::OK();
       }
       const int pos = cur->IndexOfPart(act.part_id);
       if (pos < 0) {
+        if (getenv("ZF_DBG_GOV")) fprintf(stderr, "ZFDBG-gov median: pos gone\n");
+        zf_ctx_->NoteGovSplitSilent(0);  // 候选分区已被他方合并/移除
         return Status::OK();
       }
       rocksdb::Slice lo, hi;
@@ -4677,6 +4705,7 @@ Status DBImpl::ZfGovernanceTick() {
         files.push_back(f);
       }
       if (files.empty()) {
+        zf_ctx_->NoteGovSplitMedianNoFiles();
         if (getenv("ZF_DBG_GOV") != nullptr) {
           fprintf(stderr, "ZFDBG-gov split part=%u no base files\n",
                   act.part_id);
@@ -4712,6 +4741,8 @@ Status DBImpl::ZfGovernanceTick() {
         }
       }
       if (total == 0) {
+        if (getenv("ZF_DBG_GOV")) fprintf(stderr, "ZFDBG-gov median: total0\n");
+        zf_ctx_->NoteGovSplitSilent(1);
         return Status::OK();
       }
       // 取中位数；若落在既有边界上（键 == lo/hi），向后找第一个严格在
@@ -4740,8 +4771,14 @@ Status DBImpl::ZfGovernanceTick() {
         }
       }
       if (!found) {
+        if (getenv("ZF_DBG_GOV")) fprintf(stderr, "ZFDBG-gov median: not-found\n");
+        zf_ctx_->NoteGovSplitFail(3);  // median-notfound
         return Status::OK();
       }
+    }
+    if (getenv("ZF_DBG_GOV")) {
+      fprintf(stderr, "ZFDBG-gov median: calling split pid=%u b=%s\n",
+              act.part_id, median.c_str());
     }
     uint32_t cl = 0, cr = 0;
     const Status ss = ZfSplitPartition(act.part_id, rocksdb::Slice(median),
@@ -4752,15 +4789,18 @@ Status DBImpl::ZfGovernanceTick() {
               act.part_id, median.c_str(), ss.ToString().c_str(), cl, cr);
     }
     if (ss.IsBusy() || ss.IsTimedOut()) {
+      zf_ctx_->NoteGovSplitFail(ss.IsBusy() ? 0 : 1);
       policy->NoteRetry(act, env_->NowMicros());
       return Status::OK();
     }
     if (!ss.ok()) {
+      zf_ctx_->NoteGovSplitFail(2);
       return Status::OK();  // 分区消失/切点被拒等——策略自愈
     }
     // 成功：子分区继承父速率（防冷却结束后子分区被当"零速率"误合并）、
     // 父退避级 +1 下发子区间、清缓存/计数。
     zf_ctx_->NoteGovernanceSplit();
+    zf_ctx_->NoteGovSplitSuccess();
     zf_ctx_->rate_tracker()->InheritRate(cl, act.part_id, env_->NowMicros());
     zf_ctx_->rate_tracker()->InheritRate(cr, act.part_id, env_->NowMicros());
     zf_ctx_->rate_tracker()->Forget(act.part_id);

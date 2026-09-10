@@ -48,7 +48,7 @@ struct Args {
   uint64_t seed = 20260909;
   int sample_ms = 250;  // P 轨迹采样间隔
   int gap_ms = 4000;    // 排空检查点间隙（0 = 连续写，验证活跃尾 split）
-  bool active_tail = false;  // 实验：活跃尾 split
+  bool active_tail = false;  // 实验：活跃尾 split（默认关，见 ZeroFlushOptions）
 };
 
 std::string Key(uint64_t id) {
@@ -284,6 +284,32 @@ int main(int argc, char** argv) {
           " rewrite_bytes=%" PRIu64 "\n",
           wall_s, rounds_total, static_cast<double>(rounds_total) / wall_s,
           pc_end, ticks, splits, merges, rw);
+  // M5 诊断：拆分准入分解（attempts/gate_base/median_nofiles/success +
+  // 最近候选 base/L0 字节）。
+  fprintf(stderr,
+          "[diag] split_attempts=%" PRIu64 " gate_base=%" PRIu64
+          " median_nofiles=%" PRIu64 " success=%" PRIu64
+          " last_base=%" PRIu64 " last_l0=%" PRIu64
+          " rewrite_gated=%" PRIu64 "\n",
+          ZfMetric(db.get(), "gov_split_attempts"),
+          ZfMetric(db.get(), "gov_split_gate_base"),
+          ZfMetric(db.get(), "gov_split_median_nofiles"),
+          ZfMetric(db.get(), "gov_split_success"),
+          ZfMetric(db.get(), "gov_last_split_base"),
+          ZfMetric(db.get(), "gov_last_split_l0"),
+          ZfMetric(db.get(), "gov_rewrite_gated"));
+  fprintf(stderr,
+          "[diag2] busy=%" PRIu64 " timeout=%" PRIu64 " other=%" PRIu64
+          " median_notfound=%" PRIu64 "\n",
+          ZfMetric(db.get(), "gov_split_busy"),
+          ZfMetric(db.get(), "gov_split_timeout"),
+          ZfMetric(db.get(), "gov_split_other"),
+          ZfMetric(db.get(), "gov_split_median_notfound"));
+  fprintf(stderr, "[diag3] pos_gone=%" PRIu64 " total0=%" PRIu64 "\n",
+          ZfMetric(db.get(), "gov_split_pos_gone"),
+          ZfMetric(db.get(), "gov_split_total0"));
+  fprintf(stderr, "[diag4] predrain=%" PRIu64 "\n",
+          ZfMetric(db.get(), "gov_split_predrain"));
 
   // 读验证：热/冷两区各采样（读自身写入过的值域）。
   uint64_t found = 0, read_total = 0;
