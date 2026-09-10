@@ -21,7 +21,9 @@
    预留）。
 5. **崩溃一致性**：复用既有持久化（ZFPROPS 全表版本化路由 + DRAINING
    sidecar）：路由切换原子、split 单点 VersionEdit，决策意图可重算（不需
-   持久化）；崩溃矩阵/全量文字对齐按路线图归 M5 收口。
+   持久化）。M5 已补活跃尾 split 崩溃矩阵（CrashMidActiveSplitReopen，
+  两档 kill 时机，种子零丢失/路由可恢复/reopen 一致）；§5 文字对齐因文稿
+   不在仓库而阻塞，rewrite 严格带宽限流待做。
 
 ## 1. 关键语义决策（v1 设计取舍）
 

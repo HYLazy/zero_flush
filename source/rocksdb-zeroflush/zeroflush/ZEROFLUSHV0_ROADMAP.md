@@ -210,9 +210,25 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   （flushes=4+parallelism=8）复跑。
 
 ### M5 收口
-- 意图持久化与 §5 文字对齐（§5.1 增意图不变量、§5.2(3)(4)(5) 替换、五模式表 +
-  活性梗概入 §5.2 末）；P1B_DESIGN.md 合入本路线图或独立 S4 设计档。
-- 全量验收：50GB/100GB 吞吐 + 命中率门 + crash 套件 + zf_test 全量。
+进度（2026-09-10）：
+- ✅ 崩溃矩阵（活跃尾 split 中断）：新增 CrashMidActiveSplitReopen——
+  子进程 sync 写种子 → 触发活跃尾 SplitPartition → 父进程在 freeze/物化、
+  rewrite/尾部两档时机 SIGKILL → 重开校验：路由表可恢复（P∈{4,5}）、
+  种子零丢失、后续写/物化/reopen 一致（split_orphans_ 内存别名丢失无碍：
+  重开由 recovery 重放 zfwal 重建索引）。3/3 稳定通过。既有
+  CrashMidDrainReopen（merge E_D 中断）覆盖 route/retire 中断点；decide
+  意图可重算（不需持久化）——意图持久化口径见 M4_DG_DESIGN §4。
+- ✅ 既有 flaky 用例 teardown 挂起修复：MergeActiveTailMergeEnabled 失败
+  路径先 db.reset()（关 DB）再删目录，避免 close-flush 在已删目录上挂起；
+  全量套件可跑到底（该用例自身仍为本机环境性失败，与实现无关）。
+- ⏳ §5 文字对齐：**阻塞**——论文/设计稿（§5.1 意图不变量、§5.2(3)(4)(5)、
+  五模式表 + 活性梗概）不在本仓库/文件系统（全仓仅路线图引用"五模式"）。
+  需提供该文稿后方可执行。
+- ⏳ rewrite 带宽 ≤25% 严格限流：参数已预留（governance_rewrite_share），
+  当前由 C=1 + 冷却天然受限；严格 rate-limiter（任务池优先 + 带宽账本）待做。
+- ⏳ 全量验收：50GB/100GB 吞吐 + 命中率门待跑；已有 8 线程连续写 2.88M 写
+  （≈1.1GB live）ON/OFF 对照 + zf_test 全量（见 output/zeroflush_m4_perf）。
+- P1B_DESIGN.md 保留为独立 S4（合并协议）设计档（内容自洽，不再合入）。
 
 ## 3. 性能纪律（调度器实现约束）
 

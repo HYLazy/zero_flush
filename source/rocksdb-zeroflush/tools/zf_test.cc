@@ -4173,6 +4173,7 @@ void TestMergeActiveTailMergeEnabled() {
   }
   auto fail = [&](const std::string& why) {
     ReportResult(tag, false, why);
+    db.reset();  // 先关 DB 再删目录（防 close-flush 在已删目录上挂起）
     CleanDB(dbname);
   };
   char k[16], v[224];
@@ -5859,6 +5860,157 @@ void TestSplitWithConcurrentWriters() {
                               " writes=" + std::to_string(n0 + n1) + ")");
 }
 
+
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 M5 崩溃矩阵：活跃尾 split 中断（decide/route/freeze/rewrite 各
+// 阶段）。子进程 sync 写种子后触发 SplitPartition（活跃尾路径），父进程在
+// 不同时机 SIGKILL；重开后要求：路由表可恢复（P∈{4,5}）、种子数据零丢失、
+// 后续写/物化/reopen 仍一致（split_orphans_ 内存别名丢失不影响——重开由
+// recovery 重放 zfwal 重建索引）。
+// ---------------------------------------------------------------------------
+void TestCrashMidActiveSplitReopen() {
+  const char* tag = "CrashMidActiveSplitReopen(M5)";
+  const int kSeeds = 120;
+  auto val = [](const char* pfx, int id) {
+    std::string v(200, 'x');
+    snprintf(&v[0], 32, "v%s%04d", pfx, id);
+    return v;
+  };
+  // 两档 kill 时机：偏早（可能在 freeze/物化中）与偏晚（可能在 rewrite/尾部）。
+  const int kill_ms[2] = {80, 260};
+  for (int round = 0; round < 2; ++round) {
+    std::string dbname = std::string(kDbBase) + "crash_mid_activesplit" +
+                         std::to_string(round);
+    CleanDB(dbname);
+    zeroflush::ZeroFlushOptions zfo;
+    zfo.partitions = 4;
+    zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+    zfo.static_boundaries = {"c", "g", "m"};
+    zfo.partition_target_bytes = 1024 * 1024;  // d 数据保持活跃尾
+    zfo.epoch_target_bytes = 1024 * 1024;
+    zfo.materialize_parallelism = 4;
+
+    pid_t pid = ::fork();
+    if (pid < 0) {
+      ReportResult(tag, false, "fork failed");
+      return;
+    }
+    if (pid == 0) {
+      std::unique_ptr<rocksdb::DB> db;
+      if (!zeroflush::Open(MakeOptions(), zfo, dbname, &db).ok()) _exit(1);
+      rocksdb::WriteOptions wo;
+      wo.sync = true;  // 种子必须持久（崩溃后零丢失校验）
+      char k[16];
+      for (int i = 0; i < kSeeds; ++i) {
+        snprintf(k, sizeof(k), "d%04d", i);
+        if (!db->Put(wo, k, val("d", i)).ok()) _exit(2);
+      }
+      // 标记"种子已全部写完"（父进程据此再等 kill 偏移——否则会误杀在写种子
+      // 中途，造成"丢失"假象）。
+      {
+        FILE* mf = ::fopen((dbname + ".seeds_done").c_str(), "w");
+        if (mf != nullptr) {
+          ::fputc('1', mf);
+          ::fclose(mf);
+        }
+      }
+      // 触发活跃尾 split（d 数据在活跃 WAL 中；目标分区 1=[c,g)）。
+      for (;;) {
+        uint32_t cl = 0, cr = 0;
+        const rocksdb::Status ss = zeroflush::SplitPartition(
+            db.get(), /*part=*/1, rocksdb::Slice("d5"), &cl, &cr);
+        if (ss.ok()) break;
+        if (!ss.IsBusy() && !ss.IsTimedOut()) _exit(3);
+        usleep(500);
+      }
+      for (;;) pause();
+    }
+    {
+      const std::string marker = dbname + ".seeds_done";
+      const auto dl = std::chrono::steady_clock::now() +
+                      std::chrono::seconds(30);
+      while (!DirExists(marker)) {
+        if (std::chrono::steady_clock::now() > dl) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(kill_ms[round]));
+    ::kill(pid, SIGKILL);
+    int st = 0;
+    ::waitpid(pid, &st, 0);
+
+    std::unique_ptr<rocksdb::DB> db;
+    auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+    if (!s.ok()) {
+      ReportResult(tag, false, "reopen#1: " + s.ToString());
+      CleanDB(dbname);
+      return;
+    }
+    const uint64_t pc = ZfMetric(db.get(), "partition_count");
+    if (pc != 4 && pc != 5) {
+      ReportResult(tag, false, "P not recoverable after crash (P=" +
+                                   std::to_string(pc) + ")");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    char k[16];
+    for (int i = 0; i < kSeeds; ++i) {
+      snprintf(k, sizeof(k), "d%04d", i);
+      std::string out;
+      if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() ||
+          out != val("d", i)) {
+        ReportResult(tag, false, std::string("seed lost/corrupt: ") + k);
+        db.reset();
+        CleanDB(dbname);
+        return;
+      }
+    }
+    if (CountViaIterator(db.get()) != kSeeds) {
+      ReportResult(tag, false, "iter count != seeds after crash reopen");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    // 后续写 → 物化 → reopen 仍一致。
+    rocksdb::WriteOptions wo;
+    for (int i = 0; i < 400; ++i) {
+      snprintf(k, sizeof(k), "b%04d", i);
+      if (!db->Put(wo, k, val("b", i)).ok()) {
+        ReportResult(tag, false, "put after crash reopen");
+        db.reset();
+        CleanDB(dbname);
+        return;
+      }
+    }
+    if (!WaitAllMaterialized(db.get(), 60000)) {
+      ReportResult(tag, false, "WaitAllMaterialized after crash reopen");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    const int64_t want = kSeeds + 400;
+    if (CountViaIterator(db.get()) != want) {
+      ReportResult(tag, false, "iter count after drive");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    db.reset();
+    if (!zeroflush::Open(MakeOptions(), zfo, dbname, &db).ok() ||
+        CountViaIterator(db.get()) != want) {
+      ReportResult(tag, false, "reopen#2 inconsistent");
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    db.reset();
+    CleanDB(dbname);
+  }
+  ReportResult(tag, true,
+               "kill at 80/260ms: seeds intact, P∈{4,5}, reopen consistent");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -5957,6 +6109,7 @@ int main(int argc, char** argv) {
   run("GovernanceBackgroundAuto",      TestGovernanceBackgroundAuto);
   run("MergeConcurrentWriters",        TestMergeWithConcurrentWriters);
   run("SplitConcurrentWriters",        TestSplitWithConcurrentWriters);
+  run("CrashMidActiveSplitReopen",  TestCrashMidActiveSplitReopen);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {
