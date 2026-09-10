@@ -230,8 +230,8 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   （rw ≤ share/(1-share)×out）门控；超预算则 NoteRetry（退避后再试），
   metric `gov_rewrite_gated` 计数。纯判定函数由 GovernancePolicyUnit §E 覆盖；
   合并动作不产生 rewrite，不受限。
-- ✅ 50GB 级全量验收（16T/1KB/连续，51.2M 写≈50GiB）：ON 33,993 vs OFF
-  29,801 ops/s（+14.1%，空闲期回收空分区 P=4 vs 8）；读命中 83.89% 一致、
+- ✅ 50GB 级全量验收（16T/1KB/连续，51.2M 写≈50GiB，active-tail 修复后复跑）：
+  ON 40,196 vs OFF 29,801 ops/s（+34.9%，回收空分区 + 活跃尾热拆分）；读命中 83.89% 一致、
   iter 19.04M 一致、reopen 一致。⚠ 长跑热拆分未触发（split=0，rewrite=0 →
   非限流器；短程 4M 写同参 splits=1 成功）——推断规模下 base 门槛饥饿，待确认。
   详见 output/zeroflush_m4_perf/REPORT.md。
