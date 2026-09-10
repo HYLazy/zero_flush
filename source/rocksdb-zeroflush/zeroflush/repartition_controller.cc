@@ -492,4 +492,18 @@ void GovernancePolicy::NoteRetry(const GovernanceAction& a, uint64_t now_us) {
   pending_.push_back(std::move(p));
 }
 
+bool RewriteBudgetOk(double share, double rewrite_rate, double output_rate) {
+  if (share <= 0.0) {
+    return true;
+  }
+  if (share >= 1.0) {
+    return true;
+  }
+  if (output_rate <= 0.0) {
+    return rewrite_rate <= 0.0;
+  }
+  const double budget = (share / (1.0 - share)) * output_rate;
+  return rewrite_rate <= budget;
+}
+
 }  // namespace zeroflush

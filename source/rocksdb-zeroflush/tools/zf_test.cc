@@ -5289,7 +5289,19 @@ void TestGovernancePolicyUnit() {
     }
   }
 
-  ReportResult(tag, true, "A-D ok");
+  // ---- E) rewrite 带宽预算（≤ share/(1-share)×输出）----
+  {
+    using zeroflush::RewriteBudgetOk;
+    if (!RewriteBudgetOk(0.25, 10, 100) ||   // 10 ≤ 33.3 → 放行
+        RewriteBudgetOk(0.25, 40, 100) ||    // 40 > 33.3 → 拒
+        !RewriteBudgetOk(0.0, 1e9, 1) ||     // share=0 → 不限
+        !RewriteBudgetOk(0.25, 0, 0)) {      // 无 rewrite → 放行
+      ReportResult(tag, false, "E: rewrite budget gate wrong");
+      return;
+    }
+  }
+
+  ReportResult(tag, true, "A-E ok");
 }
 
 // ---------------------------------------------------------------------------

@@ -81,9 +81,9 @@ split 成功后子分区继承父分区速率（双窗拷贝、末次采样时�
 
 - 决策意图不跨崩溃恢复（可重算——路由/排空一致性已由 ZFPROPS+sidecar 保证）；
   路线图 M4.5 的"完整意图持久化 + 全崩溃矩阵 + §5 文字对齐"由 M5 收口。
-- rewrite 带宽份额 ≤25%：参数已预留（governance_rewrite_share）；v1 因
-  C=1 且 split 低频、天然受限，严格 rate-limiter（任务池优先/带宽账本）
-  并入 M5。
+- rewrite 带宽份额 ≤25%：M5 已实现控制器级限流（物化输出/rewrite 双 EWMA
+  速率账本 + 拆分前 `RewriteBudgetOk` 门控 + `gov_rewrite_gated` 指标）。
+  更细的任务池优先级调度（rewrite 优先于常规 install）留待后续。
 - 控制器合并"空闲期"判定为 v1 语义（原路线图仅写 θ_merge；无冲突——本档
   1.1 记录取舍）。
 - EWMA 双窗快/慢默认 1/5min；测试用小窗（快测）。窗口口径：**拆分看快窗**

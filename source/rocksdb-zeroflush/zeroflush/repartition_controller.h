@@ -201,4 +201,11 @@ class GovernancePolicy {
   uint64_t last_action_us_ = 0;
 };
 
+// ZeroFlushV0 M5：rewrite 带宽预算判定（严格 ≤ share）。
+// rewrite_rate/output_rate 为滑窗速率（bytes/s）。share<=0 视为不限；
+// output_rate==0 时仅在 rewrite_rate==0 时放行（无产出即无 rewrite 预算）。
+// 语义：rewrite ≤ share/(1-share) × 常规物化输出（即 rewrite 占总后台写 IO
+// 份额 ≤ share）。
+bool RewriteBudgetOk(double share, double rewrite_rate, double output_rate);
+
 }  // namespace zeroflush

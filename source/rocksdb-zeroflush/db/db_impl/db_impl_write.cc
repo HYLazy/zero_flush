@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <algorithm>
 #include <cinttypes>
+#include <cmath>
 #include <optional>
 #include <thread>
 #include <unordered_map>
@@ -4378,6 +4379,24 @@ Status DBImpl::ZfGovernanceTick() {
   }
   zf_ctx_->NoteGovernanceTick();
   const uint64_t now = env_->NowMicros();
+  // M5 rewrite 带宽账本：按累计计数差分更新 EWMA 速率（tau=10s）。
+  {
+    const uint64_t out_tot = zf_ctx_->prof_output_bytes_total();
+    const uint64_t rw_tot = zf_ctx_->rewrite_bytes();
+    if (gov_io_last_us_ != 0 && now > gov_io_last_us_) {
+      const double dt = static_cast<double>(now - gov_io_last_us_) / 1e6;
+      const double alpha = 1.0 - std::exp(-dt / 10.0);
+      const double out_d = static_cast<double>(out_tot - gov_io_last_out_);
+      const double rw_d = static_cast<double>(rw_tot - gov_io_last_rw_);
+      gov_io_out_ewma_ =
+          alpha * (out_d / dt) + (1.0 - alpha) * gov_io_out_ewma_;
+      gov_io_rw_ewma_ =
+          alpha * (rw_d / dt) + (1.0 - alpha) * gov_io_rw_ewma_;
+    }
+    gov_io_last_us_ = now;
+    gov_io_last_out_ = out_tot;
+    gov_io_last_rw_ = rw_tot;
+  }
   if (getenv("ZF_DBG_GOV") != nullptr) {
     fprintf(stderr, "ZFDBG-gov tick enter now=%llu\n",
             (unsigned long long)now);
@@ -4564,6 +4583,15 @@ Status DBImpl::ZfGovernanceTick() {
         if (d.part == act.part_id || d.absorb == act.part_id) {
           return Status::OK();
         }
+      }
+      // M5：rewrite 带宽 ≤ governance_rewrite_share——当前 rewrite 速率与
+      // 常规物化输出速率的滑窗比超出预算时，本轮不发起（NoteRetry，退避后
+      // 再试）。拆分是唯一产生 type-3 rewrite 的治理动作。
+      if (!zeroflush::RewriteBudgetOk(zfo.governance_rewrite_share,
+                                      gov_io_rw_ewma_, gov_io_out_ewma_)) {
+        zf_ctx_->NoteGovernanceRewriteGated();
+        policy->NoteRetry(act, now2);
+        return Status::OK();
       }
       const uint64_t base_b =
           ZfGovernanceBaseBytesLocked(cfd, act.part_id, lo, hi, now2);

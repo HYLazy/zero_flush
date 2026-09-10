@@ -629,6 +629,16 @@ class ZeroFlushContext {
   uint64_t rewrite_bytes() const {
     return rewrite_bytes_.load(std::memory_order_relaxed);
   }
+  // M5：常规物化输出累计字节（rewrite 带宽账本的分母；prof_output_bytes_）。
+  uint64_t prof_output_bytes_total() const {
+    return prof_output_bytes_.load(std::memory_order_relaxed);
+  }
+  void NoteGovernanceRewriteGated() {
+    gov_rewrite_gated_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t governance_rewrite_gated() const {
+    return gov_rewrite_gated_.load(std::memory_order_relaxed);
+  }
   // 治理动作在飞（merge/split 执行中，含排空等待）——收敛/稳定判据用。
   void EnterGovAction() {
     gov_action_in_flight_.fetch_add(1, std::memory_order_relaxed);
@@ -732,6 +742,7 @@ class ZeroFlushContext {
   std::atomic<uint64_t> gov_merges_{0};
   std::atomic<uint64_t> rewrite_bytes_{0};
   std::atomic<uint32_t> gov_action_in_flight_{0};
+  std::atomic<uint64_t> gov_rewrite_gated_{0};
 };
 
 // 打开 ZeroFlush DB：

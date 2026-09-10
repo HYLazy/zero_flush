@@ -546,6 +546,8 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(governance_merges());
   } else if (prop == "rocksdb.zeroflush.gov_in_flight") {
     *value = std::to_string(GovActionInFlight());
+  } else if (prop == "rocksdb.zeroflush.gov_rewrite_gated") {
+    *value = std::to_string(governance_rewrite_gated());
   } else if (prop == "rocksdb.zeroflush.inflight_groups") {
     // 诊断：在途写组计数（治理路由切换屏障等待归零；泄漏会导致所有
     // merge/split 动作 TimedOut）。

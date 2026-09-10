@@ -224,8 +224,12 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
 - ⏳ §5 文字对齐：**阻塞**——论文/设计稿（§5.1 意图不变量、§5.2(3)(4)(5)、
   五模式表 + 活性梗概）不在本仓库/文件系统（全仓仅路线图引用"五模式"）。
   需提供该文稿后方可执行。
-- ⏳ rewrite 带宽 ≤25% 严格限流：参数已预留（governance_rewrite_share），
-  当前由 C=1 + 冷却天然受限；严格 rate-limiter（任务池优先 + 带宽账本）待做。
+- ✅ rewrite 带宽 ≤25% 限流已实现：DBImpl 维护"常规物化输出 / type-3
+  rewrite"两条 EWMA 速率（τ=10s，按 prof_output_bytes / rewrite_bytes 累计
+  计数差分），拆分动作前以 `RewriteBudgetOk(share, rw_rate, out_rate)`
+  （rw ≤ share/(1-share)×out）门控；超预算则 NoteRetry（退避后再试），
+  metric `gov_rewrite_gated` 计数。纯判定函数由 GovernancePolicyUnit §E 覆盖；
+  合并动作不产生 rewrite，不受限。
 - ⏳ 全量验收：50GB/100GB 吞吐 + 命中率门待跑；已有 8 线程连续写 2.88M 写
   （≈1.1GB live）ON/OFF 对照 + zf_test 全量（见 output/zeroflush_m4_perf）。
   zf_test 全量现状（2026-09-10）：50 PASS / 3 FAIL，且套件可跑到底（teardown

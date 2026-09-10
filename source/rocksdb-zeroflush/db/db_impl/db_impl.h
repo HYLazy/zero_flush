@@ -3520,6 +3520,12 @@ class DBImpl : public DB {
                                        uint32_t part_id, const Slice& lo,
                                        const Slice& hi, uint64_t now_us);
   void ZfGovernanceInvalidateBaseBytes(uint32_t part_id);
+  // M5 rewrite 带宽账本（EWMA 速率，bytes/s；tick 时按累计计数差分更新）。
+  double gov_io_out_ewma_ = 0.0;   // 常规物化输出速率
+  double gov_io_rw_ewma_ = 0.0;    // type-3 rewrite 输出速率
+  uint64_t gov_io_last_us_ = 0;
+  uint64_t gov_io_last_out_ = 0;
+  uint64_t gov_io_last_rw_ = 0;
   // base 字节缓存（治理大小门槛复核；TTL 内避免每 tick 全表扫描）。
   struct ZfBaseBytesCache {
     uint64_t checked_us = 0;
