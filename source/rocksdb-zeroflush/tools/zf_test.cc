@@ -5722,6 +5722,144 @@ void TestMergeWithConcurrentWriters() {
                    std::to_string(n0 + n1) + ")");
 }
 
+// ---------------------------------------------------------------------------
+// ZeroFlushV0 M4 回归：活跃尾 split（连续写负载，无排空检查点）。
+//  并发写者持续写父分区，主线程直接 SplitPartition：活跃尾在切路由后被
+//  冻结为父区间覆盖的孤儿尾 epoch，子分区索引 miss 的 key 由别名回查父链
+//  （E 排空前），排空后 type-3 rewrite 两分。要求：split 成功、split 前后
+//  写入的全部 key 可读且值正确、迭代计数一致、reopen 一致。
+// ---------------------------------------------------------------------------
+void TestSplitWithConcurrentWriters() {
+  const char* tag = "SplitConcurrentWriters(M4)";
+  std::string dbname = std::string(kDbBase) + "split_concurrent_writers";
+  CleanDB(dbname);
+  zeroflush::ZeroFlushOptions zfo;
+  zfo.partitions = 4;
+  zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+  zfo.static_boundaries = {"c", "g", "m"};
+  zfo.partition_target_bytes = 16 * 1024;
+  zfo.epoch_target_bytes = 64 * 1024;
+  zfo.materialize_parallelism = 4;
+  // 实验开关：活跃尾 split（默认关）。
+  zfo.governance_active_tail_split = true;
+  std::unique_ptr<rocksdb::DB> db;
+  auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok()) {
+    ReportResult(tag, false, "open: " + s.ToString());
+    return;
+  }
+  std::atomic<bool> stop{false};
+  std::atomic<uint64_t> wcnt[2];
+  wcnt[0].store(0);
+  wcnt[1].store(0);
+  auto writer = [&](char pfx, int slot) {
+    uint64_t i = 0;
+    char k[16];
+    while (!stop.load(std::memory_order_relaxed)) {
+      snprintf(k, sizeof(k), "%c%06" PRIu64, pfx, i);
+      const std::string v = std::string("v") + k;
+      if (!db->Put(rocksdb::WriteOptions(), k, v).ok()) break;
+      ++i;
+      wcnt[slot].fetch_add(1, std::memory_order_relaxed);
+    }
+  };
+  std::thread w1(writer, 'd', 0);
+  std::thread w2(writer, 'e', 1);
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  // 连续写负载下直接 split 父分区 1=[c,g)，切点 "d5"（内部键，两侧均有数据）。
+  uint32_t cl = 0, cr = 0;
+  bool ok = false;
+  std::string last;
+  for (int attempt = 0; attempt < 80 && !ok; ++attempt) {
+    const rocksdb::Status ss = zeroflush::SplitPartition(
+        db.get(), /*part=*/1, rocksdb::Slice("d5"), &cl, &cr);
+    last = ss.ToString();
+    if (ss.ok()) {
+      ok = true;
+      break;
+    }
+    if (!ss.IsBusy() && !ss.IsTimedOut()) {
+      stop.store(true);
+      w1.join();
+      w2.join();
+      ReportResult(tag, false, "split status: " + ss.ToString());
+      db.reset();
+      CleanDB(dbname);
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  if (!ok) {
+    stop.store(true);
+    w1.join();
+    w2.join();
+    ReportResult(tag, false, "active-tail split never succeeded; last=" + last);
+    db.reset();
+    CleanDB(dbname);
+    return;
+  }
+  if (ZfMetric(db.get(), "partition_count") != 5) {
+    stop.store(true);
+    w1.join();
+    w2.join();
+    ReportResult(tag, false, "partition_count != 5 after split");
+    db.reset();
+    CleanDB(dbname);
+    return;
+  }
+  // split 后继续写一段（新写按子分区路由；旧数据在孤儿尾 epoch → 别名读）。
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  stop.store(true);
+  w1.join();
+  w2.join();
+  if (!WaitAllMaterialized(db.get(), 60000)) {
+    ReportResult(tag, false, "WaitAllMaterialized");
+    db.reset();
+    CleanDB(dbname);
+    return;
+  }
+  const uint64_t n0 = wcnt[0].load();
+  const uint64_t n1 = wcnt[1].load();
+  for (int slot = 0; slot < 2; ++slot) {
+    const char pfx = slot == 0 ? 'd' : 'e';
+    const uint64_t n = slot == 0 ? n0 : n1;
+    for (uint64_t i = 0; i < n; ++i) {
+      char k[16];
+      snprintf(k, sizeof(k), "%c%06" PRIu64, pfx, i);
+      std::string out;
+      const std::string want = std::string("v") + k;
+      if (!db->Get(rocksdb::ReadOptions(), k, &out).ok() || out != want) {
+        ReportResult(tag, false, std::string("read mismatch after active split: ") + k);
+        db.reset();
+        CleanDB(dbname);
+        return;
+      }
+    }
+  }
+  const int64_t cnt = CountViaIterator(db.get());
+  if (cnt != static_cast<int64_t>(n0 + n1)) {
+    ReportResult(tag, false, "iter count mismatch (got " + std::to_string(cnt) +
+                                 " want " + std::to_string(n0 + n1) + ")");
+    db.reset();
+    CleanDB(dbname);
+    return;
+  }
+  const uint64_t pc_before = ZfMetric(db.get(), "partition_count");
+  db.reset();
+  s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
+  if (!s.ok() || ZfMetric(db.get(), "partition_count") != pc_before) {
+    ReportResult(tag, false, "reopen inconsistent");
+    db.reset();
+    CleanDB(dbname);
+    return;
+  }
+  db.reset();
+  CleanDB(dbname);
+  ReportResult(tag, true, "active-tail split under writes ok (cl=" +
+                              std::to_string(cl) + " cr=" + std::to_string(cr) +
+                              " writes=" + std::to_string(n0 + n1) + ")");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -5819,6 +5957,7 @@ int main(int argc, char** argv) {
   run("GovernanceDynamicEndToEnd",     TestGovernanceDynamicEndToEnd);
   run("GovernanceBackgroundAuto",      TestGovernanceBackgroundAuto);
   run("MergeConcurrentWriters",        TestMergeWithConcurrentWriters);
+  run("SplitConcurrentWriters",        TestSplitWithConcurrentWriters);
 
   fprintf(stderr, "============================================================\n");
   if (g_failures == 0) {

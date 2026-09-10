@@ -62,6 +62,12 @@ struct SealedEpoch {
   // M3.1：该 epoch 写入时使用的 PartitionTable version（用于物化时取回
   // 同一张表做范围断言，见 M3_DESIGN.md §4.3）。
   uint32_t table_version = 0;
+  // ZeroFlushV0 M4（活跃尾 split）：显式范围覆盖。切路由后冻结的父分区尾
+  // epoch（split orphan）在新表中无此 part id，物化需按父原区间 [lo,hi) 做
+  // 范围/重叠判定（而非孤儿兜底的全范围）——否则会与全区 base 文件互叠。
+  bool has_range_override = false;
+  std::string range_lo;  // 空 = -∞
+  std::string range_hi;  // 空 = +∞
 };
 
 // LRU 节点。

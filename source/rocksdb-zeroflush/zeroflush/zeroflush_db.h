@@ -61,6 +61,17 @@ struct DrainingPart {
   std::string hi;
 };
 
+// ZeroFlushV0 M4（活跃尾 split）：父分区尾 epoch 的读别名登记。split 切路由
+// 后父分区退役，但其冻结尾 epoch E（父原区间 [lo,hi) 的数据）在新表中不
+// 存在；E 排空前，子分区索引链 miss 的 key 需回查父分区索引链（E 与子分区
+// 新写可能同 key：E 版本更旧——子链优先即正确）。E 物化完成（ReleaseEpoch）
+// 后移除登记。
+struct SplitOrphanPart {
+  uint32_t part = 0;  // 父分区 id（已退役，仅冻结尾 epoch 存活）
+  uint32_t child_l = 0;
+  uint32_t child_r = 0;
+};
+
 // ZeroFlush 扩展选项（对应设计文档 §10.1 zf 命名空间；M1 仅路由相关）。
 struct ZeroFlushOptions {
   uint32_t partitions = 64;  // P：分区数（M1 hash 路由；M2 起由 PartitionTable 接替）
@@ -179,6 +190,13 @@ struct ZeroFlushOptions {
   // 抑制合并（活跃期 P 预算让给热拆分）；负载回落/空闲后放行回收。默认
   // 120s（= 2× 快窗）。0 = 任何正速率都算活跃。
   uint64_t governance_merge_idle_micros = 120ull * 1000 * 1000;
+  // ZeroFlushV0 M4（实验，默认关）：活跃尾 split。开启后 SplitPartition 不再
+  // 要求分区完全排空——切路由后把父活跃尾冻结为"父区间覆盖的孤儿尾
+  // epoch"，子分区索引 miss 时别名回查父链，排空后 type-3 rewrite 两分。
+  // ⚠ 限制：父区间宽文件在物化安装时可能与子分区并发产出的 L1 文件重叠
+  // （实测大规模连续写触发 force_consistency_checks: L1 overlapping ranges）；
+  // 完整方案需按子分区切分 WAL gens 并在安装期合并子分区 L1（未做）。
+  bool governance_active_tail_split = false;
 };
 
 class ZeroFlushContext {
@@ -487,10 +505,15 @@ class ZeroFlushContext {
   // 物理层（跨界 base 文件按 b 二分 = type-3 rewrite）由调用方
   // （DBImpl::ZfSplitPartition）在返回后执行——本方法不触碰 SST；若 rewrite
   // 失败路由已切换但数据仍完整（文件未对齐仅影响后续压缩效率，读不受影响）。
+  // ZeroFlushV0 M4（活跃尾 split）：活跃尾（ActiveSize>0）不再拒绝——切路由
+  // 后把父活跃尾冻结为带父区间覆盖的孤儿尾 epoch（尾数据排空前由
+  // split_orphans_ 别名读 + 排空后 type-3 rewrite 两分），*tail_epoch_out
+  // 返回该 epoch（0 = 无活跃尾/纯路由 split）。
   ROCKSDB_NAMESPACE::Status SplitPartitionLocked(
       ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
       uint32_t part, const ROCKSDB_NAMESPACE::Slice& split_key,
-      uint32_t* child_l, uint32_t* child_r);
+      uint32_t* child_l, uint32_t* child_r,
+      uint64_t* tail_epoch_out = nullptr);
 
   // M3 起步生长：把分区 part 的活跃尾冻结为单分区 epoch（镜像 merge E_D 的
   // 冻结段，不做路由切换/DRAINING——用于生长拆分前的排空：冻结后调用方
@@ -511,6 +534,10 @@ class ZeroFlushContext {
   // 排空完成检查：DRAINING 分区无未回收 WAL 段、无 frozen 索引、无活跃
   // 字节 → RETIRED（移除登记）。在 ReleaseEpoch/ReleaseGens 等回收点调用。
   void MaybeRetireDraining();
+  // ZeroFlushV0 M4（活跃尾 split）：孤儿尾 epoch 排空完成 → 移除别名登记
+  // （数据已进 SST，读走原生 SST 查找）。同回收点调用。
+  void MaybeRetireSplitOrphans();
+  size_t SplitOrphans() const;
   // ZeroFlushV0 P1c（M1c①）：DRAINING 记录持久化（独立 sidecar 文件
   // wal_dir/ZF_DRAINING，避开 ZFPROPS 格式改动）。登记/retire 时调用写全量
   // 快照（原子 tmp+rename）；ZeroFlushContext::Open 时 LoadDrainingFile 重建
@@ -601,6 +628,16 @@ class ZeroFlushContext {
   uint64_t rewrite_bytes() const {
     return rewrite_bytes_.load(std::memory_order_relaxed);
   }
+  // 治理动作在飞（merge/split 执行中，含排空等待）——收敛/稳定判据用。
+  void EnterGovAction() {
+    gov_action_in_flight_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void ExitGovAction() {
+    gov_action_in_flight_.fetch_sub(1, std::memory_order_relaxed);
+  }
+  uint32_t GovActionInFlight() const {
+    return gov_action_in_flight_.load(std::memory_order_relaxed);
+  }
 
   ZeroFlushOptions zfo_;
   std::string wal_dir_;       // wal_dir/zfwal
@@ -678,6 +715,10 @@ class ZeroFlushContext {
   // 登记数快照（别名读热路径的免锁门：为 0 时 Get 不取 draining_mu_）。
   std::atomic<uint32_t> draining_active_{0};
   std::atomic<uint64_t> merge_retired_{0};
+  // ZeroFlushV0 M4（活跃尾 split）：孤儿尾 epoch 别名登记（读回查 + retire）。
+  mutable std::mutex split_orphan_mu_;
+  std::vector<SplitOrphanPart> split_orphans_;
+  std::atomic<uint32_t> split_orphan_active_{0};
   // ---- ZeroFlushV0 P2（M2）：分区 id 分配器状态 ----
   // 下一个可分配的分区全局 id（见 AllocatePartId）。仅分配窗口（持 DB
   // mutex）读写；Open 时 RebuildNextPartId 初始化。
@@ -689,6 +730,7 @@ class ZeroFlushContext {
   std::atomic<uint64_t> gov_splits_{0};
   std::atomic<uint64_t> gov_merges_{0};
   std::atomic<uint64_t> rewrite_bytes_{0};
+  std::atomic<uint32_t> gov_action_in_flight_{0};
 };
 
 // 打开 ZeroFlush DB：
@@ -742,6 +784,11 @@ ROCKSDB_NAMESPACE::Status GrowPartitions(ROCKSDB_NAMESPACE::DB* db,
 // 驱动确定性调用。调用线程不得是写组成员。返回动作尝试结果（Busy 由
 // 策略 aging 自动重试，不视为失败）。
 ROCKSDB_NAMESPACE::Status RunGovernanceTick(ROCKSDB_NAMESPACE::DB* db);
+
+// ZeroFlushV0 M4：停止后台动态治理控制器（join 后台线程；DB 保持打开）。
+// 用于验收/测试在测量前冻结治理状态（metrics/P 不再被后台动作改变）。
+// 幂等；停止后仍可 RunGovernanceTick 手动驱动。
+ROCKSDB_NAMESPACE::Status StopGovernance(ROCKSDB_NAMESPACE::DB* db);
 
 // 销毁 ZeroFlush DB：先调原生 DestroyDB 清理 manifest/sst/log，再递归
 // 删除 wal_dir/zfwal 子目录（含 ZFPROPS 与全部代文件）。即使原生 DB

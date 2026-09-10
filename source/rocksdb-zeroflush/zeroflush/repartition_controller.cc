@@ -123,7 +123,8 @@ size_t PartitionRateTracker::Size() const {
 
 GovernancePolicy::GovernancePolicy(const Config& cfg) : cfg_(cfg) {}
 
-double GovernancePolicy::MeanRate(const std::vector<GovernanceObs>& obs) const {
+double GovernancePolicy::MeanRateFast(
+    const std::vector<GovernanceObs>& obs) const {
   double sum = 0.0;
   for (const auto& o : obs) {
     sum += o.rate_fast;
@@ -131,21 +132,31 @@ double GovernancePolicy::MeanRate(const std::vector<GovernanceObs>& obs) const {
   return obs.empty() ? 0.0 : sum / static_cast<double>(obs.size());
 }
 
-bool GovernancePolicy::HotByRate(const GovernanceObs& o, double mean) const {
-  if (mean <= 0.0) {
-    return false;  // 无正均值（全空闲/冷启动）→ 无热分区
+double GovernancePolicy::MeanRateSlow(
+    const std::vector<GovernanceObs>& obs) const {
+  double sum = 0.0;
+  for (const auto& o : obs) {
+    sum += o.rate_slow;
   }
-  const double th = cfg_.theta_split * mean;
-  return o.rate_fast >= th && o.rate_slow >= th;
+  return obs.empty() ? 0.0 : sum / static_cast<double>(obs.size());
 }
 
-bool GovernancePolicy::ColdByRate(const GovernanceObs& o, double mean) const {
-  if (mean <= 0.0) {
+bool GovernancePolicy::HotByRate(const GovernanceObs& o,
+                                 double mean_fast) const {
+  if (mean_fast <= 0.0) {
+    return false;  // 无正均值（全空闲/冷启动）→ 无热分区
+  }
+  return o.rate_fast >= cfg_.theta_split * mean_fast;
+}
+
+bool GovernancePolicy::ColdByRate(const GovernanceObs& o, double mean_fast,
+                                  double mean_slow) const {
+  if (mean_fast <= 0.0) {
     // 全空闲：速率≈0 的分区视为冷（回收小分区直到 P_min）。
     return o.rate_fast <= 0.0 && o.rate_slow <= 0.0;
   }
-  const double th = cfg_.theta_merge * mean;
-  return o.rate_fast <= th && o.rate_slow <= th;
+  return o.rate_fast <= cfg_.theta_merge * mean_fast &&
+         o.rate_slow <= mean_slow;
 }
 
 bool GovernancePolicy::RangeCooling(const RangeKey& k, uint64_t now_us,
@@ -239,14 +250,15 @@ std::vector<GovernanceAction> GovernancePolicy::Decide(
     }
   }
 
-  const double mean = MeanRate(obs);
+  const double mean = MeanRateFast(obs);
+  const double mean_slow = MeanRateSlow(obs);
 
   // ---- 1) 更新连续窗计数（rate 规则） ----
   std::unordered_set<uint32_t> hot_ids;
   std::unordered_set<uint32_t> cold_ids;
   for (const auto& o : obs) {
     const bool hot = HotByRate(o, mean);
-    const bool cold = !hot && ColdByRate(o, mean);
+    const bool cold = !hot && ColdByRate(o, mean, mean_slow);
     uint32_t& hs = split_streak_[o.part_id];
     uint32_t& ms = merge_streak_[o.part_id];
     if (hot) {

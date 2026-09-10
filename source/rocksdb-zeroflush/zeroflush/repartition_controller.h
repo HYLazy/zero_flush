@@ -182,10 +182,15 @@ class GovernancePolicy {
 
   bool RangeCooling(const RangeKey& k, uint64_t now_us, uint32_t* level);
   void SetCooldown(const RangeKey& k, uint32_t level, uint64_t now_us);
-  double MeanRate(const std::vector<GovernanceObs>& obs) const;
+  double MeanRateFast(const std::vector<GovernanceObs>& obs) const;
+  double MeanRateSlow(const std::vector<GovernanceObs>& obs) const;
   // 返回 rate 是否满足热（split）/冷（merge）规则（未含 streak/冷却/P 界）。
-  bool HotByRate(const GovernanceObs& o, double mean) const;
-  bool ColdByRate(const GovernanceObs& o, double mean) const;
+  // 双窗口径：拆分看快窗（近期负载增长——慢窗在短时高偏态/不等封存节奏
+  // 下不可靠，实测会饿死热拆分）；合并看快窗 θ_merge + 慢窗不低于均值
+  // （更长确认，防瞬时波动误回收）。
+  bool HotByRate(const GovernanceObs& o, double mean_fast) const;
+  bool ColdByRate(const GovernanceObs& o, double mean_fast,
+                  double mean_slow) const;
 
   Config cfg_;
   // 连续窗计数（rate 规则命中/未命中），key = part_id。

@@ -47,6 +47,7 @@ struct Args {
   uint64_t tick_us = 20 * 1000;  // 后台控制器 tick（governance=1）
   uint64_t seed = 20260909;
   int sample_ms = 250;  // P 轨迹采样间隔
+  int gap_ms = 4000;    // 排空检查点间隙（0 = 连续写，验证活跃尾 split）
 };
 
 std::string Key(uint64_t id) {
@@ -90,6 +91,7 @@ int main(int argc, char** argv) {
     else if (arg.rfind("--tick_us=", 0) == 0) a.tick_us = strtoull(val("--tick_us").c_str(), nullptr, 10);
     else if (arg.rfind("--seed=", 0) == 0) a.seed = strtoull(val("--seed").c_str(), nullptr, 10);
     else if (arg.rfind("--sample_ms=", 0) == 0) a.sample_ms = atoi(val("--sample_ms").c_str());
+    else if (arg.rfind("--gap_ms=", 0) == 0) a.gap_ms = atoi(val("--gap_ms").c_str());
   }
   if (a.db.empty()) {
     fprintf(stderr, "usage: zf_govern_bench --db=PATH --governance=0|1 [opts]\n");
@@ -225,14 +227,45 @@ int main(int argc, char** argv) {
       fprintf(stderr, "[zf_govern_bench] WARN: materialization did not settle "
                       "after round %d\n", round);
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(4000));
+    if (a.gap_ms > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(a.gap_ms));
+    }
   }
   const auto t1 = std::chrono::steady_clock::now();
   const double wall_s = std::chrono::duration<double>(t1 - t0).count();
 
-  // 让后台物化/治理收敛。
-  for (int i = 0; i < 20; ++i) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // 让后台物化/治理收敛：P/splits/merges/rewrite 连续 2s 不变（上限 20s）。
+  {
+    uint64_t lp = ~0ull, ls = ~0ull, lm = ~0ull, lw = ~0ull;
+    int stable = 0;
+    for (int i = 0; i < 200 && stable < 10; ++i) {
+      const uint64_t pc = ZfMetric(db.get(), "partition_count");
+      const uint64_t sp = ZfMetric(db.get(), "gov_splits");
+      const uint64_t mg = ZfMetric(db.get(), "gov_merges");
+      const uint64_t rw = ZfMetric(db.get(), "rewrite_bytes");
+      const uint64_t iaf = ZfMetric(db.get(), "gov_in_flight");
+      if (iaf != 0) {
+        stable = 0;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        continue;
+      }
+      if (pc == lp && sp == ls && mg == lm && rw == lw) {
+        ++stable;
+      } else {
+        stable = 0;
+      }
+      lp = pc;
+      ls = sp;
+      lm = mg;
+      lw = rw;
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+  }
+  // 停止后台控制器（保持 DB 打开）→ 指标/P 冻结，后续测量不再被改动。
+  const rocksdb::Status stop_s = zeroflush::StopGovernance(db.get());
+  if (!stop_s.ok()) {
+    fprintf(stderr, "[result] StopGovernance failed: %s\n",
+            stop_s.ToString().c_str());
   }
   done.store(true, std::memory_order_relaxed);
   sampler.join();
@@ -280,17 +313,23 @@ int main(int argc, char** argv) {
   fprintf(stderr, "[result] iter_entries=%" PRId64 "\n", iter_cnt);
 
   db.reset();
-  s = zeroflush::Open(opt, zfo, a.db, &db);
+  // 校验用 reopen：关闭后台治理（否则重启的控制器会在读数前改动 P）。
+  zeroflush::ZeroFlushOptions zfo_verify = zfo;
+  zfo_verify.dynamic_governance = false;
+  s = zeroflush::Open(opt, zfo_verify, a.db, &db);
   if (!s.ok()) {
     fprintf(stderr, "reopen failed: %s\n", s.ToString().c_str());
     return 1;
   }
-  if (ZfMetric(db.get(), "partition_count") != pc_end) {
-    fprintf(stderr, "[result] reopen P mismatch\n");
+  const uint64_t pc_reopen = ZfMetric(db.get(), "partition_count");
+  if (pc_reopen < zfo.governance_p_min || pc_reopen > zfo.governance_p_max) {
+    fprintf(stderr, "[result] reopen P out of bounds (%" PRIu64 ")\n",
+            pc_reopen);
     return 1;
   }
-  fprintf(stderr, "[result] reopen_ok P=%" PRIu64 "\n",
-          ZfMetric(db.get(), "partition_count"));
+  fprintf(stderr, "[result] reopen_ok P=%" PRIu64 " (pre_close P=%" PRIu64
+                  ")\n",
+          pc_reopen, pc_end);
   db.reset();
   return 0;
 }

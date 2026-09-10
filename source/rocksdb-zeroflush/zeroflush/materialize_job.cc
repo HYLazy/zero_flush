@@ -239,6 +239,20 @@ bool ZfMaterializeJob::GetPartRange(uint32_t pid, ROCKSDB_NAMESPACE::Slice* lo,
   if (table_ == nullptr || table_->IsHashMode()) {
     return false;
   }
+  // ZeroFlushV0 M4（活跃尾 split）：显式范围覆盖优先——切路由后冻结的父
+  // 分区尾 epoch 在新表中不存在（孤儿），按父原区间物化（范围断言/重叠
+  // 扫描都锚在父区间，避免与全区 base 互叠）。
+  if (se_.has_range_override) {
+    lo->clear();
+    hi->clear();
+    if (se_.range_lo.size() > 0) {
+      *lo = ROCKSDB_NAMESPACE::Slice(se_.range_lo);
+    }
+    if (se_.range_hi.size() > 0) {
+      *hi = ROCKSDB_NAMESPACE::Slice(se_.range_hi);
+    }
+    return true;
+  }
   // ZeroFlushV0 P1b：pid 为全局分区 id（merge 使 part_ids 稀疏），RangeOf
   // 需要位置下标——经 IndexOfPart 映射；不在本表 = 孤儿（旧表残余）。
   const int idx = table_->IndexOfPart(pid);
@@ -718,6 +732,21 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     PartitionPlan plan;
     plan.part_id = pid;
     plan.decision = MaterializeDecision::kDirect;
+    // ZeroFlushV0 M4（活跃尾 split）：切路由后冻结的父分区尾 epoch——
+    // 强制 kDirect 单文件（范围 = 父原区间），不融合/不攒批：数据先落地，
+    // 由 split 执行器在其排空后按新边界 type-3 rewrite 两分。避免走通用
+    // 决策（父 id 不在当前表，孤儿分支会全范围互叠/被 kSkip 无限延后）。
+    if (se_.has_range_override) {
+      if (mc_.materialize_token != 0) {
+        ctx_->AddMaterializePart(mc_.materialize_token, pid);
+      }
+      if (mc_.batch_planned_parts != nullptr) {
+        mc_.batch_planned_parts->insert(pid);
+      }
+      GetPartRange(pid, &plan.lo, &plan.hi);  // 父区间覆盖（Slice 指向 se_）
+      plans_.push_back(std::move(plan));
+      continue;
+    }
     // ZeroFlushV0 P1b/M1b（F1）：DRAINING 分区强制物化，永不 kSkip。
     // 其冻结代（merge 的 E_D）在切路由后的当前表中不存在 → 孤儿（lo/hi
     // 空），按自身实际数据直装单文件（与 base 冲突时落 L0，由 l0_overlap

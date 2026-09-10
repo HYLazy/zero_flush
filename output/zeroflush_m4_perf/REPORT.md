@@ -86,14 +86,18 @@ rate/mean ≈ P/2 = 3 恰达 θ_split 边界 → 不再拆（策略平衡点）�
   `MergeConcurrentWriters(M4)`（并发写在场 + 冷分区 merge 重试，3/3 通过；
   修复前该屏障永不归零必失败）。
 
-## 仍未解决（阻塞连续负载全规模验收）
+## 活跃尾 split：已落地基础设施，实验开关默认关（⚠ 大规模限制）
 
-### 2. 活跃尾 split 未实现（M2 遗留，路线图"并入 M4"）
+已实现：切路由后把父活跃尾冻结为"父区间覆盖的孤儿尾 epoch"，子分区索引
+miss 时经 `split_orphans_` 别名回查父链，排空后 type-3 rewrite 两分；小规模
+并发用例（`SplitConcurrentWriters`）通过。
 
-v1 split 仅 quiescent（须完全排空）；持续写负载下分区无 quiescent 瞬间 →
-split 只能在排空检查点（突发间隙）执行，故本验收用"突发+间隙"协议而非连续
-fillrandom。要做连续负载热拆分需"活跃尾 split"（冻结尾 epoch + 跨界 WAL
-gens 按新边界切分）。
+**但大规模连续写实测触发 L1 重叠崩溃**：孤儿尾 epoch 的父区间宽文件物化
+安装时，与子分区并发产出的 L1 文件范围重叠 →
+`force_consistency_checks: VersionBuilder: L1 has overlapping ranges`（进程
+段错误）。因此该能力以 `governance_active_tail_split`（默认 false）实验
+开关提供；默认路径与 M2 一致的 quiescent split（执行器在排空检查点冻结/
+等待）。完整方案需按子分区切分 WAL gens 并在安装期与子分区 L1 合并。
 
 ## 后续
 

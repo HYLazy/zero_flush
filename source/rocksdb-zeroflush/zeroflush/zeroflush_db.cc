@@ -394,6 +394,8 @@ uint64_t ZeroFlushContext::ReleaseEpoch(uint64_t epoch) {
     // ZeroFlushV0 P1b/M1a：epoch 回收是 DRAINING 分区的排空推进点——
     // 检查是否有分区已排空可 RETIRED。
     MaybeRetireDraining();
+    // ZeroFlushV0 M4：split 孤儿尾 epoch 同点 retire（数据已进 SST）。
+    MaybeRetireSplitOrphans();
     return b;
   }
   return 0;
@@ -542,6 +544,8 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(governance_splits());
   } else if (prop == "rocksdb.zeroflush.gov_merges") {
     *value = std::to_string(governance_merges());
+  } else if (prop == "rocksdb.zeroflush.gov_in_flight") {
+    *value = std::to_string(GovActionInFlight());
   } else if (prop == "rocksdb.zeroflush.inflight_groups") {
     // 诊断：在途写组计数（治理路由切换屏障等待归零；泄漏会导致所有
     // merge/split 动作 TimedOut）。
@@ -1148,6 +1152,17 @@ bool ZeroFlushContext::GetFromPartitionIndex(
         continue;
       }
       extra.push_back(d.part);
+    }
+  }
+  // ZeroFlushV0 M4（活跃尾 split）：孤儿尾 epoch 别名。key 路由到子分区，
+  // 但父分区的冻结尾 epoch 仍持有 [父区间) 内同一 key 的旧版本——子链 miss
+  // 后回查父链（子版本更新，子链优先即正确）。
+  if (split_orphan_active_.load(std::memory_order_acquire) != 0) {
+    std::lock_guard<std::mutex> l(split_orphan_mu_);
+    for (const auto& o : split_orphans_) {
+      if (o.child_l == part || o.child_r == part) {
+        extra.push_back(o.part);
+      }
     }
   }
   ROCKSDB_NAMESPACE::Slice loc;
@@ -1776,9 +1791,11 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
     ROCKSDB_NAMESPACE::DBImpl* impl, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
     uint32_t part, const ROCKSDB_NAMESPACE::Slice& split_key,
-    uint32_t* child_l, uint32_t* child_r) {
+    uint32_t* child_l, uint32_t* child_r, uint64_t* tail_epoch_out) {
   // REQUIRES: DB mutex held（与 InstallNewVersion 的排他窗口一致）。
-  (void)cfd;
+  if (tail_epoch_out != nullptr) {
+    *tail_epoch_out = 0;
+  }
   auto tbl = tables_ ? tables_->current() : nullptr;
   if (tbl == nullptr || tbl->IsHashMode()) {
     return ROCKSDB_NAMESPACE::Status::InvalidArgument(
@@ -1790,10 +1807,18 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
         "ZeroFlush: cannot split the range-deletion partition");
   }
   const auto& ids = tbl->part_ids();
-  if (std::find(ids.begin(), ids.end(), part) == ids.end()) {
+  const auto id_it = std::find(ids.begin(), ids.end(), part);
+  if (id_it == ids.end()) {
     return ROCKSDB_NAMESPACE::Status::InvalidArgument(
         "ZeroFlush: split partition not in current table");
   }
+  // 父区间快照（活跃尾孤儿 epoch 的范围覆盖，必须在切路由前取得）。
+  const size_t part_idx =
+      static_cast<size_t>(id_it - ids.begin());
+  rocksdb::Slice parent_lo, parent_hi;
+  tbl->RangeOf(static_cast<uint32_t>(part_idx), &parent_lo, &parent_hi);
+  const uint64_t active_bytes =
+      wal_ != nullptr ? wal_->ActiveSize(part) : 0;
   // 写屏障：等待在途写组归零（同 MergePartitionLocked——切表后不存在仍按
   // 旧版本路由的写者）。
   const uint64_t kInflightWaitUs = 2ull * 1000 * 1000;
@@ -1805,22 +1830,25 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
     }
     std::this_thread::yield();
   }
-  // ---- 前置（quiescent 子集）：分区完全排空 ----
-  // 允许 split 的只有"数据全在 SST"的冷分区：无活跃字节、无 frozen 索引、
-  // 无 pending sealed/skip/recovery WAL 残留。活跃尾/frozen 尾的跨界处理
-  // 并入 M4（其 WAL gens 需按新边界切分，本版不支持）。
-  if (index_set_ != nullptr && index_set_->HasFrozen(part)) {
-    return ROCKSDB_NAMESPACE::Status::Busy(
-        "ZeroFlush: split partition has unflushed frozen indexes");
-  }
-  if (sealed_cache_ != nullptr &&
-      sealed_cache_->HasPendingPartGens(part)) {
-    return ROCKSDB_NAMESPACE::Status::Busy(
-        "ZeroFlush: split partition has pending sealed WAL gens");
-  }
-  if (wal_ != nullptr && wal_->ActiveSize(part) != 0) {
-    return ROCKSDB_NAMESPACE::Status::Busy(
-        "ZeroFlush: split partition must be fully drained (no active bytes)");
+  // ---- 前置 ----
+  // 默认（governance_active_tail_split=false）：要求分区完全排空（quiescent
+  // 子集，行为与 M2 一致）。实验开关开启时放宽为"活跃尾可拆"——活跃尾在
+  // 切路由后冻结为带父区间覆盖的孤儿尾 epoch（见函数尾），由
+  // split_orphans_ 别名读保读序、排空后 type-3 rewrite 两分。
+  if (!zfo_.governance_active_tail_split) {
+    if (index_set_ != nullptr && index_set_->HasFrozen(part)) {
+      return ROCKSDB_NAMESPACE::Status::Busy(
+          "ZeroFlush: split partition has unflushed frozen indexes");
+    }
+    if (sealed_cache_ != nullptr &&
+        sealed_cache_->HasPendingPartGens(part)) {
+      return ROCKSDB_NAMESPACE::Status::Busy(
+          "ZeroFlush: split partition has pending sealed WAL gens");
+    }
+    if (wal_ != nullptr && wal_->ActiveSize(part) != 0) {
+      return ROCKSDB_NAMESPACE::Status::Busy(
+          "ZeroFlush: split partition must be fully drained (no active bytes)");
+    }
   }
   // 分区不得是 DRAINING 方（排空未完成，其别名区间跨切点会错位）或别名
   // 目标（drain 区间 key 的别名回查依赖 absorb 单一 id）。
@@ -1854,6 +1882,58 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
   if (!s.ok()) {
     // 新表已在内存生效；落盘失败不回滚（同 merge 的崩溃恢复一致性语义）。
     return s;
+  }
+  // ---- ZeroFlushV0 M4（活跃尾 split）：切路由后冻结父活跃尾为孤儿 epoch ----
+  // 顺序说明：先切路由再冻结（同 merge）——冻结的 ZfSwitchMemtable 会为 WAL
+  // 创建短暂释放 DB mutex，若先冻结，让锁窗口内新写仍按旧表路由进父分区
+  // 的新活跃代 → 之后父不在表中、该代永不封存 → 数据丢失。切路由后让锁
+  // 窗口内的写按子分区路由，父新代恒为空（ActiveSize 归零）。
+  // 冻结代带父区间覆盖（has_range_override）：物化按父原区间落单文件，
+  // 排空后由调用方 type-3 rewrite 在 split_key 处两分给两子分区。
+  if (zfo_.governance_active_tail_split && active_bytes > 0 &&
+      wal_ != nullptr) {
+    const uint64_t epoch = epoch_counter_.fetch_add(1) + 1;
+    const FreezeResult fr = wal_->Freeze(part);
+    index_set_->Freeze(part, fr.old_gen + 1);
+    SealedEpoch se;
+    se.epoch = epoch;
+    se.table_version = tables_ ? tables_->current_version() : 0;
+    if (fr.sealed_bytes > 0) {
+      se.gens.emplace_back(part, fr.old_gen);
+      if (fr.old_gen == 0) {
+        se.has_fresh_gen0 = true;
+      }
+      se.part_bytes[part] = fr.sealed_bytes;
+      se.total_bytes = fr.sealed_bytes;
+    }
+    se.has_range_override = true;
+    se.range_lo.assign(parent_lo.data(), parent_lo.size());
+    se.range_hi.assign(parent_hi.data(), parent_hi.size());
+    wal_->ClearOverTargetFlag();
+    RegisterSealedEpoch(se);
+    ROCKSDB_NAMESPACE::MemTable* old_mem = cfd->mem();
+    if (old_mem != nullptr) {
+      old_mem->SetZfEpoch(epoch);
+    }
+    const rocksdb::Status ss = impl->ZfSwitchMemtable(cfd);
+    if (!ss.ok()) {
+      return ss;
+    }
+    // 别名读登记（E 排空前，子分区 miss 的 key 回查父索引链）。
+    {
+      std::lock_guard<std::mutex> lk(split_orphan_mu_);
+      SplitOrphanPart op;
+      op.part = part;
+      op.child_l = l;
+      op.child_r = r;
+      split_orphans_.push_back(op);
+      split_orphan_active_.store(
+          static_cast<uint32_t>(split_orphans_.size()),
+          std::memory_order_release);
+    }
+    if (tail_epoch_out != nullptr) {
+      *tail_epoch_out = epoch;
+    }
   }
   split_count_.fetch_add(1, std::memory_order_relaxed);
   if (child_l != nullptr) {
@@ -2081,6 +2161,29 @@ void ZeroFlushContext::MaybeRetireDraining() {
   }
 }
 
+void ZeroFlushContext::MaybeRetireSplitOrphans() {
+  // ZeroFlushV0 M4（活跃尾 split）：孤儿尾 epoch 排空完成（无 frozen 索引、
+  // 无 pending sealed WAL gens）→ 移除别名登记（数据已进 SST，读走原生
+  // SST 查找；父 id 不再需要回查）。
+  if (split_orphan_active_.load(std::memory_order_acquire) == 0) {
+    return;
+  }
+  std::lock_guard<std::mutex> l(split_orphan_mu_);
+  for (auto it = split_orphans_.begin(); it != split_orphans_.end();) {
+    if (!HasPendingPartData(it->part)) {
+      it = split_orphans_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  split_orphan_active_.store(static_cast<uint32_t>(split_orphans_.size()),
+                             std::memory_order_release);
+}
+
+size_t ZeroFlushContext::SplitOrphans() const {
+  return split_orphan_active_.load(std::memory_order_acquire);
+}
+
 uint32_t ZeroFlushContext::AllocatePartId() {
   // REQUIRES: DB mutex held（Split/MergePartitionLocked 的分配窗口，与
   // InstallNewVersion 同互斥域——分配即消费 next_part_id_，无锁安全）。
@@ -2156,6 +2259,16 @@ ROCKSDB_NAMESPACE::Status RunGovernanceTick(ROCKSDB_NAMESPACE::DB* db) {
   }
   auto* impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(db);
   return impl->ZfGovernanceTick();
+}
+
+ROCKSDB_NAMESPACE::Status StopGovernance(ROCKSDB_NAMESPACE::DB* db) {
+  if (db == nullptr) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush::StopGovernance: db must not be null");
+  }
+  auto* impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(db);
+  impl->ZfStopRepartitionController();
+  return ROCKSDB_NAMESPACE::Status::OK();
 }
 
 // ---------------------------------------------------------------------------

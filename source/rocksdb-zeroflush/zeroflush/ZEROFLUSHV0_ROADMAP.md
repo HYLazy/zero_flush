@@ -189,7 +189,10 @@ v1 语义取舍见 `M4_DG_DESIGN.md`：活跃期只拆不合（防 P 塌缩饿�
 期冷回收（对应"设备空闲后由再锚定合并回收"）；C=1；rewrite 带宽/意图持久化
 完整版留 M5。测试：GovernancePolicyUnit / GovernanceDynamicEndToEnd
 （A 热拆分 + B 空闲回收子场景）/ GovernanceBackgroundAuto（ZF_GOV_BG 门控）
-+ 全量 zf_test 回归（50/50 全绿）。
++ 全量 zf_test 回归（50/50 全绿）。R0/并发轨补修：并行写在途写组计数泄漏
+（follower 为最后完成者漏 Exit → 屏障永久 TimedOut）已修复（fix d7dd50b）；
+活跃尾 split 基础设施落地但作为实验开关默认关（大规模 L1 重叠限制，见
+M4_DG_DESIGN §4）。
 范围：
 1. 每分区统计（@封存边界，不进写路径）：速率=封存字节/(t−t_sealed)，EWMA
    双窗（1/5min，可配）；pending=HasPendingPartGens 口径；S_min 阈值。

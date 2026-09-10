@@ -3869,14 +3869,35 @@ Status DBImpl::ZfSplitPartition(uint32_t part, const Slice& split_key,
     return Status::InvalidArgument("ZeroFlush: no default column family");
   }
   Status s;
+  uint64_t tail_epoch = 0;
   {
     InstrumentedMutexLock l(&mutex_);
-    // 1) 路由拆分（前置 + 分配器 + DeriveSplit + 切路由 + ZFPROPS 落盘）。
+    // 1) 路由拆分（前置 + 分配器 + DeriveSplit + 切路由 + ZFPROPS 落盘；
+    //    活跃尾在锁内冻结尾 epoch——返回 tail_epoch>0）。
     s = zf_ctx_->SplitPartitionLocked(this, cfd, part, split_key, child_l,
-                                      child_r);
+                                      child_r, &tail_epoch);
     if (!s.ok()) {
       return s;
     }
+  }
+  // 1b) ZeroFlushV0 M4（活跃尾 split）：等孤儿尾 epoch 物化排空再 rewrite。
+  // 父 id 已不在表中、不会再有新写（ActiveSize 恒 0），排空 = 无 pending
+  // sealed gens / frozen 索引。等待期间不持 DB mutex（写路径/物化照常）。
+  if (tail_epoch != 0) {
+    const uint64_t deadline = env_->NowMicros() + 30ull * 1000 * 1000;
+    while (zf_ctx_->HasPendingPartData(part) &&
+           env_->NowMicros() < deadline) {
+      env_->SleepForMicroseconds(2000);
+    }
+    if (zf_ctx_->HasPendingPartData(part)) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "[%s] ZeroFlush: split tail epoch %" PRIu64
+                     " not drained in 30s; boundary rewrite deferred",
+                     cfd->GetName().c_str(), tail_epoch);
+    }
+  }
+  {
+    InstrumentedMutexLock l(&mutex_);
     // 2) type-3 rewrite：跨界文件按 split_key 二分。泛化版处理任意层（L0/
     //    中间层/直达 base）的全部跨界文件（非 L0 层文件不相交 → 每层至多
     //    一个含 b；L0 允许重叠 → 可有多个）。持 DB mutex 全程执行：期间无
@@ -4435,6 +4456,13 @@ Status DBImpl::ZfGovernanceTick() {
     return Status::OK();
   }
   const zeroflush::GovernanceAction& act = actions.front();
+  // 治理动作在飞标记（含 ZfSplitPartition 内的排空等待/rewrite）——供外部
+  // 收敛判定（zf_govern_bench 稳定窗口）观察，避免在动作中途读指标。
+  zf_ctx_->EnterGovAction();
+  struct GovActionGuard {
+    zeroflush::ZeroFlushContext* c;
+    ~GovActionGuard() { c->ExitGovAction(); }
+  } gov_action_guard{zf_ctx_.get()};
 
   // =========================================================================
   // 执行：Merge（冷分区取消/合并）—— ZfMergePartition 内含排空前置检查。
@@ -4505,7 +4533,8 @@ Status DBImpl::ZfGovernanceTick() {
   }
 
   // =========================================================================
-  // 执行：Split（热分区拆分）——排空活跃尾 → 等物化收敛 → 中位数切点。
+  // 执行：Split（热分区拆分）——中位数切点 → ZfSplitPartition（活跃尾由
+  // SplitPartitionLocked 冻结尾 epoch + ZfSplitPartition 排空后 rewrite）。
   // =========================================================================
   if (act.kind == zeroflush::GovernanceKind::kSplit) {
     uint64_t now2 = env_->NowMicros();
@@ -4543,28 +4572,31 @@ Status DBImpl::ZfGovernanceTick() {
         policy->NoteRetry(act, now2);
         return Status::OK();
       }
-      if (zf_ctx_->HasPendingPartData(act.part_id)) {
-        // 有未物化/未回收数据：等待其排空（重试退避防每 tick 空转）。
-        policy->NoteRetry(act, now2);
-        return Status::OK();
-      }
-      // 活跃尾（每次封存后 ~1 组残留）→ 冻结为单分区 epoch，等物化推进。
-      if (zf_ctx_->wal() != nullptr &&
-          zf_ctx_->wal()->ActiveSize(act.part_id) != 0) {
-        const Status fs = zf_ctx_->FreezePartitionTailLocked(
-            this, cfd, act.part_id, nullptr);
-        if (!fs.ok()) {
-          if (fs.IsBusy() || fs.IsTimedOut()) {
-            policy->NoteRetry(act, now2);
-          }
+      // 默认路径（实验开关关）：沿用排空检查点语义——分区有未物化残留则
+      // 退避重试；仅有活跃尾则冻结为单分区 epoch、等物化排空后再 split。
+      // 实验路径（governance_active_tail_split=true）：直接交给
+      // SplitPartitionLocked 冻结尾 epoch（父区间覆盖），排空后 rewrite。
+      if (!zfo.governance_active_tail_split) {
+        if (zf_ctx_->HasPendingPartData(act.part_id)) {
+          policy->NoteRetry(act, now2);
           return Status::OK();
         }
-        MaybeScheduleFlushOrCompaction();  // 持锁调度（与写路径 seal 一致）
-        need_wait = true;
+        if (zf_ctx_->wal() != nullptr &&
+            zf_ctx_->wal()->ActiveSize(act.part_id) != 0) {
+          const Status fs = zf_ctx_->FreezePartitionTailLocked(
+              this, cfd, act.part_id, nullptr);
+          if (!fs.ok()) {
+            if (fs.IsBusy() || fs.IsTimedOut()) {
+              policy->NoteRetry(act, now2);
+            }
+            return Status::OK();
+          }
+          MaybeScheduleFlushOrCompaction();  // 持锁调度（与写路径 seal 一致）
+          need_wait = true;
+        }
       }
     }
-    // 排空等待（锁外轮询；注意 stop 检查——Close join 的响应性）。
-    if (need_wait) {
+    if (!zfo.governance_active_tail_split && need_wait) {
       const uint64_t kDrainAttemptUs = 3ull * 1000 * 1000;  // 单次尝试上限
       const uint64_t deadline = env_->NowMicros() + kDrainAttemptUs;
       bool drained = false;
