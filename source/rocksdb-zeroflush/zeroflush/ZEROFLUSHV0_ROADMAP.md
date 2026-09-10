@@ -238,7 +238,10 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
 - ✅ 100GB 级验收（16T/1KB/连续，104.86M 写≈100GiB，active-tail 默认开）：
   ON 22,545 ops/s、P=6、splits=1/merges=3、**0 Corruption**、读命中 86.04%、
   iter 32.70M、reopen 一致（hold 加宽修复后；修复前同配置 7 次 L1 重叠）。
-  OFF 基线臂待补。
+  OFF 基线臂未完成：同参 governance=0 在 73.9M/104.9M（70%）处卡滞（~48 ops/s，
+  主线程 futex 阻塞、单 bg 线程活跃、无 error/corruption 日志；磁盘 95% 使用）
+  → 基线路径独立卡滞问题，待清盘后复跑/归因；OFF 对照暂以 50GB 臂为准
+  （29,801 ops/s）。
   zf_test 全量现状（2026-09-10）：50 PASS / 3 FAIL，且套件可跑到底（teardown
   挂起已修）。3 FAIL 均为环境/时序性：MultiEpoch、MergeActiveTailMergeEnabled
   为基线复验同失败；SkipBatchMaterialize 单独复跑 3/3 PASS（全量后段的

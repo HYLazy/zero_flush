@@ -157,7 +157,14 @@ gov_last_split_base/l0、gov_rewrite_gated。
 诊断：split_attempts=1、success=1、gate_base/median/busy/timeout/other 全 0；
 last_base=7.6MB、last_l0=16.6MB。
 
-OFF 基线臂随后补（同参 governance=0）。
+### 100GB OFF 基线臂：未完成（卡滞，独立问题待归因）
+
+同参 governance=0 跑至 **73.9M / 104.9M 写（70%）** 后停滞：采样 5s 仅 ~240 写
+（≈48 ops/s），主线程与多数 rocksdb:high 线程 futex 阻塞、一个 bg 线程活跃；
+日志无 error/corruption/stall 文本；磁盘当时 95% 使用（97G 空余，DB 43G）。
+判定为**基线路径（无治理）卡滞**，与治理无关；建议清盘后复跑，或先缩小
+universe 降低 live 足迹再归因。100GB 级因此仅有 ON 臂数据；OFF 对照暂以
+**50GB 臂**为准（29,801 ops/s）。
 ## 后续
 
 - 因问题 1 已修，可以多写线程复跑更大规模（数 GB）确认 P 收敛轨迹与吞吐
