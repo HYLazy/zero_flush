@@ -128,12 +128,12 @@ force_consistency_checks 崩溃，已修）；子分区索引 miss 经 `split_or
    bench 默认对齐 ZeroFlushOptions；诊断口径：attempts/gate_base/
    median_nofiles/busy/timeout/other/median_notfound/pos_gone/total0/predrain
    + last_base/last_l0/rewrite_gated。
-2. **活跃尾路径跨批竞态（未修，故默认关）**：打开 active-tail 后，16T/1KB/
-   12.8M 写实测出现 `force_consistency_checks: L1 has overlapping ranges`
-   （尾 epoch 的"父区间融合替换"扫描后，子分区批次并发安装新 L1 文件）。
-   根治：尾 epoch 同时按**两个子分区**做跨批互斥登记（AddMaterializePart），
-   子分区在飞时让位/等待；实现前该能力保持实验默认关（默认路径 quiescent
-   拆分行为不变）。
+2. **活跃尾路径跨批竞态（已修，默认开）**：曾出现
+   `force_consistency_checks: L1 has overlapping ranges`（尾 epoch 融合替换
+   扫描后子分区并发安装 L1）。修复 = 拆分前以独立 hold token 占住两子分区
+   （在飞则 Busy 退避），尾 epoch 物化/rewrite 后释放；期间子分区批次让位
+   （kSkip→recovery，后续 epoch 收养）。验证：16T/1KB/12.8M 写 **0
+   Corruption、splits=1 成功、rewrite 23MB、reopen P=6 一致、118.7k ops/s**。
 
 **诊断字段（已落地）**：gov_split_attempts/gate_base/median_nofiles/success/
 busy/timeout/other/median_notfound/pos_gone/total0/predrain、
