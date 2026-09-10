@@ -5740,8 +5740,7 @@ void TestSplitWithConcurrentWriters() {
   zfo.partition_target_bytes = 16 * 1024;
   zfo.epoch_target_bytes = 64 * 1024;
   zfo.materialize_parallelism = 4;
-  // 实验开关：活跃尾 split（默认关）。
-  zfo.governance_active_tail_split = true;
+  zfo.governance_active_tail_split = true;  // 显式覆盖（默认已开）
   std::unique_ptr<rocksdb::DB> db;
   auto s = zeroflush::Open(MakeOptions(), zfo, dbname, &db);
   if (!s.ok()) {

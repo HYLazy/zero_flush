@@ -561,7 +561,13 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   // M4.5b：kSkip 跳过代收养不置 has_adopted_orphans（seq 连续，可融合），
   // 故此处条件无需变化——只有崩溃恢复孤儿（Recover 登记的 recovery_gens_）
   // 触发保守。
-  const bool merge_enabled = ctx_->zfo_.merge_into_base_level &&
+  // ZeroFlushV0 M4（活跃尾 split）：孤儿尾 epoch 强制融合替换——其输出范围
+  // = 父原区间（range_override），把父区间内**全部**文件（含子分区在切路由
+  // 后并发产出的 L1）与尾数据按 seq 归并后单批替换安装。若走 kDirect 单文件
+  // 直装，会与子分区 L1 文件范围重叠（实测 force_consistency_checks: L1
+  // overlapping ranges 崩溃）。排空后由 split 执行器 type-3 rewrite 两分。
+  const bool merge_enabled = (ctx_->zfo_.merge_into_base_level ||
+                              se_.has_range_override) &&
                              !se_.has_adopted_orphans && table_ != nullptr &&
                              !table_->IsHashMode();
   // R59C：kSkip 攒批在 align_l1 下禁用——skip 数据跨 epoch 收养时 part
@@ -732,21 +738,6 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     PartitionPlan plan;
     plan.part_id = pid;
     plan.decision = MaterializeDecision::kDirect;
-    // ZeroFlushV0 M4（活跃尾 split）：切路由后冻结的父分区尾 epoch——
-    // 强制 kDirect 单文件（范围 = 父原区间），不融合/不攒批：数据先落地，
-    // 由 split 执行器在其排空后按新边界 type-3 rewrite 两分。避免走通用
-    // 决策（父 id 不在当前表，孤儿分支会全范围互叠/被 kSkip 无限延后）。
-    if (se_.has_range_override) {
-      if (mc_.materialize_token != 0) {
-        ctx_->AddMaterializePart(mc_.materialize_token, pid);
-      }
-      if (mc_.batch_planned_parts != nullptr) {
-        mc_.batch_planned_parts->insert(pid);
-      }
-      GetPartRange(pid, &plan.lo, &plan.hi);  // 父区间覆盖（Slice 指向 se_）
-      plans_.push_back(std::move(plan));
-      continue;
-    }
     // ZeroFlushV0 P1b/M1b（F1）：DRAINING 分区强制物化，永不 kSkip。
     // 其冻结代（merge 的 E_D）在切路由后的当前表中不存在 → 孤儿（lo/hi
     // 空），按自身实际数据直装单文件（与 base 冲突时落 L0，由 l0_overlap

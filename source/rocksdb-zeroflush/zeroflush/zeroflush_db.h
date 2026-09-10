@@ -190,13 +190,14 @@ struct ZeroFlushOptions {
   // 抑制合并（活跃期 P 预算让给热拆分）；负载回落/空闲后放行回收。默认
   // 120s（= 2× 快窗）。0 = 任何正速率都算活跃。
   uint64_t governance_merge_idle_micros = 120ull * 1000 * 1000;
-  // ZeroFlushV0 M4（实验，默认关）：活跃尾 split。开启后 SplitPartition 不再
-  // 要求分区完全排空——切路由后把父活跃尾冻结为"父区间覆盖的孤儿尾
-  // epoch"，子分区索引 miss 时别名回查父链，排空后 type-3 rewrite 两分。
-  // ⚠ 限制：父区间宽文件在物化安装时可能与子分区并发产出的 L1 文件重叠
-  // （实测大规模连续写触发 force_consistency_checks: L1 overlapping ranges）；
-  // 完整方案需按子分区切分 WAL gens 并在安装期合并子分区 L1（未做）。
-  bool governance_active_tail_split = false;
+  // ZeroFlushV0 M4：活跃尾 split（默认开）。SplitPartition 不再要求分区
+  // 完全排空——切路由后把父活跃尾冻结为"父区间覆盖的孤儿尾 epoch"；该
+  // epoch 物化走**融合替换**（父区间内全部文件，含子分区在切路由后并发
+  // 产出的 L1，与尾数据按 seq 归并后单批替换安装——避免宽文件与子分区
+  // L1 重叠），子分区索引 miss 时经 split_orphans_ 别名回查父链，排空后
+  // 由 type-3 rewrite 按新边界两分。关闭则回退 M2 quiescent 语义（活跃尾
+  // 返回 Busy）。
+  bool governance_active_tail_split = true;
 };
 
 class ZeroFlushContext {

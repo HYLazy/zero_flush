@@ -86,18 +86,22 @@ rate/mean ≈ P/2 = 3 恰达 θ_split 边界 → 不再拆（策略平衡点）�
   `MergeConcurrentWriters(M4)`（并发写在场 + 冷分区 merge 重试，3/3 通过；
   修复前该屏障永不归零必失败）。
 
-## 活跃尾 split：已落地基础设施，实验开关默认关（⚠ 大规模限制）
+## 活跃尾 split：已修复（默认开，连续负载可用）
 
-已实现：切路由后把父活跃尾冻结为"父区间覆盖的孤儿尾 epoch"，子分区索引
-miss 时经 `split_orphans_` 别名回查父链，排空后 type-3 rewrite 两分；小规模
-并发用例（`SplitConcurrentWriters`）通过。
+设计：切路由后把父活跃尾冻结为"父区间覆盖的孤儿尾 epoch"；该 epoch 物化走
+**融合替换**——父区间内全部文件（含子分区在切路由后并发产出的 L1）与尾数据
+按 seq 归并后单批替换安装（此前 kDirect 宽文件直装会与子分区 L1 重叠 →
+force_consistency_checks 崩溃，已修）；子分区索引 miss 经 `split_orphans_`
+别名回查父链；排空后 type-3 rewrite 按新边界两分。
 
-**但大规模连续写实测触发 L1 重叠崩溃**：孤儿尾 epoch 的父区间宽文件物化
-安装时，与子分区并发产出的 L1 文件范围重叠 →
-`force_consistency_checks: VersionBuilder: L1 has overlapping ranges`（进程
-段错误）。因此该能力以 `governance_active_tail_split`（默认 false）实验
-开关提供；默认路径与 M2 一致的 quiescent split（执行器在排空检查点冻结/
-等待）。完整方案需按子分区切分 WAL gens 并在安装期与子分区 L1 合并。
+验证（8 线程连续写、2.88M 写、gap_ms=0）：
+- `active_tail=1` 单次：283k ops/s、splits=1/merges=3、**0 Corruption**、
+  reopen P 一致、读命中/live 键数与基线一致；
+- 默认开（含治理）复跑两次：226–230k ops/s、**0 Corruption**、P 界内、
+  reopen 一致（splits 依本轮流合并时序在本轮 0–1 间波动）。
+- 回归：SplitConcurrentWriters / GovernanceDynamicEndToEnd / PolicyUnit /
+  SplitQuiescent / Growth / MergeConcurrentWriters / MergeCold /
+  MergeActiveTail / CrashMidDrainReopen 全 PASS。
 
 ## 后续
 

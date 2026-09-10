@@ -48,6 +48,7 @@ struct Args {
   uint64_t seed = 20260909;
   int sample_ms = 250;  // P 轨迹采样间隔
   int gap_ms = 4000;    // 排空检查点间隙（0 = 连续写，验证活跃尾 split）
+  bool active_tail = false;  // 实验：活跃尾 split
 };
 
 std::string Key(uint64_t id) {
@@ -92,6 +93,7 @@ int main(int argc, char** argv) {
     else if (arg.rfind("--seed=", 0) == 0) a.seed = strtoull(val("--seed").c_str(), nullptr, 10);
     else if (arg.rfind("--sample_ms=", 0) == 0) a.sample_ms = atoi(val("--sample_ms").c_str());
     else if (arg.rfind("--gap_ms=", 0) == 0) a.gap_ms = atoi(val("--gap_ms").c_str());
+    else if (arg.rfind("--active_tail=", 0) == 0) a.active_tail = val("--active_tail") == "1";
   }
   if (a.db.empty()) {
     fprintf(stderr, "usage: zf_govern_bench --db=PATH --governance=0|1 [opts]\n");
@@ -123,6 +125,7 @@ int main(int argc, char** argv) {
   zfo.governance_ewma_fast_secs = 5;
   zfo.governance_ewma_slow_secs = 15;
   zfo.governance_merge_idle_micros = 100ull << 30;  // 本验收只观察活跃期拆分
+  zfo.governance_active_tail_split = a.active_tail;
 
   rocksdb::Options opt;
   opt.create_if_missing = true;

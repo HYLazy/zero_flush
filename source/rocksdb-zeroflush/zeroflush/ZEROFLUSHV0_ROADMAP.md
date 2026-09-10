@@ -191,7 +191,7 @@ v1 语义取舍见 `M4_DG_DESIGN.md`：活跃期只拆不合（防 P 塌缩饿�
 （A 热拆分 + B 空闲回收子场景）/ GovernanceBackgroundAuto（ZF_GOV_BG 门控）
 + 全量 zf_test 回归（50/50 全绿）。R0/并发轨补修：并行写在途写组计数泄漏
 （follower 为最后完成者漏 Exit → 屏障永久 TimedOut）已修复（fix d7dd50b）；
-活跃尾 split 基础设施落地但作为实验开关默认关（大规模 L1 重叠限制，见
+活跃尾 split 已实现并默认开（融合替换安装；连续写负载可用，见
 M4_DG_DESIGN §4）。
 范围：
 1. 每分区统计（@封存边界，不进写路径）：速率=封存字节/(t−t_sealed)，EWMA
