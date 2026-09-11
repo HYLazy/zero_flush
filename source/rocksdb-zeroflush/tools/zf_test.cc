@@ -914,6 +914,27 @@ void TestMultiEpoch() {
         }
       }
     }
+    // 迭代器缺失的 key（前 5）+ 其 Get 结果（判定 Get 回退 vs 数据丢失）。
+    {
+      std::unordered_set<std::string> seen;
+      std::unique_ptr<rocksdb::Iterator> it(db->NewIterator(rocksdb::ReadOptions()));
+      it->SeekToFirst();
+      for (; it->Valid(); it->Next()) seen.insert(it->key().ToString());
+      std::string im;
+      int im_n = 0;
+      for (int64_t i = 0; i < 500 && im_n < 5; ++i) {
+        char kk[16];
+        snprintf(kk, sizeof(kk), "me%010lld", (long long)i);
+        if (seen.count(std::string(kk, 16)) == 0) {
+          std::string out;
+          const bool g = db->Get(rocksdb::ReadOptions(),
+                                 rocksdb::Slice(kk, 16), &out).ok();
+          im += std::string(kk, 16) + (g ? "(get=1) " : "(get=0) ");
+          ++im_n;
+        }
+      }
+      fprintf(stderr, "[dbg] iter_missing=%s\n", im.c_str());
+    }
     fprintf(stderr,
             "[dbg] multiepoch iter=%d get_ok=%d get_miss=%d ins_drop=%llu "
             "bloom_sp=%llu miss=%s\n",

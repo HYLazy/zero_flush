@@ -264,8 +264,19 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   freeze/release 时放大为假阴性。但诊断显示更深一层：`index_insert_dropped=0`
   （键确已插入索引）且 `bloom_slowpath=500`（布隆恒 miss）后**链查仍全 miss**
   → 分区索引链在快速反复 freeze 下的读路径缺陷（race-dependent：修复后首跑
-  曾单次 PASS）。保留诊断：`index_insert_dropped`/`bloom_slowpath` 指标 +
-  失败时 iter/get_ok/get_miss/ins_drop/bloom_sp 打印；待专项修复。
+  曾单次 PASS）。插桩结论（决定性）：
+  - `ins_drop=0`（键已入库）；`bloom_slowpath=500`（布隆恒 miss，已被慢路径
+    绕过）；`ZFDBG-idx` 链探针（kMaxSequenceNumber 重试）显示链中只剩近期
+    gen（52–58），最老 keys 在所有 gen 中不存在；**且这些 key 迭代器亦不可见
+    （iter_missing=me0000000000，get=0）** → 不是 Get 回退问题，而是
+    **数据在所有读路径不可见**。
+  - 场景特征：hash 路由（single_task_mode_ 全量切片批）+ 1KB 阈值（epoch
+    churn 极快）+ reclaim=off。指向 kSkip/单任务切片链式 supersede 路径在
+    极端 churn 下的数据丢失窗口（物化未落地或落地后被替换删除，且冻结索引
+    已释放）。
+  - 保留诊断：index_insert_dropped / bloom_slowpath 指标、ZFDBG-idx 链探针
+    （ZF_DBG_IDX=1）、iter_missing/get 明细。深层修复（单任务批切片与
+    supersede/释放时序）待专项。
 - P1B_DESIGN.md 保留为独立 S4（合并协议）设计档（内容自洽，不再合入）。
 
 ## 3. 性能纪律（调度器实现约束）

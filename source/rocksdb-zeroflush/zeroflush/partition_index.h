@@ -747,6 +747,24 @@ class PartitionIndexSet {
       if ((*c)->Get(user_key, snapshot, locator_out, type_out, seq_out)) {
         return true;
       }
+      // M5 诊断（ZF_DBG_IDX=1，限次）：存在性探针——用 kMaxSequenceNumber
+      // 重试同 key，区分"链中无此 key"与"snapshot 门控挡住"。
+      if (getenv("ZF_DBG_IDX") != nullptr) {
+        static std::atomic<uint64_t> zf_idx_dbg{0};
+        if (zf_idx_dbg.fetch_add(1, std::memory_order_relaxed) < 24) {
+          ROCKSDB_NAMESPACE::Slice pl, pt2;
+          ROCKSDB_NAMESPACE::SequenceNumber ps = 0;
+          ROCKSDB_NAMESPACE::ValueType ptv;
+          const bool probe = (*c)->Get(
+              user_key, ROCKSDB_NAMESPACE::kMaxSequenceNumber, &pl, &ptv, &ps);
+          fprintf(stderr,
+                  "ZFDBG-idx part=%u key=%s snap=%llu gen=%u probe=%d "
+                  "probe_seq=%llu chain=%zu\n",
+                  part_id, user_key.ToString(true).c_str(),
+                  (unsigned long long)snapshot, (*c)->gen(), probe ? 1 : 0,
+                  (unsigned long long)ps, chain.size());
+        }
+      }
       // M5 诊断：链遍历未命中（记录链长与 gen 序）。
       static std::atomic<uint64_t> zf_cmiss_dbg {0};
       if (zf_cmiss_dbg.fetch_add(1, std::memory_order_relaxed) < 32 && user_key.size() >= 9 &&
