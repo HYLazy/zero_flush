@@ -257,10 +257,15 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   挂起已修）。其中 **MergeActiveTailMergeEnabled 已修复转绿**（E_D 与吸收方
   跨批互斥：E_D 批同时登记 absorb id，冲突让位转 recovery——原 'L1 has
   overlapping ranges' 根因；3/3 稳定）。SkipBatchMaterialize 单独复跑 3/3
-  PASS（全量后段时序 flaky）。**MultiEpoch 根因定位**：写后立即读出现
-  Get 0/500 全 miss、iter 仅 455（hash 模式 + 大量 epoch + reclaim=off 调试
-  配置）→ 读路径（分区索引链）在冻结/释放边界下的缺陷，待专项修复（诊断
-  已内建：失败时打印 iter/get_ok/get_miss/前若干 miss key）。
+  PASS（全量后段时序 flaky）。**MultiEpoch 根因定位（深挖中）**：写后立即读出现
+  Get 0/500 全 miss、iter 487-455。已排除并修复一项正确性隐患：布隆预过滤
+  改为**仅快路径**（未命中不再短路，转索引链慢路径）——M4.11c 布隆重建存在
+  已知丢失窗口（重建替换前的 Add 落旧布隆被丢弃），大量 epoch 反复
+  freeze/release 时放大为假阴性。但诊断显示更深一层：`index_insert_dropped=0`
+  （键确已插入索引）且 `bloom_slowpath=500`（布隆恒 miss）后**链查仍全 miss**
+  → 分区索引链在快速反复 freeze 下的读路径缺陷（race-dependent：修复后首跑
+  曾单次 PASS）。保留诊断：`index_insert_dropped`/`bloom_slowpath` 指标 +
+  失败时 iter/get_ok/get_miss/ins_drop/bloom_sp 打印；待专项修复。
 - P1B_DESIGN.md 保留为独立 S4（合并协议）设计档（内容自洽，不再合入）。
 
 ## 3. 性能纪律（调度器实现约束）

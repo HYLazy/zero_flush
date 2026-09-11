@@ -426,6 +426,7 @@ class PartitionIndexSet {
       }
     }
     if (idx == nullptr) {
+      insert_dropped_.fetch_add(1, std::memory_order_relaxed);
       // gen 已物化并释放（数据已进 SST）——索引插入丢弃，数据由 SST 承载。
       // M5 诊断：插入丢弃（Concurrent 定位）。
       {
@@ -701,14 +702,19 @@ class PartitionIndexSet {
       std::shared_lock<std::shared_mutex> l(mu_);
       auto bit = blooms_.find(part_id);
       if (bit == blooms_.end() || !bit->second->MayContain(user_key)) {
-        // M5 诊断：bloom 预过滤未命中（Concurrent 定位）。
+        // M5 修复（MultiEpoch 读路径）：布隆**仅作快路径**——未命中不再短路
+        // 返回 false，而是继续查索引链（慢路径）。原因：M4.11c "frozen 释放
+        // 后重建布隆" 存在已知竞态（重建替换布隆前执行的写路径 Add 落旧布隆
+        // 被丢弃 → 假阴性）；大量 epoch 反复 freeze/release 时该窗口被放大，
+        // 假阴性 → 未物化 key 直接 NotFound（实测 Get 0/500、iter 455）。
+        // 布隆命中的快路径不变；miss 才走链（正确性兜底，计入诊断计数）。
+        bloom_slowpath_.fetch_add(1, std::memory_order_relaxed);
         static std::atomic<uint64_t> zf_bmiss_dbg {0};
         if (zf_bmiss_dbg.fetch_add(1, std::memory_order_relaxed) < 32 && user_key.size() >= 9 &&
             memcmp(user_key.data(), "k00000035", 9) == 0) {
           fprintf(stderr, "ZFDBG-bmiss part=%u key=%s\n", part_id,
                   user_key.ToString(true).c_str());
         }
-        return false;
       }
     }
     std::vector<std::shared_ptr<PartitionIndex>> chain;
@@ -762,6 +768,15 @@ class PartitionIndexSet {
 
   uint64_t total_mem_bytes() const {
     return total_mem_bytes_.load(std::memory_order_relaxed);
+  }
+
+  // M5：布隆假阴性慢路径计数（正确性兜底次数；诊断/调优用）。
+  uint64_t bloom_slowpath() const {
+    return bloom_slowpath_.load(std::memory_order_relaxed);
+  }
+  // M5：索引插入因 gen 无匹配被丢弃的次数（诊断：读不到 = 索引无 key）。
+  uint64_t insert_dropped() const {
+    return insert_dropped_.load(std::memory_order_relaxed);
   }
 
   // R57 诊断：dump 每分区 active/frozen 索引字节与 gen（定位索引泄漏）。
@@ -825,6 +840,9 @@ class PartitionIndexSet {
   // 完成后的在途 Add 结束）；RebuildBloom 以新对象替换 map 值。
   std::unordered_map<uint32_t, std::shared_ptr<PartitionBloom>> blooms_;
   std::atomic<uint64_t> total_mem_bytes_{0};
+  // M5：布隆假阴性慢路径计数（正确性兜底；Get 布隆 miss 时查链）。
+  mutable std::atomic<uint64_t> bloom_slowpath_{0};
+  std::atomic<uint64_t> insert_dropped_{0};
 };
 
 // M4.3d-3：分区索引的 InternalIterator（终态 L0 窗口的迭代器）。

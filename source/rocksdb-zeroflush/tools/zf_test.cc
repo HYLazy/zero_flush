@@ -914,8 +914,13 @@ void TestMultiEpoch() {
         }
       }
     }
-    fprintf(stderr, "[dbg] multiepoch iter=%d get_ok=%d get_miss=%d miss=%s\n",
-            iter_cnt, get_ok, get_miss, miss_list.c_str());
+    fprintf(stderr,
+            "[dbg] multiepoch iter=%d get_ok=%d get_miss=%d ins_drop=%llu "
+            "bloom_sp=%llu miss=%s\n",
+            iter_cnt, get_ok, get_miss,
+            (unsigned long long)ZfMetric(db.get(), "index_insert_dropped"),
+            (unsigned long long)ZfMetric(db.get(), "bloom_slowpath"),
+            miss_list.c_str());
     ReportResult(tag, false, "iter after write != 500");
     return;
   }

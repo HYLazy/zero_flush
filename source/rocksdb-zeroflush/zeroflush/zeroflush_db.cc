@@ -574,6 +574,15 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(gov_split_total0());
   } else if (prop == "rocksdb.zeroflush.gov_split_predrain") {
     *value = std::to_string(gov_split_predrain());
+  } else if (prop == "rocksdb.zeroflush.index_insert_dropped") {
+    *value = std::to_string(index_set_ != nullptr
+                                ? index_set_->insert_dropped()
+                                : 0);
+  } else if (prop == "rocksdb.zeroflush.bloom_slowpath") {
+    // M5：布隆假阴性慢路径次数（Get 布隆 miss 时改查索引链；正确性兜底）。
+    *value = std::to_string(index_set_ != nullptr
+                                ? index_set_->bloom_slowpath()
+                                : 0);
   } else if (prop == "rocksdb.zeroflush.inflight_groups") {
     // 诊断：在途写组计数（治理路由切换屏障等待归零；泄漏会导致所有
     // merge/split 动作 TimedOut）。
