@@ -257,29 +257,14 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   挂起已修）。其中 **MergeActiveTailMergeEnabled 已修复转绿**（E_D 与吸收方
   跨批互斥：E_D 批同时登记 absorb id，冲突让位转 recovery——原 'L1 has
   overlapping ranges' 根因；3/3 稳定）。SkipBatchMaterialize 单独复跑 3/3
-  PASS（全量后段时序 flaky）。**MultiEpoch 根因定位（深挖中）**：写后立即读出现
-  Get 0/500 全 miss、iter 487-455。已排除并修复一项正确性隐患：布隆预过滤
-  改为**仅快路径**（未命中不再短路，转索引链慢路径）——M4.11c 布隆重建存在
-  已知丢失窗口（重建替换前的 Add 落旧布隆被丢弃），大量 epoch 反复
-  freeze/release 时放大为假阴性。但诊断显示更深一层：`index_insert_dropped=0`
-  （键确已插入索引）且 `bloom_slowpath=500`（布隆恒 miss）后**链查仍全 miss**
-  → 分区索引链在快速反复 freeze 下的读路径缺陷（race-dependent：修复后首跑
-  曾单次 PASS）。插桩结论（决定性）：
-  - `ins_drop=0`（键已入库）；`bloom_slowpath=500`（布隆恒 miss，已被慢路径
-    绕过）；`ZFDBG-idx` 链探针（kMaxSequenceNumber 重试）显示链中只剩近期
-    gen（52–58），最老 keys 在所有 gen 中不存在；**且这些 key 迭代器亦不可见
-    （iter_missing=me0000000000，get=0）** → 不是 Get 回退问题，而是
-    **数据在所有读路径不可见**。
-  - 场景特征：hash 路由（single_task_mode_ 全量切片批）+ 1KB 阈值（epoch
-    churn 极快）+ reclaim=off。指向 kSkip/单任务切片链式 supersede 路径在
-    极端 churn 下的数据丢失窗口（物化未落地或落地后被替换删除，且冻结索引
-    已释放）。
-  - **严重性判定（新增判据）**：失败后 `WaitAllMaterialized` 再复读仍
-    `get_ok=0 / iter=476` → **永久不可见（真丢失窗口）**，非临时窗口；
-    仅在 hash 路由 + 极快 epoch churn（+reclaim=off 配置）下复现。
-  - 保留诊断：index_insert_dropped / bloom_slowpath 指标、ZFDBG-idx 链探针
-    （ZF_DBG_IDX=1）、iter_missing 明细、after_wait 复读判据。深层修复
-    （单任务批切片 × supersede × 释放时序）待专项；建议下一步对单一 key
+  PASS（全量后段时序 flaky）。**MultiEpoch 已修复（真数据丢失 bug）**：trace 钉死为——hash/单任务模式
+  （single_task_mode_）下 kSkip 的 gens 移交**只收代表分区**（实测 epoch=21
+  gens=24 / skipped=19），未移交的 5 个 gen 在 epoch 出链时 frozen 索引被
+  释放、数据既不在 recovery 也不在 SST → **永久不可见**（Get 0/500、iter
+  426-488、WaitAllMaterialized 后仍不可见）。修复：单任务模式 kSkip 全量
+  移交 se_.gens（多任务模式保持按分区匹配）。3/3 稳定 PASS，17 项相关回归
+  全绿。附带正确性改进：布隆预过滤降级为快路径（miss 转链查，消除重建
+  窗口假阴性的读缺失隐患）+ 指标 bloom_slowpath / index_insert_dropped。    （单任务批切片 × supersede × 释放时序）待专项；建议下一步对单一 key
     （如 me0000000000）在物化计划/切片/安装/替换四阶段做全链路 trace。
 - P1B_DESIGN.md 保留为独立 S4（合并协议）设计档（内容自洽，不再合入）。
 

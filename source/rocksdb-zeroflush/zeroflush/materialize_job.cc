@@ -1315,15 +1315,46 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   }
   // M4.5b：收集 kSkip 分区的全部待物化代（含收养孤儿代），供 Run 尾部
   // 移交 recovery 集合（同一持锁窗口内完成，与收养语义一致）。
-  for (const auto& p : plans_) {
-    if (p.decision != MaterializeDecision::kSkip) {
-      continue;
-    }
-    for (const auto& [part, gen] : se_.gens) {
-      if (part == p.part_id) {
-        skipped_gens_.emplace_back(part, gen);
+  // M5 修复（MultiEpoch 数据丢失）：单任务模式（hash/学习齐批）下代表任务
+  // 全量读取 se_.gens——kSkip 必须移交**全部** gens；原按 plan.part_id 匹配
+  // 只移交代表分区（实测 epoch=21 gens=24/skipped=19）→ 未移交的 5 个 gen
+  // 在 epoch 出链时 frozen 索引被释放、数据不在 recovery 也不在 SST →
+  // 永久不可见（读正确性违约）。多任务模式保持按分区匹配。
+  bool single_task_skip = false;
+  if (single_task_mode_) {
+    for (const auto& p : plans_) {
+      if (p.part_id == part_ids_.front() &&
+          p.decision == MaterializeDecision::kSkip) {
+        single_task_skip = true;
+        break;
       }
     }
+  }
+  if (single_task_skip) {
+    for (const auto& [part, gen] : se_.gens) {
+      skipped_gens_.emplace_back(part, gen);
+    }
+  } else {
+    for (const auto& p : plans_) {
+      if (p.decision != MaterializeDecision::kSkip) {
+        continue;
+      }
+      for (const auto& [part, gen] : se_.gens) {
+        if (part == p.part_id) {
+          skipped_gens_.emplace_back(part, gen);
+        }
+      }
+    }
+  }
+  // M5 trace：kSkip 移交完整性——单任务模式下 plan.part_id 仅代表分区，
+  // se_.gens 的其他分区 gen 若未进 skipped_gens_，epoch 出链时其 frozen
+  // 索引会被释放且数据不在 recovery → 永久不可见（MultiEpoch 定位）。
+  if (getenv("ZF_DBG_SKIP") != nullptr && !skipped_gens_.empty()) {
+    fprintf(stderr,
+            "ZFDBG-skipx epoch=%llu gens=%zu skipped=%zu single_task=%d "
+            "plans=%zu\n",
+            (unsigned long long)epoch_, se_.gens.size(), skipped_gens_.size(),
+            single_task_mode_ ? 1 : 0, plans_.size());
   }
   fprintf(stderr,
           "ZFDBG-skip no_merge=%llu busy=%llu batch_l0=%llu l0busy=%llu "
