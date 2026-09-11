@@ -472,6 +472,16 @@ class ZeroFlushContext {
     std::lock_guard<std::mutex> l(watch_mu_);
     return watch_files_;
   }
+  // 该文件号是否属于最近 k 个 ZF 安装输出（绑定式探针用）。
+  bool IsRecentInstall(uint64_t num, size_t k) const {
+    std::lock_guard<std::mutex> l(watch_mu_);
+    const size_t n = watch_files_.size();
+    const size_t start = n > k ? n - k : 0;
+    for (size_t i = start; i < n; ++i) {
+      if (watch_files_[i].num == num) return true;
+    }
+    return false;
+  }
 
   // ---- M5P1b：学习窗 gen0 批串行槽 ----  // ---- M5P1b：学习窗 gen0 批串行槽 ----  // 含 gen0 代（学习期 hash 数据）的 flush 批必须串行执行（同一时刻至多
   // 一个在飞）：学习批的切片输出依赖串行语义（各批按自身 gens 分区产出、
@@ -843,7 +853,6 @@ class ZeroFlushContext {
   std::atomic<uint64_t> rewrite_bytes_{0};
   std::atomic<uint32_t> gov_action_in_flight_{0};
   std::atomic<uint64_t> gov_rewrite_gated_{0};
-  // M5 诊断：ZF 安装文件 watch（见 WatchInstallFile）。
   mutable std::mutex watch_mu_;
   std::vector<WatchFile> watch_files_;
   std::atomic<uint64_t> gov_split_attempts_{0};

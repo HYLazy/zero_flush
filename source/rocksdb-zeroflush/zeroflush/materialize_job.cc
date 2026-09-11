@@ -715,6 +715,17 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           (!hi.empty() && ucmp->Compare(f_lo, hi) >= 0)) {
         continue;
       }
+      // M5 绑定探针：最近的 ZF 安装输出在本层被扫描到时的处理路径。
+      const bool zf_recent =
+          getenv("ZF_DBG_MM") != nullptr && ctx_ != nullptr &&
+          ctx_->IsRecentInstall(f->fd.GetNumber(), 32);
+      if (zf_recent) {
+        fprintf(stderr,
+                "ZFDBG-mm-scanf epoch=%llu num=%llu bc=%d\n",
+                (unsigned long long)epoch_,
+                (unsigned long long)f->fd.GetNumber(),
+                f->being_compacted ? 1 : 0);
+      }
       // R59：越界文件（分区边界切割）不再拒绝——收进 overlap 作融合 B 侧
       // 整体重写（输出 ⊇ 被替换文件，替换安全）。
       if ((!lo.empty() && ucmp->Compare(f_lo, lo) < 0) ||
@@ -727,10 +738,18 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         // 若为本批次前序融合注册所标记 → 跳过（由批内链式替换的
         // last_batch 提供 B 侧覆盖），否则为原生 compaction 冲突 → 降级。
         if (batch_registered_files_.count(f->fd.GetNumber()) != 0) {
+          if (zf_recent) {
+            fprintf(stderr, "ZFDBG-mm-scanf num=%llu -> skip_batch\n",
+                    (unsigned long long)f->fd.GetNumber());
+          }
           *batch_skipped_out = true;
           continue;
         }
         // 原生 compaction 正在使用该文件 → 冲突降级（§7.3 不等待）。
+        if (zf_recent) {
+          fprintf(stderr, "ZFDBG-mm-scanf num=%llu -> conflict(!ok)\n",
+                  (unsigned long long)f->fd.GetNumber());
+        }
         *ok_out = false;
         return;
       }
