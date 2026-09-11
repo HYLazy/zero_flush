@@ -326,6 +326,40 @@ s.ok()/apply 状态）+ PlanLocked 入口断言 `mc_.base == cfd_->current()`
 - 表现形态：多线程=段错误（VersionBuilder 致命）；单线程=Put 返回
   `force_consistency_checks: L1 overlapping ranges`。
 
+
+## 更正：merge=0 对照组与 L0 文件 key range 语义（2026-09-11）
+
+**更正**：上一轮"崩溃对手方是原生 compaction 的 L1 输出"的推断**不成立**——
+该推断所依据的日志未开 ZF_DBG_MM 探针（`mm-add` 无记录 ≠ 非 ZF 输出）。
+
+**对照组（256 分区/16T/3.2M 写/1KB，探针开）**：
+
+| 配置 | 结果 | ZF 安装 L1 数 | ZF 安装 L0 数 |
+|---|---|---|---|
+| merge_base=0 | **rc=0、0 Corruption** | 256 | 5,692 |
+| merge_base=1 | 段错误、7 次 L1 重叠 | 380 | **0** |
+
+- merge=1：ZF 输出**全部进 L1**（L0 被完全吸收）→ 同分区 L1 反复被替换；
+  崩溃对**两条都是 ZF 的 L1 输出**（此前的 pair 均有 mm-add 记录）。
+- merge=0：ZF 仅 **4%** 安装进 L1（256/5948），其余回落 L0；且 L0→L1 原生
+  compaction 因 `level0_file_num_compaction_trigger=1e8` 不调度 → L1 几乎只被
+  那 256 次直装触碰，同分区 L1 替换循环不存在 → 未观测到崩溃（但其代价是
+  L0 只增不消：5,692 文件/3.2M 写的空间放大，100GB 时表现为卡滞/磁盘耗尽）。
+
+**merge=0 时 L0 文件的 key range 如何确定**（代码语义）：
+1. 物化任务按分区产出单文件，文件内部键范围 = 实际数据足迹
+   （smallest/largest internal key）；范围断言保证 ⊆ 该分区路由区间
+   [lo,hi)（`GetPartRange`→`RangeOf`；首/末分区为 ±∞ 侧）。
+2. 定层 `PickInstallLevel`：与 L0..base_level 任一文件无重叠 → 直装 base
+   （L1）；有重叠 → **回落 L0**（kFallback）。故 L0 文件通常只覆盖
+   **某个分区区间内的一个子段**，同分区不同代文件在 L0 可互相重叠
+   （L0 查找按文件号新→旧，最新版取胜）。
+3. 特例：kHash 路由（版本 0 hash 表）无边界 → lo/hi 空 → 输出可为**全范围**
+   单文件；split 孤儿尾 epoch 用父区间覆盖；学习期越界数据回落 L0 并计数。
+4. `skip_batching=true`（选项默认）时比例不足的分区走 kSkip——数据留
+   frozen 索引+recovery WAL，**不产生 L0 文件**（bench 为 drain 确定性设
+   skip=false，故对照组 L0 文件数偏多）。
+
 ## 后续
 
 - 因问题 1 已修，可以多写线程复跑更大规模（数 GB）确认 P 收敛轨迹与吞吐
