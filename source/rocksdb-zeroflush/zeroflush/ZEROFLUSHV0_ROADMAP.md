@@ -323,8 +323,17 @@ job69 的 token73 登记成功 ⇒ token71 已 End（而 End 名义上在 TryIns
 之后）→ 存在"**edit 尚未落地即释放 token**"的路径（疑似 TryInstall 失败/
 重试或某错误出口提前 End）。三次尝试（相邻互斥 / 安装期复检 / 窗口让位）
 均未拦截。
-**下一步（决定性探针）**：在 `EndMaterializeBatch` 及全部 End 调用点打点
-（token、job、s.ok()、是否已 apply），并在 PlanLocked 入口断言
-`mc_.base == cfd_->current()`（持锁下应恒真；不真即 stale-base 规划实锤），
-据此定位"提前 End/过期 base"的确切出口后修（预计一处）。撤销记录与探针
+**探针落地与结论（2026-09-11）**：
+  - PlanLocked 入口 `mc_.base == cfd_->current()` 断言：**stale=0**（规划视图
+    恒为最新版本）；
+  - End 全打点（run_after_install ok / err 出口 / yield 出口）：token 登记与
+    释放顺序**正常**（后批登记仅发生在前批 End 之后）；
+  - 但崩溃对的两条 mm-add 均为 ZF 输出，后批 plan 的 ov 列表中**缺失前批
+    已安装的同层文件**（如 job129 装 742 于 L1，job123 随后 plan pid5 的
+    ov=[691] 不含 742）→ 说明前批文件在 L1 视图中"消失"或从未以可扫描形态
+    存在于该版本（移动层/被替换/安装于不同版本分支）。
+  **剩余唯一未验证假设**：文件在 install→plan 之间被**非 ZF 编辑**改动
+  （原生 L1→L2 下沉/L0→L1 归并）或 TryInstall 的版本应用分支与我们追踪的
+  edit 不一致 → 需对文件号做"层级生命周期"追踪（安装后每次 plan 检查该号
+  是否在同层，不在则打印其所在层/是否被压缩）。撤销记录与探针
 （ZFDBG-mm-jobbeg / mm-reg / mm-plan / mm-scan）保留在代码中（env 门控）。

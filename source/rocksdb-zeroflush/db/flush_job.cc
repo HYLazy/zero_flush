@@ -373,6 +373,13 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   // 中途释放 DB mutex，提前释放会让并发批在过期 base_ 上规划出与
   // 本批输出重叠的替换（BulkLoadZeroL0 实测 L1 重叠）。
   if (zf_mm_token_ != 0) {
+    if (getenv("ZF_DBG_MM") != nullptr) {
+      fprintf(stderr,
+              "ZFDBG-mm-end site=run_after_install job=%d token=%llu ok=%d "
+              "file=%llu\n",
+              job_context_->job_id, (unsigned long long)zf_mm_token_,
+              s.ok() ? 1 : 0, (unsigned long long)meta_.fd.GetNumber());
+    }
     cfd_->GetZfCtx()->EndMaterializeBatch(zf_mm_token_);
     zf_mm_token_ = 0;
   }
@@ -1401,6 +1408,9 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       job->FinishPlansLocked();
     }
     zf_ctx->SetLastMaterializedEpoch(last_before);
+    if (getenv("ZF_DBG_MM") != nullptr) {
+      fprintf(stderr, "ZFDBG-mm-end site=%s job=%%d token=%%llu s=%%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
+    }
     zf_ctx->EndMaterializeBatch(mm_token);
     zf_mm_token_ = 0;
     if (zf_batch_gen0_) {
@@ -1442,6 +1452,9 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       job->FinishPlansLocked();
     }
     zf_ctx->SetLastMaterializedEpoch(last_before);
+    if (getenv("ZF_DBG_MM") != nullptr) {
+      fprintf(stderr, "ZFDBG-mm-end site=%s job=%%d token=%%llu s=%%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
+    }
     zf_ctx->EndMaterializeBatch(mm_token);
     zf_mm_token_ = 0;
     if (zf_batch_gen0_) {
@@ -1469,6 +1482,9 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       // 阶段 2 失败（理论不可达——定层为纯内存操作）：回滚 last
       // （max 单调推进下若他批已推进则 no-op，数据由 imm 重试保全）。
       zf_ctx->SetLastMaterializedEpoch(last_before);
+      if (getenv("ZF_DBG_MM") != nullptr) {
+        fprintf(stderr, "ZFDBG-mm-end site=%s job=%%d token=%%llu s=%%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
+      }
       zf_ctx->EndMaterializeBatch(mm_token);
       zf_mm_token_ = 0;
       if (zf_batch_gen0_) {
@@ -1598,6 +1614,9 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       zf_batch_outputs_.clear();
       zf_ctx->skip_count_.fetch_add(1, std::memory_order_relaxed);
       zf_ctx->SetLastMaterializedEpoch(last_before);
+      if (getenv("ZF_DBG_MM") != nullptr) {
+        fprintf(stderr, "ZFDBG-mm-end site=%s job=%%d token=%%llu s=%%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
+      }
       zf_ctx->EndMaterializeBatch(mm_token);
       zf_mm_token_ = 0;
       if (zf_batch_gen0_) {

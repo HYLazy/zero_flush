@@ -582,6 +582,18 @@ void ZfMaterializeJob::DrainOutputs(std::vector<MaterializeOutput>* out) {
 }
 
 ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
+  // M5 诊断（ZF_DBG_MM）：规划入口 base 版本一致性——持 DB mutex 下
+  // mc_.base 应恒等于 cfd->current()（否则=过期视图规划，L1 重叠根因）。
+  if (getenv("ZF_DBG_MM") != nullptr && mc_.base != nullptr &&
+      mc_.cfd != nullptr && mc_.base != mc_.cfd->current()) {
+    static std::atomic<uint64_t> zf_stale_dbg{0};
+    if (zf_stale_dbg.fetch_add(1, std::memory_order_relaxed) < 64) {
+      fprintf(stderr,
+              "ZFDBG-mm-stale epoch=%llu base=%p current=%p\n",
+              (unsigned long long)epoch_, (const void*)mc_.base,
+              (const void*)mc_.cfd->current());
+    }
+  }
   mc_.db_mutex->AssertHeld();
   // 分区集合以 se.gens 为准（收养的孤儿代 part 也在其中）。
   part_ids_.clear();
