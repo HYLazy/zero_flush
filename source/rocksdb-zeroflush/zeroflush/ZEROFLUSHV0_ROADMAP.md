@@ -302,5 +302,15 @@ zf_test 全量 + 对应 e2e 为门。
 安装期复检均未拦截（复检落在对方 LogAndApply 未落地窗口，0 yield）。已落地
 安全网：安装前按当前版本复检同层/批内重叠 → 整批让位（删产出 + gens 转
 recovery + 回滚 last，与 kSkip 同语义），把崩溃降级为可重试让位（回归
-全绿）。未完成：查 AddMaterializePart 两批同时登记成功的原因，或引入分区
-粒度 install 锁串行化 plan→LogAndApply。
+全绿；但复现中 0 触发——复检落在对方 LogAndApply 未落地窗口内）。
+**登记探针（ZFDBG-mm-reg）**：冲突分区在窗口内出现**不同 token 的登记
+成功**（pid5: token 159/167/175/177 均 ok=1）→ 后批在对方 `LogAndApply`
+让锁窗口（MANIFEST IO 期间释放 DB mutex）内完成规划：扫描视图不含对方
+尚未落地的输出 → 双方 edit 相继 apply → VersionBuilder L1 重叠崩溃。
+即 M2 文档遗留项"与并发 flush 的 LogAndApply 让锁窗口竞态未做
+being_compacted 防护"的实锤（token 守卫未覆盖该窗口，需再探 job↔token
+映射确认是提前 End 还是窗口内登记）。
+**修复方案（下一轮实施，确定性）**：新增 DB 级 `zf_install_mu_`，ZF 批
+从阶段 0 规划前 try_lock、持至安装（LogAndApply）完成后释放；规划期
+try_lock 失败 → 整批 kSkip 让位（与单任务冲突同语义）。跨批次串行化
+plan→apply 后，让锁窗口不可能再插入规划，重叠从源头消除。

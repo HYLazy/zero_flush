@@ -914,7 +914,17 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     // 不互等）。
     bool xbatch_conflict = false;
     if (mc_.materialize_token != 0) {
-      if (!ctx_->AddMaterializePart(mc_.materialize_token, pid)) {
+      const bool reg_ok = ctx_->AddMaterializePart(mc_.materialize_token, pid);
+      if (getenv("ZF_DBG_MM") != nullptr) {
+        static std::atomic<uint64_t> zf_reg_dbg{0};
+        if (zf_reg_dbg.fetch_add(1, std::memory_order_relaxed) < 4000) {
+          fprintf(stderr,
+                  "ZFDBG-mm-reg epoch=%llu pid=%u token=%llu ok=%d\n",
+                  (unsigned long long)epoch_, pid,
+                  (unsigned long long)mc_.materialize_token, reg_ok ? 1 : 0);
+        }
+      }
+      if (!reg_ok) {
         xbatch_conflict = true;
       }
       if (!xbatch_conflict && getenv("ZF_MERGE_NEIGHBOR") != nullptr) {
