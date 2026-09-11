@@ -1376,6 +1376,7 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     jobs.emplace_back(new zeroflush::ZfMaterializeJob(
         zf_ctx.get(), epoch, se, std::move(table), mc, &zf_batch_outputs_));
     s = jobs.back()->PlanLocked();
+    jobs.back()->DumpPlansDebug();
     if (!s.ok()) {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "[%s] [JOB %d] plan epoch %" PRIu64 " failed: %s",
@@ -1523,6 +1524,10 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     for (int l = 0; l < vstorage->num_levels(); ++l) {
       for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(l)) {
         if (f->fd.GetNumber() == num) {
+          if (getenv("ZF_DBG_MM") != nullptr) {
+            fprintf(stderr, "ZFDBG-mm-del job=%d epoch_src l=%d num=%llu\n",
+                    job_context_->job_id, l, (unsigned long long)num);
+          }
           edit_->DeleteFile(l, num);
           return;
         }
@@ -1530,6 +1535,78 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     }
     // 文件不在版本中：已被 compaction 消费/删除 → 无需删除。
   };
+  // M5 安装期复检（规模并发安全网）：规划（阶段 0）到安装之间存在跨批
+  // 窗口（他批安装不可见/过期视图），可能产出与当前同层文件重叠的输出
+  // （256 分区/16T/merge=true 实测 VersionBuilder 'L1 overlapping ranges'
+  // 崩溃）。此处按**当前版本**复检：某非 superseded 输出与同层既有文件
+  // 重叠且该文件不在本批删除集合内 → 或批内两个输出同层重叠 → 整批让位：
+  // 删除已产出物理文件 + 全部 gens 移交 recovery（数据保持可读，下一
+  // epoch 收养后重物化）= 把崩溃降级为可重试让位（与 kSkip 同语义）。
+  {
+    const auto* vs = cfd_->current()->storage_info();
+    const ROCKSDB_NAMESPACE::Comparator* uc = cfd_->user_comparator();
+    std::unordered_set<uint64_t> del_nums;
+    for (const auto& o : zf_batch_outputs_) {
+      if (o.superseded) continue;
+      for (uint64_t n : o.replaced_file_numbers) del_nums.insert(n);
+      for (uint64_t n : o.replaced_l0_file_numbers) del_nums.insert(n);
+    }
+    auto overlap2 = [&](const rocksdb::Slice& a_lo,
+                        const rocksdb::Slice& a_hi,
+                        const rocksdb::Slice& b_lo,
+                        const rocksdb::Slice& b_hi) {
+      return uc->Compare(a_hi, b_lo) >= 0 && uc->Compare(b_hi, a_lo) >= 0;
+    };
+    bool conflict = false;
+    for (const auto& o : zf_batch_outputs_) {
+      if (o.superseded || o.level <= 0) continue;
+      const rocksdb::Slice lo = o.meta.smallest.user_key();
+      const rocksdb::Slice hi = o.meta.largest.user_key();
+      for (ROCKSDB_NAMESPACE::FileMetaData* f : vs->LevelFiles(o.level)) {
+        if (del_nums.count(f->fd.GetNumber()) != 0) continue;
+        if (overlap2(lo, hi, f->smallest.user_key(), f->largest.user_key())) {
+          conflict = true;
+          break;
+        }
+      }
+      if (conflict) break;
+      for (const auto& o2 : zf_batch_outputs_) {
+        if (&o2 == &o || o2.superseded || o2.level != o.level) continue;
+        if (overlap2(lo, hi, o2.meta.smallest.user_key(),
+                     o2.meta.largest.user_key())) {
+          conflict = true;
+          break;
+        }
+      }
+      if (conflict) break;
+    }
+    if (conflict) {
+      if (getenv("ZF_DBG_MM") != nullptr) {
+        fprintf(stderr, "ZFDBG-mm-yield job=%d outputs=%zu (install conflict)\n",
+                job_context_->job_id, zf_batch_outputs_.size());
+      }
+      for (auto& job : jobs) {
+        job->FinishPlansLocked();
+        job->DeleteAllOutputFiles();
+        job->HandOffAllGens();
+      }
+      zf_batch_outputs_.clear();
+      zf_ctx->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      zf_ctx->SetLastMaterializedEpoch(last_before);
+      zf_ctx->EndMaterializeBatch(mm_token);
+      zf_mm_token_ = 0;
+      if (zf_batch_gen0_) {
+        zf_ctx->ReleaseGen0Slot();
+        zf_batch_gen0_ = false;
+      }
+      base_->Unref();
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "[%s] [JOB %d] materialize install overlap detected; "
+                     "batched yielded to recovery",
+                     cfd_->GetName().c_str(), job_context_->job_id);
+      return Status::OK();  // 持锁返回（WriteLevel0Table 契约）
+    }
+  }
   for (const auto& o : zf_batch_outputs_) {
     if (o.superseded) {
       continue;
@@ -1558,6 +1635,15 @@ Status FlushJob::ZfMaterializeAllEpochs() {
               lk.ToString(true).c_str(), hk.ToString(true).c_str(),
               (unsigned long long)o.meta.fd.GetFileSize(), o.part_id,
               (int)o.decision);
+    }
+    if (getenv("ZF_DBG_MM") != nullptr) {
+      fprintf(stderr,
+              "ZFDBG-mm-add job=%d lvl=%d num=%llu lo=%s hi=%s part=%u dec=%d\n",
+              job_context_->job_id, o.level,
+              (unsigned long long)o.meta.fd.GetNumber(),
+              o.meta.smallest.user_key().ToString(true).c_str(),
+              o.meta.largest.user_key().ToString(true).c_str(), o.part_id,
+              static_cast<int>(o.decision));
     }
     edit_->AddFile(o.level, o.meta);
   }

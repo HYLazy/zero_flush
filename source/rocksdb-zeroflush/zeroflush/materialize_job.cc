@@ -501,6 +501,47 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
   return ROCKSDB_NAMESPACE::Status::OK();
 }
 
+void ZfMaterializeJob::DumpPlansDebug() const {
+  if (getenv("ZF_DBG_MM") == nullptr) {
+    return;
+  }
+  for (const auto& p : plans_) {
+    std::string ov;
+    for (auto* f : p.overlap) {
+      ov += std::to_string(f->fd.GetNumber()) + " ";
+    }
+    for (auto* f : p.l0_overlap) {
+      ov += "L0:" + std::to_string(f->fd.GetNumber()) + " ";
+    }
+    fprintf(stderr,
+            "ZFDBG-mm-plan epoch=%llu pid=%u dec=%d lo=%s hi=%s ov=[%s]\n",
+            (unsigned long long)epoch_, p.part_id,
+            static_cast<int>(p.decision), p.lo.ToString(true).c_str(),
+            p.hi.ToString(true).c_str(), ov.c_str());
+  }
+}
+
+void ZfMaterializeJob::DeleteAllOutputFiles() {
+  std::vector<MaterializeOutput> outs;
+  {
+    rocksdb::MutexLock l(&out_mu_);
+    outs.swap(outputs_);
+  }
+  for (const auto& o : outs) {
+    if (o.meta.fd.GetNumber() == 0) continue;
+    const std::string fname = ROCKSDB_NAMESPACE::TableFileName(
+        mc_.cfd->ioptions().cf_paths, o.meta.fd.GetNumber(), 0);
+    mc_.db_options->env->DeleteFile(fname).PermitUncheckedError();
+  }
+}
+
+void ZfMaterializeJob::HandOffAllGens() {
+  if (se_.gens.empty()) return;
+  // 与 kSkip 同语义：gens 移交 recovery（可读、不回收），epoch 出链时
+  // GetSealedEpoch 不再含这些 gens → frozen 索引保留至收养。
+  ctx_->HandOffSkippedToRecovery(epoch_, se_.gens);
+}
+
 void ZfMaterializeJob::DeleteOrphanFiles() {
   // 批内被替换输出的物理文件（从未安装，仅本批内可见；持锁 IO 不必要，
   // 由调用方在解锁后调用；不删会泄漏 SST）。
@@ -605,6 +646,21 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       *has_oob_out = false;
     }
     for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(base)) {
+      {
+        static std::atomic<uint64_t> zf_scan_dbg{0};
+        if (getenv("ZF_DBG_MM") != nullptr &&
+            zf_scan_dbg.fetch_add(1, std::memory_order_relaxed) < 6000) {
+          std::string all;
+          for (auto* ff : vstorage->LevelFiles(base)) {
+            all += std::to_string(ff->fd.GetNumber());
+            if (ff->being_compacted) all += "(bc)";
+            all += " ";
+          }
+          fprintf(stderr, "ZFDBG-mm-scan lo=%s hi=%s l1=[%s]\n",
+                  lo.ToString(true).c_str(), hi.ToString(true).c_str(),
+                  all.c_str());
+        }
+      }
       const ROCKSDB_NAMESPACE::Slice f_lo = f->smallest.user_key();
       const ROCKSDB_NAMESPACE::Slice f_hi = f->largest.user_key();
       // 相交 ⟺ !(f_hi < lo || f_lo >= hi)。lo/hi 为分区边界（半开区间），
@@ -851,8 +907,36 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     // kSkip 让位（数据转 recovery，本批结束释放后下批收养重物化——与
     // busy 冲突同语义）。登记含后续判据转 skip 的过度登记（批尾统一
     // 释放，仅造成短暂让位，无正确性影响）。
-    if (mc_.materialize_token != 0 &&
-        !ctx_->AddMaterializePart(mc_.materialize_token, pid)) {
+    // M5 修复实验（ZF_MERGE_NEIGHBOR=1）：merge-base/L0 吸收批的跨批互斥
+    // 扩展到**相邻分区**——L0 文件/输出范围在相邻分区边界处交错，仅按自身
+    // 分区登记时两邻批可并发产出 → L1 重叠（256 分区/16T/merge=true 实测
+    // 8 次 VersionBuilder 崩）。登记非阻塞（邻居被占 → 本批让位转 recovery，
+    // 不互等）。
+    bool xbatch_conflict = false;
+    if (mc_.materialize_token != 0) {
+      if (!ctx_->AddMaterializePart(mc_.materialize_token, pid)) {
+        xbatch_conflict = true;
+      }
+      if (!xbatch_conflict && getenv("ZF_MERGE_NEIGHBOR") != nullptr) {
+        auto nth = ctx_->tables() ? ctx_->tables()->current() : nullptr;
+        if (nth != nullptr && !nth->IsHashMode()) {
+          const int nidx = nth->IndexOfPart(pid);
+          if (nidx >= 0) {
+            for (int d : {-1, 1}) {
+              const int ni = nidx + d;
+              if (ni >= 0 && ni < static_cast<int>(nth->partitions())) {
+                if (!ctx_->AddMaterializePart(
+                        mc_.materialize_token, nth->part_id(ni))) {
+                  xbatch_conflict = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    if (xbatch_conflict) {
       if (skip_ok) {
         plan.decision = MaterializeDecision::kSkip;
         zf_skip_cross_batch++;

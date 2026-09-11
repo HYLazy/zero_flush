@@ -253,6 +253,16 @@ class ZfMaterializeJob {
   // 阶段 0 失败或任务池失败时释放已注册 Compaction（须持 DB mutex）。
   void FinishPlansLocked();
 
+  // M5 安装期复检让位：整批放弃安装时（检测到与在飞安装的重叠冲突）——
+  // (a) 删除本 job 已产出的全部物理文件；(b) 把本 epoch 全部 gens 移交
+  // recovery（数据保持可读，下一 epoch 收养后重物化）。
+  void DeleteAllOutputFiles();
+  void HandOffAllGens();
+
+  // M5 诊断（ZF_DBG_MM=1）：打印本 job 的 plan 明细（pid/decision/
+  // overlap 文件号/replaced 文件号）——定位跨批安装重叠。
+  void DumpPlansDebug() const;
+
  private:
   // R59C：分区范围安全获取——孤儿/攒批 gens 的 part 来自旧路由表（align_l1
   // 每 epoch 重建表，分区数变化）→ 用当前表 RangeOf 越界断言。越界时返回
