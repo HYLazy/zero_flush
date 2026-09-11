@@ -294,3 +294,13 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
 可合并"，是合并协议的正确性内核，且不依赖 R0/M2。R0 作为并行轨立即开始（诊断
 工具已就位）。M2/M3 在 M1 后串行推进；M4 聚合全部依赖。每里程碑独立提交、以
 zf_test 全量 + 对应 e2e 为门。
+
+## M4.9 规模并发重叠深挖（2026-09-11）
+
+重叠对 = 两个不同 FlushJob 对同一分区的 kMergeBase L1 输出；plan 视图互不
+可见（ZF_DBG_MM 追踪）→ 并行规划 + LogAndApply 冲突。相邻分区互斥扩展与
+安装期复检均未拦截（复检落在对方 LogAndApply 未落地窗口，0 yield）。已落地
+安全网：安装前按当前版本复检同层/批内重叠 → 整批让位（删产出 + gens 转
+recovery + 回滚 last，与 kSkip 同语义），把崩溃降级为可重试让位（回归
+全绿）。未完成：查 AddMaterializePart 两批同时登记成功的原因，或引入分区
+粒度 install 锁串行化 plan→LogAndApply。
