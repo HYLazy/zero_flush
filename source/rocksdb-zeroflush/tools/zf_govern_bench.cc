@@ -48,6 +48,7 @@ struct Args {
   uint64_t seed = 20260909;
   int sample_ms = 250;  // P 轨迹采样间隔
   int gap_ms = 4000;    // 排空检查点间隙（0 = 连续写，验证活跃尾 split）
+  uint32_t partitions = 8;   // kStatic 初始分区数（等宽边界）
   bool active_tail = true;   // 活跃尾 split（与 ZeroFlushOptions 默认一致）
 };
 
@@ -93,6 +94,7 @@ int main(int argc, char** argv) {
     else if (arg.rfind("--seed=", 0) == 0) a.seed = strtoull(val("--seed").c_str(), nullptr, 10);
     else if (arg.rfind("--sample_ms=", 0) == 0) a.sample_ms = atoi(val("--sample_ms").c_str());
     else if (arg.rfind("--gap_ms=", 0) == 0) a.gap_ms = atoi(val("--gap_ms").c_str());
+    else if (arg.rfind("--partitions=", 0) == 0) a.partitions = static_cast<uint32_t>(atoi(val("--partitions").c_str()));
     else if (arg.rfind("--active_tail=", 0) == 0) a.active_tail = val("--active_tail") == "1";
   }
   if (a.db.empty()) {
@@ -102,11 +104,11 @@ int main(int argc, char** argv) {
   const uint64_t hot_span = static_cast<uint64_t>(a.universe * a.hot_span);
   // 等宽 kStatic 边界（8 分区；hot band [0, hot_span) 初始落在分区 0）。
   zeroflush::ZeroFlushOptions zfo;
-  zfo.partitions = 8;
+  zfo.partitions = a.partitions;
   zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
-  for (int i = 1; i < 8; ++i) {
+  for (uint32_t i = 1; i < a.partitions; ++i) {
     char b[32];
-    snprintf(b, sizeof(b), "k%012" PRIu64, a.universe * i / 8);
+    snprintf(b, sizeof(b), "k%012" PRIu64, a.universe * i / a.partitions);
     zfo.static_boundaries.emplace_back(b);
   }
   zfo.partition_target_bytes = 8 << 20;   // 8MB/分区封存
@@ -163,6 +165,43 @@ int main(int argc, char** argv) {
               " splits=%" PRIu64 " merges=%" PRIu64
               " inflight=%" PRIu64 "\n",
               w, pc, tk, sp, mg, ZfMetric(db.get(), "inflight_groups"));
+      // ZF_BENCH_VERBOSE=1：卡滞现场诊断（写停/后台作业/层级/物化积压）。
+      if (getenv("ZF_BENCH_VERBOSE") != nullptr) {
+        auto prop = [&](const char* name) {
+          std::string v;
+          db->GetProperty(name, &v);
+          if (v.size() > 220) v.resize(220);
+          return v;
+        };
+        fprintf(stderr,
+                "[v] stopped=%s delayed=%llu comp=%s flush=%s "
+                "live_wal=%llu sealed_wal=%llu skip=%llu base_rw=%llu "
+                "merge_us=%llu out_bytes=%llu tasks=%llu\n",
+                prop("rocksdb.is-write-stopped").c_str(),
+                (unsigned long long)ZfMetric(db.get(), "delayed_write_rate"),
+                prop("rocksdb.num-running-compactions").c_str(),
+                prop("rocksdb.num-running-flushes").c_str(),
+                (unsigned long long)ZfMetric(db.get(), "live_wal_bytes"),
+                (unsigned long long)ZfMetric(db.get(), "sealed_wal_bytes"),
+                (unsigned long long)ZfMetric(db.get(), "skip_count"),
+                (unsigned long long)ZfMetric(db.get(), "base_merge_rewritten_bytes"),
+                (unsigned long long)ZfMetric(db.get(), "prof_merge_us"),
+                (unsigned long long)ZfMetric(db.get(), "prof_output_bytes"),
+                (unsigned long long)ZfMetric(db.get(), "prof_tasks"));
+        std::string ls;
+        if (db->GetProperty("rocksdb.levelstats", &ls)) {
+          std::string one;
+          for (char c : ls) {
+            if (c == '\n') {
+              fprintf(stderr, "[level] %s\n", one.c_str());
+              one.clear();
+            } else {
+              one.push_back(c);
+            }
+          }
+          if (!one.empty()) fprintf(stderr, "[level] %s\n", one.c_str());
+        }
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(a.sample_ms));
     }
   });

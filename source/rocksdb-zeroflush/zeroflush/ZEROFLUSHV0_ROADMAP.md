@@ -253,19 +253,16 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
   L0 无消费空间放大；治理 ON（拆分热点）100GB 全程完成 = 对策。后续可选：
   修物化与原生 L1→L2 互斥（让位/等待）、L0 消费路径、或按 S1/S3 收紧每
   range 文件规模。
-  zf_test 全量现状（2026-09-10）：50 PASS / 3 FAIL，且套件可跑到底（teardown
-  挂起已修）。其中 **MergeActiveTailMergeEnabled 已修复转绿**（E_D 与吸收方
-  跨批互斥：E_D 批同时登记 absorb id，冲突让位转 recovery——原 'L1 has
-  overlapping ranges' 根因；3/3 稳定）。SkipBatchMaterialize 单独复跑 3/3
-  PASS（全量后段时序 flaky）。**MultiEpoch 已修复（真数据丢失 bug）**：trace 钉死为——hash/单任务模式
-  （single_task_mode_）下 kSkip 的 gens 移交**只收代表分区**（实测 epoch=21
-  gens=24 / skipped=19），未移交的 5 个 gen 在 epoch 出链时 frozen 索引被
-  释放、数据既不在 recovery 也不在 SST → **永久不可见**（Get 0/500、iter
-  426-488、WaitAllMaterialized 后仍不可见）。修复：单任务模式 kSkip 全量
-  移交 se_.gens（多任务模式保持按分区匹配）。3/3 稳定 PASS，17 项相关回归
-  全绿。附带正确性改进：布隆预过滤降级为快路径（miss 转链查，消除重建
-  窗口假阴性的读缺失隐患）+ 指标 bloom_slowpath / index_insert_dropped。    （单任务批切片 × supersede × 释放时序）待专项；建议下一步对单一 key
-    （如 me0000000000）在物化计划/切片/安装/替换四阶段做全链路 trace。
+  zf_test 全量现状（2026-09-11）：**53 PASS / 0 FAIL —— ALL PASSED（首次全绿，
+  套件可跑到底，teardown 挂起已修）**。两条既有失败均已修复：
+  - MergeActiveTailMergeEnabled：E_D 与吸收方跨批互斥（E_D 批同时登记 absorb
+    id，冲突让位转 recovery）——原 'L1 has overlapping ranges' 根因；
+  - MultiEpoch（真数据丢失 bug）：单任务模式（hash/学习齐批）kSkip 的 gens
+    移交只收代表分区（实测 epoch=21 gens=24/skipped=19），未移交 gen 在 epoch
+    出链时 frozen 索引被释放且数据不在 recovery/SST → 永久不可见；修复为
+    单任务模式全量移交 se_.gens。附带正确性改进：布隆预过滤降级为快路径
+    （miss 转链查）+ 指标 bloom_slowpath / index_insert_dropped。
+  SkipBatchMaterialize 时序 flaky 本轮回通过。
 - P1B_DESIGN.md 保留为独立 S4（合并协议）设计档（内容自洽，不再合入）。
 
 ## 3. 性能纪律（调度器实现约束）
