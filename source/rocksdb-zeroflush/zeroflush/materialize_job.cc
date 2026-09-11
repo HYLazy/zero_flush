@@ -568,8 +568,9 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   // overlapping ranges 崩溃）。排空后由 split 执行器 type-3 rewrite 两分。
   const bool merge_enabled = (ctx_->zfo_.merge_into_base_level ||
                               se_.has_range_override) &&
-                             !se_.has_adopted_orphans && table_ != nullptr &&
-                             !table_->IsHashMode();
+                       !se_.has_adopted_orphans && table_ != nullptr &&
+                       !table_->IsHashMode();
+
   // R59C：kSkip 攒批在 align_l1 下禁用——skip 数据跨 epoch 收养时 part
   // 属于旧路由表（align 表每 epoch 按 L1 重建，分区数可变），孤儿全范围
   // 兜底在孤儿累积时产生重叠输出（50GB 实测 L1 重叠崩）。align_l1 稳态

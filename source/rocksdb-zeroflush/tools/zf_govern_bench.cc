@@ -50,6 +50,7 @@ struct Args {
   int gap_ms = 4000;    // 排空检查点间隙（0 = 连续写，验证活跃尾 split）
   uint32_t partitions = 8;   // kStatic 初始分区数（等宽边界）
   bool active_tail = true;   // 活跃尾 split（与 ZeroFlushOptions 默认一致）
+  bool merge_base = false;   // M4.9 L0 融合（基线 L0 消费验证用）
 };
 
 std::string Key(uint64_t id) {
@@ -95,6 +96,7 @@ int main(int argc, char** argv) {
     else if (arg.rfind("--sample_ms=", 0) == 0) a.sample_ms = atoi(val("--sample_ms").c_str());
     else if (arg.rfind("--gap_ms=", 0) == 0) a.gap_ms = atoi(val("--gap_ms").c_str());
     else if (arg.rfind("--partitions=", 0) == 0) a.partitions = static_cast<uint32_t>(atoi(val("--partitions").c_str()));
+    else if (arg.rfind("--merge_base=", 0) == 0) a.merge_base = val("--merge_base") == "1";
     else if (arg.rfind("--active_tail=", 0) == 0) a.active_tail = val("--active_tail") == "1";
   }
   if (a.db.empty()) {
@@ -128,6 +130,7 @@ int main(int argc, char** argv) {
   zfo.governance_ewma_slow_secs = 15;
   zfo.governance_merge_idle_micros = 100ull << 30;  // 本验收只观察活跃期拆分
   zfo.governance_active_tail_split = a.active_tail;
+  zfo.merge_into_base_level = a.merge_base;
 
   rocksdb::Options opt;
   opt.create_if_missing = true;
