@@ -279,6 +279,24 @@ apply → VersionBuilder L1 重叠崩溃。即 M2 遗留项"与并发 flush 的 
 让位。跨批 plan→apply 串行化后，让锁窗口不可能再插入规划，重叠从源头消除。
 现有"安装期复检 + 整批让位"安全网保留为第二道防线（本轮回 0 触发）。
 
+
+## M4.9 修复尝试三连负结果 + 决定性时序（2026-09-11）
+
+三次守卫尝试（均撤销，主路径恢复原行为，回归全绿）：
+1. 相邻分区互斥扩展（ZF_MERGE_NEIGHBOR）：崩溃 8→11；
+2. 安装期复检 + 整批让位：复现中 0 触发（复检落在对方 edit 未落地窗口内）；
+3. 安装窗口标记 + 规划期整批让位：仍 8/10 崩溃。
+
+**job↔token 探针决定性时序**：崩溃对 file376(job74/epoch76/token71) 与
+file384(job69/epoch68/token73) 同分区同层；job74 的 edit 已构建打印但未
+apply 时，job69 已在规划（扫描视图 ov 不含 376）；且 job69 的 token73
+登记成功 ⇒ token71 已 End——**存在"edit 尚未落地即释放 token"的路径**
+（End 名义上在 TryInstall 之后，疑似失败/重试或某出口提前 End）。
+
+**下一步（决定性）**：全部 `EndMaterializeBatch` 调用点打点（token/job/
+s.ok()/apply 状态）+ PlanLocked 入口断言 `mc_.base == cfd_->current()`
+（持锁下应恒真；不真即 stale-base 规划实锤）→ 定位后一处修复。
+
 ## 后续
 
 - 因问题 1 已修，可以多写线程复跑更大规模（数 GB）确认 P 收敛轨迹与吞吐
