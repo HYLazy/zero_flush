@@ -2476,6 +2476,16 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   zf_opt.level0_file_num_compaction_trigger = 100000000;
   zf_opt.level0_slowdown_writes_trigger = 100000000;
   zf_opt.level0_stop_writes_trigger = 100000000;
+  // M5 基线结构修复：L0 消费路径。稳态（治理 ON）L0 恒空、无需消费；但基线
+  // （governance=0/回退占多）L0 只增不消 → 空间放大（实测 44M 写积 42GB L0）。
+  // ZF_L0_TRIGGER=N（N>0）时把 L0→L1 触发降为 N，交给原生 compaction 消费
+  // L0（默认保持 1e8 = 不消费，零行为改动）。
+  if (const char* env_l0 = getenv("ZF_L0_TRIGGER")) {
+    const int v = atoi(env_l0);
+    if (v > 0) {
+      zf_opt.level0_file_num_compaction_trigger = v;
+    }
+  }
   // M5 归因实验：L1→L2 触发阈值可经 ZF_MAX_L1_BYTES 覆盖（默认 1GB）。
   // 背景：100GB 基线（governance=0）时 L1≈10GB → score≈10 → 原生 L1→L2
   // compaction 持续运行，与 ZF 物化抢文件（being_compacted 冲突 → kSkip），
