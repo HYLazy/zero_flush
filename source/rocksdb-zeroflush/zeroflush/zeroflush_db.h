@@ -452,7 +452,28 @@ class ZeroFlushContext {
   bool AddMaterializePart(uint64_t token, uint32_t part_id);
   void EndMaterializeBatch(uint64_t token);
 
-  // ---- M5P1b：学习窗 gen0 批串行槽 ----  // 含 gen0 代（学习期 hash 数据）的 flush 批必须串行执行（同一时刻至多
+  // M5 诊断（ZF_DBG_MM）：ZF 安装输出的层级生命周期 watch——记录最近安装
+  // 的文件号与范围；后续 plan 若在本层未见该号，打印其当前所在层/是否消失
+  // （定位"install→plan 之间被非 ZF 编辑改动"假设）。
+  struct WatchFile {
+    uint64_t num = 0;
+    std::string lo;
+    std::string hi;
+  };
+  void WatchInstallFile(uint64_t num, const std::string& lo,
+                        const std::string& hi) {
+    std::lock_guard<std::mutex> l(watch_mu_);
+    if (watch_files_.size() >= 4096) {
+      return;
+    }
+    watch_files_.push_back(WatchFile{num, lo, hi});
+  }
+  std::vector<WatchFile> WatchSnapshot() const {
+    std::lock_guard<std::mutex> l(watch_mu_);
+    return watch_files_;
+  }
+
+  // ---- M5P1b：学习窗 gen0 批串行槽 ----  // ---- M5P1b：学习窗 gen0 批串行槽 ----  // 含 gen0 代（学习期 hash 数据）的 flush 批必须串行执行（同一时刻至多
   // 一个在飞）：学习批的切片输出依赖串行语义（各批按自身 gens 分区产出、
   // 互不重叠、L1 为空前提），并发会让切片与稳态安装/他批切片重叠（Release
   // 实测 #197/#207 等）。稳态批不受限（与在飞学习批的冲突由全分区登记
@@ -822,6 +843,9 @@ class ZeroFlushContext {
   std::atomic<uint64_t> rewrite_bytes_{0};
   std::atomic<uint32_t> gov_action_in_flight_{0};
   std::atomic<uint64_t> gov_rewrite_gated_{0};
+  // M5 诊断：ZF 安装文件 watch（见 WatchInstallFile）。
+  mutable std::mutex watch_mu_;
+  std::vector<WatchFile> watch_files_;
   std::atomic<uint64_t> gov_split_attempts_{0};
   std::atomic<uint64_t> gov_split_gate_base_{0};
   std::atomic<uint64_t> gov_split_median_nofiles_{0};

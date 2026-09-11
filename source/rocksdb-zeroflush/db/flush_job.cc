@@ -1661,6 +1661,11 @@ Status FlushJob::ZfMaterializeAllEpochs() {
               (int)o.decision);
     }
     if (getenv("ZF_DBG_MM") != nullptr) {
+      if (o.level > 0 && !o.superseded) {
+        zf_ctx->WatchInstallFile(
+            o.meta.fd.GetNumber(), o.meta.smallest.user_key().ToString(true),
+            o.meta.largest.user_key().ToString(true));
+      }
       fprintf(stderr,
               "ZFDBG-mm-add job=%d lvl=%d num=%llu lo=%s hi=%s part=%u dec=%d\n",
               job_context_->job_id, o.level,

@@ -659,6 +659,37 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     }
     for (ROCKSDB_NAMESPACE::FileMetaData* f : vstorage->LevelFiles(base)) {
       {
+        // M5 诊断：watch 中与本 range 相交、但不在本层扫描列表中的 ZF 输出
+        // ——打印其当前所在层（-1=已消失）。验证"install→plan 之间被非 ZF
+        // 编辑改动（原生下沉/归并）"假设。
+        static std::atomic<uint64_t> zf_watch_dbg{0};
+        if (getenv("ZF_DBG_MM") != nullptr && ctx_ != nullptr &&
+            zf_watch_dbg.fetch_add(1, std::memory_order_relaxed) < 20000) {
+          const auto watch = ctx_->WatchSnapshot();
+          std::unordered_set<uint64_t> seen;
+          for (auto* ff : vstorage->LevelFiles(base)) {
+            seen.insert(ff->fd.GetNumber());
+          }
+          for (const auto& w : watch) {
+            if (w.num == 0 || seen.count(w.num) != 0) continue;
+            const rocksdb::Slice wl(w.lo), wh(w.hi);
+            if ((!hi.empty() && ucmp->Compare(wl, hi) >= 0) ||
+                (!lo.empty() && ucmp->Compare(wh, lo) < 0)) {
+              continue;
+            }
+            int found = -1;
+            for (int l = 0; l < vstorage->num_levels(); ++l) {
+              for (auto* ff : vstorage->LevelFiles(l)) {
+                if (ff->fd.GetNumber() == w.num) found = l;
+              }
+            }
+            fprintf(stderr,
+                    "ZFDBG-mm-watch num=%llu now_level=%d (scan base=%d)\n",
+                    (unsigned long long)w.num, found, base);
+          }
+        }
+      }
+      {
         static std::atomic<uint64_t> zf_scan_dbg{0};
         if (getenv("ZF_DBG_MM") != nullptr &&
             zf_scan_dbg.fetch_add(1, std::memory_order_relaxed) < 6000) {
