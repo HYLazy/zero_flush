@@ -935,6 +935,22 @@ void TestMultiEpoch() {
       }
       fprintf(stderr, "[dbg] iter_missing=%s\n", im.c_str());
     }
+    // 判据：等待全部物化后再读——若恢复可见 = 临时窗口；仍不可见 = 真丢失。
+    if (WaitAllMaterialized(db.get(), 60000)) {
+      int g2 = 0;
+      for (int64_t i = 0; i < 500; ++i) {
+        char kk[16];
+        snprintf(kk, sizeof(kk), "me%010lld", (long long)i);
+        std::string out;
+        if (db->Get(rocksdb::ReadOptions(), rocksdb::Slice(kk, 16), &out).ok()) {
+          ++g2;
+        }
+      }
+      fprintf(stderr, "[dbg] after_wait get_ok=%d iter=%d\n", g2,
+              (int)CountViaIterator(db.get()));
+    } else {
+      fprintf(stderr, "[dbg] after_wait: WaitAllMaterialized timeout\n");
+    }
     fprintf(stderr,
             "[dbg] multiepoch iter=%d get_ok=%d get_miss=%d ins_drop=%llu "
             "bloom_sp=%llu miss=%s\n",

@@ -274,9 +274,13 @@ materialize_job.cc（调度接线）、options、zf_test.cc。
     churn 极快）+ reclaim=off。指向 kSkip/单任务切片链式 supersede 路径在
     极端 churn 下的数据丢失窗口（物化未落地或落地后被替换删除，且冻结索引
     已释放）。
+  - **严重性判定（新增判据）**：失败后 `WaitAllMaterialized` 再复读仍
+    `get_ok=0 / iter=476` → **永久不可见（真丢失窗口）**，非临时窗口；
+    仅在 hash 路由 + 极快 epoch churn（+reclaim=off 配置）下复现。
   - 保留诊断：index_insert_dropped / bloom_slowpath 指标、ZFDBG-idx 链探针
-    （ZF_DBG_IDX=1）、iter_missing/get 明细。深层修复（单任务批切片与
-    supersede/释放时序）待专项。
+    （ZF_DBG_IDX=1）、iter_missing 明细、after_wait 复读判据。深层修复
+    （单任务批切片 × supersede × 释放时序）待专项；建议下一步对单一 key
+    （如 me0000000000）在物化计划/切片/安装/替换四阶段做全链路 trace。
 - P1B_DESIGN.md 保留为独立 S4（合并协议）设计档（内容自洽，不再合入）。
 
 ## 3. 性能纪律（调度器实现约束）
