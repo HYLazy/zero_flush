@@ -1375,6 +1375,11 @@ Status FlushJob::ZfMaterializeAllEpochs() {
         zf_ctx->tables()->Get(se.table_version);
     jobs.emplace_back(new zeroflush::ZfMaterializeJob(
         zf_ctx.get(), epoch, se, std::move(table), mc, &zf_batch_outputs_));
+    if (getenv("ZF_DBG_MM") != nullptr) {
+      fprintf(stderr, "ZFDBG-mm-jobbeg job=%d epoch=%llu token=%llu\n",
+              job_context_->job_id, (unsigned long long)epoch,
+              (unsigned long long)mm_token);
+    }
     s = jobs.back()->PlanLocked();
     jobs.back()->DumpPlansDebug();
     if (!s.ok()) {

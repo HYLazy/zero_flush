@@ -314,3 +314,17 @@ being_compacted 防护"的实锤（token 守卫未覆盖该窗口，需再探 jo
 从阶段 0 规划前 try_lock、持至安装（LogAndApply）完成后释放；规划期
 try_lock 失败 → 整批 kSkip 让位（与单任务冲突同语义）。跨批次串行化
 plan→apply 后，让锁窗口不可能再插入规划，重叠从源头消除。
+**实施记录（2026-09-11，未奏效，已撤销）**：先以"安装窗口标记 + 规划期
+整批让位"替代 install 锁（避免跨函数持锁）——复现仍 8/10 崩。job↔token
+关联探针给出决定性时序：崩溃对 376（job74/epoch76/token71）与 384
+（job69/epoch68/token73）同分区；**job74 的 edit 已构建打印（行 8351）但
+未 apply 时，job69 已在行 8372 规划且扫描视图 ov=[305] 不含 376**；同时
+job69 的 token73 登记成功 ⇒ token71 已 End（而 End 名义上在 TryInstall
+之后）→ 存在"**edit 尚未落地即释放 token**"的路径（疑似 TryInstall 失败/
+重试或某错误出口提前 End）。三次尝试（相邻互斥 / 安装期复检 / 窗口让位）
+均未拦截。
+**下一步（决定性探针）**：在 `EndMaterializeBatch` 及全部 End 调用点打点
+（token、job、s.ok()、是否已 apply），并在 PlanLocked 入口断言
+`mc_.base == cfd_->current()`（持锁下应恒真；不真即 stale-base 规划实锤），
+据此定位"提前 End/过期 base"的确切出口后修（预计一处）。撤销记录与探针
+（ZFDBG-mm-jobbeg / mm-reg / mm-plan / mm-scan）保留在代码中（env 门控）。
