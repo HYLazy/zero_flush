@@ -265,6 +265,20 @@ L0 吸收批登记受影响邻分区、输出范围钳制在分区区间），�
 - **下一步（未完成）**：查 `AddMaterializePart` 为何两批均登记成功，或引入
   分区粒度 install 锁把 plan→LogAndApply 串行化。
 
+
+## M4.9 重叠根因实锤：LogAndApply 让锁窗口内的跨批规划（2026-09-11）
+
+登记探针（ZFDBG-mm-reg）显示：冲突分区在窗口内出现**不同 token 的登记成功**
+（pid5: token 159/167/175/177 均 ok=1）→ 后批在对方 `LogAndApply` 的 MANIFEST
+IO 让锁窗口内完成规划：其扫描视图不含对方"尚未落地"的输出，双方 edit 相继
+apply → VersionBuilder L1 重叠崩溃。即 M2 遗留项"与并发 flush 的 LogAndApply
+让锁窗口竞态未做 being_compacted 防护"的实锤；既有 token 守卫未覆盖该窗口。
+
+**修复方案（下一步，确定性）**：DB 级 `zf_install_mu_`——ZF 批自阶段 0 规划前
+`try_lock`，持至安装（LogAndApply）完成释放；规划期 try_lock 失败即整批 kSkip
+让位。跨批 plan→apply 串行化后，让锁窗口不可能再插入规划，重叠从源头消除。
+现有"安装期复检 + 整批让位"安全网保留为第二道防线（本轮回 0 触发）。
+
 ## 后续
 
 - 因问题 1 已修，可以多写线程复跑更大规模（数 GB）确认 P 收敛轨迹与吞吐
