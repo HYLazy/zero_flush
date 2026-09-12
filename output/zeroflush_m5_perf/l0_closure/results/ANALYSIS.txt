@@ -1,0 +1,359 @@
+
+========================================================================
+ARM A_trig1e8
+========================================================================
+用户写入: 7.63 GiB (7812 MB)
+
+总事件数: 126
+输入合计: 6.91 GiB   输出合计: 3.75 GiB
+输入/用户 = 0.91x   输出/用户 = 0.49x
+
+事件类型分布:
+  L0(17MB)+L1      n=   48  输入 p50=   47.7MB p90=   48.2MB max=   48.4MB  输出 p50=  30.8MB max=  31.1MB  sum_in=  2.23GB sum_out=  1.44GB
+  L0(19MB)+L1      n=   24  输入 p50=   52.9MB p90=   53.5MB max=   53.5MB  输出 p50=  34.1MB max=  34.4MB  sum_in=  1.24GB sum_out=  0.78GB
+  L0(16MB)+L1      n=   19  输入 p50=   43.6MB p90=   46.5MB max=   46.5MB  输出 p50=  28.1MB max=  30.0MB  sum_in=  0.82GB sum_out=  0.53GB
+  L0(15MB)+L1      n=   17  输入 p50=   42.8MB p90=   43.5MB max=   43.5MB  输出 p50=  27.6MB max=  28.1MB  sum_in=  0.71GB sum_out=  0.46GB
+  L0(108MB)+L1     n=    2  输入 p50=  111.5MB p90=  111.5MB max=  111.5MB  输出 p50=  34.1MB max=  34.1MB  sum_in=  0.22GB sum_out=  0.06GB
+  L0(38MB)+L1      n=    2  输入 p50=   72.3MB p90=   72.3MB max=   72.3MB  输出 p50=  34.4MB max=  34.4MB  sum_in=  0.14GB sum_out=  0.07GB
+  L0(34MB)+L1      n=    2  输入 p50=   65.5MB p90=   65.5MB max=   65.5MB  输出 p50=  31.1MB max=  31.1MB  sum_in=  0.13GB sum_out=  0.06GB
+  L0(64MB)+L1      n=    1  输入 p50=   66.7MB p90=   66.7MB max=   66.7MB  输出 p50=  26.6MB max=  26.6MB  sum_in=  0.07GB sum_out=  0.03GB
+  L0(69MB)+L1      n=    1  输入 p50=   72.4MB p90=   72.4MB max=   72.4MB  输出 p50=  29.1MB max=  29.1MB  sum_in=  0.07GB sum_out=  0.03GB
+  L0(89MB)+L1      n=    1  输入 p50=   92.0MB p90=   92.0MB max=   92.0MB  输出 p50=  33.4MB max=  33.4MB  sum_in=  0.09GB sum_out=  0.03GB
+  L0(65MB)+L1      n=    1  输入 p50=   67.5MB p90=   67.5MB max=   67.5MB  输出 p50=  27.2MB max=  27.2MB  sum_in=  0.07GB sum_out=  0.03GB
+  L0(85MB)+L1      n=    1  输入 p50=   88.2MB p90=   88.2MB max=   88.2MB  输出 p50=  30.5MB max=  30.5MB  sum_in=  0.09GB sum_out=  0.03GB
+  L0(84MB)+L1      n=    1  输入 p50=   87.3MB p90=   87.3MB max=   87.3MB  输出 p50=  30.2MB max=  30.2MB  sum_in=  0.09GB sum_out=  0.03GB
+  L0(171MB)+L1     n=    1  输入 p50=  174.4MB p90=  174.4MB max=  174.4MB  输出 p50=  31.1MB max=  31.1MB  sum_in=  0.17GB sum_out=  0.03GB
+  L0(33MB)+L1      n=    1  输入 p50=   63.8MB p90=   63.8MB max=   63.8MB  输出 p50=  30.4MB max=  30.4MB  sum_in=  0.06GB sum_out=  0.03GB
+  L0(52MB)+L1      n=    1  输入 p50=   82.6MB p90=   82.6MB max=   82.6MB  输出 p50=  31.1MB max=  31.1MB  sum_in=  0.08GB sum_out=  0.03GB
+  L0(293MB)+L1     n=    1  输入 p50=  296.5MB p90=  296.5MB max=  296.5MB  输出 p50=  32.3MB max=  32.3MB  sum_in=  0.29GB sum_out=  0.03GB
+  L0(18MB)+L1      n=    1  输入 p50=   50.2MB p90=   50.2MB max=   50.2MB  输出 p50=  32.3MB max=  32.3MB  sum_in=  0.05GB sum_out=  0.03GB
+  L0(308MB)+L1     n=    1  输入 p50=  310.8MB p90=  310.8MB max=  310.8MB  输出 p50=  31.4MB max=  31.4MB  sum_in=  0.30GB sum_out=  0.03GB
+
+闭包分布（L0→L1 事件，MB）：
+  p10:     42.9
+  p50:     47.7
+  p90:     67.5
+  p99:    296.5
+  max:    310.8   mean:     56.1
+
+ZF 安装: n=360 总字节=5.29 GiB  (安装/用户=0.69x)
+
+  lvl=0: n=344 total=5371.3MB avg=15.61MB max=19.20MB
+  lvl=1: n=16 total=50.1MB avg=3.13MB max=3.52MB
+
+封存 epoch: n=19 size p50=22.8MB p90=23.5MB max=29.3MB
+调度快照 n=52: l1n max=21 l2n max=0 l1score max=0.32 l2bytes max=0.00GiB bgc max=9
+skip 汇总（末次）: {'no_merge': 0, 'busy': 0, 'sink': 0}
+终态 files[L0..Ln]: [116, 21, 0, 0, 0, 0, 0] (L0=116 L1=21)
+
+========================================================================
+ARM B_trig4
+========================================================================
+用户写入: 7.63 GiB (7812 MB)
+
+总事件数: 116
+输入合计: 22.15 GiB   输出合计: 16.92 GiB
+输入/用户 = 2.90x   输出/用户 = 2.22x
+
+事件类型分布:
+  L1+ (to L0)      n=   38  输入 p50=   71.1MB p90=  105.0MB max=  139.2MB  输出 p50=  71.1MB max= 139.2MB  sum_in=  2.90GB sum_out=  2.90GB
+  L0(16MB)+L1      n=   28  输入 p50=   71.3MB p90=  113.3MB max=  118.7MB  输出 p50=  55.0MB max= 105.0MB  sum_in=  2.36GB sum_out=  1.93GB
+  L0(17MB)+L1      n=    8  输入 p50=   69.3MB p90=  100.1MB max=  100.1MB  输出 p50=  52.7MB max=  83.5MB  sum_in=  0.56GB sum_out=  0.43GB
+  L0(105MB)+L1     n=    8  输入 p50=  420.4MB p90=  420.8MB max=  420.8MB  输出 p50= 315.4MB max= 317.8MB  sum_in=  3.19GB sum_out=  2.39GB
+  L0(3MB)+L1       n=    4  输入 p50=    8.8MB p90=   10.4MB max=   10.4MB  输出 p50=   8.8MB max=  10.3MB  sum_in=  0.03GB sum_out=  0.03GB
+  L0(18MB)+L1      n=    4  输入 p50=  100.9MB p90=  122.6MB max=  122.6MB  输出 p50=  83.3MB max= 105.1MB  sum_in=  0.34GB sum_out=  0.27GB
+  L0(212MB)+L1     n=    4  输入 p50=  714.8MB p90=  715.0MB max=  715.0MB  输出 p50= 503.1MB max= 503.1MB  sum_in=  2.79GB sum_out=  1.54GB
+  L0(158MB)+L1     n=    3  输入 p50=  661.4MB p90=  661.4MB max=  661.4MB  输出 p50= 503.1MB max= 503.1MB  sum_in=  1.94GB sum_out=  1.47GB
+  L0(4MB)+L1       n=    2  输入 p50=   13.8MB p90=   13.8MB max=   13.8MB  输出 p50=  13.8MB max=  13.8MB  sum_in=  0.02GB sum_out=  0.02GB
+  L0(159MB)+L1     n=    2  输入 p50=  648.4MB p90=  648.4MB max=  648.4MB  输出 p50= 494.7MB max= 494.7MB  sum_in=  1.21GB sum_out=  0.93GB
+  L0(141MB)+L1     n=    2  输入 p50=  643.5MB p90=  643.5MB max=  643.5MB  输出 p50= 502.7MB max= 502.7MB  sum_in=  1.25GB sum_out=  0.98GB
+  L0(15MB)+L1      n=    2  输入 p50=   73.2MB p90=   73.2MB max=   73.2MB  输出 p50=  57.8MB max=  57.8MB  sum_in=  0.14GB sum_out=  0.11GB
+  L0(7MB)+L1       n=    1  输入 p50=   10.6MB p90=   10.6MB max=   10.6MB  输出 p50=  10.2MB max=  10.2MB  sum_in=  0.01GB sum_out=  0.01GB
+  L0(120MB)+L1     n=    1  输入 p50=  173.1MB p90=  173.1MB max=  173.1MB  输出 p50= 164.1MB max= 164.1MB  sum_in=  0.17GB sum_out=  0.16GB
+  L0(13MB)+L1      n=    1  输入 p50=   22.1MB p90=   22.1MB max=   22.1MB  输出 p50=  18.7MB max=  18.7MB  sum_in=  0.02GB sum_out=  0.02GB
+  L0(346MB)+L1     n=    1  输入 p50=  542.2MB p90=  542.2MB max=  542.2MB  输出 p50= 388.6MB max= 388.6MB  sum_in=  0.53GB sum_out=  0.38GB
+  L0(142MB)+L1     n=    1  输入 p50=  530.3MB p90=  530.3MB max=  530.3MB  输出 p50= 427.0MB max= 427.0MB  sum_in=  0.52GB sum_out=  0.42GB
+  L0(210MB)+L1     n=    1  输入 p50=  685.0MB p90=  685.0MB max=  685.0MB  输出 p50= 488.0MB max= 488.0MB  sum_in=  0.67GB sum_out=  0.48GB
+  L0(211MB)+L1     n=    1  输入 p50=  711.9MB p90=  711.9MB max=  711.9MB  输出 p50= 501.7MB max= 501.7MB  sum_in=  0.70GB sum_out=  0.49GB
+  L0(228MB)+L1     n=    1  输入 p50=  731.2MB p90=  731.2MB max=  731.2MB  输出 p50= 503.0MB max= 503.0MB  sum_in=  0.71GB sum_out=  0.49GB
+  L0(246MB)+L1     n=    1  输入 p50=  749.1MB p90=  749.1MB max=  749.1MB  输出 p50= 503.1MB max= 503.1MB  sum_in=  0.73GB sum_out=  0.49GB
+  L0(227MB)+L1     n=    1  输入 p50=  730.1MB p90=  730.1MB max=  730.1MB  输出 p50= 503.1MB max= 503.1MB  sum_in=  0.71GB sum_out=  0.49GB
+  L0(157MB)+L1     n=    1  输入 p50=  659.9MB p90=  659.9MB max=  659.9MB  输出 p50= 503.1MB max= 503.1MB  sum_in=  0.64GB sum_out=  0.49GB
+
+闭包分布（L0→L1 事件，MB）：
+  p10:     22.1
+  p50:    109.9
+  p90:    711.9
+  p99:    749.1
+  max:    749.1   mean:    252.6
+
+ZF 安装: n=360 总字节=5.29 GiB  (安装/用户=0.69x)
+
+  lvl=0: n=344 total=5370.9MB avg=15.61MB max=19.62MB
+  lvl=1: n=16 total=50.3MB avg=3.14MB max=3.49MB
+
+封存 epoch: n=19 size p50=22.9MB p90=23.7MB max=29.8MB
+调度快照 n=50: l1n max=16 l2n max=0 l1score max=0.49 l2bytes max=0.00GiB bgc max=10
+skip 汇总（末次）: {'no_merge': 0, 'busy': 0, 'sink': 0}
+终态 files[L0..Ln]: [7, 13, 0, 0, 0, 0, 0] (L0=7 L1=13)
+
+========================================================================
+ARM M_trig1e8
+========================================================================
+用户写入: 15.26 GiB (15625 MB)
+
+总事件数: 262
+输入合计: 22.87 GiB   输出合计: 16.18 GiB
+输入/用户 = 1.50x   输出/用户 = 1.06x
+
+事件类型分布:
+  L0(20MB)+L1      n=   85  输入 p50=   79.8MB p90=   82.1MB max=   82.3MB  输出 p50=  59.9MB max=  61.8MB  sum_in=  6.60GB sum_out=  4.96GB
+  L0(21MB)+L1      n=   72  输入 p50=   85.4MB p90=   85.5MB max=   86.9MB  输出 p50=  64.2MB max=  65.5MB  sum_in=  5.91GB sum_out=  4.45GB
+  L0(22MB)+L1      n=   36  输入 p50=   87.3MB p90=   87.5MB max=   87.6MB  输出 p50=  65.6MB max=  65.7MB  sum_in=  3.04GB sum_out=  2.28GB
+  L0(23MB)+L1      n=   35  输入 p50=   92.9MB p90=   93.1MB max=   93.3MB  输出 p50=  69.9MB max=  69.9MB  sum_in=  3.13GB sum_out=  2.36GB
+  L0(41MB)+L1      n=    5  输入 p50=  102.6MB p90=  102.8MB max=  102.8MB  输出 p50=  61.8MB max=  61.8MB  sum_in=  0.50GB sum_out=  0.30GB
+  L0(24MB)+L1      n=    3  输入 p50=   95.6MB p90=   95.7MB max=   95.7MB  输出 p50=  71.9MB max=  71.9MB  sum_in=  0.28GB sum_out=  0.21GB
+  L0(47MB)+L1      n=    3  输入 p50=  119.3MB p90=  119.3MB max=  119.3MB  输出 p50=  71.9MB max=  71.9MB  sum_in=  0.35GB sum_out=  0.21GB
+  L0(48MB)+L1      n=    3  输入 p50=  119.6MB p90=  119.7MB max=  119.7MB  输出 p50=  71.9MB max=  71.9MB  sum_in=  0.35GB sum_out=  0.21GB
+  L0(71MB)+L1      n=    2  输入 p50=  143.3MB p90=  143.3MB max=  143.3MB  输出 p50=  71.9MB max=  71.9MB  sum_in=  0.28GB sum_out=  0.14GB
+  L0(72MB)+L1      n=    2  输入 p50=  143.7MB p90=  143.7MB max=  143.7MB  输出 p50=  71.9MB max=  71.9MB  sum_in=  0.28GB sum_out=  0.14GB
+  L0(68MB)+L1      n=    1  输入 p50=   71.8MB p90=   71.8MB max=   71.8MB  输出 p50=  46.1MB max=  46.1MB  sum_in=  0.07GB sum_out=  0.05GB
+  L0(78MB)+L1      n=    1  输入 p50=   81.3MB p90=   81.3MB max=   81.3MB  输出 p50=  50.1MB max=  50.1MB  sum_in=  0.08GB sum_out=  0.05GB
+  L0(62MB)+L1      n=    1  输入 p50=   65.6MB p90=   65.6MB max=   65.6MB  输出 p50=  43.8MB max=  43.8MB  sum_in=  0.06GB sum_out=  0.04GB
+  L0(85MB)+L1      n=    1  输入 p50=   88.6MB p90=   88.6MB max=   88.6MB  输出 p50=  54.5MB max=  54.5MB  sum_in=  0.09GB sum_out=  0.05GB
+  L0(83MB)+L1      n=    1  输入 p50=   86.4MB p90=   86.4MB max=   86.4MB  输出 p50=  51.4MB max=  51.4MB  sum_in=  0.08GB sum_out=  0.05GB
+  L0(117MB)+L1     n=    1  输入 p50=  120.7MB p90=  120.7MB max=  120.7MB  输出 p50=  58.3MB max=  58.3MB  sum_in=  0.12GB sum_out=  0.06GB
+  L0(110MB)+L1     n=    1  输入 p50=  113.4MB p90=  113.4MB max=  113.4MB  输出 p50=  54.9MB max=  54.9MB  sum_in=  0.11GB sum_out=  0.05GB
+  L0(152MB)+L1     n=    1  输入 p50=  155.7MB p90=  155.7MB max=  155.7MB  输出 p50=  66.6MB max=  66.6MB  sum_in=  0.15GB sum_out=  0.07GB
+  L0(286MB)+L1     n=    1  输入 p50=  290.0MB p90=  290.0MB max=  290.0MB  输出 p50=  63.1MB max=  63.1MB  sum_in=  0.28GB sum_out=  0.06GB
+  L0(42MB)+L1      n=    1  输入 p50=  105.0MB p90=  105.0MB max=  105.0MB  输出 p50=  63.2MB max=  63.2MB  sum_in=  0.10GB sum_out=  0.06GB
+  L0(119MB)+L1     n=    1  输入 p50=  191.0MB p90=  191.0MB max=  191.0MB  输出 p50=  71.9MB max=  71.9MB  sum_in=  0.19GB sum_out=  0.07GB
+  L0(104MB)+L1     n=    1  输入 p50=  167.7MB p90=  167.7MB max=  167.7MB  输出 p50=  63.3MB max=  63.3MB  sum_in=  0.16GB sum_out=  0.06GB
+  L0(43MB)+L1      n=    1  输入 p50=  108.8MB p90=  108.8MB max=  108.8MB  输出 p50=  65.7MB max=  65.7MB  sum_in=  0.11GB sum_out=  0.06GB
+  L0(61MB)+L1      n=    1  输入 p50=  122.9MB p90=  122.9MB max=  122.9MB  输出 p50=  61.8MB max=  61.8MB  sum_in=  0.12GB sum_out=  0.06GB
+  L0(63MB)+L1      n=    1  输入 p50=  126.1MB p90=  126.1MB max=  126.1MB  输出 p50=  63.3MB max=  63.3MB  sum_in=  0.12GB sum_out=  0.06GB
+  L0(251MB)+L1     n=    1  输入 p50=  314.7MB p90=  314.7MB max=  314.7MB  输出 p50=  63.3MB max=  63.3MB  sum_in=  0.31GB sum_out=  0.06GB
+
+闭包分布（L0→L1 事件，MB）：
+  p10:     79.3
+  p50:     85.4
+  p90:     95.7
+  p99:    191.0
+  max:    314.7   mean:     89.4
+
+ZF 安装: n=680 总字节=12.83 GiB  (安装/用户=0.84x)
+
+  lvl=0: n=664 total=13081.5MB avg=19.70MB max=24.06MB
+  lvl=1: n=16 total=56.4MB avg=3.53MB max=3.93MB
+
+封存 epoch: n=40 size p50=28.4MB p90=28.7MB max=28.8MB
+调度快照 n=58: l1n max=28 l2n max=0 l1score max=0.53 l2bytes max=0.00GiB bgc max=9
+skip 汇总（末次）: {'no_merge': 0, 'busy': 0, 'sink': 0}
+终态 files[L0..Ln]: [298, 28, 0, 0, 0, 0, 0] (L0=298 L1=28)
+
+========================================================================
+ARM M_trig4
+========================================================================
+用户写入: 15.26 GiB (15625 MB)
+
+总事件数: 204
+输入合计: 71.24 GiB   输出合计: 59.39 GiB
+输入/用户 = 4.67x   输出/用户 = 3.89x
+
+事件类型分布:
+  L1+ (to L0)      n=   77  输入 p50=   86.3MB p90=  140.6MB max=  150.6MB  输出 p50=  86.3MB max= 150.6MB  sum_in=  7.29GB sum_out=  7.29GB
+  L0(22MB)+L1      n=   30  输入 p50=  141.6MB p90=  154.2MB max=  202.5MB  输出 p50= 118.8MB max= 180.8MB  sum_in=  3.98GB sum_out=  3.23GB
+  L0(21MB)+L1      n=   22  输入 p50=  135.8MB p90=  146.9MB max=  159.8MB  输出 p50= 116.3MB max= 139.1MB  sum_in=  2.60GB sum_out=  2.19GB
+  L0(144MB)+L1     n=    9  输入 p50=  922.7MB p90=  949.6MB max=  949.6MB  输出 p50= 779.0MB max= 806.1MB  sum_in=  8.10GB sum_out=  6.85GB
+  L0(19MB)+L1      n=    9  输入 p50=  126.6MB p90=  141.2MB max=  141.2MB  输出 p50= 107.7MB max= 122.6MB  sum_in=  1.04GB sum_out=  0.87GB
+  L0(4MB)+L1       n=    4  输入 p50=   18.3MB p90=   20.9MB max=   20.9MB  输出 p50=  18.1MB max=  20.4MB  sum_in=  0.06GB sum_out=  0.06GB
+  L0(24MB)+L1      n=    3  输入 p50=  143.0MB p90=  161.3MB max=  161.3MB  输出 p50= 122.8MB max= 137.0MB  sum_in=  0.39GB sum_out=  0.33GB
+  L0(206MB)+L1     n=    2  输入 p50= 1052.8MB p90= 1052.8MB max= 1052.8MB  输出 p50= 846.9MB max= 846.9MB  sum_in=  1.80GB sum_out=  1.45GB
+  L0(313MB)+L1     n=    2  输入 p50= 1318.7MB p90= 1318.7MB max= 1318.7MB  输出 p50=1006.1MB max=1006.1MB  sum_in=  2.43GB sum_out=  1.85GB
+  L0(228MB)+L1     n=    2  输入 p50= 1232.6MB p90= 1232.6MB max= 1232.6MB  输出 p50=1005.3MB max=1005.3MB  sum_in=  2.35GB sum_out=  1.92GB
+  L0(20MB)+L1      n=    2  输入 p50=  146.3MB p90=  146.3MB max=  146.3MB  输出 p50= 126.3MB max= 126.3MB  sum_in=  0.28GB sum_out=  0.24GB
+  L0(293MB)+L1     n=    2  输入 p50= 1299.1MB p90= 1299.1MB max= 1299.1MB  输出 p50=1006.1MB max=1006.1MB  sum_in=  2.52GB sum_out=  1.96GB
+  L0(190MB)+L1     n=    2  输入 p50= 1196.0MB p90= 1196.0MB max= 1196.0MB  输出 p50=1006.1MB max=1006.1MB  sum_in=  2.33GB sum_out=  1.96GB
+  L0(233MB)+L1     n=    2  输入 p50= 1238.7MB p90= 1238.7MB max= 1238.7MB  输出 p50=1006.1MB max=1006.1MB  sum_in=  2.37GB sum_out=  1.92GB
+  L0(224MB)+L1     n=    2  输入 p50= 1230.0MB p90= 1230.0MB max= 1230.0MB  输出 p50=1006.1MB max=1006.1MB  sum_in=  2.40GB sum_out=  1.96GB
+  L0(312MB)+L1     n=    2  输入 p50= 1269.7MB p90= 1269.7MB max= 1269.7MB  输出 p50= 957.4MB max= 957.4MB  sum_in=  2.48GB sum_out=  1.87GB
+  L0(231MB)+L1     n=    2  输入 p50= 1188.6MB p90= 1188.6MB max= 1188.6MB  输出 p50= 957.2MB max= 957.2MB  sum_in=  2.31GB sum_out=  1.86GB
+  L0(8MB)+L1       n=    1  输入 p50=   11.4MB p90=   11.4MB max=   11.4MB  输出 p50=  11.2MB max=  11.2MB  sum_in=  0.01GB sum_out=  0.01GB
+  L0(11MB)+L1      n=    1  输入 p50=   18.3MB p90=   18.3MB max=   18.3MB  输出 p50=  17.4MB max=  17.4MB  sum_in=  0.02GB sum_out=  0.02GB
+  L0(133MB)+L1     n=    1  输入 p50=  182.0MB p90=  182.0MB max=  182.0MB  输出 p50= 177.9MB max= 177.9MB  sum_in=  0.18GB sum_out=  0.17GB
+  L0(483MB)+L1     n=    1  输入 p50=  678.6MB p90=  678.6MB max=  678.6MB  输出 p50= 540.8MB max= 540.8MB  sum_in=  0.66GB sum_out=  0.53GB
+  L0(148MB)+L1     n=    1  输入 p50=  688.7MB p90=  688.7MB max=  688.7MB  输出 p50= 611.4MB max= 611.4MB  sum_in=  0.67GB sum_out=  0.60GB
+  L0(165MB)+L1     n=    1  输入 p50=  741.4MB p90=  741.4MB max=  741.4MB  输出 p50= 639.6MB max= 639.6MB  sum_in=  0.72GB sum_out=  0.62GB
+  L0(41MB)+L1      n=    1  输入 p50=  159.0MB p90=  159.0MB max=  159.0MB  输出 p50= 131.8MB max= 131.8MB  sum_in=  0.16GB sum_out=  0.13GB
+  L0(291MB)+L1     n=    1  输入 p50= 1091.9MB p90= 1091.9MB max= 1091.9MB  输出 p50= 863.4MB max= 863.4MB  sum_in=  1.07GB sum_out=  0.84GB
+  L0(186MB)+L1     n=    1  输入 p50= 1060.1MB p90= 1060.1MB max= 1060.1MB  输出 p50= 901.1MB max= 901.1MB  sum_in=  1.04GB sum_out=  0.88GB
+  L0(210MB)+L1     n=    1  输入 p50= 1117.9MB p90= 1117.9MB max= 1117.9MB  输出 p50= 917.3MB max= 917.3MB  sum_in=  1.09GB sum_out=  0.90GB
+  L0(248MB)+L1     n=    1  输入 p50= 1173.9MB p90= 1173.9MB max= 1173.9MB  输出 p50= 934.0MB max= 934.0MB  sum_in=  1.15GB sum_out=  0.91GB
+  L0(185MB)+L1     n=    1  输入 p50=  952.3MB p90=  952.3MB max=  952.3MB  输出 p50= 771.9MB max= 771.9MB  sum_in=  0.93GB sum_out=  0.75GB
+  L0(268MB)+L1     n=    1  输入 p50= 1256.9MB p90= 1256.9MB max= 1256.9MB  输出 p50= 993.4MB max= 993.4MB  sum_in=  1.23GB sum_out=  0.97GB
+  L0(223MB)+L1     n=    1  输入 p50= 1224.3MB p90= 1224.3MB max= 1224.3MB  输出 p50=1002.3MB max=1002.3MB  sum_in=  1.20GB sum_out=  0.98GB
+  L0(289MB)+L1     n=    1  输入 p50= 1291.5MB p90= 1291.5MB max= 1291.5MB  输出 p50=1003.6MB max=1003.6MB  sum_in=  1.26GB sum_out=  0.98GB
+  L0(169MB)+L1     n=    1  输入 p50= 1124.4MB p90= 1124.4MB max= 1124.4MB  输出 p50= 956.0MB max= 956.0MB  sum_in=  1.10GB sum_out=  0.93GB
+  L0(234MB)+L1     n=    1  输入 p50= 1190.7MB p90= 1190.7MB max= 1190.7MB  输出 p50= 956.9MB max= 956.9MB  sum_in=  1.16GB sum_out=  0.93GB
+  L0(194MB)+L1     n=    1  输入 p50= 1199.4MB p90= 1199.4MB max= 1199.4MB  输出 p50=1005.9MB max=1005.9MB  sum_in=  1.17GB sum_out=  0.98GB
+  L0(184MB)+L1     n=    1  输入 p50= 1189.5MB p90= 1189.5MB max= 1189.5MB  输出 p50=1006.0MB max=1006.0MB  sum_in=  1.16GB sum_out=  0.98GB
+  L0(193MB)+L1     n=    1  输入 p50= 1199.1MB p90= 1199.1MB max= 1199.1MB  输出 p50=1006.0MB max=1006.0MB  sum_in=  1.17GB sum_out=  0.98GB
+  L0(311MB)+L1     n=    1  输入 p50= 1317.5MB p90= 1317.5MB max= 1317.5MB  输出 p50=1006.1MB max=1006.1MB  sum_in=  1.29GB sum_out=  0.98GB
+  L0(225MB)+L1     n=    1  输入 p50= 1010.9MB p90= 1010.9MB max= 1010.9MB  输出 p50= 786.2MB max= 786.2MB  sum_in=  0.99GB sum_out=  0.77GB
+  L0(251MB)+L1     n=    1  输入 p50= 1256.9MB p90= 1256.9MB max= 1256.9MB  输出 p50=1006.1MB max=1006.1MB  sum_in=  1.23GB sum_out=  0.98GB
+  L0(181MB)+L1     n=    1  输入 p50= 1035.6MB p90= 1035.6MB max= 1035.6MB  输出 p50= 854.5MB max= 854.5MB  sum_in=  1.01GB sum_out=  0.83GB
+  L0(147MB)+L1     n=    1  输入 p50=  906.0MB p90=  906.0MB max=  906.0MB  输出 p50= 758.9MB max= 758.9MB  sum_in=  0.88GB sum_out=  0.74GB
+  L0(18MB)+L1      n=    1  输入 p50=  129.8MB p90=  129.8MB max=  129.8MB  输出 p50= 111.3MB max= 111.3MB  sum_in=  0.13GB sum_out=  0.11GB
+  L0(315MB)+L1     n=    1  输入 p50= 1320.8MB p90= 1320.8MB max= 1320.8MB  输出 p50=1006.1MB max=1006.1MB  sum_in=  1.29GB sum_out=  0.98GB
+  L0(40MB)+L1      n=    1  输入 p50=  166.8MB p90=  166.8MB max=  166.8MB  输出 p50= 126.4MB max= 126.4MB  sum_in=  0.16GB sum_out=  0.12GB
+  L0(166MB)+L1     n=    1  输入 p50= 1171.9MB p90= 1171.9MB max= 1171.9MB  输出 p50=1006.1MB max=1006.1MB  sum_in=  1.14GB sum_out=  0.98GB
+  L0(274MB)+L1     n=    1  输入 p50= 1280.0MB p90= 1280.0MB max= 1280.0MB  输出 p50=1006.1MB max=1006.1MB  sum_in=  1.25GB sum_out=  0.98GB
+
+闭包分布（L0→L1 事件，MB）：
+  p10:     89.6
+  p50:    146.5
+  p90:   1232.6
+  p99:   1318.7
+  max:   1320.8   mean:    515.6
+
+ZF 安装: n=680 总字节=12.83 GiB  (安装/用户=0.84x)
+
+  lvl=0: n=664 total=13082.4MB avg=19.70MB max=24.46MB
+  lvl=1: n=16 total=56.5MB avg=3.53MB max=4.07MB
+
+封存 epoch: n=40 size p50=26.8MB p90=27.1MB max=27.3MB
+调度快照 n=53: l1n max=23 l2n max=0 l1score max=0.87 l2bytes max=0.00GiB bgc max=10
+skip 汇总（末次）: {'no_merge': 0, 'busy': 0, 'sink': 0}
+终态 files[L0..Ln]: [7, 19, 0, 0, 0, 0, 0] (L0=7 L1=19)
+
+========================================================================
+ARM P4_part4
+========================================================================
+用户写入: 30.52 GiB (31250 MB)
+
+总事件数: 333
+输入合计: 86.13 GiB   输出合计: 61.52 GiB
+输入/用户 = 2.82x   输出/用户 = 2.02x
+
+事件类型分布:
+  L0(58MB)+L1      n=   30  输入 p50=  260.7MB p90=  442.9MB max=  497.4MB  输出 p50= 237.9MB max= 447.4MB  sum_in=  7.23GB sum_out=  6.04GB
+  L0(54MB)+L1      n=   17  输入 p50=  160.5MB p90=  433.4MB max=  444.3MB  输出 p50= 106.9MB max= 400.4MB  sum_in=  4.00GB sum_out=  3.28GB
+  L0(49MB)+L1      n=   15  输入 p50=  129.4MB p90=  142.3MB max=  144.8MB  输出 p50=  80.1MB max=  96.2MB  sum_in=  1.87GB sum_out=  1.18GB
+  L0(46MB)+L1      n=   14  输入 p50=  121.0MB p90=  127.7MB max=  128.2MB  输出 p50=  74.8MB max=  82.2MB  sum_in=  1.64GB sum_out=  1.02GB
+  L0(60MB)+L1      n=   12  输入 p50=  564.2MB p90=  573.0MB max=  574.6MB  输出 p50= 507.3MB max= 516.6MB  sum_in=  6.17GB sum_out=  5.50GB
+  L0(50MB)+L1      n=   10  输入 p50=  133.1MB p90=  144.6MB max=  144.6MB  输出 p50=  83.3MB max=  95.0MB  sum_in=  1.23GB sum_out=  0.77GB
+  L0(36MB)+L1      n=    8  输入 p50=   95.7MB p90=  110.6MB max=  110.6MB  输出 p50=  59.3MB max=  74.1MB  sum_in=  0.74GB sum_out=  0.46GB
+  L0(52MB)+L1      n=    8  输入 p50=  131.2MB p90=  154.6MB max=  154.6MB  输出 p50=  79.4MB max= 102.4MB  sum_in=  1.02GB sum_out=  0.63GB
+  L0(48MB)+L1      n=    8  输入 p50=  129.4MB p90=  131.0MB max=  131.0MB  输出 p50=  82.1MB max=  85.7MB  sum_in=  0.98GB sum_out=  0.61GB
+  L0(47MB)+L1      n=    8  输入 p50=  129.2MB p90=  135.3MB max=  135.3MB  输出 p50=  82.2MB max=  88.3MB  sum_in=  0.97GB sum_out=  0.61GB
+  L0(102MB)+L1     n=    7  输入 p50=  373.4MB p90=  455.4MB max=  455.4MB  输出 p50= 315.6MB max= 379.7MB  sum_in=  2.60GB sum_out=  2.19GB
+  L0(53MB)+L1      n=    7  输入 p50=  135.9MB p90=  392.1MB max=  392.1MB  输出 p50=  84.6MB max= 354.2MB  sum_in=  1.16GB sum_out=  0.83GB
+  L0(32MB)+L1      n=    7  输入 p50=   88.9MB p90=   94.3MB max=   94.3MB  输出 p50=  56.8MB max=  62.0MB  sum_in=  0.60GB sum_out=  0.38GB
+  L0(45MB)+L1      n=    7  输入 p50=  125.3MB p90=  130.6MB max=  130.6MB  输出 p50=  79.9MB max=  85.7MB  sum_in=  0.82GB sum_out=  0.52GB
+  L0(116MB)+L1     n=    6  输入 p50=  349.3MB p90=  396.8MB max=  396.8MB  输出 p50= 293.0MB max= 330.3MB  sum_in=  2.04GB sum_out=  1.71GB
+  L0(43MB)+L1      n=    6  输入 p50=  118.3MB p90=  120.5MB max=  120.5MB  输出 p50=  75.5MB max=  77.4MB  sum_in=  0.68GB sum_out=  0.43GB
+  L0(31MB)+L1      n=    6  输入 p50=   89.3MB p90=   94.9MB max=   94.9MB  输出 p50=  58.7MB max=  63.5MB  sum_in=  0.52GB sum_out=  0.34GB
+  L0(40MB)+L1      n=    6  输入 p50=  106.7MB p90=  119.5MB max=  119.5MB  输出 p50=  66.4MB max=  79.6MB  sum_in=  0.61GB sum_out=  0.38GB
+  L0(110MB)+L1     n=    5  输入 p50=  392.5MB p90=  459.2MB max=  459.2MB  输出 p50= 332.2MB max= 384.4MB  sum_in=  1.93GB sum_out=  1.63GB
+  L0(108MB)+L1     n=    5  输入 p50=  322.7MB p90=  407.4MB max=  407.4MB  输出 p50= 271.2MB max= 337.5MB  sum_in=  1.58GB sum_out=  1.33GB
+  L0(42MB)+L1      n=    5  输入 p50=  107.9MB p90=  123.5MB max=  123.5MB  输出 p50=  65.5MB max=  81.2MB  sum_in=  0.52GB sum_out=  0.33GB
+  L0(35MB)+L1      n=    5  输入 p50=   93.1MB p90=   96.7MB max=   96.7MB  输出 p50=  58.5MB max=  62.0MB  sum_in=  0.44GB sum_out=  0.27GB
+  L0(109MB)+L1     n=    4  输入 p50=  401.4MB p90=  492.1MB max=  492.1MB  输出 p50= 339.0MB max= 410.7MB  sum_in=  1.58GB sum_out=  1.33GB
+  L0(56MB)+L1      n=    4  输入 p50=  135.6MB p90=  460.8MB max=  460.8MB  输出 p50=  79.6MB max= 415.1MB  sum_in=  0.80GB sum_out=  0.61GB
+  L0(41MB)+L1      n=    4  输入 p50=  103.7MB p90=  106.0MB max=  106.0MB  输出 p50=  62.3MB max=  65.2MB  sum_in=  0.39GB sum_out=  0.24GB
+  L0(156MB)+L1     n=    4  输入 p50=  479.4MB p90=  556.1MB max=  556.1MB  输出 p50= 369.9MB max= 423.6MB  sum_in=  1.69GB sum_out=  1.32GB
+  L0(51MB)+L1      n=    4  输入 p50=  127.3MB p90=  135.8MB max=  135.8MB  输出 p50=  76.7MB max=  85.3MB  sum_in=  0.50GB sum_out=  0.30GB
+  L0(162MB)+L1     n=    3  输入 p50=  443.7MB p90=  511.3MB max=  511.3MB  输出 p50= 346.4MB max= 388.0MB  sum_in=  1.34GB sum_out=  1.03GB
+  L0(112MB)+L1     n=    3  输入 p50=  542.1MB p90=  586.5MB max=  586.5MB  输出 p50= 443.8MB max= 485.4MB  sum_in=  1.59GB sum_out=  1.31GB
+  L0(115MB)+L1     n=    3  输入 p50=  452.9MB p90=  534.6MB max=  534.6MB  输出 p50= 374.8MB max= 439.1MB  sum_in=  1.29GB sum_out=  1.07GB
+  L0(107MB)+L1     n=    3  输入 p50=  331.3MB p90=  471.5MB max=  471.5MB  输出 p50= 277.9MB max= 388.4MB  sum_in=  1.09GB sum_out=  0.91GB
+  L0(161MB)+L1     n=    3  输入 p50=  422.9MB p90=  471.0MB max=  471.0MB  输出 p50= 332.0MB max= 365.3MB  sum_in=  1.26GB sum_out=  0.99GB
+  L0(55MB)+L1      n=    3  输入 p50=  133.8MB p90=  160.1MB max=  160.1MB  输出 p50=  78.9MB max= 104.8MB  sum_in=  0.39GB sum_out=  0.24GB
+  L0(33MB)+L1      n=    3  输入 p50=   91.4MB p90=   91.8MB max=   91.8MB  输出 p50=  58.0MB max=  59.1MB  sum_in=  0.27GB sum_out=  0.17GB
+  L0(37MB)+L1      n=    3  输入 p50=   95.3MB p90=  108.8MB max=  108.8MB  输出 p50=  58.5MB max=  72.2MB  sum_in=  0.28GB sum_out=  0.17GB
+  L0(39MB)+L1      n=    3  输入 p50=   98.0MB p90=   98.4MB max=   98.4MB  输出 p50=  59.3MB max=  59.4MB  sum_in=  0.28GB sum_out=  0.17GB
+  L0(34MB)+L1      n=    3  输入 p50=   91.8MB p90=   96.5MB max=   96.5MB  输出 p50=  57.9MB max=  62.0MB  sum_in=  0.27GB sum_out=  0.17GB
+  L0(10MB)+L1      n=    3  输入 p50=   26.3MB p90=   27.0MB max=   27.0MB  输出 p50=  16.6MB max=  16.7MB  sum_in=  0.08GB sum_out=  0.05GB
+  L0(289MB)+L1     n=    2  输入 p50=  530.1MB p90=  530.1MB max=  530.1MB  输出 p50= 363.4MB max= 363.4MB  sum_in=  0.86GB sum_out=  0.61GB
+  L0(57MB)+L1      n=    2  输入 p50=  338.8MB p90=  338.8MB max=  338.8MB  输出 p50= 307.5MB max= 307.5MB  sum_in=  0.50GB sum_out=  0.46GB
+  L0(111MB)+L1     n=    2  输入 p50=  523.5MB p90=  523.5MB max=  523.5MB  输出 p50= 429.9MB max= 429.9MB  sum_in=  0.98GB sum_out=  0.80GB
+  L0(369MB)+L1     n=    2  输入 p50=  587.5MB p90=  587.5MB max=  587.5MB  输出 p50= 364.5MB max= 364.5MB  sum_in=  1.09GB sum_out=  0.69GB
+  L0(277MB)+L1     n=    2  输入 p50=  553.4MB p90=  553.4MB max=  553.4MB  输出 p50= 383.2MB max= 383.2MB  sum_in=  1.00GB sum_out=  0.70GB
+  L0(44MB)+L1      n=    2  输入 p50=  124.4MB p90=  124.4MB max=  124.4MB  输出 p50=  80.8MB max=  80.8MB  sum_in=  0.22GB sum_out=  0.14GB
+  L0(166MB)+L1     n=    2  输入 p50=  494.3MB p90=  494.3MB max=  494.3MB  输出 p50= 383.3MB max= 383.3MB  sum_in=  0.83GB sum_out=  0.66GB
+  L0(1092MB)+L1    n=    2  输入 p50= 1361.0MB p90= 1361.0MB max= 1361.0MB  输出 p50= 501.5MB max= 501.5MB  sum_in=  2.50GB sum_out=  0.96GB
+  L0(167MB)+L1     n=    2  输入 p50=  421.3MB p90=  421.3MB max=  421.3MB  输出 p50= 332.3MB max= 332.3MB  sum_in=  0.76GB sum_out=  0.61GB
+  L0(30MB)+L1      n=    2  输入 p50=   87.6MB p90=   87.6MB max=   87.6MB  输出 p50=  58.1MB max=  58.1MB  sum_in=  0.15GB sum_out=  0.09GB
+  L0(27MB)+L1      n=    2  输入 p50=   79.7MB p90=   79.7MB max=   79.7MB  输出 p50=  53.2MB max=  53.2MB  sum_in=  0.14GB sum_out=  0.09GB
+  L0(28MB)+L1      n=    2  输入 p50=   86.3MB p90=   86.3MB max=   86.3MB  输出 p50=  58.5MB max=  58.5MB  sum_in=  0.15GB sum_out=  0.09GB
+  L0(424MB)+L1     n=    1  输入 p50=  480.3MB p90=  480.3MB max=  480.3MB  输出 p50= 315.3MB max= 315.3MB  sum_in=  0.47GB sum_out=  0.31GB
+  L0(547MB)+L1     n=    1  输入 p50=  604.6MB p90=  604.6MB max=  604.6MB  输出 p50= 362.7MB max= 362.7MB  sum_in=  0.59GB sum_out=  0.35GB
+  L0(222MB)+L1     n=    1  输入 p50=  584.9MB p90=  584.9MB max=  584.9MB  输出 p50= 412.6MB max= 412.6MB  sum_in=  0.57GB sum_out=  0.40GB
+  L0(1059MB)+L1    n=    1  输入 p50= 1120.5MB p90= 1120.5MB max= 1120.5MB  输出 p50= 474.0MB max= 474.0MB  sum_in=  1.09GB sum_out=  0.46GB
+  L0(106MB)+L1     n=    1  输入 p50=  549.8MB p90=  549.8MB max=  549.8MB  输出 p50= 454.4MB max= 454.4MB  sum_in=  0.54GB sum_out=  0.44GB
+  L0(340MB)+L1     n=    1  输入 p50=  636.7MB p90=  636.7MB max=  636.7MB  输出 p50= 407.2MB max= 407.2MB  sum_in=  0.62GB sum_out=  0.40GB
+  L0 only          n=    1  输入 p50=  445.2MB p90=  445.2MB max=  445.2MB  输出 p50= 304.4MB max= 304.4MB  sum_in=  0.43GB sum_out=  0.30GB
+  L0(174MB)+L1     n=    1  输入 p50=  504.8MB p90=  504.8MB max=  504.8MB  输出 p50= 386.0MB max= 386.0MB  sum_in=  0.49GB sum_out=  0.38GB
+  L0(318MB)+L1     n=    1  输入 p50=  648.9MB p90=  648.9MB max=  648.9MB  输出 p50= 406.3MB max= 406.3MB  sum_in=  0.63GB sum_out=  0.40GB
+  L0(273MB)+L1     n=    1  输入 p50=  577.4MB p90=  577.4MB max=  577.4MB  输出 p50= 389.9MB max= 389.9MB  sum_in=  0.56GB sum_out=  0.38GB
+  L0(266MB)+L1     n=    1  输入 p50=  611.9MB p90=  611.9MB max=  611.9MB  输出 p50= 412.7MB max= 412.7MB  sum_in=  0.60GB sum_out=  0.40GB
+  L0(160MB)+L1     n=    1  输入 p50=  526.9MB p90=  526.9MB max=  526.9MB  输出 p50= 405.0MB max= 405.0MB  sum_in=  0.51GB sum_out=  0.40GB
+  L0(4MB)+L1       n=    1  输入 p50=    6.9MB p90=    6.9MB max=    6.9MB  输出 p50=   6.2MB max=   6.2MB  sum_in=  0.01GB sum_out=  0.01GB
+  L0(101MB)+L1     n=    1  输入 p50=  524.7MB p90=  524.7MB max=  524.7MB  输出 p50= 435.0MB max= 435.0MB  sum_in=  0.51GB sum_out=  0.42GB
+  L0(64MB)+L1      n=    1  输入 p50=  132.2MB p90=  132.2MB max=  132.2MB  输出 p50=  72.6MB max=  72.6MB  sum_in=  0.13GB sum_out=  0.07GB
+  L0(0MB)+L1       n=    1  输入 p50=    1.1MB p90=    1.1MB max=    1.1MB  输出 p50=   0.6MB max=   0.6MB  sum_in=  0.00GB sum_out=  0.00GB
+  L0(9MB)+L1       n=    1  输入 p50=   18.2MB p90=   18.2MB max=   18.2MB  输出 p50=   9.7MB max=   9.7MB  sum_in=  0.02GB sum_out=  0.01GB
+  L0(59MB)+L1      n=    1  输入 p50=  125.5MB p90=  125.5MB max=  125.5MB  输出 p50=  69.3MB max=  69.3MB  sum_in=  0.12GB sum_out=  0.07GB
+  L0(386MB)+L1     n=    1  输入 p50=  502.3MB p90=  502.3MB max=  502.3MB  输出 p50= 341.5MB max= 341.5MB  sum_in=  0.49GB sum_out=  0.33GB
+  L0(310MB)+L1     n=    1  输入 p50=  363.4MB p90=  363.4MB max=  363.4MB  输出 p50= 270.1MB max= 270.1MB  sum_in=  0.35GB sum_out=  0.26GB
+  L0(62MB)+L1      n=    1  输入 p50=  162.2MB p90=  162.2MB max=  162.2MB  输出 p50= 101.1MB max= 101.1MB  sum_in=  0.16GB sum_out=  0.10GB
+  L0(593MB)+L1     n=    1  输入 p50=  700.2MB p90=  700.2MB max=  700.2MB  输出 p50= 390.0MB max= 390.0MB  sum_in=  0.68GB sum_out=  0.38GB
+  L0(5MB)+L1       n=    1  输入 p50=   11.6MB p90=   11.6MB max=   11.6MB  输出 p50=   7.7MB max=   7.7MB  sum_in=  0.01GB sum_out=  0.01GB
+  L0(209MB)+L1     n=    1  输入 p50=  384.8MB p90=  384.8MB max=  384.8MB  输出 p50= 290.1MB max= 290.1MB  sum_in=  0.38GB sum_out=  0.28GB
+  L0(216MB)+L1     n=    1  输入 p50=  468.0MB p90=  468.0MB max=  468.0MB  输出 p50= 343.9MB max= 343.9MB  sum_in=  0.46GB sum_out=  0.34GB
+  L0(1MB)+L1       n=    1  输入 p50=    1.2MB p90=    1.2MB max=    1.2MB  输出 p50=   0.6MB max=   0.6MB  sum_in=  0.00GB sum_out=  0.00GB
+  L0(986MB)+L1     n=    1  输入 p50= 1315.7MB p90= 1315.7MB max= 1315.7MB  输出 p50= 502.4MB max= 502.4MB  sum_in=  1.28GB sum_out=  0.49GB
+  L0(38MB)+L1      n=    1  输入 p50=   97.0MB p90=   97.0MB max=   97.0MB  输出 p50=  59.3MB max=  59.3MB  sum_in=  0.09GB sum_out=  0.06GB
+  L0(348MB)+L1     n=    1  输入 p50=  575.7MB p90=  575.7MB max=  575.7MB  输出 p50= 374.1MB max= 374.1MB  sum_in=  0.56GB sum_out=  0.37GB
+  L0(20MB)+L1      n=    1  输入 p50=   48.0MB p90=   48.0MB max=   48.0MB  输出 p50=  27.7MB max=  27.7MB  sum_in=  0.05GB sum_out=  0.03GB
+  L0(155MB)+L1     n=    1  输入 p50=  363.4MB p90=  363.4MB max=  363.4MB  输出 p50= 289.2MB max= 289.2MB  sum_in=  0.35GB sum_out=  0.28GB
+  L0(544MB)+L1     n=    1  输入 p50=  696.7MB p90=  696.7MB max=  696.7MB  输出 p50= 390.7MB max= 390.7MB  sum_in=  0.68GB sum_out=  0.38GB
+  L0(168MB)+L1     n=    1  输入 p50=  297.0MB p90=  297.0MB max=  297.0MB  输出 p50= 245.5MB max= 245.5MB  sum_in=  0.29GB sum_out=  0.24GB
+  L0(258MB)+L1     n=    1  输入 p50=  449.7MB p90=  449.7MB max=  449.7MB  输出 p50= 320.5MB max= 320.5MB  sum_in=  0.44GB sum_out=  0.31GB
+  L0(267MB)+L1     n=    1  输入 p50=  526.2MB p90=  526.2MB max=  526.2MB  输出 p50= 365.5MB max= 365.5MB  sum_in=  0.51GB sum_out=  0.36GB
+  L0(29MB)+L1      n=    1  输入 p50=   87.0MB p90=   87.0MB max=   87.0MB  输出 p50=  58.2MB max=  58.2MB  sum_in=  0.08GB sum_out=  0.06GB
+  L0(328MB)+L1     n=    1  输入 p50=  570.1MB p90=  570.1MB max=  570.1MB  输出 p50= 381.3MB max= 381.3MB  sum_in=  0.56GB sum_out=  0.37GB
+  L0(305MB)+L1     n=    1  输入 p50=  534.6MB p90=  534.6MB max=  534.6MB  输出 p50= 356.8MB max= 356.8MB  sum_in=  0.52GB sum_out=  0.35GB
+  L0(12MB)+L1      n=    1  输入 p50=   32.5MB p90=   32.5MB max=   32.5MB  输出 p50=  20.3MB max=  20.3MB  sum_in=  0.03GB sum_out=  0.02GB
+  L0(218MB)+L1     n=    1  输入 p50=  435.2MB p90=  435.2MB max=  435.2MB  输出 p50= 329.4MB max= 329.4MB  sum_in=  0.43GB sum_out=  0.32GB
+  L0(583MB)+L1     n=    1  输入 p50=  797.9MB p90=  797.9MB max=  797.9MB  输出 p50= 419.4MB max= 419.4MB  sum_in=  0.78GB sum_out=  0.41GB
+  L0(210MB)+L1     n=    1  输入 p50=  554.2MB p90=  554.2MB max=  554.2MB  输出 p50= 401.4MB max= 401.4MB  sum_in=  0.54GB sum_out=  0.39GB
+  L0(257MB)+L1     n=    1  输入 p50=  349.4MB p90=  349.4MB max=  349.4MB  输出 p50= 265.7MB max= 265.7MB  sum_in=  0.34GB sum_out=  0.26GB
+  L0(966MB)+L1     n=    1  输入 p50= 1289.6MB p90= 1289.6MB max= 1289.6MB  输出 p50= 501.2MB max= 501.2MB  sum_in=  1.26GB sum_out=  0.49GB
+  L0(377MB)+L1     n=    1  输入 p50=  543.4MB p90=  543.4MB max=  543.4MB  输出 p50= 342.4MB max= 342.4MB  sum_in=  0.53GB sum_out=  0.33GB
+  L0(558MB)+L1     n=    1  输入 p50=  791.3MB p90=  791.3MB max=  791.3MB  输出 p50= 415.3MB max= 415.3MB  sum_in=  0.77GB sum_out=  0.41GB
+  L0(173MB)+L1     n=    1  输入 p50=  415.3MB p90=  415.3MB max=  415.3MB  输出 p50= 323.7MB max= 323.7MB  sum_in=  0.41GB sum_out=  0.32GB
+  L0(215MB)+L1     n=    1  输入 p50=  379.8MB p90=  379.8MB max=  379.8MB  输出 p50= 283.8MB max= 283.8MB  sum_in=  0.37GB sum_out=  0.28GB
+  L0(334MB)+L1     n=    1  输入 p50=  608.3MB p90=  608.3MB max=  608.3MB  输出 p50= 386.6MB max= 386.6MB  sum_in=  0.59GB sum_out=  0.38GB
+  L0(1073MB)+L1    n=    1  输入 p50= 1336.1MB p90= 1336.1MB max= 1336.1MB  输出 p50= 497.4MB max= 497.4MB  sum_in=  1.30GB sum_out=  0.49GB
+  L0(61MB)+L1      n=    1  输入 p50=  136.9MB p90=  136.9MB max=  136.9MB  输出 p50=  75.9MB max=  75.9MB  sum_in=  0.13GB sum_out=  0.07GB
+  L0(335MB)+L1     n=    1  输入 p50=  602.3MB p90=  602.3MB max=  602.3MB  输出 p50= 393.3MB max= 393.3MB  sum_in=  0.59GB sum_out=  0.38GB
+  L0(13MB)+L1      n=    1  输入 p50=   29.4MB p90=   29.4MB max=   29.4MB  输出 p50=  16.6MB max=  16.6MB  sum_in=  0.03GB sum_out=  0.02GB
+  L0(365MB)+L1     n=    1  输入 p50=  520.8MB p90=  520.8MB max=  520.8MB  输出 p50= 338.1MB max= 338.1MB  sum_in=  0.51GB sum_out=  0.33GB
+
+闭包分布（L0→L1 事件，MB）：
+  p10:    305.9
+  p50:    421.3
+  p90:    611.9
+  p99:   1336.1
+  max:   1361.0   mean:    469.8
+
+ZF 安装: n=416 总字节=28.77 GiB  (安装/用户=0.94x)
+
+  lvl=0: n=412 total=29228.4MB avg=70.94MB max=112.65MB
+  lvl=1: n=4 total=236.1MB avg=59.02MB max=61.76MB
+
+封存 epoch: n=133 size p50=64.0MB p90=64.0MB max=64.0MB
+调度快照 n=54: l1n max=41 l2n max=64 l1score max=0.96 l2bytes max=1.96GiB bgc max=16
+skip 汇总（末次）: {'no_merge': 0, 'busy': 0, 'sink': 0}
+终态 files[L0..Ln]: [17, 29, 68, 0, 0, 0, 0] (L0=17 L1=29)
