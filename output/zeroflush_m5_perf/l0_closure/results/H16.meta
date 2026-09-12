@@ -1,0 +1,4 @@
+=== final files[] ===
+2026/09/12-19:36:29.763903 3814563 (Original Log Time 2026/09/12-19:36:29.763828) [db/compaction/compaction_job.cc:1232] [default] compacted to: files[19 39 0 0 0 0 0] max score 1.06, estimated pending compaction bytes 2251224830, MB/sec: 3518.6 rd, 1837.3 wr, level 1, files in(1, 6) filtered(0, 0) out(5 +0 blob) MB in(54.0, 245.5 +0.0 blob) filtered(0.0, 0.0) out(156.4 +0.0 blob), read-write-amplify(8.4) write-amplify(2.9) Shutdown in progress: Database shutdown, records in: 297699, records dropped: 141502 output_compression: NoCompression
+=== L1/L2 sizes ===
+2.3G	/home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/l0_closure/db_H16
