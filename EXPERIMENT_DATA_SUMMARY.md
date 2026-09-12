@@ -11,7 +11,7 @@
 
 | 实验 | 日期 | 配置 | ZeroFlush | 原生 RocksDB | 来源 |
 |---|---|---|---|---|---|
-| exp0 flush 成本分解 | 08-05 | 80M ops/8T；100B·1K·4K × value-seq/uniform | — | 838,964 / 312,675 / 76,133 / 25,905 / 9,558 / 3,106 ops/s | `exp_design/pre_experiment/report/exp0_stage_report.md` |
+| exp0 flush 成本分解 | 08-05 | 80M ops/8T；100B·1K·4K × value-seq/uniform | — | 838,964 / 312,675 / 76,133 / 25,905 / 9,558 / 3,106 ops/s | `[已归档 /home/embed/hyl/metadata_offload-archive/pre-v0-experiments/]exp_design/pre_experiment/report/exp0_stage_report.md` |
 | exp1 L0 overlap 干预 | 08-05 | 10M 写×8T/1KB，flush 按 L1 边界分区 | overlap 6.0→1.98（zipf）/7.0→0.23（unif）；吞吐 −62.7%/−68.8% | baseline 58,522（zipf） | `.../exp1_stage_report.md` |
 | exp2 分区开销门 | 08-04 | range lookup P∈{64,128,256}；multi-WAL P∈{1,16,64}×{A,B} | lookup p99 ≤90ns；P=64 组提交回退 76.8%（A）/19.5%（B） | P=1 A sync 306,743 ops/s | `.../exp2_stage_report.md` |
 | M3 早期 50GB 基准 | 08-20/21 | 50GB/16T，P=64 | 3,387（256B）/ 1,919（1KB）ops/s | 124,125 / 30,255 | `source/rocksdb-zeroflush/benchmark_analysis_report.md` |
@@ -28,7 +28,7 @@
 | **cmp_1kb50 同窗对照** | 09-02 | 50GB/1KB/16T | **27,066 ops/s**（1,773s）；read 63,284 | 26,409（1,818s）；read 356,717 | `.../cmp_1kb50/RESULTS.md` |
 | cmp_1kb100 | 09-03 | 100GB/1KB | 19,701（0.907×） | 21,725 | `.../cmp_1kb100/RESULTS.md` |
 | zf09_100gb | 09-03 | 100GB/1KB | 17,098（0.79×）；写 P50 294.8µs/P99 5,034µs | 21,680 | `.../zf09_100gb_1kb/RESULTS.md` |
-| **vanilla_100gb smoke** | 08-25 | 3.87GiB/4T/1KB | — | **50,943 ops/s**，P99 32.53µs，设备写放大 3.975× | `output/vanilla_100gb/smoke_run/report.md` |
+| **vanilla_100gb smoke** | 08-25 | 3.87GiB/4T/1KB | — | **50,943 ops/s**，P99 32.53µs，设备写放大 3.975× | `[已归档 /home/embed/hyl/metadata_offload-archive/abandoned-baselines/]output_vanilla_100gb/smoke_run/report.md` |
 
 ---
 
@@ -162,7 +162,7 @@ L0→L1 单 job avg 15.7–18.1s，深层累计为 wall 的 1080–1116%。
 
 ## 8. 其他对照
 
-- **vanilla_100gb 正式基线**：**从未产出**（`output/vanilla_100gb/` 仅 smoke_run 3.87GiB）。
+- **vanilla_100gb 正式基线**：**从未产出**（`[已归档 /home/embed/hyl/metadata_offload-archive/abandoned-baselines/]output_vanilla_100gb/` 仅 smoke_run 3.87GiB）。
 - **R47e 历史 1KB/100GB**（原始文件已删）：原生 23.8K vs ZF 12.4K（1.92×）。
 
 ---
