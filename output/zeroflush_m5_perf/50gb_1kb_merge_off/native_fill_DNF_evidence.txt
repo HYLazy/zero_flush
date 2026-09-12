@@ -1,0 +1,11 @@
+native fill DNF（2026-09-12）
+运行时长: 16h13m；DB 85GB（raw 47.6GB，空间放大 1.79x）；未产出 fillrandom 结果行
+同机负载: load≈22-24（**订正 2026-09-12：经监控时间线核对，该负载为本实验
+自身线程产生**——load 随 14:31 起跑升起、随进程被杀立刻回落至 2.4；机器无其他
+用户作业。详见 ENV_DIAGNOSIS.md §2）；db_bench 仅 ~50% CPU（16 写线程在 IO
+等待，属踩盘退化特征）
+根因（2026-09-12 复现确认）: 系统盘 WD_BLACK SN750 2TB flush/fsync 延迟在并发
+写下尖峰 5-8 秒（空闲 0.67ms / 并发 max 6745ms），fill 吞吐降至 1,166 ops/s
+（历史同参 26,409 ops/s，22.6x）；盘温全程 84.8-85.8°C（阈值 83.8°C，ALARM）。
+4M ops 复现探针 15m44s 未完成且现 8.1s long op。详见 ENV_DIAGNOSIS.md §3
+对比：历史上同参 native fill 30 分钟完成（cmp_1kb50）

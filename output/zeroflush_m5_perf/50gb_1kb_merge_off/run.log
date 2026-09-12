@@ -1,0 +1,28 @@
++ BASE=/home/embed/hyl/metadata_offload
++ ZF_BIN=/home/embed/hyl/metadata_offload/source/rocksdb-zeroflush/build_rel/db_bench
++ NAT_BIN=/home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench
++ COMMON='--key_size=16 --value_size=1024 --num=48000000 --threads=16 --compression_type=none --cache_size=536870912 --max_background_jobs=24 --subcompactions=16 --histogram=true --statistics=false --use_existing_db=0'
++ ZF_FLAGS='--zeroflush --zf_partitions=16 --zf_routing=sampled --zf_value_cache_mb=64 --zf_skip_batching=false --zf_base_merge=false'
++ COMMON_R='--key_size=16 --value_size=1024 --num=48000000 --threads=16 --compression_type=none --cache_size=536870912 --max_background_jobs=24 --subcompactions=16 --histogram=true --reads=8000000 --use_existing_db=1'
++ rm -rf /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/db_zf_50gb
++ LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
++ /home/embed/hyl/metadata_offload/source/rocksdb-zeroflush/build_rel/db_bench --benchmarks=fillrandom --key_size=16 --value_size=1024 --num=48000000 --threads=16 --compression_type=none --cache_size=536870912 --max_background_jobs=24 --subcompactions=16 --histogram=true --statistics=false --use_existing_db=0 --zeroflush --zf_partitions=16 --zf_routing=sampled --zf_value_cache_mb=64 --zf_skip_batching=false --zf_base_merge=false --db=/home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/db_zf_50gb
+./run.sh: line 22: 3143890 Killed                  LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu $ZF_BIN --benchmarks=fillrandom $COMMON $ZF_FLAGS --db=$BASE/output/zeroflush_m5_perf/db_zf_50gb > zf_fill.log 2>&1
++ echo ZF_FILL_RC=137
+ZF_FILL_RC=137
++ LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
++ /home/embed/hyl/metadata_offload/source/rocksdb-zeroflush/build_rel/db_bench --benchmarks=readrandom --key_size=16 --value_size=1024 --num=48000000 --threads=16 --compression_type=none --cache_size=536870912 --max_background_jobs=24 --subcompactions=16 --histogram=true --reads=8000000 --use_existing_db=1 --zeroflush --zf_partitions=16 --zf_routing=sampled --zf_value_cache_mb=64 --zf_skip_batching=false --zf_base_merge=false --db=/home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/db_zf_50gb
++ echo ZF_READ_RC=1
+ZF_READ_RC=1
++ rm -rf /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/db_nat_50gb
++ LD_LIBRARY_PATH=/home/embed/hyl/metadata_offload/source/rocksdb/build:/usr/lib/x86_64-linux-gnu
++ /home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench --benchmarks=fillrandom --key_size=16 --value_size=1024 --num=48000000 --threads=16 --compression_type=none --cache_size=536870912 --max_background_jobs=24 --subcompactions=16 --histogram=true --statistics=false --use_existing_db=0 --db=/home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/db_nat_50gb
+./run.sh: line 31: 3259420 Killed                  LD_LIBRARY_PATH=$BASE/source/rocksdb/build:/usr/lib/x86_64-linux-gnu $NAT_BIN --benchmarks=fillrandom $COMMON --db=$BASE/output/zeroflush_m5_perf/db_nat_50gb > native_fill.log 2>&1
++ echo NAT_FILL_RC=137
+NAT_FILL_RC=137
++ LD_LIBRARY_PATH=/home/embed/hyl/metadata_offload/source/rocksdb/build:/usr/lib/x86_64-linux-gnu
++ /home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench --benchmarks=readrandom --key_size=16 --value_size=1024 --num=48000000 --threads=16 --compression_type=none --cache_size=536870912 --max_background_jobs=24 --subcompactions=16 --histogram=true --reads=8000000 --use_existing_db=1 --db=/home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/db_nat_50gb
++ echo NAT_READ_RC=0
+NAT_READ_RC=0
++ echo ALL_DONE
+ALL_DONE

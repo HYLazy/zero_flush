@@ -1,0 +1,5 @@
+ZF merge-off db_bench fill DNF（2026-09-11）
+运行时长:    05:07:17
+SST: 70.8GB / 2227 files；WAL 0.2GB/16；space amp vs raw 47.6GB = 1.49x
+long op: 1569 次（尾部 ~1.6s/次）；epoch=1121
+参数: --zeroflush --zf_partitions=16 --zf_routing=sampled --zf_value_cache_mb=64 --zf_skip_batching=false --zf_base_merge=false
