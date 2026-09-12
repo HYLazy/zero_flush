@@ -1,0 +1,7 @@
+=== P16_parts (partitions=16) 20:05:58 ===
+fillrandom   :      69.356 micros/op 230600 ops/sec 69.384 seconds 16000000 operations;  228.7 MB/s
+=== P64_parts (partitions=64) 20:07:08 ===
+fillrandom   :      92.297 micros/op 173270 ops/sec 92.341 seconds 16000000 operations;  171.9 MB/s
+=== P256_parts (partitions=256) 20:08:41 ===
+fillrandom   :     214.939 micros/op 74405 ops/sec 215.037 seconds 16000000 operations;   73.8 MB/s
+PARTS_DONE
