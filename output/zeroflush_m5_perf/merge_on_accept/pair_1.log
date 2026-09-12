@@ -1,0 +1,693 @@
+RocksDB:    version 11.2.0
+Date:       Sat Sep 12 22:28:02 2026
+CPU:        36 * Intel(R) Core(TM) i9-10980XE CPU @ 3.00GHz
+CPUCache:   25344 KB
+ZFDBG-seal active=0 over=0 imem=0 budget=4294967296
+... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ZFDBG-slowop route_us=2 wal_us=210 ins_us=2 part=11 gen=0
+... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ZFDBG-slowop route_us=6 wal_us=196 ins_us=1 part=11 gen=0
+ZFDBG-slowop route_us=5 wal_us=194 ins_us=2 part=11 gen=0
+ZFDBG-slowop route_us=7 wal_us=195 ins_us=2 part=13 gen=0
+... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=0 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=0 l2n=0 l2bytes=0
+ZFDBG-skip no_merge=0 busy=0 batch_l0=0 l0busy=0 dirconf=0 batchprev=0 bytes=0 sink=0 cross=0 act=16
+ZFDBG-slowop route_us=0 wal_us=1 ins_us=202 part=13 gen=0
+ZFDBG-slowop route_us=13 wal_us=0 ins_us=206 part=15 gen=0
+ZFDBG-slowop route_us=6 wal_us=213 ins_us=4 part=8 gen=0
+ZFDBG-slowop route_us=2 wal_us=218 ins_us=2 part=2 gen=1
+ZFDBG-slowop route_us=7 wal_us=0 ins_us=203 part=8 gen=0
+ZFDBG-slowop route_us=16 wal_us=200 ins_us=1 part=5 gen=1
+ZFDBG-slowop route_us=5 wal_us=5 ins_us=202 part=9 gen=0
+ZFDBG-slowop route_us=4 wal_us=201 ins_us=2 part=5 gen=1
+ZFDBG-slowop route_us=4 wal_us=199 ins_us=1 part=5 gen=1
+ZFDBG-slowop route_us=8 wal_us=217 ins_us=1 part=6 gen=0
+ZFDBG-slowop route_us=8 wal_us=214 ins_us=3 part=6 gen=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=0 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=0 l2n=0 l2bytes=0
+... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ZFDBG-slowop route_us=4 wal_us=1 ins_us=400 part=0 gen=1
+ZFDBG-slowop route_us=4 wal_us=1 ins_us=360 part=7 gen=1
+ZFDBG-slowop route_us=7 wal_us=0 ins_us=446 part=10 gen=1
+ZFDBG-slowop route_us=3 wal_us=1 ins_us=224 part=1 gen=0
+ZFDBG-slowop route_us=3 wal_us=0 ins_us=264 part=11 gen=0
+ZFDBG-slowop route_us=4 wal_us=0 ins_us=379 part=12 gen=1
+ZFDBG-slowop route_us=6 wal_us=6 ins_us=465 part=7 gen=1
+ZFDBG-slowop route_us=5 wal_us=5 ins_us=467 part=7 gen=1
+ZFDBG-slowop route_us=0 wal_us=1 ins_us=309 part=2 gen=1
+ZFDBG-slowop route_us=3 wal_us=4 ins_us=1828 part=1 gen=0
+ZFDBG-slowop route_us=1 wal_us=22 ins_us=3651 part=9 gen=0
+ZFDBG-slowop route_us=13 wal_us=1465 ins_us=5 part=10 gen=1
+ZFDBG-batch [JOB 2] stage1_us=352376 epochs=1 tasks=1
+ZFDBG-slowop route_us=7 wal_us=14 ins_us=933 part=5 gen=1
+ZFDBG-install lvl=1 file=9 lo=000000000000004C3030303030303030 hi=00000000000316D23030303030303030 bytes=4308696 part=2 dec=0
+ZFDBG-install lvl=1 file=10 lo=00000000000317433030303030303030 hi=000000000005D8B63030303030303030 bytes=3905697 part=2 dec=0
+ZFDBG-install lvl=1 file=11 lo=000000000005D8D03030303030303030 hi=000000000008BDDE3030303030303030 bytes=3971111 part=2 dec=0
+ZFDBG-install lvl=1 file=12 lo=000000000008BE323030303030303030 hi=00000000000B99E23030303030303030 bytes=4031240 part=2 dec=0
+ZFDBG-install lvl=1 file=13 lo=00000000000B9A333030303030303030 hi=00000000000E4EB43030303030303030 bytes=3801238 part=2 dec=0
+ZFDBG-install lvl=1 file=14 lo=00000000000E4F013030303030303030 hi=00000000001132B03030303030303030 bytes=4075545 part=2 dec=0
+ZFDBG-install lvl=1 file=15 lo=00000000001132C03030303030303030 hi=0000000000141AFF3030303030303030 bytes=4106148 part=2 dec=0
+ZFDBG-install lvl=1 file=17 lo=0000000000141B083030303030303030 hi=00000000001706CC3030303030303030 bytes=4066029 part=2 dec=0
+ZFDBG-install lvl=1 file=18 lo=00000000001707163030303030303030 hi=00000000001995B33030303030303030 bytes=3543830 part=2 dec=0
+ZFDBG-install lvl=1 file=19 lo=00000000001995F73030303030303030 hi=00000000001C4EC23030303030303030 bytes=3882432 part=2 dec=0
+ZFDBG-install lvl=1 file=20 lo=00000000001C4F063030303030303030 hi=00000000001F3C293030303030303030 bytes=4187381 part=2 dec=0
+ZFDBG-install lvl=1 file=21 lo=00000000001F3C5E3030303030303030 hi=00000000002219CD3030303030303030 bytes=3982726 part=2 dec=0
+ZFDBG-install lvl=1 file=22 lo=00000000002219D33030303030303030 hi=000000000024FFF63030303030303030 bytes=4109280 part=2 dec=0
+ZFDBG-install lvl=1 file=23 lo=00000000002500173030303030303030 hi=000000000027C4F83030303030303030 bytes=3936275 part=2 dec=0
+ZFDBG-install lvl=1 file=24 lo=000000000027C4FD3030303030303030 hi=00000000002B26583030303030303030 bytes=4773991 part=2 dec=0
+ZFDBG-install lvl=1 file=25 lo=00000000002B27493030303030303030 hi=00000000002DC6813030303030303030 bytes=3718909 part=2 dec=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-rfi epoch=1 part=14 gen=0
+ZFDBG-skip no_merge=0 busy=0 batch_l0=0 l0busy=0 dirconf=0 batchprev=0 bytes=0 sink=0 cross=0 act=16
+ZFDBG-rfi epoch=1 part=5 gen=0
+ZFDBG-rfi epoch=1 part=10 gen=0
+ZFDBG-rfi epoch=1 part=2 gen=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-frz part=3 gen=0 size=25964148
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ZFDBG-slowop route_us=4 wal_us=201 ins_us=3 part=0 gen=1
+... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ZFDBG-slowop route_us=0 wal_us=201 ins_us=1 part=3 gen=1
+ZFDBG-batch [JOB 3] stage1_us=434852 epochs=1 tasks=1
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000000000293030303030303030,00000000000316E53030303030303030] hit=file9 [000000000000004C3030303030303030,00000000000316D23030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000000316EB3030303030303030,000000000005D8553030303030303030] hit=file10 [00000000000317433030303030303030,000000000005D8B63030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[000000000005D8C43030303030303030,000000000008BD9C3030303030303030] hit=file11 [000000000005D8D03030303030303030,000000000008BDDE3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[000000000008BE663030303030303030,00000000000B99F93030303030303030] hit=file12 [000000000008BE323030303030303030,00000000000B99E23030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000000B9A0D3030303030303030,00000000000E4ED23030303030303030] hit=file13 [00000000000B9A333030303030303030,00000000000E4EB43030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000000E4EE83030303030303030,00000000001132B33030303030303030] hit=file14 [00000000000E4F013030303030303030,00000000001132B03030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000001132C13030303030303030,0000000000141AF53030303030303030] hit=file15 [00000000001132C03030303030303030,0000000000141AFF3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[0000000000141B2F3030303030303030,00000000001706DB3030303030303030] hit=file17 [0000000000141B083030303030303030,00000000001706CC3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000001707473030303030303030,00000000001995C63030303030303030] hit=file18 [00000000001707163030303030303030,00000000001995B33030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000001995D03030303030303030,00000000001C4E9F3030303030303030] hit=file19 [00000000001995F73030303030303030,00000000001C4EC23030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000001C4EDF3030303030303030,00000000001F3C3E3030303030303030] hit=file20 [00000000001C4F063030303030303030,00000000001F3C293030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000001F3C573030303030303030,00000000002219CF3030303030303030] hit=file21 [00000000001F3C5E3030303030303030,00000000002219CD3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000002219D43030303030303030,00000000002500103030303030303030] hit=file22 [00000000002219D33030303030303030,000000000024FFF63030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[000000000025005E3030303030303030,000000000027C4FC3030303030303030] hit=file23 [00000000002500173030303030303030,000000000027C4F83030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[000000000027C5403030303030303030,00000000002B25F23030303030303030] hit=file24 [000000000027C4FD3030303030303030,00000000002B26583030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000002B26673030303030303030,00000000002DC6BE3030303030303030] hit=file25 [00000000002B27493030303030303030,00000000002DC6813030303030303030]
+ZFDBG-install lvl=0 file=26 lo=00000000000000293030303030303030 hi=00000000000316E53030303030303030 bytes=8638483 part=0 dec=0
+ZFDBG-install lvl=0 file=28 lo=00000000000316EB3030303030303030 hi=000000000005D8553030303030303030 bytes=3715814 part=0 dec=0
+ZFDBG-install lvl=0 file=29 lo=000000000005D8C43030303030303030 hi=000000000008BD9C3030303030303030 bytes=4145202 part=0 dec=0
+ZFDBG-install lvl=0 file=30 lo=000000000008BE663030303030303030 hi=00000000000B99F93030303030303030 bytes=3871950 part=0 dec=0
+ZFDBG-install lvl=0 file=31 lo=00000000000B9A0D3030303030303030 hi=00000000000E4ED23030303030303030 bytes=3866622 part=0 dec=0
+ZFDBG-install lvl=0 file=32 lo=00000000000E4EE83030303030303030 hi=00000000001132B33030303030303030 bytes=4060785 part=0 dec=0
+ZFDBG-install lvl=0 file=33 lo=00000000001132C13030303030303030 hi=0000000000141AF53030303030303030 bytes=8192202 part=0 dec=0
+ZFDBG-install lvl=0 file=34 lo=0000000000141B2F3030303030303030 hi=00000000001706DB3030303030303030 bytes=8157368 part=0 dec=0
+ZFDBG-install lvl=0 file=35 lo=00000000001707473030303030303030 hi=00000000001995C63030303030303030 bytes=3496316 part=0 dec=0
+ZFDBG-install lvl=0 file=36 lo=00000000001995D03030303030303030 hi=00000000001C4E9F3030303030303030 bytes=3728460 part=0 dec=0
+ZFDBG-install lvl=0 file=37 lo=00000000001C4EDF3030303030303030 hi=00000000001F3C3E3030303030303030 bytes=4187345 part=0 dec=0
+ZFDBG-install lvl=0 file=38 lo=00000000001F3C573030303030303030 hi=00000000002219CF3030303030303030 bytes=3851881 part=0 dec=0
+ZFDBG-install lvl=0 file=39 lo=00000000002219D43030303030303030 hi=00000000002500103030303030303030 bytes=8243894 part=0 dec=0
+ZFDBG-install lvl=0 file=40 lo=000000000025005E3030303030303030 hi=000000000027C4FC3030303030303030 bytes=3778016 part=0 dec=0
+ZFDBG-install lvl=0 file=41 lo=000000000027C5403030303030303030 hi=00000000002B25F23030303030303030 bytes=4557766 part=0 dec=0
+ZFDBG-install lvl=0 file=42 lo=00000000002B26673030303030303030 hi=00000000002DC6BE3030303030303030 bytes=3631363 part=0 dec=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-rfi epoch=2 part=12 gen=0
+ZFDBG-skip no_merge=0 busy=0 batch_l0=0 l0busy=0 dirconf=0 batchprev=0 bytes=0 sink=0 cross=0 act=16
+ZFDBG-rfi epoch=2 part=7 gen=0
+ZFDBG-slowop route_us=16 wal_us=9 ins_us=227 part=5 gen=1
+ZFDBG-rfi epoch=2 part=0 gen=0
+ZFDBG-rfi epoch=2 part=6 gen=0
+ZFDBG-slowop route_us=0 wal_us=1 ins_us=266 part=2 gen=1
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-slowop route_us=13 wal_us=246 ins_us=3 part=14 gen=1
+ZFDBG-slowop route_us=5 wal_us=1 ins_us=237 part=8 gen=1
+ZFDBG-slowop route_us=13 wal_us=193 ins_us=1 part=13 gen=1
+ZFDBG-slowop route_us=4 wal_us=200 ins_us=1 part=15 gen=1
+ZFDBG-slowop route_us=5 wal_us=0 ins_us=234 part=14 gen=1
+ZFDBG-slowop route_us=7 wal_us=0 ins_us=213 part=3 gen=1
+ZFDBG-slowop route_us=7 wal_us=193 ins_us=2 part=7 gen=1
+ZFDBG-slowop route_us=8 wal_us=195 ins_us=1 part=7 gen=1
+... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ZFDBG-slowop route_us=0 wal_us=201 ins_us=3 part=12 gen=1
+ZFDBG-slowop route_us=0 wal_us=203 ins_us=2 part=12 gen=1
+ZFDBG-slowop route_us=11 wal_us=4 ins_us=389 part=6 gen=1
+ZFDBG-slowop route_us=5 wal_us=0 ins_us=248 part=8 gen=1
+ZFDBG-slowop route_us=7 wal_us=4 ins_us=303 part=7 gen=1
+ZFDBG-slowop route_us=6 wal_us=0 ins_us=235 part=0 gen=1
+ZFDBG-slowop route_us=4 wal_us=1 ins_us=259 part=10 gen=1
+ZFDBG-slowop route_us=5 wal_us=0 ins_us=568 part=14 gen=1
+ZFDBG-slowop route_us=4 wal_us=4 ins_us=292 part=13 gen=1
+ZFDBG-slowop route_us=12 wal_us=4 ins_us=705 part=12 gen=1
+ZFDBG-slowop route_us=5 wal_us=5 ins_us=200 part=2 gen=1
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-slowop route_us=7 wal_us=225 ins_us=3 part=13 gen=1
+ZFDBG-slowop route_us=7 wal_us=223 ins_us=5 part=15 gen=1
+ZFDBG-slowop route_us=18 wal_us=217 ins_us=3 part=15 gen=1
+... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ZFDBG-batch [JOB 5] stage1_us=604058 epochs=1 tasks=1
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000000573030303030303030,00000000000316E63030303030303030] hit=file26 [00000000000000293030303030303030,00000000000316E53030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000317333030303030303030,000000000005D8393030303030303030] hit=file28 [00000000000316EB3030303030303030,000000000005D8553030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000005D8E73030303030303030,000000000008BE083030303030303030] hit=file29 [000000000005D8C43030303030303030,000000000008BD9C3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000008BE263030303030303030,00000000000B9A093030303030303030] hit=file30 [000000000008BE663030303030303030,00000000000B99F93030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000B9A0F3030303030303030,00000000000E4EE33030303030303030] hit=file31 [00000000000B9A0D3030303030303030,00000000000E4ED23030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000E4F1E3030303030303030,00000000001132973030303030303030] hit=file32 [00000000000E4EE83030303030303030,00000000001132B33030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000001133383030303030303030,0000000000141AC23030303030303030] hit=file33 [00000000001132C13030303030303030,0000000000141AF53030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000141B033030303030303030,00000000001706003030303030303030] hit=file34 [0000000000141B2F3030303030303030,00000000001706DB3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000001706F83030303030303030,00000000001995C73030303030303030] hit=file35 [00000000001707473030303030303030,00000000001995C63030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000001995DB3030303030303030,00000000001C4EC53030303030303030] hit=file36 [00000000001995D03030303030303030,00000000001C4E9F3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000001C4EC73030303030303030,00000000001F3C013030303030303030] hit=file37 [00000000001C4EDF3030303030303030,00000000001F3C3E3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000001F3C8E3030303030303030,00000000002219863030303030303030] hit=file38 [00000000001F3C573030303030303030,00000000002219CF3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000002219DE3030303030303030,000000000024FFBB3030303030303030] hit=file39 [00000000002219D43030303030303030,00000000002500103030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000002500123030303030303030,000000000027C4843030303030303030] hit=file40 [000000000025005E3030303030303030,000000000027C4FC3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000027C5433030303030303030,00000000002B264A3030303030303030] hit=file41 [000000000027C5403030303030303030,00000000002B25F23030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000002B266A3030303030303030,00000000002DC6B23030303030303030] hit=file42 [00000000002B26673030303030303030,00000000002DC6BE3030303030303030]
+ZFDBG-install lvl=0 file=44 lo=00000000000000573030303030303030 hi=00000000000316E63030303030303030 bytes=4300288 part=4 dec=0
+ZFDBG-install lvl=0 file=45 lo=00000000000317333030303030303030 hi=000000000005D8393030303030303030 bytes=3871958 part=4 dec=0
+ZFDBG-install lvl=0 file=46 lo=000000000005D8E73030303030303030 hi=000000000008BE083030303030303030 bytes=4088217 part=4 dec=0
+ZFDBG-install lvl=0 file=47 lo=000000000008BE263030303030303030 hi=00000000000B9A093030303030303030 bytes=4016457 part=4 dec=0
+ZFDBG-install lvl=0 file=48 lo=00000000000B9A0F3030303030303030 hi=00000000000E4EE33030303030303030 bytes=17568967 part=4 dec=0
+ZFDBG-install lvl=0 file=49 lo=00000000000E4F1E3030303030303030 hi=00000000001132973030303030303030 bytes=4056567 part=4 dec=0
+ZFDBG-install lvl=0 file=50 lo=00000000001133383030303030303030 hi=0000000000141AC23030303030303030 bytes=4071335 part=4 dec=0
+ZFDBG-install lvl=0 file=51 lo=0000000000141B033030303030303030 hi=00000000001706003030303030303030 bytes=4075566 part=4 dec=0
+ZFDBG-install lvl=0 file=53 lo=00000000001706F83030303030303030 hi=00000000001995C73030303030303030 bytes=17015079 part=4 dec=0
+ZFDBG-install lvl=0 file=54 lo=00000000001995DB3030303030303030 hi=00000000001C4EC53030303030303030 bytes=17840180 part=4 dec=0
+ZFDBG-install lvl=0 file=55 lo=00000000001C4EC73030303030303030 hi=00000000001F3C013030303030303030 bytes=4045001 part=4 dec=0
+ZFDBG-install lvl=0 file=56 lo=00000000001F3C8E3030303030303030 hi=00000000002219863030303030303030 bytes=4081876 part=4 dec=0
+ZFDBG-install lvl=0 file=57 lo=00000000002219DE3030303030303030 hi=000000000024FFBB3030303030303030 bytes=3986958 part=4 dec=0
+ZFDBG-install lvl=0 file=58 lo=00000000002500123030303030303030 hi=000000000027C4843030303030303030 bytes=3783360 part=4 dec=0
+ZFDBG-install lvl=0 file=59 lo=000000000027C5433030303030303030 hi=00000000002B264A3030303030303030 bytes=4528198 part=4 dec=0
+ZFDBG-install lvl=0 file=60 lo=00000000002B266A3030303030303030 hi=00000000002DC6B23030303030303030 bytes=17254577 part=4 dec=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-skip no_merge=0 busy=0 batch_l0=0 l0busy=0 dirconf=0 batchprev=0 bytes=0 sink=0 cross=0 act=16
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-slowop route_us=4 wal_us=252 ins_us=4 part=1 gen=1
+ZFDBG-slowop route_us=1 wal_us=220 ins_us=3 part=12 gen=2
+ZFDBG-slowop route_us=7 wal_us=198 ins_us=2 part=14 gen=2
+... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ZFDBG-slowop route_us=3 wal_us=196 ins_us=3 part=4 gen=1
+ZFDBG-slowop route_us=7 wal_us=194 ins_us=3 part=4 gen=1
+ZFDBG-slowop route_us=3 wal_us=195 ins_us=3 part=10 gen=2
+ZFDBG-slowop route_us=5 wal_us=196 ins_us=2 part=11 gen=1
+ZFDBG-slowop route_us=5 wal_us=201 ins_us=2 part=5 gen=2
+ZFDBG-slowop route_us=2 wal_us=198 ins_us=3 part=11 gen=1
+... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ZFDBG-frz part=3 gen=1 size=27678288
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-slowop route_us=3 wal_us=198 ins_us=2 part=15 gen=1
+ZFDBG-batch [JOB 4] stage1_us=476765 epochs=1 tasks=1
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000000002E3030303030303030,00000000000316DE3030303030303030] hit=file26 [00000000000000293030303030303030,00000000000316E53030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000316EE3030303030303030,000000000005D8B03030303030303030] hit=file28 [00000000000316EB3030303030303030,000000000005D8553030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000005D8DC3030303030303030,000000000008BE1D3030303030303030] hit=file29 [000000000005D8C43030303030303030,000000000008BD9C3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000008BE293030303030303030,00000000000B9A023030303030303030] hit=file30 [000000000008BE663030303030303030,00000000000B99F93030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000B9A3A3030303030303030,00000000000E4ED63030303030303030] hit=file31 [00000000000B9A0D3030303030303030,00000000000E4ED23030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000E4F083030303030303030,00000000001132B83030303030303030] hit=file32 [00000000000E4EE83030303030303030,00000000001132B33030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000001132E13030303030303030,0000000000141A743030303030303030] hit=file33 [00000000001132C13030303030303030,0000000000141AF53030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000141B063030303030303030,00000000001706593030303030303030] hit=file34 [0000000000141B2F3030303030303030,00000000001706DB3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000001706EE3030303030303030,00000000001995BC3030303030303030] hit=file35 [00000000001707473030303030303030,00000000001995C63030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000001995D83030303030303030,00000000001C4EB33030303030303030] hit=file36 [00000000001995D03030303030303030,00000000001C4E9F3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000001C4F053030303030303030,00000000001F3C103030303030303030] hit=file37 [00000000001C4EDF3030303030303030,00000000001F3C3E3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000001F3C6C3030303030303030,00000000002219CE3030303030303030] hit=file38 [00000000001F3C573030303030303030,00000000002219CF3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000221A543030303030303030,000000000024FFCD3030303030303030] hit=file39 [00000000002219D43030303030303030,00000000002500103030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000002500213030303030303030,000000000027C4F93030303030303030] hit=file40 [000000000025005E3030303030303030,000000000027C4FC3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000027C4FF3030303030303030,00000000002B26463030303030303030] hit=file41 [000000000027C5403030303030303030,00000000002B25F23030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000002B26603030303030303030,00000000002DC6A33030303030303030] hit=file42 [00000000002B26673030303030303030,00000000002DC6BE3030303030303030]
+ZFDBG-install lvl=0 file=62 lo=000000000000002E3030303030303030 hi=00000000000316DE3030303030303030 bytes=4232732 part=1 dec=0
+ZFDBG-install lvl=0 file=63 lo=00000000000316EE3030303030303030 hi=000000000005D8B03030303030303030 bytes=12492337 part=1 dec=0
+ZFDBG-install lvl=0 file=64 lo=000000000005D8DC3030303030303030 hi=000000000008BE1D3030303030303030 bytes=3921507 part=1 dec=0
+ZFDBG-install lvl=0 file=65 lo=000000000008BE293030303030303030 hi=00000000000B9A023030303030303030 bytes=12789835 part=1 dec=0
+ZFDBG-install lvl=0 file=66 lo=00000000000B9A3A3030303030303030 hi=00000000000E4ED63030303030303030 bytes=3858162 part=1 dec=0
+ZFDBG-install lvl=0 file=67 lo=00000000000E4F083030303030303030 hi=00000000001132B83030303030303030 bytes=4028076 part=1 dec=0
+ZFDBG-install lvl=0 file=68 lo=00000000001132E13030303030303030 hi=0000000000141A743030303030303030 bytes=4004850 part=1 dec=0
+ZFDBG-install lvl=0 file=69 lo=0000000000141B063030303030303030 hi=00000000001706593030303030303030 bytes=4029181 part=1 dec=0
+ZFDBG-install lvl=0 file=71 lo=00000000001706EE3030303030303030 hi=00000000001995BC3030303030303030 bytes=3645046 part=1 dec=0
+ZFDBG-install lvl=0 file=72 lo=00000000001995D83030303030303030 hi=00000000001C4EB33030303030303030 bytes=3591260 part=1 dec=0
+ZFDBG-install lvl=0 file=73 lo=00000000001C4F053030303030303030 hi=00000000001F3C103030303030303030 bytes=4020692 part=1 dec=0
+ZFDBG-install lvl=0 file=74 lo=00000000001F3C6C3030303030303030 hi=00000000002219CE3030303030303030 bytes=12843688 part=1 dec=0
+ZFDBG-install lvl=0 file=75 lo=0000000000221A543030303030303030 hi=000000000024FFCD3030303030303030 bytes=4003833 part=1 dec=0
+ZFDBG-install lvl=0 file=76 lo=00000000002500213030303030303030 hi=000000000027C4F93030303030303030 bytes=12560920 part=1 dec=0
+ZFDBG-install lvl=0 file=77 lo=000000000027C4FF3030303030303030 hi=00000000002B26463030303030303030 bytes=4693861 part=1 dec=0
+ZFDBG-install lvl=0 file=78 lo=00000000002B26603030303030303030 hi=00000000002DC6A33030303030303030 bytes=3607091 part=1 dec=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-scan pid=0 lo= hi=00000000000316EB3030303030303030 n=1 bytes=4308696 ok=1 bskip=0 l1n=16
+ZFDBG-scan pid=6 lo=00000000001132C03030303030303030 hi=0000000000141B033030303030303030 n=1 bytes=4106148 ok=1 bskip=0 l1n=16
+ZFDBG-scan pid=7 lo=0000000000141B033030303030303030 hi=00000000001706EE3030303030303030 n=1 bytes=4066029 ok=1 bskip=0 l1n=16
+ZFDBG-scan pid=12 lo=00000000002219D33030303030303030 hi=00000000002500123030303030303030 n=1 bytes=4109280 ok=1 bskip=0 l1n=16
+ZFDBG-skip no_merge=0 busy=0 batch_l0=0 l0busy=0 dirconf=0 batchprev=0 bytes=0 sink=0 cross=0 act=4
+ZFDBG-rfi epoch=3 part=3 gen=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-batch [JOB 7] stage1_us=275903 epochs=1 tasks=4
+ZFDBG-ctxhandoff epoch=7 gens=4 se_ok=1 se_pb=4 out_pb=4
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-del file=75 epoch=6
+ZFDBG-del file=57 epoch=6
+ZFDBG-del file=39 epoch=6
+ZFDBG-del file=22 epoch=6
+ZFDBG-install lvl=1 file=79 lo=00000000002219D33030303030303030 hi=00000000002500103030303030303030 bytes=41778117 part=12 dec=1
+ZFDBG-del file=68 epoch=6
+ZFDBG-del file=50 epoch=6
+ZFDBG-del file=33 epoch=6
+ZFDBG-del file=15 epoch=6
+ZFDBG-install lvl=1 file=80 lo=00000000001132C03030303030303030 hi=0000000000141AFF3030303030303030 bytes=41991210 part=6 dec=1
+ZFDBG-del file=69 epoch=6
+ZFDBG-del file=51 epoch=6
+ZFDBG-del file=34 epoch=6
+ZFDBG-del file=17 epoch=6
+ZFDBG-install lvl=1 file=81 lo=0000000000141B033030303030303030 hi=00000000001706EC3030303030303030 bytes=42212761 part=7 dec=1
+ZFDBG-del file=62 epoch=6
+ZFDBG-del file=44 epoch=6
+ZFDBG-del file=26 epoch=6
+ZFDBG-del file=9 epoch=6
+ZFDBG-install lvl=1 file=82 lo=00000000000000013030303030303030 hi=00000000000316E93030303030303030 bytes=44669859 part=0 dec=1
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-ctxhandoff epoch=5 gens=4 se_ok=1 se_pb=4 out_pb=4
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.06 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ZFDBG-ctxhandoff epoch=8 gens=4 se_ok=1 se_pb=4 out_pb=4
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-adopt skip_gens=12 epoch=9
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-ctxhandoff epoch=9 gens=16 se_ok=1 se_pb=12 out_pb=12
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-adopt skip_gens=16 epoch=10
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ZFDBG-ctxhandoff epoch=10 gens=20 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-frz part=3 gen=2 size=27165648
+ZFDBG-adopt skip_gens=20 epoch=11
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ZFDBG-ctxhandoff epoch=11 gens=24 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-adopt skip_gens=24 epoch=12
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-ctxhandoff epoch=12 gens=28 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-adopt skip_gens=28 epoch=13
+... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ZFDBG-ctxhandoff epoch=13 gens=32 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-handoff epoch=13 gens=[(8,2)(10,3)(5,3)(2,3)(3,2)(11,2)(2,1)(1,2)(13,2)(4,1)(14,1)(10,1)(15,1)(9,1)(5,1)(14,2)(2,2)(8,1)(13,1)(10,2)(1,1)(11,1)(3,1)(12,2)(6,2)(7,2)(0,2)(5,2)(14,3)(15,2)(4,2)(9,2)]
+ZFDBG-adopt skip_gens=32 epoch=14
+ZFDBG-ctxhandoff epoch=14 gens=36 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-handoff epoch=14 gens=[(0,3)(7,3)(12,3)(6,3)(9,2)(4,2)(15,2)(8,2)(10,3)(1,2)(5,3)(2,3)(13,1)(3,2)(11,2)(2,1)(13,2)(4,1)(14,1)(10,1)(15,1)(9,1)(5,1)(14,2)(2,2)(8,1)(10,2)(1,1)(11,1)(3,1)(12,2)(6,2)(7,2)(0,2)(5,2)(14,3)]
+... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ZFDBG-frz part=3 gen=3 size=26580384
+ZFDBG-adopt skip_gens=36 epoch=15
+ZFDBG-ctxhandoff epoch=15 gens=40 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=40 epoch=16
+ZFDBG-ctxhandoff epoch=16 gens=44 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=44 epoch=17
+ZFDBG-ctxhandoff epoch=17 gens=48 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=48 epoch=18
+ZFDBG-ctxhandoff epoch=18 gens=52 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=4 size=26769420
+ZFDBG-adopt skip_gens=52 epoch=19
+ZFDBG-ctxhandoff epoch=19 gens=56 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=56 epoch=20
+ZFDBG-ctxhandoff epoch=20 gens=60 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=60 epoch=21
+ZFDBG-ctxhandoff epoch=21 gens=64 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=64 epoch=22
+ZFDBG-ctxhandoff epoch=22 gens=68 se_ok=1 se_pb=16 out_pb=16
+... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ZFDBG-frz part=3 gen=5 size=26750196
+ZFDBG-adopt skip_gens=68 epoch=23
+ZFDBG-ctxhandoff epoch=23 gens=72 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=72 epoch=24
+ZFDBG-ctxhandoff epoch=24 gens=76 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=76 epoch=25
+ZFDBG-ctxhandoff epoch=25 gens=80 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=80 epoch=26
+ZFDBG-ctxhandoff epoch=26 gens=84 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=6 size=26826024
+ZFDBG-adopt skip_gens=84 epoch=27
+ZFDBG-ctxhandoff epoch=27 gens=88 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=88 epoch=28
+ZFDBG-ctxhandoff epoch=28 gens=92 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=92 epoch=29
+ZFDBG-ctxhandoff epoch=29 gens=96 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=96 epoch=30
+... finished 200000 ops                              ZFDBG-ctxhandoff epoch=30 gens=100 se_ok=1 se_pb=16 out_pb=16
+... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ZFDBG-frz part=3 gen=7 size=27025740
+ZFDBG-adopt skip_gens=100 epoch=31
+ZFDBG-ctxhandoff epoch=31 gens=104 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=104 epoch=32
+ZFDBG-ctxhandoff epoch=32 gens=108 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=108 epoch=33
+ZFDBG-ctxhandoff epoch=33 gens=112 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=112 epoch=34
+ZFDBG-ctxhandoff epoch=34 gens=116 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=8 size=26651940
+ZFDBG-adopt skip_gens=116 epoch=35
+ZFDBG-ctxhandoff epoch=35 gens=120 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=120 epoch=36
+ZFDBG-ctxhandoff epoch=36 gens=124 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=124 epoch=37
+ZFDBG-ctxhandoff epoch=37 gens=128 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=128 epoch=38
+... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ZFDBG-ctxhandoff epoch=38 gens=132 se_ok=1 se_pb=16 out_pb=16
+... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ZFDBG-frz part=3 gen=9 size=26947776
+ZFDBG-adopt skip_gens=132 epoch=39
+ZFDBG-ctxhandoff epoch=39 gens=136 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=136 epoch=40
+ZFDBG-ctxhandoff epoch=40 gens=140 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=140 epoch=41
+ZFDBG-ctxhandoff epoch=41 gens=144 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=144 epoch=42
+ZFDBG-ctxhandoff epoch=42 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=10 size=26693592
+ZFDBG-adopt skip_gens=148 epoch=43
+ZFDBG-ctxhandoff epoch=43 gens=152 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=152 epoch=44
+ZFDBG-ctxhandoff epoch=44 gens=156 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=156 epoch=45
+ZFDBG-ctxhandoff epoch=45 gens=160 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=160 epoch=46
+... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ... finished 300000 ops                              ZFDBG-ctxhandoff epoch=46 gens=164 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=11 size=26734176
+ZFDBG-adopt skip_gens=164 epoch=47
+ZFDBG-ctxhandoff epoch=47 gens=168 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=168 epoch=48
+ZFDBG-ctxhandoff epoch=48 gens=172 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=172 epoch=49
+ZFDBG-ctxhandoff epoch=49 gens=176 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=176 epoch=50
+ZFDBG-ctxhandoff epoch=50 gens=180 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=12 size=27137880
+ZFDBG-adopt skip_gens=180 epoch=51
+ZFDBG-ctxhandoff epoch=51 gens=184 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=184 epoch=52
+ZFDBG-ctxhandoff epoch=52 gens=188 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=188 epoch=53
+ZFDBG-ctxhandoff epoch=53 gens=192 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=192 epoch=54
+... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ... finished 350000 ops                              ZFDBG-ctxhandoff epoch=54 gens=196 se_ok=1 se_pb=16 out_pb=16
+... finished 350000 ops                              ZFDBG-frz part=3 gen=13 size=26669028
+ZFDBG-adopt skip_gens=196 epoch=55
+ZFDBG-ctxhandoff epoch=55 gens=200 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=200 epoch=56
+ZFDBG-ctxhandoff epoch=56 gens=204 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=204 epoch=57
+ZFDBG-ctxhandoff epoch=57 gens=208 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=208 epoch=58
+ZFDBG-ctxhandoff epoch=58 gens=212 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=14 size=26539800
+ZFDBG-adopt skip_gens=212 epoch=59
+ZFDBG-ctxhandoff epoch=59 gens=216 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=216 epoch=60
+ZFDBG-ctxhandoff epoch=60 gens=220 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=220 epoch=61
+ZFDBG-ctxhandoff epoch=61 gens=224 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=224 epoch=62
+... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ... finished 400000 ops                              ZFDBG-ctxhandoff epoch=62 gens=228 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=15 size=26905056
+ZFDBG-adopt skip_gens=228 epoch=63
+ZFDBG-ctxhandoff epoch=63 gens=232 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=232 epoch=64
+ZFDBG-ctxhandoff epoch=64 gens=236 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=236 epoch=65
+ZFDBG-ctxhandoff epoch=65 gens=240 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=240 epoch=66
+ZFDBG-ctxhandoff epoch=66 gens=244 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=16 size=26926416
+ZFDBG-adopt skip_gens=244 epoch=67
+ZFDBG-ctxhandoff epoch=67 gens=248 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=248 epoch=68
+ZFDBG-ctxhandoff epoch=68 gens=252 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=252 epoch=69
+ZFDBG-ctxhandoff epoch=69 gens=256 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=256 epoch=70
+... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ... finished 450000 ops                              ZFDBG-ctxhandoff epoch=70 gens=260 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=17 size=26798256
+ZFDBG-adopt skip_gens=260 epoch=71
+ZFDBG-ctxhandoff epoch=71 gens=264 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=264 epoch=72
+ZFDBG-ctxhandoff epoch=72 gens=268 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=268 epoch=73
+ZFDBG-ctxhandoff epoch=73 gens=272 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=272 epoch=74
+ZFDBG-ctxhandoff epoch=74 gens=276 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=18 size=26894376
+ZFDBG-adopt skip_gens=276 epoch=75
+ZFDBG-ctxhandoff epoch=75 gens=280 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=280 epoch=76
+ZFDBG-ctxhandoff epoch=76 gens=284 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=284 epoch=77
+ZFDBG-ctxhandoff epoch=77 gens=288 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=288 epoch=78
+... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ... finished 500000 ops                              ZFDBG-ctxhandoff epoch=78 gens=292 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=19 size=27041760
+ZFDBG-adopt skip_gens=292 epoch=79
+ZFDBG-ctxhandoff epoch=79 gens=296 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=296 epoch=80
+ZFDBG-ctxhandoff epoch=80 gens=300 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=300 epoch=81
+ZFDBG-ctxhandoff epoch=81 gens=304 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=304 epoch=82
+ZFDBG-ctxhandoff epoch=82 gens=308 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=20 size=26926416
+ZFDBG-adopt skip_gens=308 epoch=83
+ZFDBG-ctxhandoff epoch=83 gens=312 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=312 epoch=84
+ZFDBG-ctxhandoff epoch=84 gens=316 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=316 epoch=85
+ZFDBG-ctxhandoff epoch=85 gens=320 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=320 epoch=86
+ZFDBG-ctxhandoff epoch=86 gens=324 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=21 size=26865540
+ZFDBG-adopt skip_gens=324 epoch=87
+ZFDBG-ctxhandoff epoch=87 gens=328 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=328 epoch=88
+ZFDBG-ctxhandoff epoch=88 gens=332 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=332 epoch=89
+ZFDBG-ctxhandoff epoch=89 gens=336 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=336 epoch=90
+ZFDBG-ctxhandoff epoch=90 gens=340 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=22 size=26920008
+ZFDBG-adopt skip_gens=340 epoch=91
+ZFDBG-ctxhandoff epoch=91 gens=344 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=344 epoch=92
+ZFDBG-ctxhandoff epoch=92 gens=348 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=348 epoch=93
+ZFDBG-ctxhandoff epoch=93 gens=352 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=352 epoch=94
+... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ... finished 600000 ops                              ZFDBG-ctxhandoff epoch=94 gens=356 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=23 size=26713884
+ZFDBG-adopt skip_gens=356 epoch=95
+ZFDBG-ctxhandoff epoch=95 gens=360 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=360 epoch=96
+ZFDBG-ctxhandoff epoch=96 gens=364 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=364 epoch=97
+ZFDBG-ctxhandoff epoch=97 gens=368 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=368 epoch=98
+ZFDBG-ctxhandoff epoch=98 gens=372 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=24 size=26796120
+ZFDBG-adopt skip_gens=372 epoch=99
+ZFDBG-ctxhandoff epoch=99 gens=376 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=376 epoch=100
+ZFDBG-ctxhandoff epoch=100 gens=380 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=380 epoch=101
+ZFDBG-ctxhandoff epoch=101 gens=384 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=384 epoch=102
+ZFDBG-ctxhandoff epoch=102 gens=388 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-frz part=3 gen=25 size=26538732
+ZFDBG-adopt skip_gens=388 epoch=103
+ZFDBG-ctxhandoff epoch=103 gens=392 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=392 epoch=104
+ZFDBG-ctxhandoff epoch=104 gens=396 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=396 epoch=105
+ZFDBG-ctxhandoff epoch=105 gens=400 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-adopt skip_gens=400 epoch=106
+ZFDBG-frz part=3 gen=26 size=26913600
+ZFDBG-adopt skip_gens=404 epoch=107
+ZFDBG-adopt skip_gens=408 epoch=108
+... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ... finished 700000 ops                              ZFDBG-frz part=3 gen=27 size=26828160
+ZFDBG-frz part=3 gen=28 size=26863404
+ZFDBG-frz part=3 gen=29 size=26740584
+ZFDBG-frz part=3 gen=30 size=26787576
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ... finished 800000 ops                              ZFDBG-frz part=3 gen=31 size=26623104
+ZFDBG-frz part=3 gen=32 size=26906124
+ZFDBG-frz part=3 gen=33 size=26991564
+ZFDBG-frz part=3 gen=34 size=26865540
+... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ... finished 900000 ops                              ZFDBG-frz part=3 gen=35 size=27001176
+ZFDBG-frz part=3 gen=36 size=27097296
+ZFDBG-frz part=3 gen=37 size=26674368
+ZFDBG-frz part=3 gen=38 size=26744856
+... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ... finished 1000000 ops                              ZFDBG-frz part=3 gen=39 size=26988360
+ZFDBG-frz part=3 gen=40 size=27103704
+ZFDBG-seal active=211007964 over=0 imem=687892800 budget=4294967296
+ZFDBG-imem active_total=8298066 frozen_total=679594734
+ZFDBG-imem part=8 frozen=[g1:973182,g2:1165542,g3:953736,g4:949704,g5:948864,g6:934878,g7:938532,g8:950250,g9:947940,g10:949998,g11:939834,g12:941178,g13:931518,g14:945252,g15:943446,g16:944832,g17:939456,g18:941010,g19:948234,g20:947940,g21:951342,g22:941724,g23:942774,g24:940800,g25:937062,g26:936222,g27:940716,g28:944622,g29:944748,g30:939834,g31:942564,g32:946680,g33:945420,g34:942522,g35:942732,g36:936810,g37:953442,g38:929670,g39:938616,g40:936390,]
+ZFDBG-imem part=15 frozen=[g1:1009890,g2:969990,g3:948108,g4:965832,g5:972846,g6:966756,g7:971166,g8:969654,g9:961632,g10:963900,g11:964530,g12:967386,g13:968688,g14:966840,g15:959574,g16:970914,g17:973350,g18:969738,g19:967176,g20:963858,g21:984144,g22:965958,g23:962094,g24:968898,g25:966588,g26:960918,g27:968520,g28:970242,g29:985026,g30:978894,g31:975030,g32:955668,g33:970872,g34:958104,g35:971922,g36:986328,g37:963228,g38:975618,g39:978516,g40:963228,]
+ZFDBG-imem part=4 frozen=[g1:1033032,g2:983556,g3:989478,g4:993132,g5:1001532,g6:1001070,g7:1011108,g8:986328,g9:1002330,g10:991956,g11:996576,g12:999642,g13:1002162,g14:993426,g15:997584,g16:999054,g17:1000902,g18:994308,g19:999222,g20:1007034,g21:999642,g22:999936,g23:992754,g24:991578,g25:1007328,g26:1005396,g27:991242,g28:1005018,g29:988176,g30:985362,g31:990234,g32:998298,g33:994098,g34:1001616,g35:992250,g36:984732,g37:1014006,g38:1006614,g39:991872,g40:998550,]
+ZFDBG-imem part=14 frozen=[g1:1120728,g2:1221822,g3:964782,g4:1243200,g5:1259706,g6:1238202,g7:1254834,g8:1241730,g9:1253196,g10:1253868,g11:1254414,g12:1249500,g13:1237362,g14:1248072,g15:1253826,g16:1251852,g17:1247820,g18:1261470,g19:1245258,g20:1252188,g21:1254372,g22:1243032,g23:1251558,g24:1247862,g25:1244460,g26:1239798,g27:1255338,g28:1262520,g29:1240428,g30:1250046,g31:1240386,g32:1254498,g33:1245636,g34:1253196,g35:1240386,g36:1235598,g37:1243998,g38:1252776,g39:1247064,g40:1246392,g41:1254162,]
+ZFDBG-imem part=1 frozen=[g1:1041726,g2:1032318,g3:1017996,g4:1005732,g5:1020600,g6:1014048,g7:1013712,g8:1026312,g9:1020264,g10:1012452,g11:1024002,g12:1025010,g13:1026144,g14:1013880,g15:1012200,g16:1012116,g17:1022616,g18:1017576,g19:1019004,g20:1008000,g21:1017030,g22:1020264,g23:1026732,g24:1008588,g25:1016148,g26:1025724,g27:1012998,g28:1018458,g29:1018500,g30:1011780,g31:1012914,g32:1016190,g33:1021188,g34:1020222,g35:1011990,g36:1019634,g37:1016568,g38:1015434,g39:1013586,g40:1011360,]
+ZFDBG-imem part=5 frozen=[g1:951132,g2:1037442,g3:1073352,g4:1076796,g5:1067220,g6:1060080,g7:1066170,g8:1063986,g9:1067976,g10:1071588,g11:1073394,g12:1075536,g13:1059324,g14:1066590,g15:1064952,g16:1069236,g17:1078854,g18:1069782,g19:1070790,g20:1066968,g21:1069740,g22:1068648,g23:1053444,g24:1076964,g25:1063986,g26:1068606,g27:1064826,g28:1075578,g29:1068522,g30:1068648,g31:1072848,g32:1072260,g33:1073520,g34:1069026,g35:1059408,g36:1076964,g37:1066086,g38:1056846,g39:1055208,g40:1072344,g41:1069908,]
+ZFDBG-imem part=10 frozen=[g1:966840,g2:1061130,g3:1078644,g4:1093092,g5:1078308,g6:1075158,g7:1075200,g8:1082130,g9:1081542,g10:1077258,g11:1075536,g12:1077468,g13:1084692,g14:1077972,g15:1086078,g16:1089354,g17:1080030,g18:1083180,g19:1074990,g20:1075536,g21:1075620,g22:1072050,g23:1087674,g24:1088094,g25:1093932,g26:1072302,g27:1080240,g28:1086750,g29:1083348,g30:1078434,g31:1084776,g32:1081332,g33:1077720,g34:1079778,g35:1086120,g36:1070496,g37:1085322,g38:1077678,g39:1072386,g40:1090950,g41:1081290,]
+ZFDBG-imem part=2 frozen=[g1:951090,g2:1031268,g3:1061130,g4:1086750,g5:1069740,g6:1074192,g7:1062222,g8:1072218,g9:1063566,g10:1064616,g11:1079274,g12:1061382,g13:1074360,g14:1075914,g15:1060962,g16:1070454,g17:1077720,g18:1064364,g19:1075074,g20:1066800,g21:1073478,g22:1066968,g23:1072932,g24:1067346,g25:1059996,g26:1069320,g27:1076376,g28:1067766,g29:1063986,g30:1080954,g31:1068354,g32:1068648,g33:1067640,g34:1064112,g35:1059282,g36:1067430,g37:1079022,g38:1064994,g39:1074024,g40:1072470,g41:1078140,]
+ZFDBG-imem part=12 frozen=[g2:1066800,g3:1064112,g4:1071294,g5:1070244,g6:1070370,g7:1073898,g8:1077972,g9:1082550,g10:1063986,g11:1068186,g12:1064154,g13:1075200,g14:1066842,g15:1078056,g16:1070160,g17:1061214,g18:1071462,g19:1070118,g20:1066758,g21:1056300,g22:1083138,g23:1079946,g24:1079568,g25:1070076,g26:1064112,g27:1076670,g28:1065330,g29:1070286,g30:1057770,g31:1073436,g32:1078854,g33:1067724,g34:1060080,g35:1078518,g36:1072848,g37:1067724,g38:1064532,g39:1077048,g40:1066338,g41:1078812,]
+ZFDBG-imem part=7 frozen=[g2:1080240,g3:1076586,g4:1069698,g5:1077678,g6:1076418,g7:1087506,g8:1077006,g9:1077132,g10:1083810,g11:1072470,g12:1069824,g13:1077762,g14:1081794,g15:1065960,g16:1074402,g17:1071084,g18:1087254,g19:1075578,g20:1080114,g21:1088598,g22:1078434,g23:1076418,g24:1073268,g25:1082970,g26:1077048,g27:1068060,g28:1081122,g29:1075368,g30:1074780,g31:1075368,g32:1088808,g33:1068018,g34:1092294,g35:1088472,g36:1076292,g37:1072344,g38:1071714,g39:1083264,g40:1080996,g41:1071714,]
+ZFDBG-imem part=0 frozen=[g2:1132824,g3:1145466,g4:1123752,g5:1142946,g6:1126902,g7:1133286,g8:1134042,g9:1137612,g10:1143912,g11:1152858,g12:1146054,g13:1129086,g14:1146432,g15:1146852,g16:1126062,g17:1133076,g18:1133118,g19:1138410,g20:1146138,g21:1142442,g22:1131312,g23:1138998,g24:1141938,g25:1150968,g26:1145088,g27:1127154,g28:1151892,g29:1144542,g30:1127574,g31:1141392,g32:1130850,g33:1137654,g34:1139292,g35:1137906,g36:1140678,g37:1122660,g38:1140888,g39:1139250,g40:1135554,g41:1148112,]
+ZFDBG-imem part=13 frozen=[g1:1039584,g2:1022070,g3:1019760,g4:1026606,g5:1016064,g6:1024758,g7:1023834,g8:1013712,g9:1029084,g10:1015434,g11:1017534,g12:1011234,g13:1020726,g14:1031394,g15:1025346,g16:1022364,g17:1011612,g18:1022784,g19:1020390,g20:1016778,g21:1012452,g22:1013838,g23:1024422,g24:1030260,g25:1030050,g26:1017912,g27:1020516,g28:1027320,g29:1023078,g30:1017660,g31:1025724,g32:1027110,g33:1016988,g34:1025682,g35:1025934,g36:1016022,g37:1012368,g38:1012704,g39:1018962,g40:1028874,]
+ZFDBG-imem part=6 frozen=[g2:1070874,g3:1054158,g4:1074948,g5:1059534,g6:1078518,g7:1074402,g8:1079736,g9:1074780,g10:1067640,g11:1065372,g12:1078770,g13:1085574,g14:1058106,g15:1065666,g16:1073982,g17:1086162,g18:1071966,g19:1073436,g20:1069152,g21:1065876,g22:1067556,g23:1075662,g24:1065246,g25:1081164,g26:1063398,g27:1080702,g28:1061214,g29:1064700,g30:1076124,g31:1085280,g32:1076628,g33:1074360,g34:1076292,g35:1081458,g36:1059744,g37:1070454,g38:1072386,g39:1071672,g40:1078980,g41:1083894,]
+ZFDBG-imem part=11 frozen=[g1:1081836,g2:1065834,g3:1043574,g4:1051302,g5:1063062,g6:1054536,g7:1051092,g8:1056720,g9:1043952,g10:1063398,g11:1050672,g12:1053108,g13:1053444,g14:1054032,g15:1058316,g16:1043616,g17:1052520,g18:1057812,g19:1052310,g20:1058148,g21:1056342,g22:1065246,g23:1059072,g24:1048236,g25:1051890,g26:1050462,g27:1055418,g28:1061718,g29:1053990,g30:1057056,g31:1057350,g32:1039584,g33:1051512,g34:1060332,g35:1047312,g36:1063020,g37:1055670,g38:1053990,g39:1051218,g40:1049118,]
+ZFDBG-imem part=3 frozen=[g1:1088472,g2:1068312,g3:1045296,g4:1052730,g5:1051974,g6:1054956,g7:1062810,g8:1048110,g9:1059744,g10:1049748,g11:1051344,g12:1067220,g13:1048782,g14:1043700,g15:1058064,g16:1058904,g17:1053864,g18:1057644,g19:1063440,g20:1058904,g21:1056510,g22:1058652,g23:1050546,g24:1053780,g25:1043658,g26:1058400,g27:1055040,g28:1056426,g29:1051596,g30:1053444,g31:1046976,g32:1058106,g33:1061466,g34:1056510,g35:1061844,g36:1065624,g37:1048992,g38:1051764,g39:1061340,g40:1065876,]
+ZFDBG-imem part=9 frozen=[g1:1034964,g2:1005396,g3:1000356,g4:1003968,g5:1011738,g6:1010898,g7:993762,g8:1009974,g9:1003464,g10:1006236,g11:991578,g12:1002078,g13:1003254,g14:1003002,g15:1010772,g16:1009596,g17:993006,g18:1009806,g19:999516,g20:1001238,g21:996156,g22:995568,g23:1008378,g24:1009932,g25:1006194,g26:998928,g27:1006110,g28:1000398,g29:1008252,g30:1012368,g31:1007832,g32:1016484,g33:1002288,g34:1008210,g35:1011402,g36:1011528,g37:1010478,g38:1007916,g39:999852,g40:1000398,]
+ZFDBG-frz part=3 gen=41 size=26663688
+ZFDBG-frz part=3 gen=42 size=26739516
+... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ... finished 1100000 ops                              ZFDBG-frz part=3 gen=43 size=26390280
+ZFDBG-frz part=3 gen=44 size=26978748
+ZFDBG-frz part=3 gen=45 size=27101568
+ZFDBG-frz part=3 gen=46 size=26924280
+... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ... finished 1200000 ops                              ZFDBG-frz part=3 gen=47 size=26791848
+ZFDBG-frz part=3 gen=48 size=26631648
+ZFDBG-frz part=3 gen=49 size=26994768
+ZFDBG-frz part=3 gen=50 size=26833500
+... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ... finished 1300000 ops                              ZFDBG-frz part=3 gen=51 size=26670096
+ZFDBG-frz part=3 gen=52 size=26834568
+ZFDBG-frz part=3 gen=53 size=26708544
+ZFDBG-frz part=3 gen=54 size=26634852
+... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ... finished 1400000 ops                              ZFDBG-frz part=3 gen=55 size=26831364
+ZFDBG-frz part=3 gen=56 size=26890104
+ZFDBG-frz part=3 gen=57 size=26812140
+ZFDBG-frz part=3 gen=58 size=26973408
+... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ... finished 1500000 ops                              ZFDBG-frz part=3 gen=59 size=26741652
+ZFDBG-frz part=3 gen=60 size=26903988
+ZFDBG-frz part=3 gen=61 size=26846316
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-frz part=3 gen=62 size=27159240
+... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ... finished 1600000 ops                              ZFDBG-frz part=3 gen=63 size=26771556
+ZFDBG-frz part=3 gen=64 size=26736312
+ZFDBG-frz part=3 gen=65 size=26878356
+ZFDBG-frz part=3 gen=66 size=26546208
+... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ... finished 1700000 ops                              ZFDBG-frz part=3 gen=67 size=27146424
+ZFDBG-frz part=3 gen=68 size=26851656
+ZFDBG-frz part=3 gen=69 size=26858064
+ZFDBG-frz part=3 gen=70 size=27028944
+... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ... finished 1800000 ops                              ZFDBG-frz part=3 gen=71 size=26737380
+ZFDBG-frz part=3 gen=72 size=27060984
+ZFDBG-frz part=3 gen=73 size=26603880
+ZFDBG-frz part=3 gen=74 size=26833500
+... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ... finished 1900000 ops                              ZFDBG-frz part=3 gen=75 size=26665824
+ZFDBG-frz part=3 gen=76 size=27059916
+ZFDBG-frz part=3 gen=77 size=26949912
+ZFDBG-frz part=3 gen=78 size=26826024
+... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ... finished 2000000 ops                              ZFDBG-frz part=3 gen=79 size=26726700
+ZFDBG-frz part=3 gen=80 size=26764080
+ZFDBG-frz part=3 gen=81 size=26266392
+ZFDBG-frz part=3 gen=82 size=26750196
+... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ... finished 2100000 ops                              ZFDBG-seal active=158661012 over=0 imem=1395147642 budget=4294967296
+ZFDBG-imem active_total=6239478 frozen_total=1388908164
+ZFDBG-imem part=8 frozen=[g1:973182,g2:1165542,g3:953736,g4:949704,g5:948864,g6:934878,g7:938532,g8:950250,g9:947940,g10:949998,g11:939834,g12:941178,g13:931518,g14:945252,g15:943446,g16:944832,g17:939456,g18:941010,g19:948234,g20:947940,g21:951342,g22:941724,g23:942774,g24:940800,g25:937062,g26:936222,g27:940716,g28:944622,g29:944748,g30:939834,g31:942564,g32:946680,g33:945420,g34:942522,g35:942732,g36:936810,g37:953442,g38:929670,g39:938616,g40:936390,g41:938742,g42:952854,g43:946638,g44:948360,g45:952056,g46:945168,g47:941514,g48:942564,g49:941262,g50:933912,g51:950670,g52:940002,g53:953232,g54:927864,g55:939624,g56:942858,g57:942270,g58:939540,g59:952854,g60:941262,g61:938280,g62:924462,g63:933534,g64:943572,g65:949032,g66:953736,g67:936390,g68:941514,g69:943404,g70:945714,g71:937734,g72:940380,g73:930636,g74:942396,g75:945000,g76:936642,g77:944412,g78:948360,g79:939582,g80:942396,g81:946050,g82:943950,]
+ZFDBG-imem part=15 frozen=[g1:1009890,g2:969990,g3:948108,g4:965832,g5:972846,g6:966756,g7:971166,g8:969654,g9:961632,g10:963900,g11:964530,g12:967386,g13:968688,g14:966840,g15:959574,g16:970914,g17:973350,g18:969738,g19:967176,g20:963858,g21:984144,g22:965958,g23:962094,g24:968898,g25:966588,g26:960918,g27:968520,g28:970242,g29:985026,g30:978894,g31:975030,g32:955668,g33:970872,g34:958104,g35:971922,g36:986328,g37:963228,g38:975618,g39:978516,g40:963228,g41:964614,g42:972300,g43:972720,g44:973854,g45:970242,g46:970788,g47:970578,g48:967260,g49:969318,g50:964320,g51:964824,g52:970284,g53:966336,g54:976080,g55:972426,g56:967260,g57:973938,g58:967428,g59:961002,g60:982170,g61:971334,g62:979188,g63:966546,g64:966714,g65:974862,g66:972510,g67:969066,g68:968856,g69:965370,g70:965328,g71:968310,g72:968226,g73:968898,g74:974400,g75:960120,g76:961212,g77:965916,g78:968478,g79:973812,g80:960876,g81:968352,g82:965076,]
+ZFDBG-imem part=4 frozen=[g1:1033032,g2:983556,g3:989478,g4:993132,g5:1001532,g6:1001070,g7:1011108,g8:986328,g9:1002330,g10:991956,g11:996576,g12:999642,g13:1002162,g14:993426,g15:997584,g16:999054,g17:1000902,g18:994308,g19:999222,g20:1007034,g21:999642,g22:999936,g23:992754,g24:991578,g25:1007328,g26:1005396,g27:991242,g28:1005018,g29:988176,g30:985362,g31:990234,g32:998298,g33:994098,g34:1001616,g35:992250,g36:984732,g37:1014006,g38:1006614,g39:991872,g40:998550,g41:998928,g42:1001616,g43:999180,g44:996366,g45:1005144,g46:996744,g47:989646,g48:1002162,g49:997206,g50:1006782,g51:993510,g52:994266,g53:1002750,g54:1002288,g55:1005186,g56:1002918,g57:1002960,g58:986706,g59:989940,g60:986538,g61:992502,g62:996786,g63:998256,g64:999264,g65:1000146,g66:996450,g67:1001868,g68:996030,g69:983010,g70:1001742,g71:996702,g72:992670,g73:1009680,g74:999852,g75:1006698,g76:995358,g77:1002750,g78:1002162,g79:1004472,g80:1005564,g81:1005354,g82:997038,]
+ZFDBG-imem part=14 frozen=[g1:1120728,g2:1221822,g3:964782,g4:1243200,g5:1259706,g6:1238202,g7:1254834,g8:1241730,g9:1253196,g10:1253868,g11:1254414,g12:1249500,g13:1237362,g14:1248072,g15:1253826,g16:1251852,g17:1247820,g18:1261470,g19:1245258,g20:1252188,g21:1254372,g22:1243032,g23:1251558,g24:1247862,g25:1244460,g26:1239798,g27:1255338,g28:1262520,g29:1240428,g30:1250046,g31:1240386,g32:1254498,g33:1245636,g34:1253196,g35:1240386,g36:1235598,g37:1243998,g38:1252776,g39:1247064,g40:1246392,g41:1254162,g42:1239336,g43:1250088,g44:1255716,g45:1252440,g46:1247610,g47:1250088,g48:1249962,g49:1242360,g50:1237110,g51:1256766,g52:1250298,g53:1257480,g54:1246560,g55:1243578,g56:1241814,g57:1246140,g58:1238202,g59:1252020,g60:1242402,g61:1260504,g62:1248618,g63:1249038,g64:1240050,g65:1251978,g66:1239504,g67:1246980,g68:1253952,g69:1255128,g70:1239294,g71:1250802,g72:1239336,g73:1263780,g74:1244922,g75:1253868,g76:1251810,g77:1249962,g78:1241394,g79:1251348,g80:1249206,g81:1238412,g82:1252902,g83:1259118,]
+ZFDBG-imem part=1 frozen=[g1:1041726,g2:1032318,g3:1017996,g4:1005732,g5:1020600,g6:1014048,g7:1013712,g8:1026312,g9:1020264,g10:1012452,g11:1024002,g12:1025010,g13:1026144,g14:1013880,g15:1012200,g16:1012116,g17:1022616,g18:1017576,g19:1019004,g20:1008000,g21:1017030,g22:1020264,g23:1026732,g24:1008588,g25:1016148,g26:1025724,g27:1012998,g28:1018458,g29:1018500,g30:1011780,g31:1012914,g32:1016190,g33:1021188,g34:1020222,g35:1011990,g36:1019634,g37:1016568,g38:1015434,g39:1013586,g40:1011360,g41:1019634,g42:1009974,g43:1016568,g44:1017114,g45:1008630,g46:1014804,g47:1016694,g48:1003842,g49:1022994,g50:1020684,g51:1019214,g52:1016946,g53:1014426,g54:1024170,g55:1018500,g56:1010142,g57:1008924,g58:1014048,g59:1017282,g60:1020936,g61:1000314,g62:1016400,g63:1020726,g64:1007664,g65:1006026,g66:1015098,g67:1017282,g68:1022280,g69:1015770,g70:1014216,g71:1029672,g72:1022700,g73:1024086,g74:1005228,g75:1017828,g76:1003758,g77:1015896,g78:1021608,g79:1008672,g80:1024128,g81:1020978,g82:1023834,]
+ZFDBG-imem part=5 frozen=[g1:951132,g2:1037442,g3:1073352,g4:1076796,g5:1067220,g6:1060080,g7:1066170,g8:1063986,g9:1067976,g10:1071588,g11:1073394,g12:1075536,g13:1059324,g14:1066590,g15:1064952,g16:1069236,g17:1078854,g18:1069782,g19:1070790,g20:1066968,g21:1069740,g22:1068648,g23:1053444,g24:1076964,g25:1063986,g26:1068606,g27:1064826,g28:1075578,g29:1068522,g30:1068648,g31:1072848,g32:1072260,g33:1073520,g34:1069026,g35:1059408,g36:1076964,g37:1066086,g38:1056846,g39:1055208,g40:1072344,g41:1069908,g42:1069740,g43:1065204,g44:1073058,g45:1072806,g46:1063734,g47:1058652,g48:1066254,g49:1075620,g50:1075116,g51:1057980,g52:1062684,g53:1062558,g54:1067724,g55:1072974,g56:1063230,g57:1056972,g58:1061088,g59:1066590,g60:1078728,g61:1053192,g62:1068144,g63:1073520,g64:1065540,g65:1069320,g66:1070412,g67:1071378,g68:1063482,g69:1063020,g70:1074360,g71:1070916,g72:1072554,g73:1065498,g74:1063356,g75:1065330,g76:1074444,g77:1066758,g78:1065204,g79:1060122,g80:1069908,g81:1070286,g82:1066842,g83:1063356,]
+ZFDBG-imem part=10 frozen=[g1:966840,g2:1061130,g3:1078644,g4:1093092,g5:1078308,g6:1075158,g7:1075200,g8:1082130,g9:1081542,g10:1077258,g11:1075536,g12:1077468,g13:1084692,g14:1077972,g15:1086078,g16:1089354,g17:1080030,g18:1083180,g19:1074990,g20:1075536,g21:1075620,g22:1072050,g23:1087674,g24:1088094,g25:1093932,g26:1072302,g27:1080240,g28:1086750,g29:1083348,g30:1078434,g31:1084776,g32:1081332,g33:1077720,g34:1079778,g35:1086120,g36:1070496,g37:1085322,g38:1077678,g39:1072386,g40:1090950,g41:1081290,g42:1076712,g43:1083558,g44:1077720,g45:1070328,g46:1080198,g47:1083096,g48:1088892,g49:1080534,g50:1080870,g51:1087422,g52:1078476,g53:1077762,g54:1073310,g55:1078896,g56:1070286,g57:1078140,g58:1078560,g59:1087422,g60:1080576,g61:1078518,g62:1083222,g63:1079232,g64:1093176,g65:1087254,g66:1081038,g67:1077090,g68:1083222,g69:1080072,g70:1084356,g71:1080492,g72:1081668,g73:1082550,g74:1084902,g75:1075536,g76:1083852,g77:1085364,g78:1079232,g79:1085112,g80:1076964,g81:1070706,g82:1075452,g83:1078434,]
+ZFDBG-imem part=2 frozen=[g1:951090,g2:1031268,g3:1061130,g4:1086750,g5:1069740,g6:1074192,g7:1062222,g8:1072218,g9:1063566,g10:1064616,g11:1079274,g12:1061382,g13:1074360,g14:1075914,g15:1060962,g16:1070454,g17:1077720,g18:1064364,g19:1075074,g20:1066800,g21:1073478,g22:1066968,g23:1072932,g24:1067346,g25:1059996,g26:1069320,g27:1076376,g28:1067766,g29:1063986,g30:1080954,g31:1068354,g32:1068648,g33:1067640,g34:1064112,g35:1059282,g36:1067430,g37:1079022,g38:1064994,g39:1074024,g40:1072470,g41:1078140,g42:1072428,g43:1058190,g44:1056342,g45:1061676,g46:1064574,g47:1077258,g48:1078434,g49:1053108,g50:1074654,g51:1081584,g52:1069152,g53:1068690,g54:1072008,g55:1061298,g56:1067640,g57:1073940,g58:1072638,g59:1063482,g60:1060122,g61:1064952,g62:1071462,g63:1066674,g64:1077216,g65:1068144,g66:1062012,g67:1068816,g68:1068438,g69:1065414,g70:1063608,g71:1069278,g72:1066884,g73:1073310,g74:1068942,g75:1067850,g76:1080618,g77:1069194,g78:1069782,g79:1071378,g80:1066044,g81:1066800,g82:1072974,g83:1072050,]
+ZFDBG-imem part=12 frozen=[g2:1066800,g3:1064112,g4:1071294,g5:1070244,g6:1070370,g7:1073898,g8:1077972,g9:1082550,g10:1063986,g11:1068186,g12:1064154,g13:1075200,g14:1066842,g15:1078056,g16:1070160,g17:1061214,g18:1071462,g19:1070118,g20:1066758,g21:1056300,g22:1083138,g23:1079946,g24:1079568,g25:1070076,g26:1064112,g27:1076670,g28:1065330,g29:1070286,g30:1057770,g31:1073436,g32:1078854,g33:1067724,g34:1060080,g35:1078518,g36:1072848,g37:1067724,g38:1064532,g39:1077048,g40:1066338,g41:1078812,g42:1071672,g43:1065582,g44:1075830,g45:1064070,g46:1068732,g47:1066632,g48:1070790,g49:1082256,g50:1068522,g51:1078896,g52:1074402,g53:1056090,g54:1076040,g55:1075662,g56:1070076,g57:1077678,g58:1064280,g59:1073016,g60:1078182,g61:1071714,g62:1070034,g63:1067472,g64:1080156,g65:1060710,g66:1060374,g67:1070580,g68:1070286,g69:1068984,g70:1065246,g71:1078896,g72:1072806,g73:1064406,g74:1071210,g75:1063482,g76:1071084,g77:1075956,g78:1076796,g79:1079778,g80:1075410,g81:1076712,g82:1073898,g83:1058778,]
+ZFDBG-imem part=7 frozen=[g2:1080240,g3:1076586,g4:1069698,g5:1077678,g6:1076418,g7:1087506,g8:1077006,g9:1077132,g10:1083810,g11:1072470,g12:1069824,g13:1077762,g14:1081794,g15:1065960,g16:1074402,g17:1071084,g18:1087254,g19:1075578,g20:1080114,g21:1088598,g22:1078434,g23:1076418,g24:1073268,g25:1082970,g26:1077048,g27:1068060,g28:1081122,g29:1075368,g30:1074780,g31:1075368,g32:1088808,g33:1068018,g34:1092294,g35:1088472,g36:1076292,g37:1072344,g38:1071714,g39:1083264,g40:1080996,g41:1071714,g42:1081248,g43:1077342,g44:1068984,g45:1073814,g46:1083054,g47:1086120,g48:1080072,g49:1071294,g50:1089648,g51:1084188,g52:1074570,g53:1076292,g54:1077216,g55:1086288,g56:1072260,g57:1083558,g58:1083726,g59:1076922,g60:1071378,g61:1077636,g62:1069488,g63:1079778,g64:1080240,g65:1075998,g66:1087338,g67:1078098,g68:1080450,g69:1088682,g70:1075872,g71:1069614,g72:1074654,g73:1075536,g74:1076922,g75:1079400,g76:1082634,g77:1073016,g78:1078980,g79:1073310,g80:1065792,g81:1080618,g82:1073184,g83:1086960,]
+ZFDBG-imem part=0 frozen=[g2:1132824,g3:1145466,g4:1123752,g5:1142946,g6:1126902,g7:1133286,g8:1134042,g9:1137612,g10:1143912,g11:1152858,g12:1146054,g13:1129086,g14:1146432,g15:1146852,g16:1126062,g17:1133076,g18:1133118,g19:1138410,g20:1146138,g21:1142442,g22:1131312,g23:1138998,g24:1141938,g25:1150968,g26:1145088,g27:1127154,g28:1151892,g29:1144542,g30:1127574,g31:1141392,g32:1130850,g33:1137654,g34:1139292,g35:1137906,g36:1140678,g37:1122660,g38:1140888,g39:1139250,g40:1135554,g41:1148112,g42:1141476,g43:1136646,g44:1134882,g45:1143660,g46:1141350,g47:1143618,g48:1138368,g49:1141644,g50:1141140,g51:1139712,g52:1145424,g53:1147356,g54:1132740,g55:1146558,g56:1147692,g57:1154160,g58:1152018,g59:1144836,g60:1139040,g61:1151556,g62:1140972,g63:1139880,g64:1146894,g65:1146936,g66:1145130,g67:1142316,g68:1143870,g69:1124004,g70:1144500,g71:1131942,g72:1138620,g73:1129548,g74:1148364,g75:1133412,g76:1141140,g77:1142736,g78:1138494,g79:1132950,g80:1139502,g81:1142064,g82:1121190,g83:1125054,]
+ZFDBG-imem part=13 frozen=[g1:1039584,g2:1022070,g3:1019760,g4:1026606,g5:1016064,g6:1024758,g7:1023834,g8:1013712,g9:1029084,g10:1015434,g11:1017534,g12:1011234,g13:1020726,g14:1031394,g15:1025346,g16:1022364,g17:1011612,g18:1022784,g19:1020390,g20:1016778,g21:1012452,g22:1013838,g23:1024422,g24:1030260,g25:1030050,g26:1017912,g27:1020516,g28:1027320,g29:1023078,g30:1017660,g31:1025724,g32:1027110,g33:1016988,g34:1025682,g35:1025934,g36:1016022,g37:1012368,g38:1012704,g39:1018962,g40:1028874,g41:1006404,g42:1024926,g43:1017492,g44:1014468,g45:1021104,g46:1025640,g47:1026816,g48:1029210,g49:1022112,g50:1022952,g51:1024338,g52:1013166,g53:1021272,g54:1023540,g55:1023750,g56:1031352,g57:1016610,g58:1023036,g59:1017156,g60:1022154,g61:1022028,g62:1021776,g63:1016652,g64:1019046,g65:1023666,g66:1021440,g67:1012410,g68:1015098,g69:1022826,g70:1014846,g71:1008882,g72:1016946,g73:1026102,g74:1027152,g75:1024632,g76:1015056,g77:1029672,g78:1020936,g79:1032990,g80:1021272,g81:1025220,g82:1008294,]
+ZFDBG-imem part=6 frozen=[g2:1070874,g3:1054158,g4:1074948,g5:1059534,g6:1078518,g7:1074402,g8:1079736,g9:1074780,g10:1067640,g11:1065372,g12:1078770,g13:1085574,g14:1058106,g15:1065666,g16:1073982,g17:1086162,g18:1071966,g19:1073436,g20:1069152,g21:1065876,g22:1067556,g23:1075662,g24:1065246,g25:1081164,g26:1063398,g27:1080702,g28:1061214,g29:1064700,g30:1076124,g31:1085280,g32:1076628,g33:1074360,g34:1076292,g35:1081458,g36:1059744,g37:1070454,g38:1072386,g39:1071672,g40:1078980,g41:1083894,g42:1067808,g43:1078770,g44:1066464,g45:1069992,g46:1072428,g47:1076208,g48:1074654,g49:1074654,g50:1081752,g51:1077300,g52:1067850,g53:1070160,g54:1069530,g55:1073982,g56:1070286,g57:1066128,g58:1064868,g59:1085490,g60:1061466,g61:1083894,g62:1065834,g63:1078308,g64:1068060,g65:1075074,g66:1067430,g67:1070706,g68:1076964,g69:1075074,g70:1075452,g71:1081458,g72:1069950,g73:1065750,g74:1068900,g75:1072638,g76:1071546,g77:1072428,g78:1073016,g79:1079946,g80:1075326,g81:1082046,g82:1082844,g83:1078056,]
+ZFDBG-imem part=11 frozen=[g1:1081836,g2:1065834,g3:1043574,g4:1051302,g5:1063062,g6:1054536,g7:1051092,g8:1056720,g9:1043952,g10:1063398,g11:1050672,g12:1053108,g13:1053444,g14:1054032,g15:1058316,g16:1043616,g17:1052520,g18:1057812,g19:1052310,g20:1058148,g21:1056342,g22:1065246,g23:1059072,g24:1048236,g25:1051890,g26:1050462,g27:1055418,g28:1061718,g29:1053990,g30:1057056,g31:1057350,g32:1039584,g33:1051512,g34:1060332,g35:1047312,g36:1063020,g37:1055670,g38:1053990,g39:1051218,g40:1049118,g41:1047144,g42:1055838,g43:1055250,g44:1059114,g45:1045548,g46:1053108,g47:1058106,g48:1071378,g49:1049118,g50:1049580,g51:1049118,g52:1060542,g53:1053066,g54:1066632,g55:1048152,g56:1073604,g57:1064574,g58:1052562,g59:1051596,g60:1058904,g61:1053822,g62:1054452,g63:1056594,g64:1062558,g65:1057224,g66:1061340,g67:1049874,g68:1058736,g69:1062558,g70:1051848,g71:1049202,g72:1055628,g73:1052772,g74:1050924,g75:1045506,g76:1054242,g77:1044078,g78:1052016,g79:1054536,g80:1057560,g81:1061844,g82:1065414,]
+ZFDBG-imem part=3 frozen=[g1:1088472,g2:1068312,g3:1045296,g4:1052730,g5:1051974,g6:1054956,g7:1062810,g8:1048110,g9:1059744,g10:1049748,g11:1051344,g12:1067220,g13:1048782,g14:1043700,g15:1058064,g16:1058904,g17:1053864,g18:1057644,g19:1063440,g20:1058904,g21:1056510,g22:1058652,g23:1050546,g24:1053780,g25:1043658,g26:1058400,g27:1055040,g28:1056426,g29:1051596,g30:1053444,g31:1046976,g32:1058106,g33:1061466,g34:1056510,g35:1061844,g36:1065624,g37:1048992,g38:1051764,g39:1061340,g40:1065876,g41:1048572,g42:1051554,g43:1037820,g44:1060962,g45:1065792,g46:1058820,g47:1053612,g48:1047312,g49:1061592,g50:1055250,g51:1048824,g52:1055292,g53:1050336,g54:1047438,g55:1055166,g56:1057476,g57:1054410,g58:1060752,g59:1051638,g60:1058022,g61:1055754,g62:1068060,g63:1052814,g64:1051428,g65:1057014,g66:1043952,g67:1067556,g68:1055964,g69:1056216,g70:1062936,g71:1051470,g72:1064196,g73:1046220,g74:1055250,g75:1048656,g76:1064154,g77:1059828,g78:1054956,g79:1051050,g80:1052520,g81:1032948,g82:1051974,]
+ZFDBG-imem part=9 frozen=[g1:1034964,g2:1005396,g3:1000356,g4:1003968,g5:1011738,g6:1010898,g7:993762,g8:1009974,g9:1003464,g10:1006236,g11:991578,g12:1002078,g13:1003254,g14:1003002,g15:1010772,g16:1009596,g17:993006,g18:1009806,g19:999516,g20:1001238,g21:996156,g22:995568,g23:1008378,g24:1009932,g25:1006194,g26:998928,g27:1006110,g28:1000398,g29:1008252,g30:1012368,g31:1007832,g32:1016484,g33:1002288,g34:1008210,g35:1011402,g36:1011528,g37:1010478,g38:1007916,g39:999852,g40:1000398,g41:1002624,g42:1003758,g43:997794,g44:1012326,g45:998298,g46:996156,g47:1005228,g48:1012998,g49:1004514,g50:991410,g51:1006530,g52:1001406,g53:1006614,g54:1007244,g55:1006950,g56:1002414,g57:987924,g58:1010898,g59:1012116,g60:995148,g61:1007412,g62:999600,g63:1009638,g64:1003170,g65:1014552,g66:1002330,g67:1013712,g68:1009806,g69:1000314,g70:997584,g71:1004724,g72:1003506,g73:1002750,g74:999516,g75:1007874,g76:1005816,g77:1003506,g78:996828,g79:1003632,g80:1002960,g81:1000272,g82:1011402,]
+ZFDBG-frz part=3 gen=83 size=26792916
+ZFDBG-frz part=3 gen=84 size=26654076
+ZFDBG-frz part=3 gen=85 size=26829228
+ZFDBG-frz part=3 gen=86 size=26641260
+... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ... finished 2200000 ops                              ZFDBG-frz part=3 gen=87 size=26878356
+ZFDBG-frz part=3 gen=88 size=26751264
+ZFDBG-frz part=3 gen=89 size=26777964
+ZFDBG-frz part=3 gen=90 size=26739516
+... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ... finished 2300000 ops                              ZFDBG-frz part=3 gen=91 size=26928552
+ZFDBG-frz part=3 gen=92 size=26871948
+ZFDBG-frz part=3 gen=93 size=26648736
+ZFDBG-sched unsched=0 bgc=0 l1score=0.20 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-frz part=3 gen=94 size=26874084
+... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ... finished 2400000 ops                              ZFDBG-frz part=3 gen=95 size=26790780
+ZFDBG-frz part=3 gen=96 size=26453292
+ZFDBG-frz part=3 gen=97 size=26871948
+ZFDBG-frz part=3 gen=98 size=26686116
+... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ... finished 2500000 ops                              ZFDBG-frz part=3 gen=99 size=26871948
+ZFDBG-frz part=3 gen=100 size=26828160
+ZFDBG-frz part=3 gen=101 size=26543004
+ZFDBG-frz part=3 gen=102 size=26587860
+... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ... finished 2600000 ops                              ZFDBG-frz part=3 gen=103 size=26723496
+ZFDBG-frz part=3 gen=104 size=26775828
+ZFDBG-frz part=3 gen=105 size=27060984
+ZFDBG-frz part=3 gen=106 size=27128268
+... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ... finished 2700000 ops                              ZFDBG-frz part=3 gen=107 size=26690388
+ZFDBG-frz part=3 gen=108 size=26678640
+ZFDBG-frz part=3 gen=109 size=26594268
+ZFDBG-frz part=3 gen=110 size=26810004
+... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ... finished 2800000 ops                              ZFDBG-frz part=3 gen=111 size=26992632
+ZFDBG-frz part=3 gen=112 size=26696796
+ZFDBG-frz part=3 gen=113 size=26666892
+ZFDBG-frz part=3 gen=114 size=26718156
+... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ... finished 2900000 ops                              ZFDBG-frz part=3 gen=115 size=26748060
+ZFDBG-frz part=3 gen=116 size=26718156
+ZFDBG-frz part=3 gen=117 size=26865540
+ZFDBG-frz part=3 gen=118 size=26634852
+... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              ... finished 3000000 ops                              Set seed to 1789223282508230 because --seed was 0
+Initializing RocksDB Options from the specified file
+Initializing RocksDB Options from command-line flags
+Integrated BlobDB: blob cache disabled
+Keys:       16 bytes each (+ 0 bytes user-defined timestamp)
+Values:     1024 bytes each (512 bytes after compression)
+Entries:    3000000
+Prefix:    0 bytes
+Keys per prefix:    0
+RawSize:    2975.5 MB (estimated)
+FileSize:   1510.6 MB (estimated)
+Write rate: 0 bytes/second
+Read rate: 0 ops/second
+Compression: NoCompression
+Compression sampling rate: 0
+Memtablerep: SkipListFactory
+Perf Level: 1
+------------------------------------------------
+Initializing RocksDB Options from the specified file
+Initializing RocksDB Options from command-line flags
+Integrated BlobDB: blob cache disabled
+DB path: [db_pair_1]
+fillrandom   :      50.317 micros/op 317962 ops/sec 150.961 seconds 48000000 operations;  315.4 MB/s
+ZFDBG-frz part=3 gen=119 size=9849096
+ZFDBG-frz part=3 gen=120 size=0
+ZFDBG-frz part=3 gen=121 size=0
+ZFDBG-frz part=3 gen=122 size=0
+ZFDBG-frz part=3 gen=123 size=0
+ZFDBG-frz part=3 gen=124 size=0
+ZFDBG-frz part=3 gen=125 size=0
+ZFDBG-frz part=3 gen=126 size=0
+ZFDBG-frz part=3 gen=127 size=0
+ZFDBG-frz part=3 gen=128 size=0
+ZFDBG-frz part=3 gen=129 size=0
+ZFDBG-frz part=3 gen=130 size=0
+ZFDBG-frz part=3 gen=131 size=0
+ZFDBG-frz part=3 gen=132 size=0
+ZFDBG-frz part=3 gen=133 size=0
+ZFDBG-frz part=3 gen=134 size=0
+ZEROFLUSH PROPERTIES:
+zf.epochs_sealed : 476
+zf.epochs_materialized : 475
+zf.epochs_reclaimed : 8
+zf.live_wal_bytes : 213524172
+zf.sealed_wal_bytes : 11930680653468
+zf.materialize_micros : 81650410
+zf.materialize_sort_micros : 152248
+zf.sealed_read_count : 0
+zf.sealed_cache_miss : 0
+zf.recovery_count : 0
+zf.partition_skew : 1.7938
+zf.install_direct_base : 64
+zf.install_fallback_l0 : 48
+zf.base_merge_count : 4
+zf.base_merge_rewritten_bytes : 16590153
+zf.skip_count : 470
+zf.prof_scan_us : 419607
+zf.prof_scan_bytes : 476303360
+zf.prof_build_us : 1384211
+zf.prof_merge_us : 890327
+zf.prof_output_bytes : 532083597
+zf.prof_tasks : 8
