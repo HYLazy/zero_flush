@@ -5177,7 +5177,17 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
                                   options.max_bytes_for_level_multiplier),
             options.MaxBytesMultiplerAdditional(i - 1));
       } else {
-        level_max_bytes_[i] = options.max_bytes_for_level_base;
+        // ZeroFlush 实验：i == 1（L1/base）可用 ZF_L1_BUDGET_MB 覆盖，
+        // 把 L1 驻留目标与 L0 的字节 score 分母解耦。环境变量只读一次。
+        static const uint64_t zf_l1_budget_env = [] {
+          const char* v = getenv("ZF_L1_BUDGET_MB");
+          if (v == nullptr) return 0ull;
+          const long long mb = atoll(v);
+          return mb > 0 ? static_cast<uint64_t>(mb) << 20 : 0ull;
+        }();
+        level_max_bytes_[i] = (zf_l1_budget_env != 0)
+                                  ? zf_l1_budget_env
+                                  : options.max_bytes_for_level_base;
       }
     }
   } else {
