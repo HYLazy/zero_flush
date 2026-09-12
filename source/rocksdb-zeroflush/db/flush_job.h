@@ -298,6 +298,11 @@ class FlushJob {
   // M5P1b：本批次是否为学习批（含 gen0 代 epoch）——入口检测后占学习窗
   // 串行槽（AcquireGen0Slot）；随批次结束（失败出口 / Run 安装后）释放。
   bool zf_batch_gen0_ = false;
+  // M4.9（zf_install_mu_）：本批因 install 锁被他批持有而整批让位的次数
+  // （诊断；让位语义 = gens 移交 recovery，下批收养）。
+  uint64_t zf_batch_defer_install_lock_ = 0;
+  // M4.9：本批等待 install 锁累计耗时（微秒，诊断）。
+  uint64_t zf_install_wait_micros_ = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

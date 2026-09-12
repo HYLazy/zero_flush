@@ -310,10 +310,17 @@ recovery + 回滚 last，与 kSkip 同语义），把崩溃降级为可重试让
 即 M2 文档遗留项"与并发 flush 的 LogAndApply 让锁窗口竞态未做
 being_compacted 防护"的实锤（token 守卫未覆盖该窗口，需再探 job↔token
 映射确认是提前 End 还是窗口内登记）。
-**修复方案（下一轮实施，确定性）**：新增 DB 级 `zf_install_mu_`，ZF 批
-从阶段 0 规划前 try_lock、持至安装（LogAndApply）完成后释放；规划期
-try_lock 失败 → 整批 kSkip 让位（与单任务冲突同语义）。跨批次串行化
-plan→apply 后，让锁窗口不可能再插入规划，重叠从源头消除。
+**修复方案（2026-09-12 已落地）**：新增 DB 级 `zf_install_mu_`
+（`ZeroFlushContext::install_mu_`），ZF 批从阶段 0 规划前 try_lock、持至
+安装（TryInstall→LogAndApply）完成后释放；获取失败先有界等待重试
+（20ms×8，由释放方 cv 唤醒），超时则整批让位（全部待物化 gens 移交
+recovery，下批收养）。跨批次串行化 plan→apply 后，让锁窗口不可能再插入
+规划，重叠从源头消除。`ZF_INSTALL_LOCK=0` 可整体关闭（回退/对照）。
+**验证**：控制组（回退补丁重建）3/3 崩溃（rc=139 + L1 overlapping ranges）
+vs 修复组 3/3 通过（256 分区/16T/2.1M 写）；8.4M 写重载通过；zf_test
+ALL PASSED（53/53）。**已知代价**：锁跨"规划→构建→安装"全程，ZF 批并行度
+4→1，同二进制 A/B 实测 74–82K → 41–43K ops/s（约 1.9× 慢）。后续应收窄
+锁粒度（按 range/分区预留）或压缩持有时段至 finalize→apply。
 **实施记录（2026-09-11，未奏效，已撤销）**：先以"安装窗口标记 + 规划期
 整批让位"替代 install 锁（避免跨函数持锁）——复现仍 8/10 崩。job↔token
 关联探针给出决定性时序：崩溃对 376（job74/epoch76/token71）与 384

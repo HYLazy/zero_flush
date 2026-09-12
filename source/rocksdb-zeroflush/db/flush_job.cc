@@ -376,9 +376,11 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     if (getenv("ZF_DBG_MM") != nullptr) {
       fprintf(stderr,
               "ZFDBG-mm-end site=run_after_install job=%d token=%llu ok=%d "
-              "file=%llu\n",
+              "file=%llu wait_us=%llu defer=%llu\n",
               job_context_->job_id, (unsigned long long)zf_mm_token_,
-              s.ok() ? 1 : 0, (unsigned long long)meta_.fd.GetNumber());
+              s.ok() ? 1 : 0, (unsigned long long)meta_.fd.GetNumber(),
+              (unsigned long long)zf_install_wait_micros_,
+              (unsigned long long)zf_batch_defer_install_lock_);
     }
     cfd_->GetZfCtx()->EndMaterializeBatch(zf_mm_token_);
     zf_mm_token_ = 0;
@@ -389,6 +391,12 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   if (zf_batch_gen0_) {
     cfd_->GetZfCtx()->ReleaseGen0Slot();
     zf_batch_gen0_ = false;
+  }
+  // M4.9（2026-09-12）：install 锁释放——安装（TryInstall → LogAndApply）
+  // 已完成或已确认失败；此后本批不会再提交 edit，可安全放行下一批规划。
+  // 未持有（让位批 / 非 ZF 模式 / 早退路径已释放）时为空操作。
+  if (zf_mode_) {
+    cfd_->GetZfCtx()->ReleaseInstallLock();
   }
 
   if (!s.ok() && meta_.fd.GetFileSize() > 0 && !zf_mode_) {
@@ -1296,6 +1304,58 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     base_ = cur;
   }
 
+  // ---- M4.9（2026-09-12）：安装窗口串行化（zf_install_mu_）----
+  // 位置要求：必须在学习窗/gen0 槽等待之后、且在任何规划之前。
+  //  - 在等待之后：持锁期间不再阻塞等待任何锁（否则持锁等 gen0 会成环）；
+  //  - 在规划之前：规划读的是当前版本视图，锁必须覆盖 plan→build→apply
+  //    全程，才能封住"他批在 LogAndApply 让 DB mutex 窗口内插入规划"。
+  // try_lock 失败 → 整批让位：把本批全部待物化 gens 移交 recovery（与
+  // kSkip/yield 同语义，数据留在 frozen+WAL 可读，下批收养重物化）。
+  if (!zf_ctx->AcquireInstallLock()) {
+    // 他批正持有 install 锁：有界等待重试（由 ReleaseInstallLock 唤醒），
+    // 避免"让位→重组→再撞"的让位风暴。等待期间必须放开 DB mutex（该
+    // mutex 是本等待的唯一依赖，且持锁方在安装阶段需要它）。等待超时后
+    // 再让位：把本批全部待物化 gens 移交 recovery（与 kSkip/yield 同语义，
+    // frozen+WAL 数据保持可读，下批收养重物化）。
+    const uint64_t wait_t0 = clock_->NowMicros();
+    db_mutex_->Unlock();
+    bool acquired = false;
+    for (int attempt = 0; attempt < 8 && !acquired; ++attempt) {
+      acquired = zf_ctx->WaitInstallLockFor(std::chrono::microseconds(20000));
+    }
+    db_mutex_->Lock();
+    zf_install_wait_micros_ += clock_->NowMicros() - wait_t0;
+    if (!acquired) {
+      for (ReadOnlyMemTable* m : mems_) {
+        zeroflush::SealedEpoch se0;
+        if (!zf_ctx->GetSealedEpoch(m->GetZfEpoch(), &se0)) {
+          continue;
+        }
+        zf_ctx->HandOffSkippedToRecovery(m->GetZfEpoch(), se0.gens);
+      }
+      zf_ctx->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      zf_batch_defer_install_lock_++;
+      if (zf_batch_gen0_) {
+        zf_ctx->ReleaseGen0Slot();
+        zf_batch_gen0_ = false;
+      }
+      if (getenv("ZF_DBG_MM") != nullptr) {
+        fprintf(stderr,
+                "ZFDBG-mm-defer job=%d epochs=%zu reason=install_lock_timeout "
+                "wait_us=%llu\n",
+                job_context_->job_id, mems_.size(),
+                (unsigned long long)(clock_->NowMicros() - wait_t0));
+      }
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "[%s] [JOB %d] install lock busy; batch deferred "
+                     "(%zu epochs handed to recovery)",
+                     cfd_->GetName().c_str(), job_context_->job_id,
+                     mems_.size());
+      base_->Unref();  // 配对 PickMemtable 的 Ref
+      return Status::OK();
+    }
+  }
+
   const uint64_t start_micros = clock_->NowMicros();
   Status s;
 
@@ -1417,6 +1477,8 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       zf_ctx->ReleaseGen0Slot();
       zf_batch_gen0_ = false;
     }
+    // M4.9：规划失败出口——本批不会安装，释放 install 锁放行他批。
+    zf_ctx->ReleaseInstallLock();
     base_->Unref();  // 配对 PickMemtable 的 base_->Ref()（对齐 WriteLevel0Table）
     return s;
   }
@@ -1461,6 +1523,8 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       zf_ctx->ReleaseGen0Slot();
       zf_batch_gen0_ = false;
     }
+    // M4.9：物化失败出口——本批不会安装，释放 install 锁放行他批。
+    zf_ctx->ReleaseInstallLock();
     base_->Unref();
     return s;  // 持锁返回（WriteLevel0Table 契约）
   }
@@ -1623,6 +1687,8 @@ Status FlushJob::ZfMaterializeAllEpochs() {
         zf_ctx->ReleaseGen0Slot();
         zf_batch_gen0_ = false;
       }
+      // M4.9：让位出口（安装期复检命中）——本批不安装，释放 install 锁。
+      zf_ctx->ReleaseInstallLock();
       base_->Unref();
       ROCKS_LOG_WARN(db_options_.info_log,
                      "[%s] [JOB %d] materialize install overlap detected; "

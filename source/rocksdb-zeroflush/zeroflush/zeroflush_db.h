@@ -13,6 +13,7 @@
 #pragma once
 
 #include <condition_variable>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -452,6 +453,17 @@ class ZeroFlushContext {
   bool AddMaterializePart(uint64_t token, uint32_t part_id);
   void EndMaterializeBatch(uint64_t token);
 
+  // ---- M4.9：安装窗口串行化（zf_install_mu_，2026-09-12）----
+  // 背景与实现见 install_mu_ 成员注释。AcquireInstallLock 非阻塞：
+  // false = 他批正持有。WaitInstallLockFor：失败后有界等待（由持锁方
+  // Release 唤醒）；调用方负责在等待前后释放/重取 DB mutex（见
+  // FlushJob::ZfMaterializeAllEpochs 的让位分支）。等待总超时后整批让位
+  // （gens 移交 recovery），避免死等情况。
+  // ZF_INSTALL_LOCK=0 可整体关闭（回退/对照实验；默认开启）。
+  bool AcquireInstallLock();
+  void ReleaseInstallLock();
+  bool WaitInstallLockFor(std::chrono::microseconds timeout);
+
   // M5 诊断（ZF_DBG_MM）：ZF 安装输出的层级生命周期 watch——记录最近安装
   // 的文件号与范围；后续 plan 若在本层未见该号，打印其当前所在层/是否消失
   // （定位"install→plan 之间被非 ZF 编辑改动"假设）。
@@ -797,6 +809,24 @@ class ZeroFlushContext {
   uint64_t mm_token_next_ = 1;
   std::unordered_map<uint64_t, std::unordered_set<uint32_t>> mm_batch_parts_;
   std::unordered_set<uint32_t> mm_active_parts_;
+  // ---- M4.9 安装窗口串行化（2026-09-12，zf_install_mu_）----
+  // 背景：token 守卫只覆盖"规划互相可见"的窗口；LogAndApply 写 MANIFEST
+  // 时会释放 DB mutex，后批可在该让锁窗口内完成规划（扫描视图不含前批
+  // 尚未落地的输出）→ 双方 edit 相继 apply → VersionBuilder "L1
+  // overlapping ranges" 崩（merge_base=1 × 并发 × ≥0.8GB，8/8 复现）。
+  // 方案：ZF 批次在"规划前"try_lock 本锁、持至安装（TryInstall→
+  // LogAndApply）返回后释放，把跨批 plan→apply 串行化；try_lock 失败
+  // → 整批让位（本批全部待物化 gens 移交 recovery，下批收养重试）。
+  // 锁序：获取/释放在 FlushJob::Run 调用栈内（同一线程），且所有可能
+  // 等待的点（gen0 串行槽、学习窗关闭）都在加锁之前完成 —— 持锁期间
+  // 不再阻塞等待任何锁，故无循环等待。仅参与本锁的 ZF 批次被串行化，
+  // 原生 compaction 不受影响（其与物化的冲突由 being_compacted 处理）。
+  mutable std::mutex install_mu_;
+  // 仅由持有批次在 Run 线程内读写（加锁期间其他批次不碰）。
+  bool install_lock_held_ = false;
+  // 等待"锁被释放"的事件（有界等待重试用；避免让位风暴）。
+  mutable std::mutex install_cv_mu_;
+  std::condition_variable install_cv_;
   // ---- 物化分相剖析（2026-09-07 吞吐归因）----
   // 每分区任务的阶段耗时/字节累积：scan = A 侧封存 WAL 顺序读；
   // build = 直装/切片建表（含排序）；merge = 融合路径 B 侧迭代器 +

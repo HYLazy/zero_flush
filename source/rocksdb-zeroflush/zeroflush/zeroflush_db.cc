@@ -735,6 +735,40 @@ size_t ZeroFlushContext::ActiveMaterializeParts() const {
   return mm_active_parts_.size();
 }
 
+// ---- M4.9：安装窗口串行化（zf_install_mu_）----
+// 非阻塞获取：他批在飞 → 本批整批让位（调用方负责 gens 移交 recovery）。
+// 持锁方在安装（TryInstall → LogAndApply）返回后释放；同一 FlushJob::Run
+// 线程内成对出现，不跨线程。
+// ZF_INSTALL_LOCK=0 可关闭（回退/对照实验用；默认开启）。
+bool ZeroFlushContext::AcquireInstallLock() {
+  static const bool zf_install_lock_enabled = [] {
+    const char* v = getenv("ZF_INSTALL_LOCK");
+    return v == nullptr || std::string(v) != "0";
+  }();
+  if (!zf_install_lock_enabled) {
+    return true;  // 关闭：不做串行化（仅回退/对照用）
+  }
+  install_lock_held_ = install_mu_.try_lock();
+  return install_lock_held_;
+}
+
+void ZeroFlushContext::ReleaseInstallLock() {
+  if (install_lock_held_) {
+    install_lock_held_ = false;
+    install_mu_.unlock();
+    install_cv_.notify_all();
+  }
+}
+
+bool ZeroFlushContext::WaitInstallLockFor(std::chrono::microseconds timeout) {
+  // 在 install_cv_mu_ 上等待"锁被释放"事件（有界）。调用方不得持 DB mutex。
+  {
+    std::unique_lock<std::mutex> l(install_cv_mu_);
+    install_cv_.wait_for(l, timeout);
+  }
+  return AcquireInstallLock();
+}
+
 // ---- M5P1b：学习窗 gen0 批串行槽 ----
 void ZeroFlushContext::AcquireGen0Slot() {
   std::unique_lock<std::mutex> l(g0_mu_);

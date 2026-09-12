@@ -315,12 +315,28 @@ DBImpl::MaybeScheduleZfSink()（每次 MaybeScheduleFlushOrCompaction 时调用�
 输出 → 复检通过 → 随后对方 apply、我方 apply，相隔极近，安全网**0 触发**
 （实测）。它只在"对方已落地但我的规划视图过期"时生效——不是这个场景。
 
-#### 已定稿修复（未落地）
+#### 已落地修复（2026-09-12）
 
-`zf_install_mu_`（ROADMAP §M4.9）：DB 级互斥，ZF 批自阶段 0 **规划前
-try_lock**、持至安装（LogAndApply）完成释放；try_lock 失败 → 整批 kSkip
-让位。跨批 plan→apply 全串行化后，让锁窗口不可能再插入规划。保留安装期
-复检为第二道防线。
+`zf_install_mu_`（`ZeroFlushContext::install_mu_`，见 `zeroflush_db.h` 成员注释）：
+DB 级互斥，ZF 批自规划前 `try_lock`、持至安装（TryInstall→LogAndApply）
+返回后释放；获取失败 → 有界等待重试（20ms×8，由释放方 cv 唤醒）→ 超时
+整批让位（全部待物化 gens 移交 recovery，下批收养）。保留安装期复检为
+第二道防线。`ZF_INSTALL_LOCK=0` 可整体关闭。
+
+**验证（2026-09-12）**：
+
+| 项 | 结果 |
+|---|---|
+| 控制组（回退补丁重建） | **3/3 崩溃**：rc=139（段错误）+ `VersionBuilder: L1 has overlapping ranges` |
+| 修复组（256 分区/16T/2.1M 写） | **3/3 通过**（rc=0，让位 951 次/轮触发锁路径） |
+| 修复组（8 分区/16T/8.4M 写，5× 阈值） | 通过（rc=0，命中率 0.8722，reopen 一致） |
+| zf_test 全量 | **ALL PASSED（53/53）** |
+| 吞吐代价（同二进制 A/B，4.2M 写/256 分区） | 锁关闭 74–82K ops/s → 开启 **41–43K（约 1.9× 慢）**；合并开关不影响该代价 |
+
+**代价来源与后续**：锁跨"规划→构建→安装"全程 ⇒ ZF 批并行度 4→1。
+`max_background_flushes=4` 的流水被串行化。下一步应收窄锁粒度（按
+range/分区预留，只串行化冲突范围），或把锁的持有时段压缩到 finalize→apply
+（需解决"构建期规划视图过期"的等价保护）。
 
 #### 负面结果记录（避免重复踩坑）【实测】
 
@@ -465,7 +481,7 @@ L0 无消费 → 双结构性问题。当前靠 governance ON 规避（拆分热
 ### 4.2 P2 并发安装（确定性修复已定稿）
 | 方案 | 机制 | 预期 | 风险 |
 |---|---|---|---|
-| **H2.1 `zf_install_mu_`**（推荐） | DB 级 mutex，plan 前 try_lock → apply 后释放；失败整批 kSkip 让位 | token 守卫覆盖面补齐，让锁窗口不再可插入规划 | 批吞吐略降（串行化 plan→apply）；需验证 let-lock 顺序（DB mutex ↔ install_mu）无死锁 |
+| **H2.1 `zf_install_mu_`**（**已落地，2026-09-12**） | DB 级 mutex（`ZeroFlushContext::install_mu_`）：plan 前 try_lock → 有界等待重试（20ms×8）→ 超时整批让位（gens 移交 recovery）；持至安装（TryInstall→LogAndApply）返回后释放。`ZF_INSTALL_LOCK=0` 可关闭（回退/对照） | 跨批 plan→apply 串行化，让锁窗口不再可插入规划 | **实测代价：批并行度 4→1，重载下 74–82K→41–43K ops/s（约 1.9× 慢）** | ✅ 控制组（回退补丁）3/3 崩溃（rc=139 + L1 overlapping）vs 修复组 3/3 通过（同配置 256 分区/16T/2.1M 写）；zf_test ALL PASSED（53/53）。**代价需后续收窄锁粒度（按 range 预留）来解决** |
 | H2.2 钉死"提前 End"出口 | 给全部 `EndMaterializeBatch` 调用点打点（token/job/s.ok()/apply 状态），定位 token71 提前释放的出口后单点修 | 若真存在提前 End，修后 token 守卫即可覆盖 | 若提前 End 是表象、真实原因是 TryInstall 失败重试，仍需 H2.1 |
 | H2.3 让 picker 感知"未安装输出" | 把批内/他批在飞输出登记进 VersionStorageInfo 级视图（类似 being_compacted 标记） | 规划扫描即可见 → 无需串行化 | 改动原生 Version 结构，风险高，不推荐 |
 
