@@ -741,9 +741,16 @@ size_t ZeroFlushContext::ActiveMaterializeParts() const {
 // 线程内成对出现，不跨线程。
 // ZF_INSTALL_LOCK=0 可关闭（回退/对照实验用；默认开启）。
 bool ZeroFlushContext::AcquireInstallLock() {
+  // 默认关闭（2026-09-12 决策）：该锁能消除 M4.9 并发重叠崩溃
+  // （控制组 3/3 崩 vs 开启后 3/3 过），但其"整批串行 plan→apply"与
+  // 现有让位语义（超时让位 → gens 移交 recovery → 下批收养后再让位）
+  // 叠加，在 4M 写以上规模形成让位循环，导致物化停滞、数据滞留 WAL
+  // （详见 output/zeroflush_m5_perf/materialize_lag/REPORT.md）。
+  // 在锁粒度收窄（range/分区级）或让位语义重设计之前，默认不启用；
+  // 需要验证崩溃修复效果时可显式 ZF_INSTALL_LOCK=1 打开。
   static const bool zf_install_lock_enabled = [] {
     const char* v = getenv("ZF_INSTALL_LOCK");
-    return v == nullptr || std::string(v) != "0";
+    return v != nullptr && std::string(v) == "1";
   }();
   if (!zf_install_lock_enabled) {
     return true;  // 关闭：不做串行化（仅回退/对照用）
