@@ -372,6 +372,10 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   // 成功路径的 End 从 ZfMaterializeAllEpochs 尾部挪到这里：LogAndApply
   // 中途释放 DB mutex，提前释放会让并发批在过期 base_ 上规划出与
   // 本批输出重叠的替换（BulkLoadZeroL0 实测 L1 重叠）。
+  if (getenv("ZF_DBG_MM") != nullptr) {
+    fprintf(stderr, "ZFDBG-mm-installed job=%d ok=%d\n",
+            job_context_->job_id, s.ok() ? 1 : 0);
+  }
   if (zf_mm_token_ != 0) {
     if (getenv("ZF_DBG_MM") != nullptr) {
       fprintf(stderr,
@@ -1312,47 +1316,23 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   // try_lock 失败 → 整批让位：把本批全部待物化 gens 移交 recovery（与
   // kSkip/yield 同语义，数据留在 frozen+WAL 可读，下批收养重物化）。
   if (!zf_ctx->AcquireInstallLock()) {
-    // 他批正持有 install 锁：有界等待重试（由 ReleaseInstallLock 唤醒），
-    // 避免"让位→重组→再撞"的让位风暴。等待期间必须放开 DB mutex（该
-    // mutex 是本等待的唯一依赖，且持锁方在安装阶段需要它）。等待超时后
-    // 再让位：把本批全部待物化 gens 移交 recovery（与 kSkip/yield 同语义，
-    // frozen+WAL 数据保持可读，下批收养重物化）。
+    // 他批正持有 install 锁：阻塞等待至获得（不改变本批数据状态）。
+    // 为什么不做"超时让位"：让位语义是"gens 移交 recovery、下批收养"，
+    // 一旦等待窗口短于持锁批次的构建耗时，每批都会超时让位，而被让位的
+    // 数据又被下一批收养 → 再让位，形成"让位→收养→再让位"死循环
+    // （2026-09-12 实测：49 连击、安装停滞于 68 次、数据全部滞留 WAL）。
+    // 此处等待不持 DB mutex（解锁期间本批无其他依赖：gen0 槽/学习窗均已
+    // 在前完成），持锁方必然完成安装并释放（zfl 批间不存在环：holder 的
+    // 安装只依赖原生 imm 生命周期，而等待方均已解锁）。
     const uint64_t wait_t0 = clock_->NowMicros();
     db_mutex_->Unlock();
-    bool acquired = false;
-    for (int attempt = 0; attempt < 8 && !acquired; ++attempt) {
-      acquired = zf_ctx->WaitInstallLockFor(std::chrono::microseconds(20000));
-    }
+    zf_ctx->WaitForInstallLock();
     db_mutex_->Lock();
     zf_install_wait_micros_ += clock_->NowMicros() - wait_t0;
-    if (!acquired) {
-      for (ReadOnlyMemTable* m : mems_) {
-        zeroflush::SealedEpoch se0;
-        if (!zf_ctx->GetSealedEpoch(m->GetZfEpoch(), &se0)) {
-          continue;
-        }
-        zf_ctx->HandOffSkippedToRecovery(m->GetZfEpoch(), se0.gens);
-      }
-      zf_ctx->skip_count_.fetch_add(1, std::memory_order_relaxed);
-      zf_batch_defer_install_lock_++;
-      if (zf_batch_gen0_) {
-        zf_ctx->ReleaseGen0Slot();
-        zf_batch_gen0_ = false;
-      }
-      if (getenv("ZF_DBG_MM") != nullptr) {
-        fprintf(stderr,
-                "ZFDBG-mm-defer job=%d epochs=%zu reason=install_lock_timeout "
-                "wait_us=%llu\n",
-                job_context_->job_id, mems_.size(),
-                (unsigned long long)(clock_->NowMicros() - wait_t0));
-      }
-      ROCKS_LOG_WARN(db_options_.info_log,
-                     "[%s] [JOB %d] install lock busy; batch deferred "
-                     "(%zu epochs handed to recovery)",
-                     cfd_->GetName().c_str(), job_context_->job_id,
-                     mems_.size());
-      base_->Unref();  // 配对 PickMemtable 的 Ref
-      return Status::OK();
+    if (getenv("ZF_DBG_MM") != nullptr) {
+      fprintf(stderr, "ZFDBG-mm-lockwait job=%d wait_us=%llu\n",
+              job_context_->job_id,
+              (unsigned long long)(clock_->NowMicros() - wait_t0));
     }
   }
 
@@ -1530,6 +1510,10 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   }
 
   // ---- 阶段 2（持锁）：逐 job 定层 / 释放注册 / 推进 last ----
+  if (getenv("ZF_DBG_MM") != nullptr) {
+    fprintf(stderr, "ZFDBG-mm-builddone job=%d epochs=%zu\n",
+            job_context_->job_id, mems_.size());
+  }
   fprintf(stderr,
           "ZFDBG-batch [JOB %d] stage1_us=%llu epochs=%zu tasks=%zu\n",
           job_context_->job_id,

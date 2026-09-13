@@ -1,0 +1,678 @@
+RocksDB:    version 11.2.0
+Date:       Sun Sep 13 09:20:01 2026
+CPU:        36 * Intel(R) Core(TM) i9-10980XE CPU @ 3.00GHz
+CPUCache:   25344 KB
+ZFDBG-seal active=0 over=0 imem=0 budget=4294967296
+ZFDBG-slowop route_us=3 wal_us=192 ins_us=6 part=7 gen=0
+... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 100 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 200 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 300 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 400 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 500 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 600 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 700 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 800 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 900 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1000 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 1500 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2000 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 2500 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3000 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 3500 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4000 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 4500 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 5000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 6000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 7000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 8000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 9000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 10000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ... finished 15000 ops                              ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=0 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=0 l2n=0 l2bytes=0
+ZFDBG-mm-jobbeg job=2 epoch=1 token=1
+ZFDBG-skip no_merge=0 busy=0 batch_l0=0 l0busy=0 dirconf=0 batchprev=0 bytes=0 sink=0 cross=0 act=16
+ZFDBG-mm-plan epoch=1 pid=5 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=1 pid=7 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=1 pid=14 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=1 pid=15 dec=0 lo= hi= ov=[]
+ZFDBG-frz part=3 gen=0 size=21241452
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=0 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=0 l2n=0 l2bytes=0
+ZFDBG-slowop route_us=0 wal_us=198 ins_us=3 part=1 gen=0
+ZFDBG-slowop route_us=10 wal_us=193 ins_us=3 part=1 gen=0
+... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ... finished 20000 ops                              ZFDBG-slowop route_us=1 wal_us=0 ins_us=464 part=4 gen=1
+ZFDBG-slowop route_us=2 wal_us=0 ins_us=244 part=0 gen=1
+ZFDBG-slowop route_us=6 wal_us=1 ins_us=350 part=3 gen=1
+ZFDBG-slowop route_us=2 wal_us=1 ins_us=323 part=5 gen=1
+ZFDBG-slowop route_us=3 wal_us=0 ins_us=527 part=13 gen=0
+ZFDBG-slowop route_us=7 wal_us=0 ins_us=195 part=7 gen=1
+ZFDBG-slowop route_us=4 wal_us=0 ins_us=486 part=10 gen=0
+ZFDBG-slowop route_us=2 wal_us=0 ins_us=220 part=5 gen=1
+ZFDBG-slowop route_us=2 wal_us=6 ins_us=193 part=13 gen=0
+ZFDBG-slowop route_us=2 wal_us=4 ins_us=240 part=9 gen=0
+ZFDBG-slowop route_us=6 wal_us=6 ins_us=951 part=8 gen=0
+ZFDBG-slowop route_us=8 wal_us=7 ins_us=2950 part=13 gen=0
+ZFDBG-batch [JOB 2] stage1_us=301135 epochs=1 tasks=1
+ZFDBG-install lvl=1 file=9 lo=00000000000000013030303030303030 hi=00000000000043183030303030303030 bytes=2924215 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=9 lo=00000000000000013030303030303030 hi=00000000000043183030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=10 lo=00000000000043213030303030303030 hi=0000000000007AAC3030303030303030 bytes=2407278 part=5 dec=0
+ZFDBG-slowop route_us=8 wal_us=1 ins_us=4049 part=6 gen=0
+ZFDBG-mm-add job=2 lvl=1 num=10 lo=00000000000043213030303030303030 hi=0000000000007AAC3030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=11 lo=0000000000007AB73030303030303030 hi=000000000000B85D3030303030303030 bytes=2610886 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=11 lo=0000000000007AB73030303030303030 hi=000000000000B85D3030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=12 lo=000000000000B86A3030303030303030 hi=000000000000F5343030303030303030 bytes=2617184 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=12 lo=000000000000B86A3030303030303030 hi=000000000000F5343030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=13 lo=000000000000F5363030303030303030 hi=000000000001376D3030303030303030 bytes=2874621 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=13 lo=000000000000F5363030303030303030 hi=000000000001376D3030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=14 lo=000000000001376F3030303030303030 hi=00000000000173A83030303030303030 bytes=2608764 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=14 lo=000000000001376F3030303030303030 hi=00000000000173A83030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=15 lo=00000000000173B33030303030303030 hi=000000000001B0A53030303030303030 bytes=2681573 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=15 lo=00000000000173B33030303030303030 hi=000000000001B0A53030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=16 lo=000000000001B0B73030303030303030 hi=000000000001F07B3030303030303030 bytes=2815527 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=16 lo=000000000001B0B73030303030303030 hi=000000000001F07B3030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=17 lo=000000000001F0913030303030303030 hi=0000000000022BA33030303030303030 bytes=2550754 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=17 lo=000000000001F0913030303030303030 hi=0000000000022BA33030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=19 lo=0000000000022BA83030303030303030 hi=0000000000026B903030303030303030 bytes=2738535 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=19 lo=0000000000022BA83030303030303030 hi=0000000000026B903030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=20 lo=0000000000026B9E3030303030303030 hi=000000000002A2BC3030303030303030 bytes=2404117 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=20 lo=0000000000026B9E3030303030303030 hi=000000000002A2BC3030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=21 lo=000000000002A2CC3030303030303030 hi=000000000002E3B63030303030303030 bytes=2782873 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=21 lo=000000000002A2CC3030303030303030 hi=000000000002E3B63030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=22 lo=000000000002E3C13030303030303030 hi=0000000000031E233030303030303030 bytes=2455786 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=22 lo=000000000002E3C13030303030303030 hi=0000000000031E233030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=23 lo=0000000000031E263030303030303030 hi=00000000000358FA3030303030303030 bytes=2560243 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=23 lo=0000000000031E263030303030303030 hi=00000000000358FA3030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=24 lo=00000000000359173030303030303030 hi=0000000000038FD63030303030303030 bytes=2426243 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=24 lo=00000000000359173030303030303030 hi=0000000000038FD63030303030303030 part=5 dec=0
+ZFDBG-install lvl=1 file=25 lo=0000000000038FE03030303030303030 hi=000000000003D0893030303030303030 bytes=2823976 part=5 dec=0
+ZFDBG-mm-add job=2 lvl=1 num=25 lo=0000000000038FE03030303030303030 hi=000000000003D0893030303030303030 part=5 dec=0
+ZFDBG-mm-end site=run_after_install job=2 token=1 ok=1 file=9 wait_us=0 defer=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-rfi epoch=1 part=7 gen=0
+ZFDBG-mm-jobbeg job=3 epoch=2 token=2
+ZFDBG-skip no_merge=0 busy=0 batch_l0=0 l0busy=0 dirconf=0 batchprev=0 bytes=0 sink=0 cross=0 act=16
+ZFDBG-mm-plan epoch=2 pid=0 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=2 pid=3 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=2 pid=4 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=2 pid=11 dec=0 lo= hi= ov=[]
+ZFDBG-rfi epoch=1 part=14 gen=0
+ZFDBG-rfi epoch=1 part=5 gen=0
+ZFDBG-rfi epoch=1 part=15 gen=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.00 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-slowop route_us=8 wal_us=1 ins_us=228 part=3 gen=1
+... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ... finished 25000 ops                              ZFDBG-slowop route_us=4 wal_us=4 ins_us=838 part=12 gen=0
+ZFDBG-slowop route_us=3 wal_us=1 ins_us=651 part=3 gen=1
+ZFDBG-slowop route_us=3 wal_us=0 ins_us=296 part=11 gen=1
+ZFDBG-slowop route_us=1 wal_us=0 ins_us=839 part=3 gen=1
+ZFDBG-slowop route_us=3 wal_us=1 ins_us=642 part=15 gen=1
+ZFDBG-slowop route_us=2 wal_us=5 ins_us=302 part=14 gen=1
+ZFDBG-slowop route_us=1 wal_us=0 ins_us=795 part=12 gen=0
+ZFDBG-slowop route_us=3 wal_us=1 ins_us=202 part=10 gen=0
+ZFDBG-slowop route_us=3 wal_us=0 ins_us=367 part=0 gen=1
+ZFDBG-slowop route_us=3 wal_us=0 ins_us=340 part=13 gen=0
+ZFDBG-slowop route_us=0 wal_us=5 ins_us=2924 part=1 gen=0
+ZFDBG-slowop route_us=3 wal_us=4 ins_us=5914 part=0 gen=1
+ZFDBG-batch [JOB 3] stage1_us=363089 epochs=1 tasks=1
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000000000023030303030303030,000000000000431A3030303030303030] hit=file9 [00000000000000013030303030303030,00000000000043183030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[000000000000431D3030303030303030,0000000000007AB03030303030303030] hit=file10 [00000000000043213030303030303030,0000000000007AAC3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[0000000000007AB63030303030303030,000000000000B8613030303030303030] hit=file11 [0000000000007AB73030303030303030,000000000000B85D3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[000000000000B8673030303030303030,000000000000F5323030303030303030] hit=file12 [000000000000B86A3030303030303030,000000000000F5343030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[000000000000F53C3030303030303030,000000000001376B3030303030303030] hit=file13 [000000000000F5363030303030303030,000000000001376D3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000000137703030303030303030,00000000000173AB3030303030303030] hit=file14 [000000000001376F3030303030303030,00000000000173A83030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000000173AD3030303030303030,000000000001B0A43030303030303030] hit=file15 [00000000000173B33030303030303030,000000000001B0A53030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[000000000001B0AA3030303030303030,000000000001F0833030303030303030] hit=file16 [000000000001B0B73030303030303030,000000000001F07B3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[000000000001F0843030303030303030,0000000000022BA13030303030303030] hit=file17 [000000000001F0913030303030303030,0000000000022BA33030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[0000000000022BAA3030303030303030,0000000000026B953030303030303030] hit=file19 [0000000000022BA83030303030303030,0000000000026B903030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[0000000000026B9B3030303030303030,000000000002A2C63030303030303030] hit=file20 [0000000000026B9E3030303030303030,000000000002A2BC3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[000000000002A2C83030303030303030,000000000002E3B93030303030303030] hit=file21 [000000000002A2CC3030303030303030,000000000002E3B63030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[000000000002E3D13030303030303030,0000000000031E213030303030303030] hit=file22 [000000000002E3C13030303030303030,0000000000031E233030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[0000000000031E2E3030303030303030,00000000000358F83030303030303030] hit=file23 [0000000000031E263030303030303030,00000000000358FA3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00000000000359053030303030303030,0000000000038FCD3030303030303030] hit=file24 [00000000000359173030303030303030,0000000000038FD63030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=1 new=[0000000000038FD73030303030303030,000000000003D08D3030303030303030] hit=file25 [0000000000038FE03030303030303030,000000000003D0893030303030303030]
+ZFDBG-install lvl=0 file=26 lo=00000000000000023030303030303030 hi=000000000000431A3030303030303030 bytes=6305483 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=26 lo=00000000000000023030303030303030 hi=000000000000431A3030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=27 lo=000000000000431D3030303030303030 hi=0000000000007AB03030303030303030 bytes=2324960 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=27 lo=000000000000431D3030303030303030 hi=0000000000007AB03030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=28 lo=0000000000007AB63030303030303030 hi=000000000000B8613030303030303030 bytes=2656258 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=28 lo=0000000000007AB63030303030303030 hi=000000000000B8613030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=29 lo=000000000000B8673030303030303030 hi=000000000000F5323030303030303030 bytes=5846592 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=29 lo=000000000000B8673030303030303030 hi=000000000000F5323030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=31 lo=000000000000F53C3030303030303030 hi=000000000001376B3030303030303030 bytes=6198941 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=31 lo=000000000000F53C3030303030303030 hi=000000000001376B3030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=32 lo=00000000000137703030303030303030 hi=00000000000173AB3030303030303030 bytes=2519088 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=32 lo=00000000000137703030303030303030 hi=00000000000173AB3030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=33 lo=00000000000173AD3030303030303030 hi=000000000001B0A43030303030303030 bytes=2618282 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=33 lo=00000000000173AD3030303030303030 hi=000000000001B0A43030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=34 lo=000000000001B0AA3030303030303030 hi=000000000001F0833030303030303030 bytes=2777545 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=34 lo=000000000001B0AA3030303030303030 hi=000000000001F0833030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=35 lo=000000000001F0843030303030303030 hi=0000000000022BA13030303030303030 bytes=2642519 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=35 lo=000000000001F0843030303030303030 hi=0000000000022BA13030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=36 lo=0000000000022BAA3030303030303030 hi=0000000000026B953030303030303030 bytes=2826110 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=36 lo=0000000000022BAA3030303030303030 hi=0000000000026B953030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=37 lo=0000000000026B9B3030303030303030 hi=000000000002A2C63030303030303030 bytes=2443120 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=37 lo=0000000000026B9B3030303030303030 hi=000000000002A2C63030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=38 lo=000000000002A2C83030303030303030 hi=000000000002E3B93030303030303030 bytes=6051232 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=38 lo=000000000002A2C83030303030303030 hi=000000000002E3B93030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=39 lo=000000000002E3D13030303030303030 hi=0000000000031E213030303030303030 bytes=2433641 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=39 lo=000000000002E3D13030303030303030 hi=0000000000031E213030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=40 lo=0000000000031E2E3030303030303030 hi=00000000000358F83030303030303030 bytes=2439950 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=40 lo=0000000000031E2E3030303030303030 hi=00000000000358F83030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=41 lo=00000000000359053030303030303030 hi=0000000000038FCD3030303030303030 bytes=2320745 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=41 lo=00000000000359053030303030303030 hi=0000000000038FCD3030303030303030 part=0 dec=0
+ZFDBG-install lvl=0 file=42 lo=0000000000038FD73030303030303030 hi=000000000003D08D3030303030303030 bytes=2853522 part=0 dec=0
+ZFDBG-mm-add job=3 lvl=0 num=42 lo=0000000000038FD73030303030303030 hi=000000000003D08D3030303030303030 part=0 dec=0
+ZFDBG-mm-end site=run_after_install job=3 token=2 ok=1 file=26 wait_us=0 defer=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-rfi epoch=2 part=4 gen=0
+ZFDBG-mm-jobbeg job=4 epoch=3 token=3
+ZFDBG-skip no_merge=0 busy=0 batch_l0=0 l0busy=0 dirconf=0 batchprev=0 bytes=0 sink=0 cross=0 act=16
+ZFDBG-mm-plan epoch=3 pid=2 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=3 pid=6 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=3 pid=8 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=3 pid=9 dec=0 lo= hi= ov=[]
+ZFDBG-rfi epoch=2 part=0 gen=0
+ZFDBG-slowop route_us=6 wal_us=1 ins_us=231 part=11 gen=1
+ZFDBG-rfi epoch=2 part=3 gen=0
+... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ZFDBG-rfi epoch=2 part=11 gen=0
+... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ... finished 30000 ops                              ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-slowop route_us=7 wal_us=1 ins_us=214 part=7 gen=1
+ZFDBG-slowop route_us=9 wal_us=1 ins_us=257 part=15 gen=1
+... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ... finished 35000 ops                              ZFDBG-slowop route_us=5 wal_us=5 ins_us=211 part=12 gen=1
+ZFDBG-slowop route_us=8 wal_us=0 ins_us=321 part=8 gen=1
+ZFDBG-slowop route_us=5 wal_us=6 ins_us=312 part=15 gen=1
+ZFDBG-slowop route_us=6 wal_us=2 ins_us=263 part=2 gen=1
+ZFDBG-slowop route_us=6 wal_us=11 ins_us=630 part=15 gen=1
+ZFDBG-slowop route_us=4 wal_us=10 ins_us=633 part=15 gen=1
+ZFDBG-slowop route_us=2 wal_us=0 ins_us=473 part=4 gen=1
+ZFDBG-slowop route_us=4 wal_us=4 ins_us=250 part=11 gen=1
+ZFDBG-slowop route_us=8 wal_us=0 ins_us=541 part=12 gen=1
+ZFDBG-slowop route_us=2 wal_us=5 ins_us=461 part=11 gen=1
+ZFDBG-slowop route_us=2 wal_us=8 ins_us=309 part=13 gen=1
+ZFDBG-slowop route_us=3 wal_us=0 ins_us=245 part=9 gen=1
+ZFDBG-slowop route_us=2 wal_us=3 ins_us=392 part=0 gen=1
+ZFDBG-slowop route_us=1 wal_us=0 ins_us=463 part=11 gen=1
+ZFDBG-slowop route_us=8 wal_us=4 ins_us=675 part=4 gen=1
+ZFDBG-slowop route_us=0 wal_us=4 ins_us=1861 part=9 gen=1
+ZFDBG-slowop route_us=1 wal_us=5 ins_us=4490 part=7 gen=1
+ZFDBG-slowop route_us=5 wal_us=4 ins_us=6220 part=6 gen=1
+ZFDBG-batch [JOB 4] stage1_us=379089 epochs=1 tasks=1
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000000000C3030303030303030,00000000000043173030303030303030] hit=file26 [00000000000000023030303030303030,000000000000431A3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000000431B3030303030303030,0000000000007AA73030303030303030] hit=file27 [000000000000431D3030303030303030,0000000000007AB03030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000007AB23030303030303030,000000000000B8633030303030303030] hit=file28 [0000000000007AB63030303030303030,000000000000B8613030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000000B8653030303030303030,000000000000F52F3030303030303030] hit=file29 [000000000000B8673030303030303030,000000000000F5323030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000000F5383030303030303030,00000000000137633030303030303030] hit=file31 [000000000000F53C3030303030303030,000000000001376B3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000137783030303030303030,00000000000173A93030303030303030] hit=file32 [00000000000137703030303030303030,00000000000173AB3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000173AF3030303030303030,000000000001B0A43030303030303030] hit=file33 [00000000000173AD3030303030303030,000000000001B0A43030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000001B0A83030303030303030,000000000001F0793030303030303030] hit=file34 [000000000001B0AA3030303030303030,000000000001F0833030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000001F0843030303030303030,0000000000022BA03030303030303030] hit=file35 [000000000001F0843030303030303030,0000000000022BA13030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000022BA43030303030303030,0000000000026B953030303030303030] hit=file36 [0000000000022BAA3030303030303030,0000000000026B953030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000026B9A3030303030303030,000000000002A2B43030303030303030] hit=file37 [0000000000026B9B3030303030303030,000000000002A2C63030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000002A2DA3030303030303030,000000000002E3B83030303030303030] hit=file38 [000000000002A2C83030303030303030,000000000002E3B93030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000002E3C03030303030303030,0000000000031E223030303030303030] hit=file39 [000000000002E3D13030303030303030,0000000000031E213030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000031E3C3030303030303030,00000000000358FB3030303030303030] hit=file40 [0000000000031E2E3030303030303030,00000000000358F83030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000359013030303030303030,0000000000038FD43030303030303030] hit=file41 [00000000000359053030303030303030,0000000000038FCD3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000038FDE3030303030303030,000000000003D08F3030303030303030] hit=file42 [0000000000038FD73030303030303030,000000000003D08D3030303030303030]
+ZFDBG-install lvl=0 file=43 lo=000000000000000C3030303030303030 hi=00000000000043173030303030303030 bytes=2876743 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=43 lo=000000000000000C3030303030303030 hi=00000000000043173030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=44 lo=000000000000431B3030303030303030 hi=0000000000007AA73030303030303030 bytes=2447351 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=44 lo=000000000000431B3030303030303030 hi=0000000000007AA73030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=46 lo=0000000000007AB23030303030303030 hi=000000000000B8633030303030303030 bytes=8820596 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=46 lo=0000000000007AB23030303030303030 hi=000000000000B8633030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=47 lo=000000000000B8653030303030303030 hi=000000000000F52F3030303030303030 bytes=2636198 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=47 lo=000000000000B8653030303030303030 hi=000000000000F52F3030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=48 lo=000000000000F5383030303030303030 hi=00000000000137633030303030303030 bytes=2731143 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=48 lo=000000000000F5383030303030303030 hi=00000000000137633030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=49 lo=00000000000137783030303030303030 hi=00000000000173A93030303030303030 bytes=2558112 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=49 lo=00000000000137783030303030303030 hi=00000000000173A93030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=50 lo=00000000000173AF3030303030303030 hi=000000000001B0A43030303030303030 bytes=8602239 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=50 lo=00000000000173AF3030303030303030 hi=000000000001B0A43030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=51 lo=000000000001B0A83030303030303030 hi=000000000001F0793030303030303030 bytes=2762798 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=51 lo=000000000001B0A83030303030303030 hi=000000000001F0793030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=52 lo=000000000001F0843030303030303030 hi=0000000000022BA03030303030303030 bytes=8415482 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=52 lo=000000000001F0843030303030303030 hi=0000000000022BA03030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=53 lo=0000000000022BA43030303030303030 hi=0000000000026B953030303030303030 bytes=9098071 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=53 lo=0000000000022BA43030303030303030 hi=0000000000026B953030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=54 lo=0000000000026B9A3030303030303030 hi=000000000002A2B43030303030303030 bytes=2289120 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=54 lo=0000000000026B9A3030303030303030 hi=000000000002A2B43030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=55 lo=000000000002A2DA3030303030303030 hi=000000000002E3B83030303030303030 bytes=2849303 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=55 lo=000000000002A2DA3030303030303030 hi=000000000002E3B83030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=56 lo=000000000002E3C03030303030303030 hi=0000000000031E223030303030303030 bytes=2530696 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=56 lo=000000000002E3C03030303030303030 hi=0000000000031E223030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=57 lo=0000000000031E3C3030303030303030 hi=00000000000358FB3030303030303030 bytes=2508571 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=57 lo=0000000000031E3C3030303030303030 hi=00000000000358FB3030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=58 lo=00000000000359013030303030303030 hi=0000000000038FD43030303030303030 bytes=2281730 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=58 lo=00000000000359013030303030303030 hi=0000000000038FD43030303030303030 part=2 dec=0
+ZFDBG-install lvl=0 file=59 lo=0000000000038FDE3030303030303030 hi=000000000003D08F3030303030303030 bytes=2729044 part=2 dec=0
+ZFDBG-mm-add job=4 lvl=0 num=59 lo=0000000000038FDE3030303030303030 hi=000000000003D08F3030303030303030 part=2 dec=0
+ZFDBG-mm-end site=run_after_install job=4 token=3 ok=1 file=43 wait_us=0 defer=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-rfi epoch=3 part=9 gen=0
+ZFDBG-mm-jobbeg job=5 epoch=4 token=4
+ZFDBG-skip no_merge=0 busy=0 batch_l0=0 l0busy=0 dirconf=0 batchprev=0 bytes=0 sink=0 cross=0 act=16
+ZFDBG-mm-plan epoch=4 pid=1 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=4 pid=10 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=4 pid=12 dec=0 lo= hi= ov=[]
+ZFDBG-mm-plan epoch=4 pid=13 dec=0 lo= hi= ov=[]
+ZFDBG-slowop route_us=4 wal_us=0 ins_us=203 part=6 gen=1
+ZFDBG-slowop route_us=3 wal_us=5 ins_us=202 part=0 gen=1
+ZFDBG-slowop route_us=6 wal_us=1 ins_us=201 part=6 gen=1
+ZFDBG-slowop route_us=4 wal_us=0 ins_us=204 part=1 gen=1
+ZFDBG-slowop route_us=3 wal_us=2 ins_us=204 part=7 gen=1
+ZFDBG-slowop route_us=7 wal_us=0 ins_us=202 part=9 gen=1
+ZFDBG-slowop route_us=0 wal_us=8 ins_us=201 part=10 gen=1
+ZFDBG-slowop route_us=3 wal_us=1 ins_us=204 part=7 gen=1
+ZFDBG-slowop route_us=0 wal_us=1 ins_us=278 part=5 gen=1
+ZFDBG-slowop route_us=0 wal_us=1 ins_us=278 part=14 gen=1
+ZFDBG-slowop route_us=2 wal_us=0 ins_us=277 part=10 gen=1
+ZFDBG-slowop route_us=5 wal_us=1 ins_us=273 part=6 gen=1
+ZFDBG-slowop route_us=1 wal_us=0 ins_us=279 part=5 gen=1
+ZFDBG-slowop route_us=3 wal_us=8 ins_us=270 part=12 gen=1
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ... finished 40000 ops                              ZFDBG-frz part=3 gen=1 size=25747344
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ... finished 45000 ops                              ZFDBG-batch [JOB 5] stage1_us=496682 epochs=1 tasks=1
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000000003030303030303030,00000000000043193030303030303030] hit=file43 [000000000000000C3030303030303030,00000000000043173030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000000431E3030303030303030,0000000000007AB13030303030303030] hit=file44 [000000000000431B3030303030303030,0000000000007AA73030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000007ABB3030303030303030,000000000000B8623030303030303030] hit=file46 [0000000000007AB23030303030303030,000000000000B8633030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000000B8663030303030303030,000000000000F5333030303030303030] hit=file47 [000000000000B8653030303030303030,000000000000F52F3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000000F5373030303030303030,00000000000137673030303030303030] hit=file48 [000000000000F5383030303030303030,00000000000137633030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000137773030303030303030,00000000000173A53030303030303030] hit=file49 [00000000000137783030303030303030,00000000000173A93030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000173B03030303030303030,000000000001B0A33030303030303030] hit=file50 [00000000000173AF3030303030303030,000000000001B0A43030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000001B0A63030303030303030,000000000001F0813030303030303030] hit=file51 [000000000001B0A83030303030303030,000000000001F0793030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000001F0863030303030303030,0000000000022BA23030303030303030] hit=file52 [000000000001F0843030303030303030,0000000000022BA03030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000022BA43030303030303030,0000000000026B913030303030303030] hit=file53 [0000000000022BA43030303030303030,0000000000026B953030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000026B973030303030303030,000000000002A2C73030303030303030] hit=file54 [0000000000026B9A3030303030303030,000000000002A2B43030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000002A2CE3030303030303030,000000000002E3BE3030303030303030] hit=file55 [000000000002A2DA3030303030303030,000000000002E3B83030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[000000000002E3C13030303030303030,0000000000031E253030303030303030] hit=file56 [000000000002E3C03030303030303030,0000000000031E223030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000031E283030303030303030,00000000000358FB3030303030303030] hit=file57 [0000000000031E3C3030303030303030,00000000000358FB3030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[00000000000358FC3030303030303030,0000000000038FD23030303030303030] hit=file58 [00000000000359013030303030303030,0000000000038FD43030303030303030]
+ZFDBG-pick vsstorage base=1 lvl=0 new=[0000000000038FD83030303030303030,000000000003D0823030303030303030] hit=file59 [0000000000038FDE3030303030303030,000000000003D08F3030303030303030]
+ZFDBG-install lvl=0 file=61 lo=00000000000000003030303030303030 hi=00000000000043193030303030303030 bytes=2863048 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=61 lo=00000000000000003030303030303030 hi=00000000000043193030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=62 lo=000000000000431E3030303030303030 hi=0000000000007AB13030303030303030 bytes=10158332 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=62 lo=000000000000431E3030303030303030 hi=0000000000007AB13030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=63 lo=0000000000007ABB3030303030303030 hi=000000000000B8623030303030303030 bytes=2564459 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=63 lo=0000000000007ABB3030303030303030 hi=000000000000B8623030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=64 lo=000000000000B8663030303030303030 hi=000000000000F5333030303030303030 bytes=2650953 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=64 lo=000000000000B8663030303030303030 hi=000000000000F5333030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=65 lo=000000000000F5373030303030303030 hi=00000000000137673030303030303030 bytes=2913673 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=65 lo=000000000000F5373030303030303030 hi=00000000000137673030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=66 lo=00000000000137773030303030303030 hi=00000000000173A53030303030303030 bytes=2546541 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=66 lo=00000000000137773030303030303030 hi=00000000000173A53030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=67 lo=00000000000173B03030303030303030 hi=000000000001B0A33030303030303030 bytes=2560251 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=67 lo=00000000000173B03030303030303030 hi=000000000001B0A33030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=68 lo=000000000001B0A63030303030303030 hi=000000000001F0813030303030303030 bytes=2710038 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=68 lo=000000000001B0A63030303030303030 hi=000000000001F0813030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=69 lo=000000000001F0863030303030303030 hi=0000000000022BA23030303030303030 bytes=2502212 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=69 lo=000000000001F0863030303030303030 hi=0000000000022BA23030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=70 lo=0000000000022BA43030303030303030 hi=0000000000026B913030303030303030 bytes=2722699 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=70 lo=0000000000022BA43030303030303030 hi=0000000000026B913030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=71 lo=0000000000026B973030303030303030 hi=000000000002A2C73030303030303030 bytes=10154113 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=71 lo=0000000000026B973030303030303030 hi=000000000002A2C73030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=72 lo=000000000002A2CE3030303030303030 hi=000000000002E3BE3030303030303030 bytes=2871472 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=72 lo=000000000002A2CE3030303030303030 hi=000000000002E3BE3030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=73 lo=000000000002E3C13030303030303030 hi=0000000000031E253030303030303030 bytes=10741772 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=73 lo=000000000002E3C13030303030303030 hi=0000000000031E253030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=75 lo=0000000000031E283030303030303030 hi=00000000000358FB3030303030303030 bytes=10746007 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=75 lo=0000000000031E283030303030303030 hi=00000000000358FB3030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=76 lo=00000000000358FC3030303030303030 hi=0000000000038FD23030303030303030 bytes=2323923 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=76 lo=00000000000358FC3030303030303030 hi=0000000000038FD23030303030303030 part=1 dec=0
+ZFDBG-install lvl=0 file=77 lo=0000000000038FD83030303030303030 hi=000000000003D0823030303030303030 bytes=2719555 part=1 dec=0
+ZFDBG-mm-add job=5 lvl=0 num=77 lo=0000000000038FD83030303030303030 hi=000000000003D0823030303030303030 part=1 dec=0
+ZFDBG-mm-end site=run_after_install job=5 token=4 ok=1 file=61 wait_us=0 defer=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-mm-jobbeg job=7 epoch=6 token=5
+ZFDBG-mm-reg epoch=6 pid=0 token=5 ok=1
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scanf epoch=6 num=9 bc=0
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo= hi=000000000000431B3030303030303030 l1=[9 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-scan pid=0 lo= hi=000000000000431B3030303030303030 n=1 bytes=2924215 ok=1 bskip=0 l1n=16
+ZFDBG-mm-reg epoch=6 pid=3 token=5 ok=1
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scanf epoch=6 num=12 bc=0
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 l1=[9(bc) 10 11 12 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-scan pid=3 lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 n=1 bytes=2617184 ok=1 bskip=0 l1n=16
+ZFDBG-mm-reg epoch=6 pid=4 token=5 ok=1
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scanf epoch=6 num=13 bc=0
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 l1=[9(bc) 10 11 12(bc) 13 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-scan pid=4 lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 n=1 bytes=2874621 ok=1 bskip=0 l1n=16
+ZFDBG-mm-reg epoch=6 pid=11 token=5 ok=1
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scanf epoch=6 num=21 bc=0
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-mm-scan lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 l1=[9(bc) 10 11 12(bc) 13(bc) 14 15 16 17 19 20 21 22 23 24 25 ]
+ZFDBG-scan pid=11 lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 n=1 bytes=2782873 ok=1 bskip=0 l1n=16
+ZFDBG-skip no_merge=0 busy=0 batch_l0=0 l0busy=0 dirconf=0 batchprev=0 bytes=0 sink=0 cross=0 act=4
+ZFDBG-mm-plan epoch=6 pid=0 dec=1 lo= hi=000000000000431B3030303030303030 ov=[9 L0:61 L0:43 L0:26 ]
+ZFDBG-mm-plan epoch=6 pid=3 dec=1 lo=000000000000B8653030303030303030 hi=000000000000F5363030303030303030 ov=[12 L0:64 L0:47 L0:29 ]
+ZFDBG-mm-plan epoch=6 pid=4 dec=1 lo=000000000000F5363030303030303030 hi=000000000001376F3030303030303030 ov=[13 L0:65 L0:48 L0:31 ]
+ZFDBG-mm-plan epoch=6 pid=11 dec=1 lo=000000000002A2C83030303030303030 hi=000000000002E3C03030303030303030 ov=[21 L0:72 L0:55 L0:38 ]
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-batch [JOB 7] stage1_us=138558 epochs=1 tasks=4
+ZFDBG-del file=64 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=64
+ZFDBG-del file=47 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=47
+ZFDBG-del file=29 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=29
+ZFDBG-del file=12 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=1 num=12
+ZFDBG-install lvl=1 file=78 lo=000000000000B8653030303030303030 hi=000000000000F5353030303030303030 bytes=15429114 part=3 dec=1
+ZFDBG-mm-add job=7 lvl=1 num=78 lo=000000000000B8653030303030303030 hi=000000000000F5353030303030303030 part=3 dec=1
+ZFDBG-del file=61 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=61
+ZFDBG-del file=43 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=43
+ZFDBG-del file=26 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=26
+ZFDBG-del file=9 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=1 num=9
+ZFDBG-install lvl=1 file=80 lo=00000000000000003030303030303030 hi=000000000000431A3030303030303030 bytes=17014790 part=0 dec=1
+ZFDBG-mm-add job=7 lvl=1 num=80 lo=00000000000000003030303030303030 hi=000000000000431A3030303030303030 part=0 dec=1
+ZFDBG-del file=72 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=72
+ZFDBG-del file=55 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=55
+ZFDBG-del file=38 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=38
+ZFDBG-del file=21 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=1 num=21
+ZFDBG-install lvl=1 file=79 lo=000000000002A2C83030303030303030 hi=000000000002E3BE3030303030303030 bytes=16480980 part=11 dec=1
+ZFDBG-mm-add job=7 lvl=1 num=79 lo=000000000002A2C83030303030303030 hi=000000000002E3BE3030303030303030 part=11 dec=1
+ZFDBG-del file=65 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=65
+ZFDBG-del file=48 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=48
+ZFDBG-del file=31 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=0 num=31
+ZFDBG-del file=13 epoch=6
+ZFDBG-mm-del job=7 epoch_src l=1 num=13
+ZFDBG-install lvl=1 file=81 lo=000000000000F5363030303030303030 hi=000000000001376E3030303030303030 bytes=16849172 part=4 dec=1
+ZFDBG-mm-add job=7 lvl=1 num=81 lo=000000000000F5363030303030303030 hi=000000000001376E3030303030303030 part=4 dec=1
+ZFDBG-mm-end site=run_after_install job=7 token=5 ok=1 file=78 wait_us=0 defer=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.04 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ... finished 50000 ops                              ZFDBG-ctxhandoff epoch=5 gens=4 se_ok=1 se_pb=4 out_pb=4
+ZFDBG-mm-defer job=6 epochs=1 reason=install_lock_timeout wait_us=160743 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-adopt skip_gens=4 epoch=7
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-rfi epoch=6 part=3 gen=1
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-ctxhandoff epoch=7 gens=8 se_ok=1 se_pb=8 out_pb=8
+ZFDBG-mm-defer job=8 epochs=1 reason=install_lock_timeout wait_us=160782 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-adopt skip_gens=8 epoch=8
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ... finished 60000 ops                              ZFDBG-ctxhandoff epoch=8 gens=12 se_ok=1 se_pb=12 out_pb=12
+ZFDBG-mm-defer job=9 epochs=1 reason=install_lock_timeout wait_us=160616 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-adopt skip_gens=12 epoch=9
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-ctxhandoff epoch=9 gens=16 se_ok=1 se_pb=12 out_pb=12
+ZFDBG-mm-defer job=10 epochs=1 reason=install_lock_timeout wait_us=160506 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-frz part=3 gen=2 size=26952048
+ZFDBG-adopt skip_gens=16 epoch=10
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ... finished 70000 ops                              ZFDBG-ctxhandoff epoch=10 gens=20 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=11 epochs=1 reason=install_lock_timeout wait_us=160529 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-adopt skip_gens=20 epoch=11
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ... finished 80000 ops                              ZFDBG-ctxhandoff epoch=11 gens=24 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=12 epochs=1 reason=install_lock_timeout wait_us=160858 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-adopt skip_gens=24 epoch=12
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-ctxhandoff epoch=12 gens=28 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=13 epochs=1 reason=install_lock_timeout wait_us=161083 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-sched unsched=0 bgc=0 l1score=0.09 l2score=0.00 l1n=16 l2n=0 l2bytes=0
+ZFDBG-adopt skip_gens=28 epoch=13
+... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ... finished 90000 ops                              ZFDBG-ctxhandoff epoch=13 gens=32 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-handoff epoch=13 gens=[(15,3)(7,3)(5,3)(14,3)(9,2)(2,2)(6,2)(8,2)(14,1)(7,1)(6,1)(15,2)(15,1)(9,1)(14,2)(5,1)(8,1)(5,2)(7,2)(10,1)(12,1)(13,1)(3,2)(2,1)(11,2)(4,2)(0,2)(1,1)(10,2)(1,2)(12,2)(13,2)]
+ZFDBG-mm-defer job=14 epochs=1 reason=install_lock_timeout wait_us=161243 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=3 size=26687184
+ZFDBG-adopt skip_gens=32 epoch=14
+ZFDBG-ctxhandoff epoch=14 gens=36 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-handoff epoch=14 gens=[(0,3)(4,3)(11,3)(3,3)(13,2)(12,2)(1,2)(15,3)(6,2)(7,3)(5,3)(14,3)(5,2)(9,2)(2,2)(8,2)(14,1)(7,1)(6,1)(15,2)(15,1)(9,1)(14,2)(5,1)(8,1)(7,2)(10,1)(12,1)(13,1)(3,2)(2,1)(11,2)(4,2)(0,2)(1,1)(10,2)]
+ZFDBG-mm-defer job=15 epochs=1 reason=install_lock_timeout wait_us=160557 holder=7323948463827754369 acquire_us=1789262403154803
+... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ... finished 100000 ops                              ZFDBG-adopt skip_gens=36 epoch=15
+ZFDBG-ctxhandoff epoch=15 gens=40 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=16 epochs=1 reason=install_lock_timeout wait_us=161202 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=40 epoch=16
+ZFDBG-ctxhandoff epoch=16 gens=44 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=17 epochs=1 reason=install_lock_timeout wait_us=160553 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=44 epoch=17
+ZFDBG-ctxhandoff epoch=17 gens=48 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=18 epochs=1 reason=install_lock_timeout wait_us=160537 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=4 size=26838840
+ZFDBG-adopt skip_gens=48 epoch=18
+ZFDBG-ctxhandoff epoch=18 gens=52 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=19 epochs=1 reason=install_lock_timeout wait_us=161219 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=52 epoch=19
+ZFDBG-ctxhandoff epoch=19 gens=56 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=20 epochs=1 reason=install_lock_timeout wait_us=161224 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=56 epoch=20
+ZFDBG-ctxhandoff epoch=20 gens=60 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=21 epochs=1 reason=install_lock_timeout wait_us=160552 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=60 epoch=21
+ZFDBG-ctxhandoff epoch=21 gens=64 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=22 epochs=1 reason=install_lock_timeout wait_us=160548 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=5 size=26909328
+ZFDBG-adopt skip_gens=64 epoch=22
+... finished 150000 ops                              ZFDBG-ctxhandoff epoch=22 gens=68 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=23 epochs=1 reason=install_lock_timeout wait_us=161199 holder=7323948463827754369 acquire_us=1789262403154803
+... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ... finished 150000 ops                              ZFDBG-adopt skip_gens=68 epoch=23
+ZFDBG-ctxhandoff epoch=23 gens=72 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=24 epochs=1 reason=install_lock_timeout wait_us=160564 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=72 epoch=24
+ZFDBG-ctxhandoff epoch=24 gens=76 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=25 epochs=1 reason=install_lock_timeout wait_us=161259 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=76 epoch=25
+ZFDBG-ctxhandoff epoch=25 gens=80 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=26 epochs=1 reason=install_lock_timeout wait_us=160577 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=6 size=26851656
+ZFDBG-adopt skip_gens=80 epoch=26
+ZFDBG-ctxhandoff epoch=26 gens=84 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=27 epochs=1 reason=install_lock_timeout wait_us=160576 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=84 epoch=27
+ZFDBG-ctxhandoff epoch=27 gens=88 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=28 epochs=1 reason=install_lock_timeout wait_us=161690 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=88 epoch=28
+ZFDBG-ctxhandoff epoch=28 gens=92 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=29 epochs=1 reason=install_lock_timeout wait_us=160561 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=92 epoch=29
+ZFDBG-ctxhandoff epoch=29 gens=96 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=30 epochs=1 reason=install_lock_timeout wait_us=160875 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=7 size=26873016
+ZFDBG-adopt skip_gens=96 epoch=30
+... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ... finished 200000 ops                              ZFDBG-ctxhandoff epoch=30 gens=100 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=31 epochs=1 reason=install_lock_timeout wait_us=160554 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=100 epoch=31
+ZFDBG-ctxhandoff epoch=31 gens=104 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=32 epochs=1 reason=install_lock_timeout wait_us=160572 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=104 epoch=32
+ZFDBG-ctxhandoff epoch=32 gens=108 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=33 epochs=1 reason=install_lock_timeout wait_us=160572 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=108 epoch=33
+ZFDBG-ctxhandoff epoch=33 gens=112 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=34 epochs=1 reason=install_lock_timeout wait_us=160849 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=8 size=26383872
+ZFDBG-adopt skip_gens=112 epoch=34
+ZFDBG-ctxhandoff epoch=34 gens=116 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=35 epochs=1 reason=install_lock_timeout wait_us=160579 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=116 epoch=35
+ZFDBG-ctxhandoff epoch=35 gens=120 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=36 epochs=1 reason=install_lock_timeout wait_us=160583 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=120 epoch=36
+ZFDBG-ctxhandoff epoch=36 gens=124 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=37 epochs=1 reason=install_lock_timeout wait_us=160770 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-adopt skip_gens=124 epoch=37
+ZFDBG-ctxhandoff epoch=37 gens=128 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=38 epochs=1 reason=install_lock_timeout wait_us=160594 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=9 size=26864472
+ZFDBG-adopt skip_gens=128 epoch=38
+... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              ... finished 250000 ops                              Set seed to 1789262401020531 because --seed was 0
+Initializing RocksDB Options from the specified file
+Initializing RocksDB Options from command-line flags
+Integrated BlobDB: blob cache disabled
+Keys:       16 bytes each (+ 0 bytes user-defined timestamp)
+Values:     1024 bytes each (512 bytes after compression)
+Entries:    250000
+Prefix:    0 bytes
+Keys per prefix:    0
+RawSize:    248.0 MB (estimated)
+FileSize:   125.9 MB (estimated)
+Write rate: 0 bytes/second
+Read rate: 0 ops/second
+Compression: NoCompression
+Compression sampling rate: 0
+Memtablerep: SkipListFactory
+Perf Level: 1
+------------------------------------------------
+Initializing RocksDB Options from the specified file
+Initializing RocksDB Options from command-line flags
+Integrated BlobDB: blob cache disabled
+DB path: [diag/db_probe]
+fillrandom   :      44.695 micros/op 357903 ops/sec 11.176 seconds 4000000 operations;  355.0 MB/s
+ZFDBG-ctxhandoff epoch=38 gens=132 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=39 epochs=1 reason=install_lock_timeout wait_us=160588 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=10 size=5407284
+ZFDBG-adopt skip_gens=132 epoch=39
+ZFDBG-ctxhandoff epoch=39 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=40 epochs=1 reason=install_lock_timeout wait_us=161263 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=11 size=0
+ZFDBG-adopt skip_gens=148 epoch=40
+ZFDBG-ctxhandoff epoch=40 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=41 epochs=1 reason=install_lock_timeout wait_us=161254 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=12 size=0
+ZFDBG-adopt skip_gens=148 epoch=41
+ZFDBG-ctxhandoff epoch=41 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=42 epochs=1 reason=install_lock_timeout wait_us=161274 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=13 size=0
+ZFDBG-adopt skip_gens=148 epoch=42
+ZFDBG-ctxhandoff epoch=42 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=43 epochs=1 reason=install_lock_timeout wait_us=161180 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=14 size=0
+ZFDBG-adopt skip_gens=148 epoch=43
+ZFDBG-ctxhandoff epoch=43 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=44 epochs=1 reason=install_lock_timeout wait_us=161216 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=15 size=0
+ZFDBG-adopt skip_gens=148 epoch=44
+ZFDBG-ctxhandoff epoch=44 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=45 epochs=1 reason=install_lock_timeout wait_us=161316 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=16 size=0
+ZFDBG-adopt skip_gens=148 epoch=45
+ZFDBG-ctxhandoff epoch=45 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=46 epochs=1 reason=install_lock_timeout wait_us=161405 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=17 size=0
+ZFDBG-adopt skip_gens=148 epoch=46
+ZFDBG-ctxhandoff epoch=46 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=47 epochs=1 reason=install_lock_timeout wait_us=161326 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=18 size=0
+ZFDBG-adopt skip_gens=148 epoch=47
+ZFDBG-ctxhandoff epoch=47 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=48 epochs=1 reason=install_lock_timeout wait_us=161225 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=19 size=0
+ZFDBG-adopt skip_gens=148 epoch=48
+ZFDBG-ctxhandoff epoch=48 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=49 epochs=1 reason=install_lock_timeout wait_us=161196 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=20 size=0
+ZFDBG-adopt skip_gens=148 epoch=49
+ZFDBG-ctxhandoff epoch=49 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=50 epochs=1 reason=install_lock_timeout wait_us=161324 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=21 size=0
+ZFDBG-adopt skip_gens=148 epoch=50
+ZFDBG-ctxhandoff epoch=50 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=51 epochs=1 reason=install_lock_timeout wait_us=161309 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=22 size=0
+ZFDBG-adopt skip_gens=148 epoch=51
+ZFDBG-ctxhandoff epoch=51 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=52 epochs=1 reason=install_lock_timeout wait_us=161250 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=23 size=0
+ZFDBG-adopt skip_gens=148 epoch=52
+ZFDBG-ctxhandoff epoch=52 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=53 epochs=1 reason=install_lock_timeout wait_us=161218 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=24 size=0
+ZFDBG-adopt skip_gens=148 epoch=53
+ZFDBG-ctxhandoff epoch=53 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=54 epochs=1 reason=install_lock_timeout wait_us=161255 holder=7323948463827754369 acquire_us=1789262403154803
+ZFDBG-frz part=3 gen=25 size=0
+ZFDBG-adopt skip_gens=148 epoch=54
+ZFDBG-ctxhandoff epoch=54 gens=148 se_ok=1 se_pb=16 out_pb=16
+ZFDBG-mm-defer job=55 epochs=1 reason=install_lock_timeout wait_us=161269 holder=7323948463827754369 acquire_us=1789262403154803
+ZEROFLUSH PROPERTIES:
+zf.epochs_sealed : 38
+zf.epochs_materialized : 37
+zf.epochs_reclaimed : 5
+zf.live_wal_bytes : 241104204
+zf.sealed_wal_bytes : 59888320008
+zf.materialize_micros : 8053117
+zf.materialize_sort_micros : 153168
+zf.sealed_read_count : 0
+zf.sealed_cache_miss : 0
+zf.recovery_count : 0
+zf.partition_skew : 1.7387
+zf.install_direct_base : 64
+zf.install_fallback_l0 : 48
+zf.base_merge_count : 4
+zf.base_merge_rewritten_bytes : 11198893
+zf.skip_count : 32
+zf.prof_scan_us : 387364
+zf.prof_scan_bytes : 481888160
+zf.prof_build_us : 1110107
+zf.prof_merge_us : 283023
+zf.prof_output_bytes : 303200864
+zf.prof_tasks : 8

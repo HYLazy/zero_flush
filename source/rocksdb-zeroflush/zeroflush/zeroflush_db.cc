@@ -749,6 +749,10 @@ bool ZeroFlushContext::AcquireInstallLock() {
     return true;  // 关闭：不做串行化（仅回退/对照用）
   }
   install_lock_held_ = install_mu_.try_lock();
+  if (install_lock_held_) {
+    std::lock_guard<std::mutex> l(install_cv_mu_);
+    install_mu_free_ = false;
+  }
   return install_lock_held_;
 }
 
@@ -756,17 +760,23 @@ void ZeroFlushContext::ReleaseInstallLock() {
   if (install_lock_held_) {
     install_lock_held_ = false;
     install_mu_.unlock();
+    {
+      std::lock_guard<std::mutex> l(install_cv_mu_);
+      install_mu_free_ = true;
+    }
     install_cv_.notify_all();
   }
 }
 
-bool ZeroFlushContext::WaitInstallLockFor(std::chrono::microseconds timeout) {
-  // 在 install_cv_mu_ 上等待"锁被释放"事件（有界）。调用方不得持 DB mutex。
-  {
-    std::unique_lock<std::mutex> l(install_cv_mu_);
-    install_cv_.wait_for(l, timeout);
-  }
-  return AcquireInstallLock();
+void ZeroFlushContext::WaitForInstallLock() {
+  // 阻塞直到拿到 install 锁。语义：调用点（规划之前、gen0 等待之后）已无
+  // 其他依赖，持锁方必然完成安装并释放；本函数不改动本批的任何数据状态
+  // （不移交 gens、不放弃计划），因此不会产生"让位→收养→再让位"循环。
+  std::unique_lock<std::mutex> l(install_cv_mu_);
+  install_cv_.wait(l, [this] { return install_mu_free_; });
+  install_mu_.lock();
+  install_lock_held_ = true;
+  install_mu_free_ = false;
 }
 
 // ---- M5P1b：学习窗 gen0 批串行槽 ----

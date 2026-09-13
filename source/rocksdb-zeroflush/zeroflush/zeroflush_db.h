@@ -462,7 +462,7 @@ class ZeroFlushContext {
   // ZF_INSTALL_LOCK=0 可整体关闭（回退/对照实验；默认开启）。
   bool AcquireInstallLock();
   void ReleaseInstallLock();
-  bool WaitInstallLockFor(std::chrono::microseconds timeout);
+  void WaitForInstallLock();
 
   // M5 诊断（ZF_DBG_MM）：ZF 安装输出的层级生命周期 watch——记录最近安装
   // 的文件号与范围；后续 plan 若在本层未见该号，打印其当前所在层/是否消失
@@ -824,9 +824,10 @@ class ZeroFlushContext {
   mutable std::mutex install_mu_;
   // 仅由持有批次在 Run 线程内读写（加锁期间其他批次不碰）。
   bool install_lock_held_ = false;
-  // 等待"锁被释放"的事件（有界等待重试用；避免让位风暴）。
+  // 等待"锁被释放"的事件（耐心等待，避免让位风暴循环）。
   mutable std::mutex install_cv_mu_;
   std::condition_variable install_cv_;
+  bool install_mu_free_ = true;
   // ---- 物化分相剖析（2026-09-07 吞吐归因）----
   // 每分区任务的阶段耗时/字节累积：scan = A 侧封存 WAL 顺序读；
   // build = 直装/切片建表（含排序）；merge = 融合路径 B 侧迭代器 +
