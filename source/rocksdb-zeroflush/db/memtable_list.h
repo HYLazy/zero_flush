@@ -273,6 +273,16 @@ class MemTableList {
   // been flushed and logged.
   int NumNotFlushed() const;
 
+  // ---- M4.9 安装顺序 barrier（2026-09-14）----
+  // EarliestPendingInstall = 尚未完成"安装并发布"的最小 memtable ID。
+  // 语义 = imm 中最旧项：memtable 只有在 edit 提交（Version 发布）时才
+  // 离开 imm，因此该值同时覆盖两种阻塞情形：
+  //   (a) flush 尚未完成（flush_completed_=false）；
+  //   (b) flush 已完成但尚未提交发布（flush_completed_=true，仍在 imm）。
+  // 准入与安装侧必须共用此函数，避免两处判据不一致。
+  // 返回 max() 表示 imm 为空（无待安装项）。REQUIRES: DB mutex held。
+  uint64_t EarliestPendingInstallMemtableID() const;
+
   // Returns total number of memtables in the list that have been
   // completely flushed and logged.
   int NumFlushed() const;

@@ -463,6 +463,19 @@ class ZeroFlushContext {
   bool AcquireInstallLock();
   void ReleaseInstallLock();
   void WaitForInstallLock();
+  // ---- M4.9 安装进度可见性（2026-09-14）----
+  // 单调进度序号：以下事件均递增并唤醒等待者（防止 CV 丢唤醒）：
+  // install 锁释放（含安装完成/明确取消）、gen0 槽释放、last_materialized
+  // 推进。等待方先读序号再判条件，条件不满足才等待"序号变化"。
+  uint64_t InstallProgressEpoch() const;
+  void NotifyInstallProgress();
+  // 等待进度序号变化（或超时兜底）。调用方**不得**持 DB mutex。
+  // 返回 true = 序号已变化（应重新检查准入条件）。
+  bool WaitInstallProgress(uint64_t observed, uint64_t timeout_us);
+  // gen0 串行槽：非阻塞尝试（失败不等待，调用方需释放其他资源后再等）。
+  bool TryAcquireGen0Slot();
+  // 学习窗是否已关闭（无在飞/等待中的学习批）。
+  bool IsGen0WindowClosed() const;
   // 只等待"锁被释放"事件（不获取锁、不改本批状态）；用于"等前序完成"。
   void WaitInstallRelease(uint64_t max_wait_us);
 
@@ -830,6 +843,10 @@ class ZeroFlushContext {
   mutable std::mutex install_cv_mu_;
   std::condition_variable install_cv_;
   bool install_mu_free_ = true;
+  // 安装进度：单调序号 + CV（等待方先读序号再等待变化，防丢唤醒）。
+  std::atomic<uint64_t> install_progress_epoch_{0};
+  mutable std::mutex install_progress_mu_;
+  std::condition_variable installer_progress_cv_;
   // ---- 物化分相剖析（2026-09-07 吞吐归因）----
   // 每分区任务的阶段耗时/字节累积：scan = A 侧封存 WAL 顺序读；
   // build = 直装/切片建表（含排序）；merge = 融合路径 B 侧迭代器 +

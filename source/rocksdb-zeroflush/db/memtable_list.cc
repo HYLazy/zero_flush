@@ -431,6 +431,15 @@ bool MemTableList::IsFlushPendingOrRunning() const {
 }
 
 // Returns the memtables that need to be flushed.
+uint64_t MemTableList::EarliestPendingInstallMemtableID() const {
+  // memlist_ 队尾 = 最旧；未提交发布的 memtable 都还在 imm 里。
+  const auto& memlist = current_->memlist_;
+  if (memlist.empty()) {
+    return std::numeric_limits<uint64_t>::max();
+  }
+  return memlist.back()->GetID();
+}
+
 void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
                                         autovector<ReadOnlyMemTable*>* ret,
                                         uint64_t* max_next_log_number) {

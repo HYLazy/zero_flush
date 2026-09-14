@@ -1310,116 +1310,110 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       }
     }
   }
-  if (zf_batch_has_gen0) {
-    db_mutex_->Unlock();
-    zf_ctx->AcquireGen0Slot();
-    db_mutex_->Lock();
-    zf_batch_gen0_ = true;
-  } else {
-    db_mutex_->Unlock();
-    zf_ctx->WaitGen0WindowClosed();
-    db_mutex_->Lock();
+  // ---- M4.9 安装顺序准入（2026-09-14，替换旧 gen0 前取 + 前序轮询）----
+  // 统一 barrier：EarliestPendingInstallMemtableID()（imm 最旧项，含"已完成
+  // 但未发布"）。只有"本批最小 memtable ID == barrier"的批次可进入安装窗口。
+  // 所有等待都不持 DB mutex / gen0 槽 / install 锁；等待由进度序号驱动
+  // （NotifyInstallProgress 在锁释放/槽释放时递增），避免丢唤醒。
+  uint64_t zf_my_min_id = std::numeric_limits<uint64_t>::max();
+  for (ReadOnlyMemTable* m : mems_) {
+    zf_my_min_id = std::min(zf_my_min_id, m->GetID());
+  }
+  uint64_t zf_pred_waits = 0;
+  uint64_t zf_unexpected_pred = 0;
+  while (true) {
+    // ① barrier 检查（持 DB mutex）
+    const uint64_t barrier = cfd_->imm()->EarliestPendingInstallMemtableID();
+    if (barrier < zf_my_min_id) {
+      // 不是最旧：零资源等待（释放 gen0 + DB mutex，等进度）
+      if (zf_batch_gen0_) {
+        zf_ctx->ReleaseGen0Slot();
+        zf_batch_gen0_ = false;
+      }
+      ++zf_pred_waits;
+      if (getenv("ZF_DBG_MM") != nullptr && zf_pred_waits <= 8) {
+        fprintf(stderr,
+                "ZFTRACE site=OldestAdmission job=%d action=wait_barrier "
+                "barrier=%llu my_min=%llu n=%llu\n",
+                job_context_->job_id, (unsigned long long)barrier,
+                (unsigned long long)zf_my_min_id,
+                (unsigned long long)zf_pred_waits);
+      }
+      const uint64_t observed = zf_ctx->InstallProgressEpoch();
+      db_mutex_->Unlock();
+      zf_ctx->WaitInstallProgress(observed, 100000 /*100ms 兜底*/);
+      db_mutex_->Lock();
+      continue;
+    }
+    // ② 取 install 锁（不持 DB mutex、不持 gen0 槽）
+    if (!zf_ctx->AcquireInstallLock()) {
+      const uint64_t observed = zf_ctx->InstallProgressEpoch();
+      db_mutex_->Unlock();
+      zf_ctx->WaitInstallProgress(observed, 100000);
+      db_mutex_->Lock();
+      continue;
+    }
+    // ③ 持锁复检 barrier（防御：等待期间 imm 可能变化）
+    const uint64_t barrier2 = cfd_->imm()->EarliestPendingInstallMemtableID();
+    if (barrier2 < zf_my_min_id) {
+      ++zf_unexpected_pred;
+      if (getenv("ZF_DBG_MM") != nullptr) {
+        fprintf(stderr,
+                "ZFTRACE site=OldestAdmission job=%d action=unexpected_predecessor "
+                "barrier=%llu my_min=%llu\n",
+                job_context_->job_id, (unsigned long long)barrier2,
+                (unsigned long long)zf_my_min_id);
+      }
+      zf_ctx->ReleaseInstallLock();
+      if (zf_batch_gen0_) {
+        zf_ctx->ReleaseGen0Slot();
+        zf_batch_gen0_ = false;
+      }
+      const uint64_t observed = zf_ctx->InstallProgressEpoch();
+      db_mutex_->Unlock();
+      zf_ctx->WaitInstallProgress(observed, 100000);
+      db_mutex_->Lock();
+      continue;
+    }
+    // ④ gen0 串行槽：非阻塞获取；失败则释放 install 锁后再等进度
+    if (zf_batch_has_gen0) {
+      if (!zf_ctx->TryAcquireGen0Slot()) {
+        zf_ctx->ReleaseInstallLock();
+        const uint64_t observed = zf_ctx->InstallProgressEpoch();
+        db_mutex_->Unlock();
+        zf_ctx->WaitInstallProgress(observed, 100000);
+        db_mutex_->Lock();
+        continue;
+      }
+      zf_batch_gen0_ = true;
+    } else if (!zf_ctx->IsGen0WindowClosed()) {
+      // 学习批在飞：释放锁让位（学习批可能也需要锁推进），等进度
+      zf_ctx->ReleaseInstallLock();
+      const uint64_t observed = zf_ctx->InstallProgressEpoch();
+      db_mutex_->Unlock();
+      zf_ctx->WaitInstallProgress(observed, 100000);
+      db_mutex_->Lock();
+      continue;
+    }
+    break;  // 准入完成：最旧 + 持锁 + gen0 就绪
+  }
+  zf_install_wait_micros_ += 0;  // 兼容旧诊断字段
+  if (getenv("ZF_DBG_MM") != nullptr &&
+      (zf_pred_waits > 0 || zf_unexpected_pred > 0)) {
+    fprintf(stderr,
+            "ZFTRACE site=OldestAdmission job=%d action=admitted pred_wait=%llu "
+            "unexpected=%llu\n",
+            job_context_->job_id, (unsigned long long)zf_pred_waits,
+            (unsigned long long)zf_unexpected_pred);
   }
 
-  // M5P1b（多 flush 并行）：规划基版本刷新——base_ 在 PickMemtable 时
-  // 取快照，而 pick → 此处之间 NotifyOnFlushBegin/学习窗等待会释放 DB
-  // mutex；多 flush 下他批可能在此窗口完成安装。持过期 base_ 规划 →
-  // 直装决策看不到已装 L1 文件 → finalize 冲突 → §3.5 recovery 转换 →
-  // 收养循环数据丢失（25GB 实测命中 33%）。**必须在学习窗等待之后**
-  // 刷新（等待的意义 = 让窗口内安装落地后再规划；提前刷新 = 过期）。
-  // 重新取 current() 并 Ref（规划收集的 FileMetaData 指针生命周期由该
-  // Ref 覆盖 stage-1 全程）；旧 base_ Unref。
+  // M5P1b（多 flush 并行）：规划基版本刷新——准入循环结束后取当前版本
+  // （等待期间他批可能已安装；必须在等待之后刷新，提前刷新 = 过期视图）。
   {
     ROCKSDB_NAMESPACE::Version* cur = cfd_->current();
     cur->Ref();
     base_->Unref();
     base_ = cur;
-  }
-
-  // ---- M4.9（2026-09-12）：安装窗口串行化（zf_install_mu_）----
-  // 位置要求：必须在学习窗/gen0 槽等待之后、且在任何规划之前。
-  //  - 在等待之后：持锁期间不再阻塞等待任何锁（否则持锁等 gen0 会成环）；
-  //  - 在规划之前：规划读的是当前版本视图，锁必须覆盖 plan→build→apply
-  //    全程，才能封住"他批在 LogAndApply 让 DB mutex 窗口内插入规划"。
-  // try_lock 失败 → 整批让位：把本批全部待物化 gens 移交 recovery（与
-  // kSkip/yield 同语义，数据留在 frozen+WAL 可读，下批收养重物化）。
-  // ---- M4.9 死锁修复（2026-09-14，gdb 栈实证）----
-  // 实证：4 个 flush 线程全部阻塞在 WaitForInstallLock，而持锁线程卡在
-  // TryInstallMemtableFlushResults —— 它在等"更早未安装的 memtable"，而
-  // 那个 memtable 的 flush job 正卡在等锁 → 循环等待（死锁，永久停摆）。
-  // 修复：拿锁之前先确认本批是该 imm 集合中最早的批次；若存在更早的
-  // 未安装 memtable，则不持锁地等待它完成，再取锁。这样持锁者一定不会
-  // 在 TryInstall 里等待别人（TryInstall 只依赖前序，而前序已清空）。
-  {
-    const ReadOnlyMemTable* zf_oldest_self = mems_.front();
-    for (ReadOnlyMemTable* m : mems_) {
-      if (m->GetID() < zf_oldest_self->GetID()) {
-        zf_oldest_self = m;
-      }
-    }
-    int zf_predecessor_waits = 0;
-    while (true) {
-      const uint64_t earliest_imm = cfd_->imm()->GetEarliestMemTableID();
-      if (earliest_imm >= zf_oldest_self->GetID()) {
-        break;  // 没有更早的未安装 memtable，可以安全取锁
-      }
-      // 有前序未完成：不持锁等待（让前序的 flush job 能拿到锁推进）。
-      ++zf_predecessor_waits;
-      // 关键：等前序前必须释放 gen0 学习窗槽——否则本批（学习批）持槽等
-      // 前序，而前序的 flush job 卡在等"学习窗关闭"，形成自锁
-      // （gdb 实证：Thread6/4 卡 WaitGen0WindowClosed、Thread3 卡
-      // AcquireGen0Slot、Thread5 卡本等待循环）。
-      if (zf_batch_gen0_) {
-        zf_ctx->ReleaseGen0Slot();
-        zf_batch_gen0_ = false;
-        zf_predecessor_released_gen0_ = true;
-      }
-      if (getenv("ZF_DBG_MM") != nullptr && zf_predecessor_waits <= 8) {
-        fprintf(stderr,
-                "ZFTRACE site=install_predecessor_wait job=%d my_min=%llu "
-                "earliest_imm=%llu wait_n=%d\n",
-                job_context_->job_id,
-                (unsigned long long)zf_oldest_self->GetID(),
-                (unsigned long long)earliest_imm, zf_predecessor_waits);
-      }
-      zf_ctx->WaitInstallRelease(2000 /*us*/);
-      // 关键（gdb 实证 2026-09-14）：退避期间必须放开 DB mutex——否则
-      // 本批持 DB mutex 空转，前序 flush job 无法进入
-      // ZfMaterializeAllEpochs（它第一步就 AssertHeld+取锁），
-      // 形成"等待者持 DB mutex 等前序 × 前序等 DB mutex"的死锁。
-      db_mutex_->Unlock();
-      std::this_thread::sleep_for(std::chrono::microseconds(200));
-      db_mutex_->Lock();
-    }
-    // 重新进入学习窗串行槽（若之前为让前序而释放过）：保持"含 gen0 的批
-    // 至多一个在飞"的语义，同时不阻塞前序。
-    if (zf_predecessor_released_gen0_) {
-      db_mutex_->Unlock();
-      zf_ctx->AcquireGen0Slot();
-      db_mutex_->Lock();
-      zf_batch_gen0_ = true;
-      zf_predecessor_released_gen0_ = false;
-    }
-  }
-  if (!zf_ctx->AcquireInstallLock()) {
-    // 他批正持有 install 锁：阻塞等待至获得（不改变本批数据状态）。
-    // 为什么不做"超时让位"：让位语义是"gens 移交 recovery、下批收养"，
-    // 一旦等待窗口短于持锁批次的构建耗时，每批都会超时让位，而被让位的
-    // 数据又被下一批收养 → 再让位，形成"让位→收养→再让位"死循环
-    // （2026-09-12 实测：49 连击、安装停滞于 68 次、数据全部滞留 WAL）。
-    // 此处等待不持 DB mutex（解锁期间本批无其他依赖：gen0 槽/学习窗均已
-    // 在前完成），持锁方必然完成安装并释放（zfl 批间不存在环：holder 的
-    // 安装只依赖原生 imm 生命周期，而等待方均已解锁）。
-    const uint64_t wait_t0 = clock_->NowMicros();
-    db_mutex_->Unlock();
-    zf_ctx->WaitForInstallLock();
-    db_mutex_->Lock();
-    zf_install_wait_micros_ += clock_->NowMicros() - wait_t0;
-    if (getenv("ZF_DBG_MM") != nullptr) {
-      fprintf(stderr, "ZFDBG-mm-lockwait job=%d wait_us=%llu\n",
-              job_context_->job_id,
-              (unsigned long long)(clock_->NowMicros() - wait_t0));
-    }
   }
 
   const uint64_t start_micros = clock_->NowMicros();

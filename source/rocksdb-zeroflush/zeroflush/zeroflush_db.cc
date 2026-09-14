@@ -772,7 +772,43 @@ void ZeroFlushContext::ReleaseInstallLock() {
       install_mu_free_ = true;
     }
     install_cv_.notify_all();
+    NotifyInstallProgress();  // 安装完成/取消 → 唤醒所有等待方重新准入
   }
+}
+
+uint64_t ZeroFlushContext::InstallProgressEpoch() const {
+  return install_progress_epoch_.load(std::memory_order_acquire);
+}
+
+void ZeroFlushContext::NotifyInstallProgress() {
+  install_progress_epoch_.fetch_add(1, std::memory_order_acq_rel);
+  installer_progress_cv_.notify_all();
+}
+
+bool ZeroFlushContext::WaitInstallProgress(uint64_t observed,
+                                           uint64_t timeout_us) {
+  std::unique_lock<std::mutex> l(install_progress_mu_);
+  installer_progress_cv_.wait_for(
+      l, std::chrono::microseconds(timeout_us), [&] {
+        return install_progress_epoch_.load(std::memory_order_acquire) !=
+               observed;
+      });
+  return install_progress_epoch_.load(std::memory_order_acquire) != observed;
+}
+
+bool ZeroFlushContext::TryAcquireGen0Slot() {
+  std::lock_guard<std::mutex> l(g0_mu_);
+  if (g0_running_ != 0) {
+    return false;  // 学习批在飞：不等待，调用方释放资源后重试
+  }
+  ++g0_running_;
+  ++g0_pending_;
+  return true;
+}
+
+bool ZeroFlushContext::IsGen0WindowClosed() const {
+  std::lock_guard<std::mutex> l(g0_mu_);
+  return g0_pending_ == 0 && g0_waiters_ == 0;
 }
 
 void ZeroFlushContext::WaitInstallRelease(uint64_t max_wait_us) {
@@ -808,10 +844,13 @@ void ZeroFlushContext::WaitGen0WindowClosed() {
   g0_cv_.wait(l, [this] { return g0_pending_ == 0 && g0_waiters_ == 0; });
 }
 void ZeroFlushContext::ReleaseGen0Slot() {
-  std::lock_guard<std::mutex> l(g0_mu_);
-  --g0_running_;
-  --g0_pending_;
-  g0_cv_.notify_all();
+  {
+    std::lock_guard<std::mutex> l(g0_mu_);
+    --g0_running_;
+    --g0_pending_;
+    g0_cv_.notify_all();
+  }
+  NotifyInstallProgress();  // 槽释放也是准入条件变化 → 唤醒等待方
 }
 
 uint64_t ZeroFlushContext::install_direct_base() const {
