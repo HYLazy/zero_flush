@@ -1713,6 +1713,11 @@ if(WITH_BENCHMARK_TOOLS)
   target_link_libraries(zf_test${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
+  add_executable(zf_valcheck${ARTIFACT_SUFFIX}
+    tools/zf_valcheck.cc)
+  target_link_libraries(zf_valcheck${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
+
   add_executable(zf_govern_bench${ARTIFACT_SUFFIX}
     tools/zf_govern_bench.cc)
   target_link_libraries(zf_govern_bench${ARTIFACT_SUFFIX}
