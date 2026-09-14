@@ -346,3 +346,16 @@ job69 的 token73 登记成功 ⇒ token71 已 End（而 End 名义上在 TryIns
   → "文件被非 ZF 编辑移走"假设未证实，需绑定式探针：仅盯崩溃对的两个文件
   号，在其安装后每次相关分区 plan 时打印其存在层。撤销记录与探针
 （ZFDBG-mm-jobbeg / mm-reg / mm-plan / mm-scan）保留在代码中（env 门控）。
+
+**死锁修复（2026-09-14，已落地并验证）**：安装锁上线后暴露两处新缺陷，
+经 gdb 栈定位为死锁环：① 持锁批在 `TryInstall` 等前序 memtable，而前序
+的 flush job 在等锁；② 学习批持 gen0 槽等前序，而前序等"学习窗关闭"。
+修复（`db/flush_job.cc` + `zeroflush_db.{h,cc}`）：新增**前序门**——取锁前
+确认 imm 中无更早未安装 memtable，有则不取锁、不持全局资源地等待（轮询 +
+200µs 退避），且等前序时**释放 gen0 槽**（前序清空后重取）。验证：原
+M4.9 崩溃配置 5/5 通过（112.7–129s、零 overlapping、reopen 一致，此前
+8/8 崩溃）、4M 写 13.5s/297K ops/s 零让位、zf_test ALL PASSED；锁已
+**默认开启**（`ZF_INSTALL_LOCK=0` 可关）。代价 ≈−20%（256 分区
+18.4K ops/s），待分区级 token 收窄。详见
+`output/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md` 附录 B。
+
