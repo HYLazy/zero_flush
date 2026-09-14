@@ -1382,7 +1382,11 @@ Status FlushJob::ZfMaterializeAllEpochs() {
                 (unsigned long long)zf_oldest_self->GetID(),
                 (unsigned long long)earliest_imm, zf_predecessor_waits);
       }
-      zf_ctx->WaitInstallRelease(1000 /*us*/);
+      zf_ctx->WaitInstallRelease(2000 /*us*/);
+      // 关键（gdb 实证 2026-09-14）：退避期间必须放开 DB mutex——否则
+      // 本批持 DB mutex 空转，前序 flush job 无法进入
+      // ZfMaterializeAllEpochs（它第一步就 AssertHeld+取锁），
+      // 形成"等待者持 DB mutex 等前序 × 前序等 DB mutex"的死锁。
       db_mutex_->Unlock();
       std::this_thread::sleep_for(std::chrono::microseconds(200));
       db_mutex_->Lock();
