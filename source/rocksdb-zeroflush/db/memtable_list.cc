@@ -5,6 +5,31 @@
 //
 #include "db/memtable_list.h"
 
+// ---- ZF 生命周期探针（ZF_TRACE_IMM=1 门控，2026-09-14）----
+// 目的：定位"最旧 imm 卡在哪个生命周期状态"（入队/挑选/回滚/完成/提交/移除）。
+// 事件带全局序号，锁内取快照，便于还原真实先后关系。
+#define ZF_TRACE_IMM_ON() (getenv("ZF_TRACE_IMM") != nullptr)
+namespace {
+std::atomic<uint64_t> g_zf_trace_seq{0};
+inline uint64_t ZfTraceSeq() {
+  return g_zf_trace_seq.fetch_add(1, std::memory_order_relaxed);
+}
+inline void ZfTraceMems(const char* site, const char* cf,
+                        const char* action,
+                        const std::vector<uint64_t>& ids,
+                        const char* extra = "") {
+  if (!ZF_TRACE_IMM_ON()) return;
+  std::string s;
+  for (size_t i = 0; i < ids.size(); ++i) {
+    if (i) s += ",";
+    s += std::to_string(ids[i]);
+  }
+  fprintf(stderr, "ZFTRACE seq=%llu site=%s cf=%s action=%s ids=[%s] %s\n",
+          (unsigned long long)ZfTraceSeq(), site, cf != nullptr ? cf : "?",
+          action, s.c_str(), extra);
+}
+}  // namespace
+
 #include <algorithm>
 #include <cinttypes>
 #include <limits>
@@ -421,12 +446,21 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
   // However, when the mempurge feature is activated, new memtables with older
   // IDs will be added to the memlist.
   auto it = memlist.rbegin();
+  std::vector<uint64_t> zf_picked_ids;
   for (; it != memlist.rend(); ++it) {
     ReadOnlyMemTable* m = *it;
     if (!atomic_flush && m->atomic_flush_seqno_ != kMaxSequenceNumber) {
       atomic_flush = true;
     }
     if (m->GetID() > max_memtable_id) {
+      if (ZF_TRACE_IMM_ON()) {
+        char ex[160];
+        snprintf(ex, sizeof(ex),
+                 "stop=id_gt_max break_id=%llu inprog=%d completed=%d",
+                 (unsigned long long)m->GetID(),
+                 (int)m->flush_in_progress_, (int)m->flush_completed_);
+        ZfTraceMems("PickMemtablesToFlush", nullptr, "picked", zf_picked_ids, ex);
+      }
       break;
     }
     if (!m->flush_in_progress_) {
@@ -436,6 +470,7 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
         imm_flush_needed.store(false, std::memory_order_release);
       }
       m->flush_in_progress_ = true;  // flushing will start very soon
+      zf_picked_ids.push_back(m->GetID());
       if (max_next_log_number) {
         *max_next_log_number =
             std::max(m->GetNextLogNumber(), *max_next_log_number);
@@ -447,8 +482,20 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
       // `flush_in_progress_ == true` sandwiched between entries with
       // `flush_in_progress_ == false`. This could happen after parallel flushes
       // are picked and the one flushing older memtables is rolled back.
+      if (ZF_TRACE_IMM_ON()) {
+        char ex[200];
+        snprintf(ex, sizeof(ex),
+                 "stop=in_progress_block break_id=%llu inprog=%d completed=%d",
+                 (unsigned long long)m->GetID(),
+                 (int)m->flush_in_progress_, (int)m->flush_completed_);
+        ZfTraceMems("PickMemtablesToFlush", nullptr, "picked", zf_picked_ids, ex);
+      }
       break;
     }
+  }
+  if (ZF_TRACE_IMM_ON() && !zf_picked_ids.empty()) {
+    ZfTraceMems("PickMemtablesToFlush", nullptr, "picked_done", zf_picked_ids,
+                "reached_end");
   }
   if (!ret->empty() && it != memlist.rend()) {
     // checks that the first memtable not picked to flush is not ingested wbwi.
@@ -465,6 +512,12 @@ void MemTableList::RollbackMemtableFlush(
     const autovector<ReadOnlyMemTable*>& mems,
     bool rollback_succeeding_memtables) {
   TEST_SYNC_POINT("RollbackMemtableFlush");
+  std::vector<uint64_t> zf_rb_ids;
+  for (ReadOnlyMemTable* m : mems) {
+    zf_rb_ids.push_back(m->GetID());
+  }
+  ZfTraceMems("RollbackMemtableFlush", nullptr, "requested", zf_rb_ids,
+              rollback_succeeding_memtables ? "with_succeeding" : "own_only");
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_ROLLBACK);
 #ifndef NDEBUG
@@ -501,6 +554,7 @@ void MemTableList::RollbackMemtableFlush(
     }
   }
 
+  std::vector<uint64_t> zf_rb_done_ids;
   for (ReadOnlyMemTable* m : mems) {
     if (m->flush_in_progress_) {
       assert(m->file_number_ == 0);
@@ -509,8 +563,11 @@ void MemTableList::RollbackMemtableFlush(
       m->flush_completed_ = false;
       m->edit_.Clear();
       num_flush_not_started_++;
+      zf_rb_done_ids.push_back(m->GetID());
     }
   }
+  ZfTraceMems("RollbackMemtableFlush", nullptr, "applied", zf_rb_done_ids,
+              "reset_in_progress");
   if (!mems.empty()) {
     imm_flush_needed.store(true, std::memory_order_release);
   }
@@ -535,12 +592,18 @@ Status MemTableList::TryInstallMemtableFlushResults(
   // Flush was successful
   // Record the status on the memtable object. Either this call or a call by a
   // concurrent flush thread will read the status and write it to manifest.
-  for (size_t i = 0; i < mems.size(); ++i) {
-    // All the edits are associated with the first memtable of this batch.
-    assert(i == 0 || mems[i]->GetEdits()->NumEntries() == 0);
+  {
+    std::vector<uint64_t> zf_cm_ids;
+    for (size_t i = 0; i < mems.size(); ++i) {
+      // All the edits are associated with the first memtable of this batch.
+      assert(i == 0 || mems[i]->GetEdits()->NumEntries() == 0);
 
-    mems[i]->flush_completed_ = true;
-    mems[i]->file_number_ = file_number;
+      mems[i]->flush_completed_ = true;
+      mems[i]->file_number_ = file_number;
+      zf_cm_ids.push_back(mems[i]->GetID());
+    }
+    ZfTraceMems("TryInstall", cfd->GetName().c_str(), "mark_completed", zf_cm_ids,
+                "file_number_set");
   }
 
   // if some other thread is already committing, then return
@@ -563,6 +626,16 @@ Status MemTableList::TryInstallMemtableFlushResults(
     // assigned to flush the oldest memtable, will later wake up and does all
     // the pending writes to manifest, in order.
     if (memlist.empty() || !memlist.back()->flush_completed_) {
+      if (ZF_TRACE_IMM_ON()) {
+        char ex[200];
+        snprintf(ex, sizeof(ex),
+                 "commit_stop oldest_id=%llu inprog=%d completed=%d n=%zu",
+                 memlist.empty() ? 0 : (unsigned long long)memlist.back()->GetID(),
+                 memlist.empty() ? -1 : (int)memlist.back()->flush_in_progress_,
+                 memlist.empty() ? -1 : (int)memlist.back()->flush_completed_,
+                 memlist.size());
+        ZfTraceMems("TryInstall", cfd->GetName().c_str(), "commit_loop", {}, ex);
+      }
       break;
     }
     // scan all memtables from the earliest, and commit those

@@ -104,3 +104,94 @@ M4.9 压力配置（256 分区 / 16 线程 / 2.1M 写 / merge ON / 锁开启）�
 - `/tmp/m49v_long.log`：256 分区停摆现场（imm=9、Stopping writes、dirconf 递增）
 - 关键代码位置：`db/flush_job.cc`（`zf_has_earlier_pending` 判据、让位分支）、
   `db/memtable_list.cc:409`（PickMemtablesToFlush 的挑选规则）
+
+---
+
+# 附录：最旧 imm 生命周期定位（2026-09-14，按用户方法）
+
+> 目标：定位"最旧 imm 卡在哪个生命周期状态"，**不预设 owner 泄漏**。
+> 方法：三处白盒探针（入队 / Pick / Rollback）+ 实际完成与安装端
+> （TryInstall 标记完成、提交循环推进），统一走 `ZF_TRACE_IMM=1` 门控，
+> 事件带全局序号。
+
+## A.1 停摆现场（256 分区 / 16 线程 / merge ON / 锁开启）
+
+```
+ZFTRACE seq=26 site=PickMemtablesToFlush action=picked_done ids=[10]
+ZFTRACE seq=27 site=TryInstall action=commit_loop commit_stop
+        oldest_id=10 inprog=1 completed=0 n=1      ← 最旧 imm
+（此后 memtable 11/12/13/14 照常 pick+完成：
+  ？  enqueue notflushed=2 / 3 / 4 / 5   ← imm 持续增长）
+（写路径：Stalling(8) → Stopping(9) → 全部线程 futex_wait，LOG 停止增长）
+```
+
+**最旧 memtable 10 的状态组合** = `flush_in_progress=1, flush_completed=0`，
+即用户表格中的第一行：**"标记 in-progress、无完成"**。没有 rollback 事件
+（`RollbackMemtableFlush` 0 次）、没有让位记录（`kept pending` 0 次）。
+
+## A.2 该 memtable 的 owner 轨迹（job 绑定探针）
+
+```
+site=ZfMaterialize job=10 action=enter mems=[9]    → exit  → Run_postbuild s=OK
+                                                   → Run_preinstall → flush_finished ✅
+site=ZfMaterialize job=11 action=enter mems=[10]   → exit  → Run_postbuild s=OK
+                                                   → Run_preinstall → ✗ 无后续
+```
+
+**JOB 11 = memtable 10 的 owner**：物化成功（`s=OK`、产出 4 文件）、
+已进入安装路径（`Run_preinstall` 打印），但**没有 `TryInstall mark_completed`、
+没有 `flush_finished`、没有错误、没有回滚**。JOB 12/13/14 均正常完成。
+
+即：**构建完成 → 移交安装 → 安装未完成**（用户表格第二行：completed=0
+但有明确 owner，且 owner 卡在安装路径内部）。这是与"owner 退出/泄漏"
+不同的一类断裂。
+
+## A.3 卡点范围（已缩小到函数级）
+
+`TryInstallMemtableFlushResults` 内两条可能路径：
+
+1. **标记完成前早退**：`if (commit_in_progress_) return s;`（handler 内
+   首段）——但探针显示 `mark_completed` 未打印，说明卡在更早的位置；
+2. **MANIFEST 提交**：`while (s.ok())` 循环 → `LogAndApply`（其间释放
+   DB mutex）→ `RemoveMemTablesOrRestoreFlags`。
+
+当前证据（JOB 11 未走到标记完成、也未打印任何 LogAndApply/commit 日志）
+指向 **进入 `TryInstallMemtableFlushResults` 后、首个状态写入之前**，
+最可能是阻塞在函数开头的 `mu->AssertHeld()` 语义外的 DB mutex 获取，
+或 `LogAndApply` 内部等待 MANIFEST writer 队列。
+
+**最终一步（需要 sudo 或允许 ptrace）**：停摆时抓该线程栈：
+
+```bash
+echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope   # 或直接 sudo gdb
+sudo gdb -p $(pgrep -x zf_govern_bench) -batch -ex "thread apply all bt 12"
+```
+
+本机 `ptrace_scope=1` 且无免密 sudo，gdb attach 被拒绝（已实测
+`ptrace: Inappropriate ioctl for device`），所以栈未取到。
+
+## A.4 探针清单（已入库，`ZF_TRACE_IMM=1` 门控）
+
+| 位置 | 文件 | 记录内容 |
+|---|---|---|
+| `EnqueuePendingFlush` | `db_impl_compaction_flush.cc` | queued 标志 / IsFlushPending / notflushed / 是否入队 |
+| `PickMemtablesToFlush` | `memtable_list.cc` | 选中完整 ID 集合；中断点及该 memtable 的两个标志 |
+| `RollbackMemtableFlush` | `memtable_list.cc` | 请求集合 vs 实际重置集合（前后状态） |
+| `TryInstallMemtableFlushResults` | `memtable_list.cc` | `mark_completed`（含 file_number）、commit 循环停止点（最旧 ID + 标志） |
+| `ZfMaterializeAllEpochs` | `flush_job.cc` | 每批 enter/exit + memtable ID 集合（最小 ID 判据依据） |
+| `Run` | `flush_job.cc` | postbuild（s 状态、产出数）、preinstall |
+
+## A.5 分流结论（按用户表格）
+
+| 现场 | 判断 |
+|---|---|
+| `in_progress=1, completed=0`，**有明确 owner（JOB 11）且 owner 未退出** | ✅ 本案例 |
+| owner 卡在安装路径内（进入 `TryInstall`、无状态写入、无错误） | ✅ 本案例 |
+| queued 标志与队列不一致 | ❌ 无证据（enqueue 探针显示正常入队） |
+| 回滚集合错误 | ❌ 无证据（0 次回滚） |
+| 错误未传播 | ❌ 无证据（LOG 无 error、无 TryAgain） |
+
+**下一步（局部补丁方向）**：在 `TryInstallMemtableFlushResults` 入口与
+`LogAndApply` 前后各加一个状态点（或直接在停摆时取栈），确定是在
+"等 DB mutex" 还是 "等 MANIFEST writer"。然后只修该断点——
+按用户要求，不以"加了更多探针"作为完成。

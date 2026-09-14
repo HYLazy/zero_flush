@@ -50,6 +50,19 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+inline bool ZfTraceOn() { return getenv("ZF_TRACE_IMM") != nullptr; }
+inline std::string ZfIds(const autovector<ReadOnlyMemTable*>& mems) {
+  std::string s;
+  for (size_t i = 0; i < mems.size(); ++i) {
+    if (i) s += ",";
+    s += std::to_string(mems[i]->GetID());
+  }
+  return s;
+}
+}  // namespace
+
+
 const char* GetFlushReasonString(FlushReason flush_reason) {
   switch (flush_reason) {
     case FlushReason::kOthers:
@@ -320,6 +333,12 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     s = MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT();
   }
 
+  if (ZfTraceOn()) {
+    fprintf(stderr,
+            "ZFTRACE site=Run_postbuild job=%d s=%s zf_out=%zu mems=[%s]\n",
+            job_context_->job_id, s.ToString().c_str(), zf_batch_outputs_.size(),
+            ZfIds(mems_).c_str());
+  }
   TEST_SYNC_POINT_CALLBACK("FlushJob::Run:PostBuildTable", &s);
 
   if (!s.ok()) {
@@ -356,6 +375,10 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
         *skipped_since_bg_error = true;
       }
     } else {
+      if (ZfTraceOn()) {
+        fprintf(stderr, "ZFTRACE site=Run_preinstall job=%d mems=[%s]\n",
+                job_context_->job_id, ZfIds(mems_).c_str());
+      }
       TEST_SYNC_POINT("FlushJob::InstallResults");
       // Replace immutable memtable with the generated Table
       s = cfd_->imm()->TryInstallMemtableFlushResults(
@@ -1249,6 +1272,7 @@ Status FlushJob::WriteLevel0Table() {
   return s;
 }
 
+
 Status FlushJob::ZfMaterializeAllEpochs() {
   // 锁语义与 WriteLevel0Table 一致：进入持锁，物化期释放，返回前重取。
   db_mutex_->AssertHeld();
@@ -1257,6 +1281,10 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   const auto& zf_ctx = cfd_->GetZfCtx();
   assert(zf_ctx != nullptr);
   zf_batch_gen0_ = false;
+  if (ZfTraceOn()) {
+    fprintf(stderr, "ZFTRACE site=ZfMaterialize job=%d action=enter mems=[%s]\n",
+            job_context_->job_id, ZfIds(mems_).c_str());
+  }
 
   // M5P1b（多 flush 并行）：学习窗串行槽。批内任一 epoch 含 gen0 代
   // （学习期数据，分区首次封存）→ 本批为学习批：与在飞学习批互斥
@@ -1460,6 +1488,7 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     // M4.9：规划失败出口——本批不会安装，释放 install 锁放行他批。
     zf_ctx->ReleaseInstallLock();
     base_->Unref();  // 配对 PickMemtable 的 base_->Ref()（对齐 WriteLevel0Table）
+    if (ZfTraceOn()) { fprintf(stderr, "ZFTRACE site=ZfMaterialize job=%d action=exit mems=[%s]\n", job_context_->job_id, ZfIds(mems_).c_str()); }
     return s;
   }
   db_mutex_->Unlock();
@@ -1741,6 +1770,7 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   // base 文件仍可见、本批输出不可见）→ 双批替换同一批 base 文件 → L1
   // 重叠（BulkLoadZeroL0 实测）。由 FlushJob::Run 在安装返回后 End。
   base_->Unref();  // 配对 PickMemtable 的 base_->Ref()（对齐 WriteLevel0Table）
+  if (ZfTraceOn()) { fprintf(stderr, "ZFTRACE site=ZfMaterialize job=%d action=exit mems=[%s]\n", job_context_->job_id, ZfIds(mems_).c_str()); }
   return s;
 }
 

@@ -3653,6 +3653,14 @@ bool DBImpl::EnqueuePendingFlush(const FlushRequest& flush_req) {
         flush_req.cfd_to_max_mem_id_to_persist.begin()->first;
     assert(cfd);
 
+    if (getenv("ZF_TRACE_IMM") != nullptr) {
+      fprintf(stderr,
+              "ZFTRACE site=EnqueuePendingFlush cfd=%s queued=%d pending=%d "
+              "notflushed=%zu enqueue=%d\n",
+              cfd->GetName().c_str(), (int)cfd->queued_for_flush(),
+              (int)cfd->imm()->IsFlushPending(), cfd->imm()->NumNotFlushed(),
+              (int)(!cfd->queued_for_flush() && cfd->imm()->IsFlushPending()));
+    }
     if (!cfd->queued_for_flush() && cfd->imm()->IsFlushPending()) {
       cfd->Ref();
       cfd->set_queued_for_flush(true);
