@@ -1343,6 +1343,60 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   //    全程，才能封住"他批在 LogAndApply 让 DB mutex 窗口内插入规划"。
   // try_lock 失败 → 整批让位：把本批全部待物化 gens 移交 recovery（与
   // kSkip/yield 同语义，数据留在 frozen+WAL 可读，下批收养重物化）。
+  // ---- M4.9 死锁修复（2026-09-14，gdb 栈实证）----
+  // 实证：4 个 flush 线程全部阻塞在 WaitForInstallLock，而持锁线程卡在
+  // TryInstallMemtableFlushResults —— 它在等"更早未安装的 memtable"，而
+  // 那个 memtable 的 flush job 正卡在等锁 → 循环等待（死锁，永久停摆）。
+  // 修复：拿锁之前先确认本批是该 imm 集合中最早的批次；若存在更早的
+  // 未安装 memtable，则不持锁地等待它完成，再取锁。这样持锁者一定不会
+  // 在 TryInstall 里等待别人（TryInstall 只依赖前序，而前序已清空）。
+  {
+    const ReadOnlyMemTable* zf_oldest_self = mems_.front();
+    for (ReadOnlyMemTable* m : mems_) {
+      if (m->GetID() < zf_oldest_self->GetID()) {
+        zf_oldest_self = m;
+      }
+    }
+    int zf_predecessor_waits = 0;
+    while (true) {
+      const uint64_t earliest_imm = cfd_->imm()->GetEarliestMemTableID();
+      if (earliest_imm >= zf_oldest_self->GetID()) {
+        break;  // 没有更早的未安装 memtable，可以安全取锁
+      }
+      // 有前序未完成：不持锁等待（让前序的 flush job 能拿到锁推进）。
+      ++zf_predecessor_waits;
+      // 关键：等前序前必须释放 gen0 学习窗槽——否则本批（学习批）持槽等
+      // 前序，而前序的 flush job 卡在等"学习窗关闭"，形成自锁
+      // （gdb 实证：Thread6/4 卡 WaitGen0WindowClosed、Thread3 卡
+      // AcquireGen0Slot、Thread5 卡本等待循环）。
+      if (zf_batch_gen0_) {
+        zf_ctx->ReleaseGen0Slot();
+        zf_batch_gen0_ = false;
+        zf_predecessor_released_gen0_ = true;
+      }
+      if (getenv("ZF_DBG_MM") != nullptr && zf_predecessor_waits <= 8) {
+        fprintf(stderr,
+                "ZFTRACE site=install_predecessor_wait job=%d my_min=%llu "
+                "earliest_imm=%llu wait_n=%d\n",
+                job_context_->job_id,
+                (unsigned long long)zf_oldest_self->GetID(),
+                (unsigned long long)earliest_imm, zf_predecessor_waits);
+      }
+      zf_ctx->WaitInstallRelease(1000 /*us*/);
+      db_mutex_->Unlock();
+      std::this_thread::sleep_for(std::chrono::microseconds(200));
+      db_mutex_->Lock();
+    }
+    // 重新进入学习窗串行槽（若之前为让前序而释放过）：保持"含 gen0 的批
+    // 至多一个在飞"的语义，同时不阻塞前序。
+    if (zf_predecessor_released_gen0_) {
+      db_mutex_->Unlock();
+      zf_ctx->AcquireGen0Slot();
+      db_mutex_->Lock();
+      zf_batch_gen0_ = true;
+      zf_predecessor_released_gen0_ = false;
+    }
+  }
   if (!zf_ctx->AcquireInstallLock()) {
     // 他批正持有 install 锁：阻塞等待至获得（不改变本批数据状态）。
     // 为什么不做"超时让位"：让位语义是"gens 移交 recovery、下批收养"，

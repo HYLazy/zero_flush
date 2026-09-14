@@ -301,6 +301,8 @@ class FlushJob {
   // M4.9（zf_install_mu_）：本批因 install 锁被他批持有而整批让位的次数
   // （诊断；让位语义 = gens 移交 recovery，下批收养）。
   uint64_t zf_batch_defer_install_lock_ = 0;
+  // M4.9：为等前序而临时释放 gen0 槽的标记（需重取）。
+  bool zf_predecessor_released_gen0_ = false;
   // M4.9：本批等待 install 锁累计耗时（微秒，诊断）。
   uint64_t zf_install_wait_micros_ = 0;
 };

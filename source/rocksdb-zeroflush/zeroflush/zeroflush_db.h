@@ -463,6 +463,8 @@ class ZeroFlushContext {
   bool AcquireInstallLock();
   void ReleaseInstallLock();
   void WaitForInstallLock();
+  // 只等待"锁被释放"事件（不获取锁、不改本批状态）；用于"等前序完成"。
+  void WaitInstallRelease(uint64_t max_wait_us);
 
   // M5 诊断（ZF_DBG_MM）：ZF 安装输出的层级生命周期 watch——记录最近安装
   // 的文件号与范围；后续 plan 若在本层未见该号，打印其当前所在层/是否消失

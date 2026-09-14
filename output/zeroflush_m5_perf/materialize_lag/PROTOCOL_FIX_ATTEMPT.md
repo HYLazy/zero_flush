@@ -195,3 +195,54 @@ sudo gdb -p $(pgrep -x zf_govern_bench) -batch -ex "thread apply all bt 12"
 `LogAndApply` 前后各加一个状态点（或直接在停摆时取栈），确定是在
 "等 DB mutex" 还是 "等 MANIFEST writer"。然后只修该断点——
 按用户要求，不以"加了更多探针"作为完成。
+
+---
+
+# 附录 B：死锁根因与修复（2026-09-14，gdb 栈实证，**已修复**）
+
+## B.1 gdb 栈揭示的完整死锁环
+
+放开 `ptrace_scope` 后抓栈（256 分区 / 16 轮 / 锁开启）得到决定性证据：
+
+```
+Thread 6/4 (rocksdb:high): WaitGen0WindowClosed()  ← 等学习窗关闭
+Thread 3   (rocksdb:high): AcquireGen0Slot()       ← 等 gen0 槽
+Thread 5   (rocksdb:high): [sleep] ZfMaterializeAllEpochs  ← 我的前序等待门
+```
+
+即：**学习批持有 gen0 槽，却卡在"等前序 memtable 完成"**；而前序的
+flush job **卡在"等学习窗关闭"**（`WaitGen0WindowClosed`）→ **自锁**。
+早期另一次抓栈（阻塞等待版）显示 4 个 flush 线程全部停在
+`WaitForInstallLock`，而持锁者卡在 `TryInstallMemtableFlushResults`
+等前序 → 同类环（持锁等前序 × 前序等锁）。
+
+## B.2 修复（两处，缺一不可）
+
+1. **前序门（取锁之前）**：本批若在 imm 中仍有更早未安装的 memtable，
+   则**不取锁**、不持有任何全局资源地等待前序完成（轮询
+   `GetEarliestMemTableID` + 200µs 退避），前序清空后才取锁。
+   这样持锁者进入 `TryInstall` 时一定不会等待别人。
+2. **等前序时释放 gen0 槽**：等待循环内若持槽则先 `ReleaseGen0Slot()`，
+   前序清空后重新 `AcquireGen0Slot()`（保持"含 gen0 的批至多一个在飞"）。
+   这是打破"持槽等前序 × 前序等窗"自锁的关键。
+
+对应代码：`db/flush_job.cc`（`install_predecessor_wait` 区块）
++ `zeroflush/zeroflush_db.{h,cc}`（`WaitInstallRelease`）。
+
+## B.3 验证结果（锁开启 = `ZF_INSTALL_LOCK=1`）
+
+| 场景 | 结果 |
+|---|---|
+| 原 M4.9 崩溃配置（256 分区/16T/16 轮）| **3/3 通过**（120/129/126s），零 overlapping/corruption，read 命中与 reopen 一致 |
+| 同配置（另一次 2 连跑）| 2/2 通过（112.7/114.0s，18.4K/18.4K ops/s） |
+| 4M 写 / 16 分区 / merge ON | 13.5s 完成（297K ops/s），**零让位**，安装 200 次，WAL 0.23GB / SST 0.26GB（可回收） |
+| zf_test 全量 | **ALL PASSED** |
+| 对照（锁关闭）| 本批抽样未复现崩溃（该崩溃为概率性），但历史 3/3 崩溃记录在案 |
+
+吞吐代价：256 分区配置下锁开启 ≈18.4K ops/s（此前锁关闭同配置约 23K 量级），
+约 −20%，来源于安装窗口串行化 + 前序轮询退避。可后续用分区级 token 收窄。
+
+## B.4 关键探针（`ZF_TRACE_IMM=1` 门控，保留在代码中）
+
+`ZFTRACE site=install_predecessor_wait job=.. my_min=.. earliest_imm=.. wait_n=..`
+——出现此行的批即为"为等前序而等待"的批；正常运行应为 0 次（4M 案例实测 0）。
