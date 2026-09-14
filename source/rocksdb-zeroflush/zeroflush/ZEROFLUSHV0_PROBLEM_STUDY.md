@@ -481,7 +481,7 @@ L0 无消费 → 双结构性问题。当前靠 governance ON 规避（拆分热
 ### 4.2 P2 并发安装（确定性修复已定稿）
 | 方案 | 机制 | 预期 | 风险 |
 |---|---|---|---|
-| **H2.1 `zf_install_mu_`**（**已落地，2026-09-12**） | DB 级 mutex（`ZeroFlushContext::install_mu_`）：plan 前 try_lock → 有界等待重试（20ms×8）→ 超时整批让位（gens 移交 recovery）；持至安装（TryInstall→LogAndApply）返回后释放。`ZF_INSTALL_LOCK=0` 可关闭（回退/对照） | 跨批 plan→apply 串行化，让锁窗口不再可插入规划 | **实测代价：批并行度 4→1，重载下 74–82K→41–43K ops/s（约 1.9× 慢）** | ✅ 控制组（回退补丁）3/3 崩溃（rc=139 + L1 overlapping）vs 修复组 3/3 通过（同配置 256 分区/16T/2.1M 写）；zf_test ALL PASSED（53/53）。**代价需后续收窄锁粒度（按 range 预留）来解决** |
+| **H2.1 `zf_install_mu_`**（**已落地并验证，2026-09-14；默认开启**） | DB 级 mutex（`ZeroFlushContext::install_mu_`）+ **前序门**：取锁前先确认 imm 中无更早未安装 memtable（有则不取锁、不持全局资源地等待，且等前序时释放 gen0 槽）→ 取锁 → 规划/构建/安装 → 安装返回后释放。`ZF_INSTALL_LOCK=0` 可关闭 | 跨批 plan→apply 串行化，LogAndApply 让锁窗口不再可插入规划；前序门消除"持锁等前序 × 前序等锁/gen0 窗"死锁（gdb 栈实证） | **代价：256 分区配置 18.4K ops/s（≈−20%，串行化 + 前序轮询）**，后续可用分区级 token 收窄 | ✅ 原 M4.9 崩溃配置 5/5 通过（112.7–129s，零 overlapping/corruption，reopen 一致；此前 8/8 崩溃）；4M 写 13.5s / 297K ops/s、零让位、WAL 与 SST 均回落（物化不再停滞）；zf_test ALL PASSED |
 | H2.2 钉死"提前 End"出口 | 给全部 `EndMaterializeBatch` 调用点打点（token/job/s.ok()/apply 状态），定位 token71 提前释放的出口后单点修 | 若真存在提前 End，修后 token 守卫即可覆盖 | 若提前 End 是表象、真实原因是 TryInstall 失败重试，仍需 H2.1 |
 | H2.3 让 picker 感知"未安装输出" | 把批内/他批在飞输出登记进 VersionStorageInfo 级视图（类似 being_compacted 标记） | 规划扫描即可见 → 无需串行化 | 改动原生 Version 结构，风险高，不推荐 |
 
