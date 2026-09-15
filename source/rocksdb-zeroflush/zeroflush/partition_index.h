@@ -650,19 +650,32 @@ class PartitionIndexSet {
   // M4.3：Recover 专用插入——找不到 gen 匹配索引时创建（重开时所有 WAL
   // 代都是活的：活跃代建 active，封存代建 frozen）。写路径的 Insert 保持
   // "找不到即丢弃"（物化后迟到的插入由 SST 承载）。
+  // step 1（修复）：接收**显式活跃代身份**（active_gen）。只有记录所属代
+  // 等于该分区当前的活跃代时，才允许进入/创建 active 索引；否则一律进
+  // frozen 链。
+  // 旧实现的问题（本项目已实测）：`active 缺失即创建` 分支会把"第一条重放
+  // 记录"（往往是旧代）直接建成 ACTIVE —— 恢复后 active=旧代、frozen=新代，
+  // 读路径 active 优先 ⇒ 旧值遮蔽 SST 中更高 sequence 的新版本。
   uint64_t InsertCreate(uint32_t part_id, uint32_t gen,
+                        const std::optional<uint32_t>& active_gen,
                         const ROCKSDB_NAMESPACE::Slice& internal_key,
                         const ROCKSDB_NAMESPACE::Slice& locator) {
     std::shared_ptr<PartitionIndex> idx;
     {
       std::unique_lock<std::shared_mutex> l(mu_);
       auto it = active_.find(part_id);
-      if (it != active_.end() && it->second->gen() == gen) {
+      const bool is_active_gen = active_gen.has_value() && gen == *active_gen;
+      if (is_active_gen && it != active_.end() && it->second->gen() == gen) {
         idx = it->second;
-      } else if (it == active_.end()) {
+      } else if (is_active_gen) {
+        // 属于活跃代：创建/替换 active（缺失或换代）。
         auto ni = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
-        active_.emplace(part_id, ni);
-        blooms_.emplace(part_id, std::make_shared<PartitionBloom>());
+        if (it == active_.end()) {
+          active_.emplace(part_id, ni);
+          blooms_.emplace(part_id, std::make_shared<PartitionBloom>());
+        } else {
+          it->second = ni;  // 换代：旧 active 由调用方 Freeze 处理
+        }
         idx = ni;
       } else {
         auto fit = frozen_.find(part_id);

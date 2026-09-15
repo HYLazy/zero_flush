@@ -315,6 +315,20 @@ uint32_t PartitionedWalManager::ActiveGen(uint32_t part) const {
   return p->gen;
 }
 
+std::optional<uint32_t> PartitionedWalManager::ActiveGenOpt(
+    uint32_t part) const {
+  auto it = parts_.find(part);
+  if (it == parts_.end()) {
+    return std::nullopt;
+  }
+  Partition* p = it->second.get();
+  rocksdb::MutexLock l(&p->mu);
+  if (p->wfile == nullptr && p->rfile == nullptr) {
+    return std::nullopt;  // 无当前活跃 WAL（未写过 / 刚换代且尚未续写）
+  }
+  return p->gen;
+}
+
 rocksdb::Status PartitionedWalManager::ReadFromSealed(
     rocksdb::RandomAccessFile* rf, const WalRecordRef& ref,
     std::string* buf, rocksdb::Slice* value) {

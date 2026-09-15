@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <optional>
 #include <thread>
 #include <unordered_set>
 
@@ -1643,7 +1644,8 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
   if (!wal_->HasPartition(ref.part_id)) {
     return ROCKSDB_NAMESPACE::Status::Corruption("ZeroFlush: bad part_id");
   }
-  if (ref.gen == wal_->ActiveGen(ref.part_id)) {
+  const std::optional<uint32_t> active_gen = wal_->ActiveGenOpt(ref.part_id);
+  if (active_gen.has_value() && ref.gen == *active_gen) {
     rocksdb::Status st = wal_->ReadRecord(ref, out);
     // M3.0 R4：调试输出改用 ROCKS_LOG_DEBUG（仅 use_logger 接线后生效）。
     if (zfo_.use_logger) {
@@ -1754,8 +1756,15 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
   // M4.8：预创建活跃索引（MaxGen）——InsertCreate 的"active 缺失即创建"
   // 会把 sorted 首个（min_seq 最小）封存代误建为 active，Get 链中 active
   // 优先 → 旧代遮蔽新代（R48 phase3 get@3 读 'C' 而非 'D'）。
+  // step 1（修复）：不再用 MaxGen(files) 定义 active 身份——该函数只能表示
+  // "文件列表中的最大代"，且在没有文件时返回 0（与"首个有效代"歧义）。
+  // 只有真正持有活跃 WAL 的分区才预建 active 索引；其余保持"无 active"
+  // （显式 nullopt），重放记录由 InsertCreate 按显式身份归入 frozen。
   for (uint32_t p : all_parts) {
-    index_set_->EnsureActive(p, wal_->MaxGen(p, files));
+    const std::optional<uint32_t> ag = wal_->ActiveGenOpt(p);
+    if (ag.has_value()) {
+      index_set_->EnsureActive(p, *ag);
+    }
   }
   for (const auto& entry : sorted) {
     const uint32_t part = entry.part;
@@ -1786,7 +1795,17 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
                    h.seq, static_cast<ROCKSDB_NAMESPACE::ValueType>(h.type)));
       const uint32_t rpart =
           RoutePartIdWithVersion(key, tables_->current_version());
-      index_set_->InsertCreate(rpart, gen, ik, loc_slice);
+      // 物理身份 = (entry.part, gen)（记录所在 WAL 文件）；索引身份 = rpart。
+      // step 1 修复（实测驱动）：**只有记录本身属于本分区、且其代等于本分区
+      // 的活跃代时，才允许进 active**；跨物理分区的 gen 号不可比较——
+      // 复现实测：物理 part=4 gen=6 的记录被路由进索引 part=10，而 part=10
+      // 的 active_gen=1，于是**另一条来自 part=4 gen=1 的旧记录**因"gen 号
+      // 相等"被归入 active，读序 active 优先 → 遮蔽 frozen 链中 seq 更高的
+      // 新版本（seed2 已在 L0 可见仍返回 seed1）。
+      const bool same_phys_part = (entry.part == rpart);
+      const std::optional<uint32_t> rec_active =
+          same_phys_part ? wal_->ActiveGenOpt(rpart) : std::nullopt;
+      index_set_->InsertCreate(rpart, gen, rec_active, ik, loc_slice);
       if (h.seq > max_seq) {
         max_seq = h.seq;
       }
@@ -2963,9 +2982,20 @@ ROCKSDB_NAMESPACE::Status DumpKeyIndexChain(ROCKSDB_NAMESPACE::DB* db,
   }
   const ROCKSDB_NAMESPACE::Slice uk(user_key);
   const uint32_t part = ctx->RoutePartId(uk);
-  char head[128];
-  snprintf(head, sizeof(head), "  part=%u ucmp=%s\n", part,
-           ctx->ucmp() != nullptr ? ctx->ucmp()->Name() : "-");
+  char head[256];
+  const std::optional<uint32_t> ag = ctx->wal()->ActiveGenOpt(part);
+  std::vector<std::pair<uint32_t, uint32_t>> all_files;
+  ctx->wal()->ListFiles(&all_files);
+  std::string fl;
+  for (const auto& [pp, gg] : all_files) {
+    if (pp == part) {
+      fl += " g" + std::to_string(gg);
+    }
+  }
+  snprintf(head, sizeof(head),
+           "  part=%u active_gen=%s files=[%s] ucmp=%s\n", part,
+           ag.has_value() ? std::to_string(*ag).c_str() : "nullopt",
+           fl.c_str(), ctx->ucmp() != nullptr ? ctx->ucmp()->Name() : "-");
   out->append(head);
   ctx->index_set()->DumpKeyChain(part, uk, out);
   return ROCKSDB_NAMESPACE::Status::OK();

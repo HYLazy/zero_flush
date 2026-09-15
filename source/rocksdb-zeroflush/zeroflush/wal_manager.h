@@ -15,6 +15,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -137,6 +138,12 @@ class PartitionedWalManager {
   // M2.1：把 ref 的代际转成"当前活跃 gen"，用于在 ReadRecord 之前由
   // ZeroFlushContext 判断走"活跃代 IO"还是"SealedFileCache IO"。
   uint32_t ActiveGen(uint32_t part) const;
+  // step 1（修复）：显式活跃代身份——**没有当前 active WAL 时返回 nullopt**，
+  // 而不是用 gen=0 充当哨兵。判据：该分区是否持有当前代的写句柄（首次写时
+  // 懒建）或读句柄（Open/InitPartitionsFromFiles 在存在文件时打开）。
+  // 语义依据：文件是否存在只说明"未回收"，不能用来推断 active 身份；
+  // 而 MaxGen(files) 只能表示"文件列表中的最大代"，同样不能定义 active。
+  std::optional<uint32_t> ActiveGenOpt(uint32_t part) const;
 
   // M2.1：从一个已打开的封存代 RandomAccessFile 读 value（无锁 IO）。
   // ZeroFlushContext::ReadValue 拿到 SealedFileCache 句柄后调用此方法。
