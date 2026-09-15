@@ -1518,6 +1518,16 @@ class VersionBuilder::Rep {
   }
 
   void SaveZfInstallFencesTo(VersionStorageInfo* vstorage) const {
+    // 关键：先把**基版本既有**的 fence 复制进新版本，再叠加本次编辑带来的
+    // 更新。fence 不像层级文件那样由 builder 从基版本重建（它只随携带它的
+    // VersionEdit 而来），若只写 updated_zf_fences_，则任何"不含 fence 编辑"
+    // 的后续安装（压实、层级变动等）都会把 fence 丢掉——实测正是如此：
+    // fence_advance_count=16（推进逻辑生效）但 installed_fences=(none)。
+    if (base_vstorage_ != nullptr) {
+      for (const auto& f : base_vstorage_->GetZfInstallFences()) {
+        vstorage->RecordZfInstallFence(f);  // 单调取大，不会回退
+      }
+    }
     for (const auto& kv : updated_zf_fences_) {
       vstorage->RecordZfInstallFence(kv.second);
     }
