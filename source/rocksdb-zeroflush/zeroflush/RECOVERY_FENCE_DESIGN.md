@@ -117,6 +117,40 @@ D. 门禁：B3_in_L0=0  B3_in_L1plus=0  lost_overwrite=0  other=0
         + 断言 active_gen 无跨 physical part 误匹配、空 edit 不推进 fence
 ```
 
+## 5b. 开工清单（已完成/待完成的锚点盘点）
+
+已确认（本会话 grep 实证）：
+
+| 用途 | 位置 |
+|---|---|
+| Tag 枚举（新增 `kZfInstallFence = 500`） | `db/version_edit.h:37` |
+| EncodeTo 追加点 | `db/version_edit.cc` 的 `kInAtomicGroup` / `kFullHistoryTsLow` 块之后（约 196–215 行） |
+| DecodeFrom case 表 | `db/version_edit.cc:548`（case 列表在 835 行 `kInAtomicGroup` 附近） |
+| 增量编辑消费入口 | `VersionBuilder::Apply(const VersionEdit*)` → `rep_->Apply`（`db/version_builder.cc`，约 1733 行） |
+| 版本状态复制入口 | `VersionBuilder::SaveTo(VersionStorageInfo*)` → `rep_->SaveTo`（`db/version_builder.cc:1738` / `1617`）；另有 `version_set.cc:6063` 的 `builder->SaveTo(versions[i]->storage_info())` 调用点 |
+
+待定位（下次开工前 30 分钟内完成）：
+
+1. `VersionBuilder::Rep` 的类定义与成员名（`Apply`/`SaveTo` 的**主体**在 `db/version_builder.h` 或 cc 内联，
+   本次按 `Status VersionBuilder::Rep::Apply` 与 `vstorage_ / base_vstorage_` 搜索均未命中）
+   —— 需要先打印其成员，确认"新版本存储"与"基版本存储"的实际字段名。
+2. **MANIFEST 快照写出者**（`WriteSnapshot` / `GetVersionEdit` 在 `version_set.{h,cc}` 中未命中，
+   命名与预期不同）：必须在快照路径把这些 fence 写回，否则 MANIFEST 轮换后 fence 静默丢失。
+   建议从 `VersionSet::LogAndApply` 上游与其 `LogWriter` 使用点反查。
+3. `VersionStorageInfo` 是否已有可复用的"自定义元数据"承载点；没有则新增
+   `std::unordered_map<uint32_t, VersionEdit::ZfInstallFence>` 与 `Record/Get` 访问器。
+
+执行顺序（每个子提交都必须能独立编译并通过构建门）：
+
+```
+1a. version_edit.{h,cc}：tag + 结构 + 编解码（此时无人写、无人读，格式中立、可安全落地）
+1b. VersionStorageInfo + VersionBuilder::{Apply,SaveTo} + 快照路径：承载与复制
+1c. ZF 物化侧填充：连续完整消费 + 真实 AddFile 时 AddZfInstallFence（空 edit 不写）
+2.  恢复消费：gen <= fence 不入读索引、不计 pending；gen > fence 进 recovery
+3.  legacy：无 fence 库拒绝打开（require_install_fence 后翻 true）
+4.  debug 读保护 + 两组验收（新建带 fence 库重启返回 seed2；禁止 L0 fallback 场景）
+```
+
 ## 6. 不要做的事（用户明确边界）
 
 - 不先做 generation 编号重排/压缩；编号保持 `(physical_part, gen)` 原样。
