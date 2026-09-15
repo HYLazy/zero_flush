@@ -1,0 +1,9 @@
+[base] env='ZF_SINK_WHOLE_RANGE=1' start 09:55:52
+[base] rc=0 end 10:02:59
+[A] env='' start 10:02:59
+[A] rc=0 end 10:05:06
+[B] env='ZF_SINK_WHOLE_RANGE=1 ZF_SINK_L2_CLEAR_MB=8192' start 10:05:06
+[B] rc=0 end 10:11:32
+[AB] env='ZF_SINK_L2_CLEAR_MB=8192' start 10:11:32
+[AB] rc=0 end 10:13:57
+MATRIX_DONE

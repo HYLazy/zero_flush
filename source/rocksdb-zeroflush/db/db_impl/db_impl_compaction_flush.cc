@@ -3325,7 +3325,20 @@ void DBImpl::MaybeScheduleZfSink() {
   // L2 超阈值即手动调度整层 L2→L3（单步 +1，picker 合法）——检查放
   // 在取下沉请求之前（L2 超时即使无 pending 请求也清场）。清场期间
   // 下沉暂停（return——下轮重试；F 满数据滞留 recovery 自愈）。
-  constexpr uint64_t kSinkL2ClearBytes = 4ull << 30;
+  // 实验开关（2026-09-15，受控对照用）：
+  //   ZF_SINK_L2_CLEAR_MB：L2 清场阈值（默认 4GB=4096MB）
+  //   ZF_SINK_WHOLE_RANGE=1：保持旧行为（每次下沉整个分区区间）；
+  //                        默认 0 = 按"单个 L1 文件区间"逐个下沉（实验 A）
+  static const uint64_t kSinkL2ClearBytes = [] {
+    const char* v = getenv("ZF_SINK_L2_CLEAR_MB");
+    if (v == nullptr) return 4ull << 30;
+    const long long mb = atoll(v);
+    return mb > 0 ? static_cast<uint64_t>(mb) << 20 : (4ull << 30);
+  }();
+  static const bool zf_sink_whole_range = [] {
+    const char* v = getenv("ZF_SINK_WHOLE_RANGE");
+    return v != nullptr && std::string(v) == "1";
+  }();
   auto* zf_vstorage = cfd->current()->storage_info();
   if (zf_vstorage->NumLevelBytes(2) >= kSinkL2ClearBytes) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -3385,8 +3398,42 @@ void DBImpl::MaybeScheduleZfSink() {
                  cfd->GetName().c_str(), reqs.size(), input_level,
                  output_level);
   for (const auto& r : reqs) {
-    const ROCKSDB_NAMESPACE::Slice lo(r.first), hi(r.second);
+    ROCKSDB_NAMESPACE::Slice lo(r.first), hi(r.second);
     InternalKey begin_storage, end_storage;
+    // 实验 A（默认）：把下沉区间收窄到"本分区在 L1 的最左文件"的键区间，
+    // 避免一次下沉把整个分区的 L1 与全部重叠 L2 一起重写；剩余区间重新
+    // 入队（下轮继续）。ZF_SINK_WHOLE_RANGE=1 恢复旧行为。
+    if (!zf_sink_whole_range) {
+      const auto* st = cfd->current()->storage_info();
+      bool have_best = false;
+      std::string best_lo_s, best_hi_s;
+      for (const auto* f : st->LevelFiles(input_level)) {
+        const std::string f_lo = f->smallest.user_key().ToString();
+        const std::string f_hi = f->largest.user_key().ToString();
+        if (f_hi < r.first || f_lo >= r.second) {
+          continue;  // 不相交（字节序比较对当前 key 编码足够）
+        }
+        if (!have_best || f_lo < best_lo_s) {
+          best_lo_s = f_lo;
+          best_hi_s = f_hi;
+          have_best = true;
+        }
+      }
+      if (!have_best) {
+        continue;  // L1 已无该区间文件：无需下沉
+      }
+      const std::string new_lo = best_lo_s;
+      const std::string new_hi = best_hi_s;
+      if (new_hi < r.second) {
+        // 本分区还有更右的 L1 文件：把剩余区间重新入队（下轮继续）
+        zf_ctx_->RequestRangeSink(new_hi, r.second);
+      }
+      if (new_lo > r.first) {
+        zf_ctx_->RequestRangeSink(r.first, new_lo);
+      }
+      lo = ROCKSDB_NAMESPACE::Slice(new_lo);
+      hi = ROCKSDB_NAMESPACE::Slice(new_hi);
+    }
     begin_storage.SetMinPossibleForUserKey(lo);
     end_storage.SetMaxPossibleForUserKey(hi);
     InternalKey end_storage2;
