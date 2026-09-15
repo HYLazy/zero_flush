@@ -70,3 +70,35 @@ ZF_VC_KEEP_WAL=1 $ZF/zf_valcheck db_vc triage 40000 4    # 三桶判决 + 索引
 不与已安装层比较 sequence（R2）⇒ 恢复重放的旧 WAL 记录遮蔽 L0 中更高 seq 的新版本；
 陈旧遮蔽 100% 发生在 L0（R3）；失败集随开合循环漂移（R4）。
 修复顺序与回归门见 `ledger/REPORT_0B.md` 第 10 节。
+
+## C. 基线标识（便于二分与追溯）
+
+```
+parent (0a/0b 之前的起点) : 1ec2f45  ZeroFlushV0 tip
+diagnostic content commit  : 750e458  amend 前的原始提交（悬空对象，不参与后续二进制/二分）
+clean baseline commit      : 665f434  含 .gitignore（构建产物 / 原始 LOG / 实验库已忽略）
+repair branch root         : 665f434  @ fix/zeroflush-recovery-visibility-fences
+branch                     : ZeroFlushV0.5 亦指向 665f434
+```
+
+> 说明：665f434 **替换**（amend）而非接续 750e458，两者无父子关系；`750e458` 仅存在于
+> reflog/对象库，`git merge-base --is-ancestor 750e458 HEAD` 为假。二分请以 **665f434** 为基线。
+
+## D. 修复分支进展（fix/zeroflush-recovery-visibility-fences）
+
+| 提交 | 内容 | 门禁 |
+|---|---|---|
+| `665f434` | 基线（诊断全部内容 + 干净工作树） | **红**：triage fail=2144（B3 2303/拆分全 L0）、scan lost_overwrite≠0 |
+| `69bb3d0` | step 1 部分：显式 `ActiveGenOpt`（nullopt ≠ gen 0）、恢复不再用 `MaxGen` 定义 active、`InsertCreate` 按显式身份归位（同物理分区 + 同活跃代才进 active） | **仍红**：triage fail=1989（B3 1768、B2 221） |
+
+失败键清单按阶段留档：`triage_fail_keys.txt`（基线 2144）、`triage_fail_keys_step1.txt`（step 1 后 1989）。
+
+新实证（推翻"编号复用"旧假设）：记录物理属于 `part=4`、索引分区为 `part=10`，
+而 `part=10 active_gen=1` —— 另一条来自 `part=4 gen=1` 的**旧**记录因"gen 号
+相等"进入 active，读序 active 优先 ⇒ 遮蔽 frozen 链中 `seq=59905` 的新版本
+（同时 L0 已有该新值）。**跨物理分区的 gen 号不可比较**（用户第一轮质疑成立）。
+
+剩余根因（未修）：恢复仍把"其数据已安装"的旧代记录登记为可读 pending，且读路径
+索引命中后不与已安装层比较 sequence。下一步 `installed_fence + 恢复过滤` 需先定
+原子性方案：① MANIFEST/VersionEdit 内新增字段（改格式）② 一次性 reconciliation
+（无需格式改动，按 LSM 覆盖判定是否已安装；用户已列为 legacy 路径备选）。
