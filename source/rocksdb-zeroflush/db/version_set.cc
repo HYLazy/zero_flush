@@ -7353,6 +7353,10 @@ Status VersionSet::WriteCurrentStateToManifest(
 
       edit.SetCompactCursors(vstorage->GetCompactCursors());
 
+      // ZeroFlush V0.6：安装覆盖元数据必须随快照写回，否则 MANIFEST 轮换后
+      // installed_fence 会静默丢失（不损坏、但恢复过滤协议失效）。
+      edit.SetZfInstallFences(vstorage->GetZfInstallFences());
+
       const auto& blob_files = vstorage->GetBlobFiles();
       for (const auto& meta : blob_files) {
         assert(meta);

@@ -272,6 +272,8 @@ class VersionBuilder::Rep {
   std::unordered_map<uint64_t, int> table_file_levels_;
   // Current compact cursors that should be changed after the last compaction
   std::unordered_map<int, InternalKey> updated_compact_cursors_;
+  // ZeroFlush V0.6：本编辑带来的 installed_fence（physical_part → fence）
+  std::unordered_map<uint32_t, VersionEdit::ZfInstallFence> updated_zf_fences_;
   const std::shared_ptr<const NewestFirstByEpochNumber>
       level_zero_cmp_by_epochno_;
   const std::shared_ptr<const NewestFirstBySeqNo> level_zero_cmp_by_seqno_;
@@ -378,6 +380,7 @@ class VersionBuilder::Rep {
         has_invalid_levels_(other.has_invalid_levels_),
         table_file_levels_(other.table_file_levels_),
         updated_compact_cursors_(other.updated_compact_cursors_),
+        updated_zf_fences_(other.updated_zf_fences_),
         level_zero_cmp_by_epochno_(other.level_zero_cmp_by_epochno_),
         level_zero_cmp_by_seqno_(other.level_zero_cmp_by_seqno_),
         level_nonzero_cmp_(other.level_nonzero_cmp_),
@@ -1114,6 +1117,16 @@ class VersionBuilder::Rep {
       }
     }
 
+    // ZeroFlush V0.6：消费安装覆盖元数据（与 AddFile 同一条 MANIFEST 记录
+    // ⇒ 原子）。单调取大：重放/乱序时同分区 fence 不回退。
+    for (const auto& f : edit->GetZfInstallFences()) {
+      auto it = updated_zf_fences_.find(f.physical_part);
+      if (it == updated_zf_fences_.end() ||
+          f.last_generation > it->second.last_generation) {
+        updated_zf_fences_[f.physical_part] = f;
+      }
+    }
+
     if (track_found_and_missing_files_ && version_updated) {
       version_updated_since_last_check_ = true;
       if (!edited_in_atomic_group_ && edit->IsInAtomicGroup()) {
@@ -1504,6 +1517,12 @@ class VersionBuilder::Rep {
     }
   }
 
+  void SaveZfInstallFencesTo(VersionStorageInfo* vstorage) const {
+    for (const auto& kv : updated_zf_fences_) {
+      vstorage->RecordZfInstallFence(kv.second);
+    }
+  }
+
   void SaveCompactCursorsTo(VersionStorageInfo* vstorage) const {
     for (auto iter = updated_compact_cursors_.begin();
          iter != updated_compact_cursors_.end(); iter++) {
@@ -1636,6 +1655,8 @@ class VersionBuilder::Rep {
     SaveBlobFilesTo(vstorage);
 
     SaveCompactCursorsTo(vstorage);
+
+    SaveZfInstallFencesTo(vstorage);
 
     s = CheckConsistency(vstorage);
     return s;

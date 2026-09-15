@@ -162,6 +162,34 @@ class VersionStorageInfo {
     compact_cursor_[level] = smallest_uncompacted_key;
   }
 
+  // ---- ZeroFlush V0.6：安装覆盖元数据（installed_fence）----
+  // physical_part → 最后一个"连续、完整消费且已真实 AddFile"的 generation。
+  // 单调：同分区只接受 last_generation 更大的记录（重放/乱序不回退）。
+  void RecordZfInstallFence(const VersionEdit::ZfInstallFence& f) {
+    auto it = zf_install_fences_.find(f.physical_part);
+    if (it == zf_install_fences_.end() ||
+        f.last_generation > it->second.last_generation) {
+      zf_install_fences_[f.physical_part] = f;
+    }
+  }
+  bool GetZfInstallFence(uint32_t physical_part,
+                         VersionEdit::ZfInstallFence* out) const {
+    auto it = zf_install_fences_.find(physical_part);
+    if (it == zf_install_fences_.end()) {
+      return false;
+    }
+    *out = it->second;
+    return true;
+  }
+  std::vector<VersionEdit::ZfInstallFence> GetZfInstallFences() const {
+    std::vector<VersionEdit::ZfInstallFence> out;
+    out.reserve(zf_install_fences_.size());
+    for (const auto& kv : zf_install_fences_) {
+      out.push_back(kv.second);
+    }
+    return out;
+  }
+
   // REQUIRES: lock is held
   // Update the compact cursor and advance the file index using increment
   // so that it can point to the next cursor (increment means the number of
@@ -796,6 +824,9 @@ class VersionStorageInfo {
 
   // Compact cursors for round-robin compactions in each level
   std::vector<InternalKey> compact_cursor_;
+  // ZeroFlush V0.6：physical_part → installed_fence（见 RecordZfInstallFence）。
+  // 空 map = 无 fence 元数据 ⇒ 旧库（legacy 判定依据）。
+  std::unordered_map<uint32_t, VersionEdit::ZfInstallFence> zf_install_fences_;
 
   // the following are the sampled temporary stats.
   // the current accumulated size of sampled files.
