@@ -40,6 +40,11 @@ enum Tag : uint32_t {
   kNextFileNumber = 3,
   kLastSequence = 4,
   kCompactCursor = 5,
+  // ZeroFlush V0.6：安装覆盖元数据（installed_fence）。每条记录描述一个
+  // physical_part 上"连续、完整消费且已真实 AddFile"的 generation 区间。
+  // 与 AddFile 同处一个 VersionEdit ⇒ 同一条 MANIFEST 记录 ⇒ 安装与覆盖
+  // 元数据原子落盘（复用 RocksDB 恢复原子性）。空 edit 不写本 tag。
+  kZfInstallFence = 500,
   kDeletedFile = 6,
   kNewFile = 7,
   // 8 was used for large value refs
@@ -836,6 +841,30 @@ class VersionEdit {
   NewFiles& GetMutableNewFiles() { return new_files_; }
 
   // Retrieve all the compact cursors
+  // ---- ZeroFlush V0.6：安装覆盖元数据（installed_fence）----
+  // 语义（2026-09-15 定稿）：physical_part 的 [first_generation,
+  // last_generation] 已被真实 AddFile 安装，且区间内每个 generation 的 WAL
+  // 记录都被完整消费（consumed_record_count/consumed_bytes 为该区间累计）。
+  // 部分 kSkip / conflict 批次只推进可安装分区自身的连续区间；空 edit 不写。
+  // 全部 varint 编码；未知 tag 由旧版本跳过（向前兼容）。
+  struct ZfInstallFence {
+    uint32_t physical_part = 0;
+    uint32_t first_generation = 0;
+    uint32_t last_generation = 0;
+    uint64_t consumed_record_count = 0;
+    uint64_t consumed_bytes = 0;
+    uint64_t install_sequence = 0;
+  };
+  const std::vector<ZfInstallFence>& GetZfInstallFences() const {
+    return zf_install_fences_;
+  }
+  void AddZfInstallFence(const ZfInstallFence& f) {
+    zf_install_fences_.push_back(f);
+  }
+  void SetZfInstallFences(std::vector<ZfInstallFence> f) {
+    zf_install_fences_ = std::move(f);
+  }
+
   using CompactCursors = std::vector<std::pair<int, InternalKey>>;
   const CompactCursors& GetCompactCursors() const { return compact_cursors_; }
   void AddCompactCursor(int level, const InternalKey& cursor) {
@@ -1077,6 +1106,7 @@ class VersionEdit {
 
   // Compaction cursors for round-robin compaction policy
   CompactCursors compact_cursors_;
+  std::vector<ZfInstallFence> zf_install_fences_;
 
   DeletedFiles deleted_files_;
   NewFiles new_files_;

@@ -146,6 +146,17 @@ bool VersionEdit::EncodeTo(std::string* dst,
       PutLengthPrefixedSlice(dst, compact_cursors_[i].second.Encode());
     }
   }
+  // ZeroFlush V0.6：安装覆盖元数据（写法对齐 kCompactCursor 既有范式）。
+  for (const auto& f : zf_install_fences_) {
+    PutVarint32(dst, kZfInstallFence);
+    PutVarint32(dst, f.physical_part);
+    PutVarint32(dst, f.first_generation);
+    PutVarint32(dst, f.last_generation);
+    PutVarint64(dst, f.consumed_record_count);
+    PutVarint64(dst, f.consumed_bytes);
+    PutVarint64(dst, f.install_sequence);
+  }
+
   for (const auto& deleted : deleted_files_) {
     PutVarint32Varint32Varint64(dst, kDeletedFile, deleted.first /* level */,
                                 deleted.second /* file number */);
@@ -645,6 +656,21 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           }
         }
         break;
+
+      case kZfInstallFence: {
+        ZfInstallFence f;
+        if (GetVarint32(&input, &f.physical_part) &&
+            GetVarint32(&input, &f.first_generation) &&
+            GetVarint32(&input, &f.last_generation) &&
+            GetVarint64(&input, &f.consumed_record_count) &&
+            GetVarint64(&input, &f.consumed_bytes) &&
+            GetVarint64(&input, &f.install_sequence)) {
+          zf_install_fences_.push_back(f);
+        } else if (!msg) {
+          msg = "zf install fence";
+        }
+        break;
+      }
 
       case kDeletedFile: {
         uint64_t number = 0;
