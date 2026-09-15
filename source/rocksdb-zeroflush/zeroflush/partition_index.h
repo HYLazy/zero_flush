@@ -275,6 +275,66 @@ class PartitionIndex {
 
   using Iterator = ROCKSDB_NAMESPACE::InlineSkipList<ZfKeyComparator>::Iterator;
 
+  // step 0b-3 诊断：打印本索引中该 user key 的全部版本（seq/type/locator）。
+  // 只读；用于把"读回旧值"归因到索引链（active/frozen 各代）而不是猜。
+  void DumpKeyVersions(const ROCKSDB_NAMESPACE::Slice& user_key,
+                       std::string* out) const {
+    std::string target;
+    target.reserve(user_key.size() + 8);
+    target.append(user_key.data(), user_key.size());
+    ROCKSDB_NAMESPACE::PutFixed64(
+        &target, ROCKSDB_NAMESPACE::PackSequenceAndType(
+                     ROCKSDB_NAMESPACE::kMaxSequenceNumber,
+                     ROCKSDB_NAMESPACE::kValueTypeForSeek));
+    std::string encoded;
+    ROCKSDB_NAMESPACE::PutVarint32(&encoded,
+                                   static_cast<uint32_t>(target.size()));
+    encoded.append(target);
+    Iterator iter(&list_);
+    iter.Seek(encoded.data());
+    int n = 0;
+    for (; iter.Valid() && n < 8; iter.Next(), ++n) {
+      const char* entry = iter.key();
+      const ROCKSDB_NAMESPACE::Slice ik =
+          ROCKSDB_NAMESPACE::GetLengthPrefixedSlice(entry);
+      if (ik.size() < 8) {
+        break;
+      }
+      if (user_key.compare(
+              ROCKSDB_NAMESPACE::Slice(ik.data(), ik.size() - 8)) != 0) {
+        break;  // 该 key 的版本已列完
+      }
+      const uint64_t packed =
+          ROCKSDB_NAMESPACE::DecodeFixed64(ik.data() + ik.size() - 8);
+      // PackSequenceAndType(seq,type) = (seq << 8) | type —— 手工解包，
+      // 避免依赖本版本 UnPackSequenceAndType 的重载形态。
+      const uint64_t sq = packed >> 8;
+      const uint64_t vt = packed & 0xFF;
+      const char* p = entry;
+      uint32_t ik_len = 0;
+      p = ROCKSDB_NAMESPACE::GetVarint32Ptr(p, p + 5, &ik_len);
+      p += ik_len;
+      const ROCKSDB_NAMESPACE::Slice loc =
+          ROCKSDB_NAMESPACE::GetLengthPrefixedSlice(p);
+      uint32_t lp = 0, lg = 0;
+      uint64_t loff = 0;
+      if (loc.size() == 16) {
+        memcpy(&lp, loc.data(), 4);
+        memcpy(&lg, loc.data() + 4, 4);
+        memcpy(&loff, loc.data() + 8, 8);
+      }
+      char buf[192];
+      snprintf(buf, sizeof(buf),
+               "    seq=%llu type=%u loc(part=%u gen=%u off=%llu)\n",
+               (unsigned long long)sq, (unsigned)vt, lp, lg,
+               (unsigned long long)loff);
+      out->append(buf);
+    }
+    if (n == 0) {
+      out->append("    (no version)\n");
+    }
+  }
+
   // 条目解码（M4.3d Iterator 用）：从跳表条目取 internal key。
   static ROCKSDB_NAMESPACE::Slice DecodeInternalKey(const char* entry) {
     return ROCKSDB_NAMESPACE::GetLengthPrefixedSlice(entry);
@@ -838,6 +898,39 @@ class PartitionIndexSet {
   // 为每个索引构造 PartitionIndexIterator 加入归并构建器。
   // value 解析（ReadValue）由迭代器按需执行（照抄 MemTableIterator zf 分支）。
   // 定义见文件尾（PartitionIndexIterator 之后）。
+  // step 0b-3 诊断：按**读路径的实际遍历顺序**打印该分区的索引链。
+  void DumpKeyChain(uint32_t part_id, const ROCKSDB_NAMESPACE::Slice& user_key,
+                    std::string* out) const {
+    std::vector<std::shared_ptr<PartitionIndex>> chain;
+    {
+      std::shared_lock<std::shared_mutex> l(mu_);
+      auto fit = frozen_.find(part_id);
+      if (fit != frozen_.end()) {
+        chain = fit->second;
+      }
+      auto ait = active_.find(part_id);
+      if (ait != active_.end()) {
+        chain.push_back(ait->second);
+      }
+      char buf[96];
+      snprintf(buf, sizeof(buf), "  chain_len=%zu (读序：rbegin→rend)\n",
+               chain.size());
+      out->append(buf);
+    }
+    int pos = 0;
+    for (auto c = chain.rbegin(); c != chain.rend(); ++c, ++pos) {
+      char buf[176];
+      snprintf(buf, sizeof(buf),
+               "  chain#%d part=%u gen=%u frozen=%d mem_bytes=%llu\n", pos,
+               (*c)->part_id(), (*c)->gen(), (int)(*c)->frozen(),
+               (unsigned long long)(*c)->mem_bytes());
+      out->append(buf);
+      if (pos < 4) {
+        (*c)->DumpKeyVersions(user_key, out);
+      }
+    }
+  }
+
   void AddIterators(
       ROCKSDB_NAMESPACE::MergeIteratorBuilder* builder,
       const std::function<ROCKSDB_NAMESPACE::Status(const ROCKSDB_NAMESPACE::Slice&, std::string*)>& read_value,

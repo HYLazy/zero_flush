@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifdef GFLAGS
+#include "tools/zf_keygen.h"
+
 #ifdef NUMA
 #include <numa.h>
 #endif
@@ -845,6 +847,12 @@ DEFINE_string(zf_routing, "hash",
              "ZeroFlush routing mode: hash | static | sampled. Sampled learns "
              "range boundaries from the first epoch, enabling direct install "
              "below L0. Only used when --zeroflush is true.");
+DEFINE_int32(zf_ledger_stop_mb, -1,
+             "step 0b-3：pending ledger 背压 stop 水位（MB；<0 = 用结构体默认）");
+DEFINE_int32(zf_ledger_resume_mb, -1,
+             "step 0b-3：pending ledger 背压 resume 水位（MB；<0 = 默认）");
+DEFINE_int32(zf_bp_timeout_ms, -1,
+             "step 0b-3：背压超时（ms；<0 = 默认 15000）");
 DEFINE_string(zf_static_boundaries, "",
              "Comma-separated ascending boundary keys for --zf_routing=static "
              "(count must be zf_partitions - 1).");
@@ -2016,6 +2024,11 @@ DEFINE_uint32(openandcompact_cancel_after_millseconds, 1,
               "openandcompact_test_cancel_on_odd is true");
 
 namespace ROCKSDB_NAMESPACE {
+
+// step 0b-3：ZF 背压超时返回 Status::Incomplete（与 native no_slowdown 同款），
+// 属可重试状态。harness 必须重试并计数，不能按致命错误退出——写入多线程在飞
+// 时 ErrorExit 会在堆上留下损坏痕迹（0b-3 冒烟实测 free(): corrupted）。
+static std::atomic<uint64_t> zf_bp_retries{0};
 namespace {
 static Status CreateMemTableRepFactory(
     const ConfigOptions& config_options,
@@ -3614,17 +3627,12 @@ class Benchmark {
       pos += prefix_size_;
     }
 
-    int bytes_to_fill = std::min(key_size_ - static_cast<int>(pos - start), 8);
-    if (port::kLittleEndian) {
-      for (int i = 0; i < bytes_to_fill; ++i) {
-        pos[i] = (v >> ((bytes_to_fill - i - 1) << 3)) & 0xFF;
-      }
-    } else {
-      memcpy(pos, static_cast<void*>(&v), bytes_to_fill);
-    }
-    pos += bytes_to_fill;
-    if (key_size_ > pos - start) {
-      memset(pos, '0', key_size_ - (pos - start));
+    // 与校验器 / 测试 reference model 共用同一套填充逻辑（tools/zf_keygen.h），
+    // 避免键格式漂移（此前 zf_valcheck 自带 MakeKey 与这里不一致，导致无法
+    // 校验 db_bench 实际写入的数据）。
+    const int remaining = key_size_ - static_cast<int>(pos - start);
+    if (remaining > 0) {
+      zf_keygen::FillKeyTail(v, remaining, pos);
     }
   }
 
@@ -4227,6 +4235,25 @@ class Benchmark {
           "base_merge_count",
           "base_merge_rewritten_bytes",
           "skip_count",
+          "sink_requests",
+          "sink_diag",  // step 0a 诊断（临时）
+          "pending_materialize_bytes",   // step 0b-3（单一权威=generation registry）
+          "drained_materialize_bytes",   // LogAndApply 成功
+          "reclaimed_bytes",             // 引用归零、物理可回收
+          "peak_pending_bytes",
+          "registered_gens",
+          "handoff_installed_filtered",
+          "installed_epochs",
+          "reclaimed_gens",
+          "backpressure_waits",
+          "backpressure_timeouts",
+          "empty_edit_count",
+          "empty_edit_barrier_advance",
+          "empty_edit_pending_unchanged",
+          "empty_edit_pending_before",
+          "empty_edit_pending_after",
+          "empty_edit_lm_before",
+          "empty_edit_lm_after",
           "prof_scan_us",
           "prof_scan_bytes",
           "prof_build_us",
@@ -4238,6 +4265,27 @@ class Benchmark {
         std::string v;
         if (db_.db->GetProperty("rocksdb.zeroflush." + std::string(p), &v)) {
           fprintf(stdout, "zf.%s : %s\n", p, v.c_str());
+        }
+      }
+      // step 0b-1：末态 LSM——固定写量下"未完成的工作量"（尤其 L0/fallback
+      // 残留，ZF 模式原生 L0 消费被禁用、不会自行消失）必须可观测，否则不能
+      // 把"少做了工作"当作更低写放大（sink_tuning 第二轮实测 base 85.6G vs
+      // 118G，差别就在末态）。
+      fprintf(stdout, "zf.bp_retries : %llu\n",
+              (unsigned long long)zf_bp_retries.load(std::memory_order_relaxed));
+      fprintf(stdout, "ZF END STATE:\n");
+      for (int lv = 0; lv <= 6; ++lv) {
+        std::string v;
+        const std::string prop =
+            "rocksdb.num-files-at-level" + std::to_string(lv);
+        if (db_.db->GetProperty(prop, &v)) {
+          fprintf(stdout, "zf.lsm_L%d_files : %s\n", lv, v.c_str());
+        }
+      }
+      {
+        std::string v;
+        if (db_.db->GetProperty("rocksdb.num-running-compactions", &v)) {
+          fprintf(stdout, "zf.num_running_compactions : %s\n", v.c_str());
         }
       }
     }
@@ -5486,6 +5534,18 @@ class Benchmark {
       // 分区 WAL 写入 wal_dir/zfwal/ 子目录，跳过原生 WAL 与 MemTable flush。
       zeroflush::ZeroFlushOptions zfo;
       zfo.partitions = static_cast<uint32_t>(FLAGS_zf_partitions);
+      if (FLAGS_zf_ledger_stop_mb > 0) {
+        zfo.ledger_stop_bytes =
+            static_cast<uint64_t>(FLAGS_zf_ledger_stop_mb) << 20;
+      }
+      if (FLAGS_zf_ledger_resume_mb > 0) {
+        zfo.ledger_resume_bytes =
+            static_cast<uint64_t>(FLAGS_zf_ledger_resume_mb) << 20;
+      }
+      if (FLAGS_zf_bp_timeout_ms > 0) {
+        zfo.backpressure_timeout_micros =
+            static_cast<uint64_t>(FLAGS_zf_bp_timeout_ms) * 1000;
+      }
       zfo.materialize_parallelism = static_cast<uint32_t>(
           FLAGS_zf_materialize_parallelism);
       // M4.0：路由 / 融合归并 / 封存阈值接线（默认值 = ZeroFlushOptions
@@ -6245,6 +6305,12 @@ class Benchmark {
       if (!use_blob_db_) {
         // Not stacked BlobDB
         s = db_with_cfh->db->Write(write_options_, &batch);
+        // step 0b-3：背压超时 = 可重试（与 native no_slowdown 同款语义）。
+        while (!s.ok() && s.IsIncomplete()) {
+          zf_bp_retries.fetch_add(1, std::memory_order_relaxed);
+          FLAGS_env->SleepForMicroseconds(1000);
+          s = db_with_cfh->db->Write(write_options_, &batch);
+        }
       }
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
                                 entries_per_batch_, kWrite);

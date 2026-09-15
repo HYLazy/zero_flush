@@ -12,6 +12,7 @@
 #include <unordered_set>
 
 #include "db/column_family.h"
+#include "db/compaction/zf_sink_diag.h"  // step 0a 诊断（临时）
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/memtable.h"
@@ -410,6 +411,59 @@ size_t ZeroFlushContext::PurgeSealedFiles() {
 
 // ---- ZeroFlushV0 M4：动态治理 DG ----
 
+// ---------------------------------------------------------------------------
+// step 0b-3（重构）：pending 水位——单一权威 = SealedFileCache 的 generation
+// registry。本层只转发，不再维护第二份所有权账目。
+//   pending  : 仍需物化的 generation 字节（sealed/queued/building/conflict/
+//              recovery 都算；只有 installed 移出）
+//   drained  : LogAndApply 成功时增加（数据已进 L1）
+//   reclaimed: 引用全部释放、物理可回收时增加
+//   pending 归零 ≠ 文件已回收（旧读视图/snapshot 仍可能持有引用）。
+// ---------------------------------------------------------------------------
+uint64_t ZeroFlushContext::PendingMaterializeBytes() const {
+  return sealed_cache_ != nullptr ? sealed_cache_->pending_materialize_bytes() : 0;
+}
+uint64_t ZeroFlushContext::DrainedMaterializeBytes() const {
+  return sealed_cache_ != nullptr ? sealed_cache_->drained_materialize_bytes() : 0;
+}
+uint64_t ZeroFlushContext::HandoffInstalledFiltered() const {
+  return sealed_cache_ != nullptr ? sealed_cache_->handoff_installed_filtered()
+                                  : 0;
+}
+uint64_t ZeroFlushContext::ReclaimedBytes() const {
+  return sealed_cache_ != nullptr ? sealed_cache_->reclaimed_bytes() : 0;
+}
+uint64_t ZeroFlushContext::PeakPendingBytes() const {
+  return sealed_cache_ != nullptr ? sealed_cache_->peak_pending_bytes() : 0;
+}
+uint64_t ZeroFlushContext::InstalledEpochs() const {
+  return sealed_cache_ != nullptr ? sealed_cache_->installed_epochs() : 0;
+}
+uint64_t ZeroFlushContext::ReclaimedGens() const {
+  return sealed_cache_ != nullptr ? sealed_cache_->reclaimed_gens() : 0;
+}
+size_t ZeroFlushContext::RegisteredGens() const {
+  return sealed_cache_ != nullptr ? sealed_cache_->registered_gens() : 0;
+}
+void ZeroFlushContext::MarkEpochInstalled(uint64_t epoch) {
+  if (sealed_cache_ != nullptr) {
+    sealed_cache_->MarkEpochInstalled(epoch);
+  }
+}
+
+void ZeroFlushContext::NoteEmptyEdit(uint64_t pending_before, uint64_t lm_before,
+                                    uint64_t lm_after) {
+  const uint64_t pending_after = PendingMaterializeBytes();
+  empty_edit_count_.fetch_add(1, std::memory_order_relaxed);
+  empty_edit_pending_before_.store(pending_before, std::memory_order_relaxed);
+  empty_edit_pending_after_.store(pending_after, std::memory_order_relaxed);
+  empty_edit_lm_before_.store(lm_before, std::memory_order_relaxed);
+  empty_edit_lm_after_.store(lm_after, std::memory_order_relaxed);
+  if (pending_before == pending_after) {
+    empty_edit_pending_unchanged_.fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
 void ZeroFlushContext::RegisterSealedEpoch(const SealedEpoch& se) {
   // @封存边界速率采样（不进写路径；封存为低频事件）。每分区本代封存字节 +
   // 当前时刻喂入速率 EWMA。随后做既有登记（收养 recovery/skip）。
@@ -418,6 +472,26 @@ void ZeroFlushContext::RegisterSealedEpoch(const SealedEpoch& se) {
     for (const auto& [pid, bytes] : se.part_bytes) {
       if (bytes > 0) {
         rate_tracker_->RecordSeal(pid, bytes, now);
+      }
+    }
+  }
+  // step 0b-3：注册本 epoch 新封存的 generations（幂等；收养/重复封存路径
+  // 不会重复计账）。记账粒度 = 该分区本代封存字节（一次 freeze 一个分区一个
+  // gen；part_bytes 是分区聚合值，按该分区在本 epoch 的 gen 数摊分）。
+  {
+    std::unordered_map<uint32_t, uint32_t> gens_per_part;
+    for (const auto& [p, g] : se.gens) {
+      (void)g;
+      gens_per_part[p]++;
+    }
+    for (const auto& [p, g] : se.gens) {
+      const auto bit = se.part_bytes.find(p);
+      const uint64_t bytes =
+          (bit != se.part_bytes.end() && gens_per_part[p] > 0)
+              ? bit->second / gens_per_part[p]
+              : 0;
+      if (sealed_cache_ != nullptr) {
+        sealed_cache_->RegisterGen(p, g, bytes);
       }
     }
   }
@@ -502,6 +576,44 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(skip_count());
   } else if (prop == "rocksdb.zeroflush.sink_requests") {
     *value = std::to_string(sink_request_count());
+  } else if (prop == "rocksdb.zeroflush.pending_materialize_bytes") {
+    *value = std::to_string(PendingMaterializeBytes());
+  } else if (prop == "rocksdb.zeroflush.drained_materialize_bytes") {
+    *value = std::to_string(DrainedMaterializeBytes());
+  } else if (prop == "rocksdb.zeroflush.reclaimed_bytes") {
+    *value = std::to_string(ReclaimedBytes());
+  } else if (prop == "rocksdb.zeroflush.peak_pending_bytes") {
+    *value = std::to_string(PeakPendingBytes());
+  } else if (prop == "rocksdb.zeroflush.registered_gens") {
+    *value = std::to_string(RegisteredGens());
+  } else if (prop == "rocksdb.zeroflush.installed_epochs") {
+    *value = std::to_string(InstalledEpochs());
+  } else if (prop == "rocksdb.zeroflush.handoff_installed_filtered") {
+    *value = std::to_string(HandoffInstalledFiltered());
+  } else if (prop == "rocksdb.zeroflush.reclaimed_gens") {
+    *value = std::to_string(ReclaimedGens());
+  } else if (prop == "rocksdb.zeroflush.empty_edit_count") {
+    *value = std::to_string(empty_edit_count());
+  } else if (prop == "rocksdb.zeroflush.empty_edit_barrier_advance") {
+    *value = std::to_string(empty_edit_barrier_advance());
+  } else if (prop == "rocksdb.zeroflush.empty_edit_pending_before") {
+    *value = std::to_string(empty_edit_pending_before());
+  } else if (prop == "rocksdb.zeroflush.empty_edit_pending_after") {
+    *value = std::to_string(empty_edit_pending_after());
+  } else if (prop == "rocksdb.zeroflush.empty_edit_lm_before") {
+    *value = std::to_string(empty_edit_lm_before());
+  } else if (prop == "rocksdb.zeroflush.empty_edit_lm_after") {
+    *value = std::to_string(empty_edit_lm_after());
+  } else if (prop == "rocksdb.zeroflush.empty_edit_pending_unchanged") {
+    *value = std::to_string(empty_edit_pending_unchanged());
+  } else if (prop == "rocksdb.zeroflush.backpressure_waits") {
+    *value = std::to_string(backpressure_waits());
+  } else if (prop == "rocksdb.zeroflush.backpressure_timeouts") {
+    *value = std::to_string(backpressure_timeouts());
+  } else if (prop == "rocksdb.zeroflush.sink_diag") {
+    // step 0a 诊断（临时）：sink 构造失败原因分类汇总，见 db/compaction/
+    // zf_sink_diag.h。0a 结束后随该头文件一起删除。
+    *value = ROCKSDB_NAMESPACE::zf_sink_diag::Summary();
   } else if (prop == "rocksdb.zeroflush.prof_scan_us") {
     *value = std::to_string(prof_scan_us_.load(std::memory_order_relaxed));
   } else if (prop == "rocksdb.zeroflush.prof_scan_bytes") {
@@ -1216,6 +1328,8 @@ void ZeroFlushContext::HandOffSkippedToRecovery(
             (unsigned long long)epoch, gens.size(), (int)se_ok,
             se.part_bytes.size(), part_bytes.size());
   }
+  // step 0b-3：移交只是状态迁移（gens 移出 epoch、进入 recovery/skip 集合）
+  // ——pending 总量不变、不重复计账（cache 为单一权威）。
   sealed_cache_->HandOffSkippedToRecovery(epoch, gens, part_bytes);
 }
 
@@ -1599,6 +1713,11 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
   }
   if (!orphans.empty()) {
     sealed_cache_->AddRecoveryGens(orphans, orphan_bytes);
+    // step 0b-3：恢复期孤儿代也注册（待收养），否则重开后的水位会漏计
+    // 已在磁盘上的未物化数据。
+    for (const auto& [pp, gg] : orphans) {
+      sealed_cache_->RegisterGen(pp, gg, wal_->GetFileSize(pp, gg, files, env_));
+    }
   }
   ROCKSDB_NAMESPACE::ColumnFamilyData* cfd = db->GetDefaultColumnFamily();
   if (cfd == nullptr) {
@@ -2833,6 +2952,24 @@ void Close(std::shared_ptr<ROCKSDB_NAMESPACE::DB>* db) {
 // ---------------------------------------------------------------------------
 // DestroyDB：原生 DestroyDB + 递归清理 zfwal 子目录
 // ---------------------------------------------------------------------------
+
+ROCKSDB_NAMESPACE::Status DumpKeyIndexChain(ROCKSDB_NAMESPACE::DB* db,
+                                            const std::string& user_key,
+                                            std::string* out) {
+  auto* impl = static_cast<ROCKSDB_NAMESPACE::DBImpl*>(db);
+  std::shared_ptr<ZeroFlushContext> ctx = impl->GetZeroFlushContext();
+  if (ctx == nullptr || ctx->index_set() == nullptr) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument("not a ZeroFlush DB");
+  }
+  const ROCKSDB_NAMESPACE::Slice uk(user_key);
+  const uint32_t part = ctx->RoutePartId(uk);
+  char head[128];
+  snprintf(head, sizeof(head), "  part=%u ucmp=%s\n", part,
+           ctx->ucmp() != nullptr ? ctx->ucmp()->Name() : "-");
+  out->append(head);
+  ctx->index_set()->DumpKeyChain(part, uk, out);
+  return ROCKSDB_NAMESPACE::Status::OK();
+}
 
 ROCKSDB_NAMESPACE::Status DestroyDB(const std::string& dbname,
                                     const ROCKSDB_NAMESPACE::Options& options,

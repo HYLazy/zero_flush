@@ -9,7 +9,11 @@ ARM=$1; ENVS=${2:-}
 DB=$RUN/db_$ARM
 rm -rf "$DB"
 echo "[$ARM] env='$ENVS' start $(date '+%T')"
-env $ENVS $BIN --benchmarks=fillrandom --key_size=16 --value_size=1024 \
+# step 0b-1：写量结束后追加排空阶段（waitforcompaction = DB::WaitForCompact：
+# 等 native 后台任务与 imm 排空），使"总输出/末态"可跨运行比较；排空耗时由
+# db_bench 的 waitforcompaction: started/finished 行 + DB LOG 的 ZeroFlush
+# drain 行给出。
+env $ENVS $BIN --benchmarks=fillrandom,waitforcompaction --key_size=16 --value_size=1024 \
   --num=48000000 --writes=1000000 --threads=16 --seed=20260914 \
   --compression_type=none --cache_size=536870912 --max_background_jobs=24 \
   --subcompactions=16 --statistics=false --use_existing_db=0 \

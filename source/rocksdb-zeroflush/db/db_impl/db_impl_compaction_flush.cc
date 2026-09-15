@@ -12,6 +12,7 @@
 
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/builder.h"
+#include "db/compaction/zf_sink_diag.h"  // step 0a 诊断（临时）
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
@@ -3314,11 +3315,35 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
 // 无等待。构造失败（文件被占/无重叠）丢弃请求：下一个物化批的判据 3
 // 会重新请求（自愈）。task_token 留空（完成路径 4005 判空跳过释放）。
 // REQUIRES: mutex held（default_cf_handle_/current 访问）。
+// step 0a 诊断（临时）：sink 请求失败明细。cls 取自 zf_sink_diag::ReasonName
+// 或 "no_l1_file"；l1_in_range/l1_busy 为与该区间（字节序）相交的 L1 文件
+// 数以及其中 being_compacted 的数量——用于区分"文件被占用"与"区间内本就
+// 没有文件"。busy_file 为第一个被占用的相交文件号，可回查 LOG 里的
+// "Compaction start summary" 判断占用者是不是另一条下沉（而不是 ZF 融合）。
+static void ZfSinkDiagLog(const std::shared_ptr<Logger>& info_log,
+                          const std::string& cf_name, const char* cls,
+                          const std::string& lo, const std::string& hi,
+                          size_t l1_in_range, size_t l1_busy,
+                          uint64_t busy_file, size_t l1_total,
+                          size_t l2_total, bool conflict) {
+  const std::string range_str =
+      ROCKSDB_NAMESPACE::Slice(lo).ToString(true /* hex */) + "," +
+      ROCKSDB_NAMESPACE::Slice(hi).ToString(true /* hex */);
+  ROCKS_LOG_INFO(info_log,
+                 "[%s] ZFDBG-sink-fail cls=%s conflict=%d range=[%s] "
+                 "l1_in_range=%zu l1_busy=%zu busy_file=%llu l1_total=%zu "
+                 "l2_total=%zu",
+                 cf_name.c_str(), cls, (int)conflict, range_str.c_str(),
+                 l1_in_range, l1_busy, (unsigned long long)busy_file, l1_total,
+                 l2_total);
+}
+
 void DBImpl::MaybeScheduleZfSink() {
   mutex_.AssertHeld();
   if (zf_ctx_ == nullptr || default_cf_handle_ == nullptr) {
     return;
   }
+  zf_sink_diag::C().calls.fetch_add(1, std::memory_order_relaxed);
   ColumnFamilyData* cfd = default_cf_handle_->cfd();
   // M5：L2 清场（L2→L3 自动触发在长跑中未观察到——L2 无界增长 →
   // 下沉归并膨胀 → 让位慢 → 数据滞留累积 → 概率性崩；实测 16GB 级）。
@@ -3335,12 +3360,30 @@ void DBImpl::MaybeScheduleZfSink() {
     const long long mb = atoll(v);
     return mb > 0 ? static_cast<uint64_t>(mb) << 20 : (4ull << 30);
   }();
-  static const bool zf_sink_whole_range = [] {
-    const char* v = getenv("ZF_SINK_WHOLE_RANGE");
+  // step 0a 结论（2026-09-15，见 output/zeroflush_m5_perf/sink_tuning/
+  // REPORT_0A.md 第 7 节）：单文件窄下沉请求成本高（成功率 12%）、吞吐低约 30%、
+  // 且不降低写放大；合批在当前 L1 扇出（每分区 1–2 个 L1 文件）下判据从不生效。
+  // 因此**默认回到整分区下沉**，两种实验策略降级为开关：
+  //   ZF_SINK_NARROW=1 → 单文件窄下沉（取分区内最左 L1 文件）
+  //   ZF_SINK_BATCH=1  → 按 L2 重叠集合合批（含"跳过被占文件 + 残余按当前
+  //                       版本检查后再入队"两个流水修复）
+  // 注：两个流水修复属于"分批选择器"的语义（整分区模式没有残余区间，也不做
+  // 单文件选择），故随 BATCH 开关保留，不再作用于默认路径。
+  static const bool zf_sink_narrow = [] {
+    const char* v = getenv("ZF_SINK_NARROW");
     return v != nullptr && std::string(v) == "1";
   }();
+  const bool zf_sink_batch = [] {
+    const char* v = getenv("ZF_SINK_BATCH");
+    return v != nullptr && std::string(v) == "1";
+  }();
+  const bool zf_sink_whole_range = !zf_sink_narrow && !zf_sink_batch;
+  // 合批上限：避免退化为无上限的大 compaction（输入字节 / L1 文件数）。
+  constexpr uint64_t kZfSinkBatchMaxBytes = 512ull << 20;
+  constexpr size_t kZfSinkBatchMaxFiles = 8;
   auto* zf_vstorage = cfd->current()->storage_info();
   if (zf_vstorage->NumLevelBytes(2) >= kSinkL2ClearBytes) {
+    zf_sink_diag::C().l2_clear_rounds.fetch_add(1, std::memory_order_relaxed);
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "[%s] ZeroFlush sink: L2 clear (%llu bytes >= %llu)",
                    cfd->GetName().c_str(),
@@ -3391,23 +3434,149 @@ void DBImpl::MaybeScheduleZfSink() {
   if (input_level < 1 || output_level >= cfd->NumberLevels()) {
     // input<1：L0 下沉非 ZF 语义；output 越界 = 数据已在最底层
     // （dynamic_level_bytes=false 覆写后不可达；防御）。
+    zf_sink_diag::C().level_guard.fetch_add(1, std::memory_order_relaxed);
     return;
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "[%s] ZeroFlush sink: %zu range request(s), L%d->L%d",
                  cfd->GetName().c_str(), reqs.size(), input_level,
                  output_level);
+  const uint64_t taken_now =
+      zf_sink_diag::C().taken.fetch_add(reqs.size(),
+                                        std::memory_order_relaxed) +
+      reqs.size();
+  if (taken_now / 200 != (taken_now - reqs.size()) / 200) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] ZFDBG-sink-summary %s", cfd->GetName().c_str(),
+                   zf_sink_diag::Summary().c_str());
+  }
   for (const auto& r : reqs) {
-    ROCKSDB_NAMESPACE::Slice lo(r.first), hi(r.second);
+    // step 0a：区间字符串必须活到本迭代末尾——原实现的 new_lo/new_hi 声明在
+    // 窄下沉的内层作用域，块结束时析构，而上方的 Slice 仍指向它们（读已释放
+    // 的 string 缓冲 = heap-use-after-free，边界可能被复用内存污染）。
+    std::string lo_s = r.first;
+    std::string hi_s = r.second;
     InternalKey begin_storage, end_storage;
-    // 实验 A（默认）：把下沉区间收窄到"本分区在 L1 的最左文件"的键区间，
-    // 避免一次下沉把整个分区的 L1 与全部重叠 L2 一起重写；剩余区间重新
-    // 入队（下轮继续）。ZF_SINK_WHOLE_RANGE=1 恢复旧行为。
-    if (!zf_sink_whole_range) {
-      const auto* st = cfd->current()->storage_info();
+    // 选择策略（step 0a 第三臂）：
+    //   0 = 整分区（ZF_SINK_WHOLE_RANGE=1，原行为）
+    //   1 = 单文件窄下沉（默认；取分区内最左 L1 文件）
+    //   2 = 按 L2 重叠集合合批（ZF_SINK_BATCH=1）
+    // 目标：把优化单位从"一份 L1 文件"改成"L2 重叠文件集合"——分批下沉若
+    // 反复搬运同一段 L2 旧数据，则应合批一次做完（用户 2026-09-15 判断）。
+    const auto* st_sel = cfd->current()->storage_info();
+    // [lo,hi) 在 output_level 上的相交文件字节数/个数（近似原生 clean-cut
+    // 之后实际参与的集合；真实集合由构造出的 compaction 记录见 ZFDBG-sink-built）。
+    auto ovl_bytes = [&](const std::string& o_lo, const std::string& o_hi,
+                         size_t* n_out) -> uint64_t {
+      ROCKSDB_NAMESPACE::InternalKey s0, e0;
+      s0.SetMinPossibleForUserKey(ROCKSDB_NAMESPACE::Slice(o_lo));
+      e0.SetMaxPossibleForUserKey(ROCKSDB_NAMESPACE::Slice(o_hi));
+      std::vector<ROCKSDB_NAMESPACE::FileMetaData*> fs;
+      st_sel->GetOverlappingInputs(output_level, &s0, &e0, &fs);
+      uint64_t b = 0;
+      for (auto* f : fs) {
+        b += f->fd.GetFileSize();
+      }
+      if (n_out != nullptr) {
+        *n_out = fs.size();
+      }
+      return b;
+    };
+    // 该区间内是否还有 L1 文件（按当前版本检查——不做"左残余必然为空"这类
+    // 跨版本永久判断）。
+    auto has_l1 = [&](const std::string& o_lo, const std::string& o_hi) -> bool {
+      for (const auto* f : st_sel->LevelFiles(input_level)) {
+        const std::string f_lo = f->smallest.user_key().ToString();
+        const std::string f_hi = f->largest.user_key().ToString();
+        if (f_hi < o_lo || f_lo >= o_hi) {
+          continue;
+        }
+        return true;
+      }
+      return false;
+    };
+    if (zf_sink_batch) {
+      // 策略 2：种子 = 区间内最左的未被占 L1 文件；逐个并入相邻文件，只要
+      //   合批成本 < 分开成本  （忽略压缩/版本淘汰/文件开销的近似）
+      //     C(separate) = Σ_i (|A_i| + |O2(A_i)|)
+      //     C(batch)    = |∪A_i| + |O2(∪A_i)|
+      // 就继续并（相邻性保证不做非连续合并）；受批次输入字节与文件数上限约束。
+      std::vector<ROCKSDB_NAMESPACE::FileMetaData*> cands;
+      for (auto* f : st_sel->LevelFiles(input_level)) {
+        const std::string f_lo = f->smallest.user_key().ToString();
+        const std::string f_hi = f->largest.user_key().ToString();
+        if (f_hi < r.first || f_lo >= r.second) {
+          continue;
+        }
+        if (f->being_compacted) {
+          continue;  // 被占：跳过（完成事件驱动重排见 0b，本臂不做）
+        }
+        cands.push_back(f);
+      }
+      if (cands.empty()) {
+        const uint64_t n =
+            zf_sink_diag::C().no_l1_file.fetch_add(1,
+                                                   std::memory_order_relaxed);
+        if (n < 20) {
+          ZfSinkDiagLog(immutable_db_options_.info_log, cfd->GetName(),
+                        "no_l1_file", r.first, r.second, 0, 0, 0,
+                        st_sel->LevelFiles(input_level).size(),
+                        st_sel->NumLevelFiles(2), false);
+        }
+        continue;
+      }
+      std::string b_lo = cands[0]->smallest.user_key().ToString();
+      std::string b_hi = cands[0]->largest.user_key().ToString();
+      uint64_t b_l1 = cands[0]->fd.GetFileSize();
+      uint64_t b_l2 = ovl_bytes(b_lo, b_hi, nullptr);
+      uint64_t b_cost = b_l1 + b_l2;
+      size_t b_n = 1;
+      for (size_t i = 1; i < cands.size(); ++i) {
+        auto* f = cands[i];
+        const std::string f_lo = f->smallest.user_key().ToString();
+        const std::string f_hi = f->largest.user_key().ToString();
+        const std::string n_lo = (f_lo < b_lo) ? f_lo : b_lo;
+        const std::string n_hi = (f_hi > b_hi) ? f_hi : b_hi;
+        const uint64_t n_l1 = b_l1 + f->fd.GetFileSize();
+        const uint64_t n_l2 = ovl_bytes(n_lo, n_hi, nullptr);
+        const uint64_t sep =
+            b_cost + f->fd.GetFileSize() + ovl_bytes(f_lo, f_hi, nullptr);
+        if (n_l1 + n_l2 < sep && n_l1 + n_l2 <= kZfSinkBatchMaxBytes &&
+            b_n < kZfSinkBatchMaxFiles) {
+          b_lo = n_lo;
+          b_hi = n_hi;
+          b_l1 = n_l1;
+          b_l2 = n_l2;
+          b_cost = n_l1 + n_l2;
+          ++b_n;
+        } else {
+          break;  // 相邻性：不再向右并
+        }
+      }
+      lo_s = b_lo;
+      hi_s = b_hi;
+      {
+        auto& dc = zf_sink_diag::C();
+        dc.batch_rounds.fetch_add(1, std::memory_order_relaxed);
+        dc.batch_l1_files.fetch_add(b_n, std::memory_order_relaxed);
+        dc.batch_l1_bytes.fetch_add(b_l1, std::memory_order_relaxed);
+        dc.batch_l2_bytes.fetch_add(b_l2, std::memory_order_relaxed);
+      }
+      // 残余只在"该区间确实还有 L1 文件"时入队——避免生成必然落空的死请求。
+      if (hi_s < r.second && has_l1(hi_s, r.second)) {
+        zf_ctx_->RequestRangeSink(hi_s, r.second);
+        zf_sink_diag::C().requeue_right.fetch_add(1,
+                                                  std::memory_order_relaxed);
+      }
+      if (lo_s > r.first && has_l1(r.first, lo_s)) {
+        zf_ctx_->RequestRangeSink(r.first, lo_s);
+        zf_sink_diag::C().requeue_left.fetch_add(1,
+                                                 std::memory_order_relaxed);
+      }
+    } else if (!zf_sink_whole_range) {
       bool have_best = false;
       std::string best_lo_s, best_hi_s;
-      for (const auto* f : st->LevelFiles(input_level)) {
+      for (const auto* f : st_sel->LevelFiles(input_level)) {
         const std::string f_lo = f->smallest.user_key().ToString();
         const std::string f_hi = f->largest.user_key().ToString();
         if (f_hi < r.first || f_lo >= r.second) {
@@ -3420,26 +3589,40 @@ void DBImpl::MaybeScheduleZfSink() {
         }
       }
       if (!have_best) {
+        // step 0a 诊断：原为静默 continue（无任何日志/计数）。
+        const uint64_t n =
+            zf_sink_diag::C().no_l1_file.fetch_add(1,
+                                                   std::memory_order_relaxed);
+        if (n < 20) {
+          ZfSinkDiagLog(immutable_db_options_.info_log, cfd->GetName(),
+                        "no_l1_file", r.first, r.second, 0, 0, 0,
+                        st_sel->LevelFiles(input_level).size(),
+                        st_sel->NumLevelFiles(2), false);
+        }
         continue;  // L1 已无该区间文件：无需下沉
       }
-      const std::string new_lo = best_lo_s;
-      const std::string new_hi = best_hi_s;
-      if (new_hi < r.second) {
+      lo_s = best_lo_s;
+      hi_s = best_hi_s;
+      if (hi_s < r.second) {
         // 本分区还有更右的 L1 文件：把剩余区间重新入队（下轮继续）
-        zf_ctx_->RequestRangeSink(new_hi, r.second);
+        zf_ctx_->RequestRangeSink(hi_s, r.second);
+        zf_sink_diag::C().requeue_right.fetch_add(1,
+                                                  std::memory_order_relaxed);
       }
-      if (new_lo > r.first) {
-        zf_ctx_->RequestRangeSink(r.first, new_lo);
+      if (lo_s > r.first) {
+        zf_ctx_->RequestRangeSink(r.first, lo_s);
+        zf_sink_diag::C().requeue_left.fetch_add(1,
+                                                 std::memory_order_relaxed);
       }
-      lo = ROCKSDB_NAMESPACE::Slice(new_lo);
-      hi = ROCKSDB_NAMESPACE::Slice(new_hi);
     }
+    ROCKSDB_NAMESPACE::Slice lo(lo_s), hi(hi_s);
     begin_storage.SetMinPossibleForUserKey(lo);
     end_storage.SetMaxPossibleForUserKey(hi);
     InternalKey end_storage2;
     InternalKey* compaction_end = &end_storage2;
     bool manual_conflict = false;
     ROCKSDB_NAMESPACE::CompactRangeOptions cr_opts;
+    zf_sink_diag::TReason() = zf_sink_diag::kOk;  // step 0a：进 picker 前复位
     Compaction* compaction = cfd->CompactRange(
         cfd->GetLatestMutableCFOptions(), mutable_db_options_, input_level,
         output_level, cr_opts, &begin_storage, &end_storage, &compaction_end,
@@ -3448,12 +3631,107 @@ void DBImpl::MaybeScheduleZfSink() {
     if (compaction == nullptr) {
       // 冲突（L1 文件 being_compacted——融合/下沉进行中）或 range 无
       // 重叠文件（已被并发让位）→ 自愈（物化决策下批重新请求）。
-      ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
-                      "[%s] ZeroFlush sink: no compaction for [%s, %s] "
-                      "(conflict=%d)",
-                      cfd->GetName().c_str(), lo.ToString(true).c_str(),
-                      hi.ToString(true).c_str(), (int)manual_conflict);
+      const int reason = zf_sink_diag::TReason();
+      zf_sink_diag::NotePickFail(reason);
+      const auto* st = cfd->current()->storage_info();
+      size_t l1_in_range = 0, l1_busy = 0;
+      uint64_t busy_file = 0;
+      for (const auto* f : st->LevelFiles(input_level)) {
+        const std::string f_lo = f->smallest.user_key().ToString();
+        const std::string f_hi = f->largest.user_key().ToString();
+        if (f_hi < lo_s || f_lo >= hi_s) {
+          continue;
+        }
+        ++l1_in_range;
+        if (f->being_compacted) {
+          if (busy_file == 0) {
+            busy_file = f->fd.GetNumber();
+          }
+          ++l1_busy;
+        }
+      }
+      auto& dc = zf_sink_diag::C();
+      dc.fail_samples.fetch_add(1, std::memory_order_relaxed);
+      dc.fail_l1_files.fetch_add(l1_in_range, std::memory_order_relaxed);
+      dc.fail_l1_busy_files.fetch_add(l1_busy, std::memory_order_relaxed);
+      if (l1_busy > 0) {
+        dc.fail_l1_busy_cases.fetch_add(1, std::memory_order_relaxed);
+        // step 0a：区分占用者——ZF 融合注册 vs 另一条在飞的下沉。
+        if (zf_sink_diag::MergeHolds(busy_file)) {
+          dc.fail_holder_merge.fetch_add(1, std::memory_order_relaxed);
+        } else {
+          dc.fail_holder_sink.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+      static std::atomic<uint64_t> zf_sink_fail_logged{0};
+      if (zf_sink_fail_logged.fetch_add(1, std::memory_order_relaxed) < 60) {
+        ZfSinkDiagLog(immutable_db_options_.info_log, cfd->GetName(),
+                      zf_sink_diag::ReasonName(reason), lo_s, hi_s, l1_in_range,
+                      l1_busy, busy_file, st->LevelFiles(input_level).size(),
+                      st->NumLevelFiles(2), manual_conflict);
+      } else {
+        ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                        "[%s] ZeroFlush sink: no compaction for [%s, %s] "
+                        "(conflict=%d)",
+                        cfd->GetName().c_str(), lo.ToString(true).c_str(),
+                        hi.ToString(true).c_str(), (int)manual_conflict);
+      }
       continue;
+    }
+    zf_sink_diag::C().pick_ok.fetch_add(1, std::memory_order_relaxed);
+    // step 0a：记录构造出的**真实输入集合**（原生 clean-cut / SetupOtherInputs
+    // 之后）与"请求区间 → 实际输入键范围"的扩展幅度，用于区分 L2 重叠偏高的
+    // 三种来源（单份 L2 文件过宽 / 原生输入扩展 / 相邻 sink 重复处理）。
+    {
+      size_t a1n = 0, a2n = 0;
+      uint64_t a1b = 0, a2b = 0;
+      bool have_rng = false;
+      std::string a_lo, a_hi;
+      const std::vector<ROCKSDB_NAMESPACE::CompactionInputFiles>* cins =
+          compaction->inputs();
+      for (const auto& in : *cins) {
+        for (auto* f : in.files) {
+          if (in.level == input_level) {
+            ++a1n;
+            a1b += f->fd.GetFileSize();
+          } else if (in.level == output_level) {
+            ++a2n;
+            a2b += f->fd.GetFileSize();
+          }
+          const std::string f_lo = f->smallest.user_key().ToString();
+          const std::string f_hi = f->largest.user_key().ToString();
+          if (!have_rng || f_lo < a_lo) {
+            a_lo = f_lo;
+          }
+          if (!have_rng || f_hi > a_hi) {
+            a_hi = f_hi;
+          }
+          have_rng = true;
+        }
+      }
+      // step 0b-2：请求区间的"初始 L2 overlap"（未扩展）——与上面的实际
+      // 输入集合对比，量化 clean-cut/SetupOtherInputs 造成的输入放大。
+      size_t req_l2n = 0;
+      const uint64_t req_l2b = ovl_bytes(lo_s, hi_s, &req_l2n);
+      zf_sink_diag::NoteSinkOverlap(req_l2b, req_l2n, a2b, a2n);
+      zf_sink_diag::NoteSinkBuilt(a1n, a1b, a2n, a2b);
+      static std::atomic<uint64_t> zf_sink_built_logged{0};
+      if (zf_sink_built_logged.fetch_add(1, std::memory_order_relaxed) < 40) {
+        const std::string req_str =
+            ROCKSDB_NAMESPACE::Slice(lo_s).ToString(true) + ".." +
+            ROCKSDB_NAMESPACE::Slice(hi_s).ToString(true);
+        const std::string in_str =
+            have_rng ? (ROCKSDB_NAMESPACE::Slice(a_lo).ToString(true) + ".." +
+                        ROCKSDB_NAMESPACE::Slice(a_hi).ToString(true))
+                     : std::string("-");
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "[%s] ZFDBG-sink-built req=[%s] in=[%s] l1=%zu(%lluMB) "
+                       "l2_req=%zu(%lluMB) l2_in=%zu(%lluMB)",
+                       cfd->GetName().c_str(), req_str.c_str(), in_str.c_str(),
+                       a1n, (unsigned long long)(a1b >> 20), req_l2n,
+                       (unsigned long long)(req_l2b >> 20), a2n,
+                       (unsigned long long)(a2b >> 20));
+      }
     }
     CompactionArg* ca = new CompactionArg;
     ca->db = this;

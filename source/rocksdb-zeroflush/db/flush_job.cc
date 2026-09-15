@@ -1629,6 +1629,11 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     // 回退；失败批整体回滚在推进已被他批超越时自动 no-op，数据由 imm
     // 重试保全）。
     zf_ctx->SetLastMaterializedEpoch(job->epoch());
+    // step 0b-3：安装点 = LogAndApply 成功——数据真实进 L1，从 pending 移出
+    // 并计入 drained_materialize_bytes。不能用 imm 析构作安装点（依赖
+    // SuperVersion 换代，关闭前可能永不发生）；已移交的 gens 不在本 epoch
+    // 名下，故空 VersionEdit 批次天然不减少 pending。
+    zf_ctx->MarkEpochInstalled(job->epoch());
   }
   // 收尾（持锁）：删除批内被替换输出的物理文件；kSkip 分区的封存 WAL
   // 移交 recovery 集合（必须在 imm 出链/ReleaseEpoch 之前完成——否则
@@ -1707,7 +1712,21 @@ Status FlushJob::ZfMaterializeAllEpochs() {
                         const rocksdb::Slice& b_hi) {
       return uc->Compare(a_hi, b_lo) >= 0 && uc->Compare(b_hi, a_lo) >= 0;
     };
+    // step 0b-3 测试钩子：强制走空 edit 路径（install 冲突是竞态，难以
+    // 确定性复现）。ZF_FORCE_EMPTY_EDIT=N 表示**前 N 次**安装强制让位
+    // （默认不设置=关闭）；限制次数是为了让后续批能正常安装，从而验证
+    // "下一轮重新认领同一 generation 且不重复记账"。
     bool conflict = false;
+    {
+      static std::atomic<int> zf_forced{0};
+      const char* fv = getenv("ZF_FORCE_EMPTY_EDIT");
+      if (fv != nullptr) {
+        const int want = atoi(fv);
+        if (zf_forced.fetch_add(1) < want) {
+          conflict = true;
+        }
+      }
+    }
     for (const auto& o : zf_batch_outputs_) {
       if (o.superseded || o.level <= 0) continue;
       const rocksdb::Slice lo = o.meta.smallest.user_key();
@@ -1742,6 +1761,23 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       }
       zf_batch_outputs_.clear();
       zf_ctx->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      // step 0b-3 第二阶段（空 VersionEdit）：本批无任何可安全安装的输出，
+      // 但 edit_ 仍有可能是空的 AddFile 集——于是本次 TryInstall 提交一个
+      // **不含 AddFile 的 VersionEdit**，让空壳 memtable 正常出链、推进全局
+      // install barrier（否则一个冲突 range 会把全库 barrier 永久卡住）。
+      // 契约与观测见 ZeroFlushContext::NoteEmptyEdit 注释。
+      {
+        const uint64_t zf_pend_before = zf_ctx->PendingMaterializeBytes();
+        zf_ctx->NoteEmptyEdit(zf_pend_before, last_before,
+                              zf_ctx->last_materialized_epoch());
+        zf_ctx->NoteEmptyEditBarrierAdvance();
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "[%s] [JOB %d] ZeroFlush empty-edit: submit VersionEdit "
+                       "without AddFile (pending=%.1fMB, lm=%llu)",
+                       cfd_->GetName().c_str(), job_context_->job_id,
+                       (double)zf_pend_before / 1048576.0,
+                       (unsigned long long)last_before);
+      }
       zf_ctx->SetLastMaterializedEpoch(last_before);
       if (getenv("ZF_DBG_MM") != nullptr) {
         fprintf(stderr, "ZFDBG-mm-end site=%s job=%%d token=%%llu s=%%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());

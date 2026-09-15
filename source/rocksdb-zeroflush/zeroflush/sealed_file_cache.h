@@ -99,6 +99,44 @@ class SealedFileCache {
   void AddEpochWithRecoveryAdoption(const SealedEpoch& e,
                                     uint32_t refcount = 1);
 
+  // ---------------------------------------------------------------------
+  // step 0b-3 第二阶段重构：generation 生命周期由本对象**单一权威**维护。
+  // 用户（2026-09-15）指定的语义分离：
+  //   pending_materialize_bytes : 仍需物化的 generation 字节之和
+  //                               （state ∈ {sealed, queued, building,
+  //                                 conflict, recovery}）
+  //   drained_materialize_bytes : 仅在 LogAndApply 成功后增加（数据已进 L1）
+  //   reclaimed_bytes           : 仅在引用全部释放（物理可回收）后增加
+  // handoff / 收养 / conflict 重规划只是状态迁移或所有权变更，**不改变字节
+  // 计数**；同一 (part, gen) 只注册一次。旧的"ledger 所有权镜像"已删除——
+  // 并行维护第二份所有权必然漂移（0b-3 实测：持续空 edit 后 ledger 报 0 而
+  // skip 集合仍有 407MB）。
+  // ---------------------------------------------------------------------
+  // 注册一个 (part, gen) 及其封存字节（幂等：仅首次生效）。
+  void RegisterGen(uint32_t part, uint32_t gen, uint64_t bytes);
+
+  // LogAndApply 成功、该 epoch 的数据真实进入 L1 后调用：把该 epoch 仍持有
+  // 的 gens 标记为 installed 并计入 drained。已移交（不在 epochs_[e].gens
+  // 中）的 gens 不受影响——这正是空 VersionEdit 批次的语义（其 gens 全部
+  // 已移交 ⇒ pending 不变）。
+  void MarkEpochInstalled(uint64_t epoch);
+
+  uint64_t pending_materialize_bytes() const {
+    return pending_bytes_.load(std::memory_order_relaxed);
+  }
+  uint64_t drained_materialize_bytes() const { return drained_bytes_; }
+  uint64_t reclaimed_bytes() const { return reclaimed_bytes_; }
+  uint64_t peak_pending_bytes() const { return peak_pending_bytes_; }
+  uint64_t installed_epochs() const { return installed_epochs_; }
+  uint64_t reclaimed_gens() const { return reclaimed_gens_; }
+  size_t registered_gens() const;
+  uint64_t handoff_installed_filtered() const {
+    return handoff_installed_filtered_.load(std::memory_order_relaxed);
+  }
+  uint64_t handoff_installed_filtered_bytes() const {
+    return handoff_installed_filtered_bytes_.load(std::memory_order_relaxed);
+  }
+
   // M3.0 R1：登记恢复期孤儿代（Recover 时调用）。这些文件可读但不可
   // 回收、不占 refcount，直到被下一次 AddEpochWithRecoveryAdoption 收养。
   void AddRecoveryGens(const std::vector<std::pair<uint32_t, uint32_t>>& gens,
@@ -204,6 +242,23 @@ class SealedFileCache {
   std::unordered_set<ZfFileKey> skip_gens_;
   uint64_t skip_bytes_ = 0;
   std::unordered_map<uint32_t, uint64_t> skip_part_bytes_;
+
+  // step 0b-3：generation registry（单一权威）
+  struct GenInfo {
+    uint64_t bytes = 0;
+    bool installed = false;
+  };
+  std::unordered_map<ZfFileKey, GenInfo> gens_;
+  std::atomic<uint64_t> pending_bytes_{0};   // O(1) 镜像（唯一写入方 = 本对象）
+  // 移交时被过滤掉的"已安装"generation（诊断：应恒为 0；非 0 说明调用方
+  // 带着过期 gens 列表移交）。
+  std::atomic<uint64_t> handoff_installed_filtered_{0};
+  std::atomic<uint64_t> handoff_installed_filtered_bytes_{0};
+  uint64_t drained_bytes_ = 0;               // 单调：安装（LogAndApply）时增加
+  uint64_t reclaimed_bytes_ = 0;             // 单调：引用归零、可物理回收时增加
+  uint64_t peak_pending_bytes_ = 0;
+  uint64_t installed_epochs_ = 0;
+  uint64_t reclaimed_gens_ = 0;
 
   // 累计封存字节（统计用）
   uint64_t sealed_bytes_ = 0;

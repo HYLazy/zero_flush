@@ -159,6 +159,16 @@ struct ZeroFlushOptions {
   // 两次生长拆分的最小间隔（warmup 冷却，微秒）。0 = 无冷却。
   uint64_t growth_split_cooldown_micros = 0;
 
+  // ---- step 0b-3：pending ledger 水位背压 ----
+  // 语义：只有"已封存但尚未安装进 L1"的 generation 计入水位（不含 active
+  // 代）。stop 超限时在 seq 分配前经 native DelayWrite/bg_cv_ 阻塞；resume
+  // 以下才放行（滞回）。
+  // 默认值来自 0b-1 实测：完整 drain 耗时 5.5–6.3s，取 max(15s, 2×P99)
+  // 作为机制验证值——5s 会把正常排空误判为超时（用户 2026-09-15 修正）。
+  uint64_t ledger_stop_bytes = 1ull << 30;             // 1GiB（验证期）
+  uint64_t ledger_resume_bytes = 768ull << 20;         // 0.75GiB
+  uint64_t backpressure_timeout_micros = 15ull * 1000 * 1000;  // 15s
+
   // ---- ZeroFlushV0 M4：动态治理 DG（调度器）----
   // 对应路线图 §2 M4。默认全关（v1 显式启用；既有行为零改动）。
   bool dynamic_governance = false;  // 自动后台控制器开关（Open 时启线程）
@@ -452,6 +462,69 @@ class ZeroFlushContext {
   // 同 token 重复登记幂等（返回 true）。
   bool AddMaterializePart(uint64_t token, uint32_t part_id);
   void EndMaterializeBatch(uint64_t token);
+
+  // ---- step 0b-3：pending 水位（单一权威 = SealedFileCache 的 generation）----
+  // 语义（用户 2026-09-15 指定）：
+  //   pending_materialize_bytes : 仍需物化的 generation 字节
+  //                               （sealed/queued/building/conflict/recovery）
+  //   drained_materialize_bytes : 仅在 LogAndApply 成功后增加（数据已进 L1）
+  //   reclaimed_bytes           : 仅在引用全部释放后增加（物理可回收）
+  // 三者互不替代：pending 归零 ≠ 文件已回收。
+  // 本对象不再维护 generation 所有权镜像——handoff/收养/conflict 只是状态
+  // 迁移，不改变字节；同一 (part,gen) 由 cache 注册一次。
+  uint64_t PendingMaterializeBytes() const;
+  uint64_t DrainedMaterializeBytes() const;
+  uint64_t ReclaimedBytes() const;
+  uint64_t PeakPendingBytes() const;
+  uint64_t InstalledEpochs() const;
+  uint64_t ReclaimedGens() const;
+  size_t RegisteredGens() const;
+  uint64_t HandoffInstalledFiltered() const;
+  // 安装完成（LogAndApply 之后）——由 flush_job 调用。
+  void MarkEpochInstalled(uint64_t epoch);
+
+  // ---- step 0b-3 第二阶段：空 VersionEdit（推进 barrier 而不安装数据）----
+  // 契约：不调用 MarkEpochInstalled（gens 已由 HandOffAllGens 移出 epoch），
+  // pending 不变、WAL 不 unlink、last_materialized_epoch 不变；后续 epoch
+  // 收养时重新认领（状态迁移，不重复计账）。
+  void NoteEmptyEdit(uint64_t pending_before, uint64_t lm_before,
+                     uint64_t lm_after);
+  void NoteEmptyEditBarrierAdvance() {
+    empty_edit_barrier_advance_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t empty_edit_count() const {
+    return empty_edit_count_.load(std::memory_order_relaxed);
+  }
+  uint64_t empty_edit_barrier_advance() const {
+    return empty_edit_barrier_advance_.load(std::memory_order_relaxed);
+  }
+  uint64_t empty_edit_pending_before() const {
+    return empty_edit_pending_before_.load(std::memory_order_relaxed);
+  }
+  uint64_t empty_edit_pending_after() const {
+    return empty_edit_pending_after_.load(std::memory_order_relaxed);
+  }
+  uint64_t empty_edit_lm_before() const {
+    return empty_edit_lm_before_.load(std::memory_order_relaxed);
+  }
+  uint64_t empty_edit_lm_after() const {
+    return empty_edit_lm_after_.load(std::memory_order_relaxed);
+  }
+  uint64_t empty_edit_pending_unchanged() const {
+    return empty_edit_pending_unchanged_.load(std::memory_order_relaxed);
+  }
+  void NoteBackpressureWait() {
+    backpressure_waits_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void NoteBackpressureTimeout() {
+    backpressure_timeouts_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t backpressure_waits() const {
+    return backpressure_waits_.load(std::memory_order_relaxed);
+  }
+  uint64_t backpressure_timeouts() const {
+    return backpressure_timeouts_.load(std::memory_order_relaxed);
+  }
 
   // ---- M4.9：安装窗口串行化（zf_install_mu_，2026-09-12）----
   // 背景与实现见 install_mu_ 成员注释。AcquireInstallLock 非阻塞：
@@ -817,6 +890,17 @@ class ZeroFlushContext {
   mutable std::mutex sink_mu_;
   std::vector<std::pair<std::string, std::string>> sink_requests_;  // (lo, hi)
   std::atomic<uint64_t> sink_request_count_{0};  // 累计请求次数（诊断）
+  // ---- step 0b-3：空 edit / 背压观测（账目本身在 SealedFileCache）----
+  std::atomic<uint64_t> empty_edit_count_{0};
+  std::atomic<uint64_t> empty_edit_barrier_advance_{0};
+  std::atomic<uint64_t> empty_edit_pending_before_{0};
+  std::atomic<uint64_t> empty_edit_pending_after_{0};
+  std::atomic<uint64_t> empty_edit_lm_before_{0};
+  std::atomic<uint64_t> empty_edit_lm_after_{0};
+  std::atomic<uint64_t> empty_edit_pending_unchanged_{0};
+  std::atomic<uint64_t> backpressure_waits_{0};
+  std::atomic<uint64_t> backpressure_timeouts_{0};
+
   // ---- M5P1b 跨批互斥登记状态（mm_*：materialize mutex 缩写）----
   // 持锁方：登记在 PlanLocked（持 DB mutex）窗口、释放/End 在批次出口
   // （持 DB mutex）——锁序恒 DB mutex → mm_mu_（无反向获取），无死锁。
@@ -981,6 +1065,13 @@ ROCKSDB_NAMESPACE::Status StopGovernance(ROCKSDB_NAMESPACE::DB* db);
 // 删除 wal_dir/zfwal 子目录（含 ZFPROPS 与全部代文件）。即使原生 DB
 // 已不存在，zfwal 也保证被清理。原 DestroyDB 状态作为返回值传递，
 // zfwal 清理异常用 PermitUncheckedError 吞掉（best-effort）。
+// step 0b-3 诊断（只读，供校验器）：按读路径顺序导出该 key 的分区索引链
+// （各代 gen/frozen + 该 key 的全部版本 seq/type/locator）。
+// 用途：判定"读回旧值"属于 索引链残留 / 遍历顺序 / 索引插入丢失 / snapshot 门控。
+ROCKSDB_NAMESPACE::Status DumpKeyIndexChain(ROCKSDB_NAMESPACE::DB* db,
+                                            const std::string& user_key,
+                                            std::string* out);
+
 ROCKSDB_NAMESPACE::Status DestroyDB(const std::string& dbname,
                                     const ROCKSDB_NAMESPACE::Options& options,
                                     const ZeroFlushOptions& zfo);

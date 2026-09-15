@@ -26,6 +26,7 @@
 #include "db/builder.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction_iterator.h"
+#include "db/compaction/zf_sink_diag.h"  // step 0a 诊断（临时）
 #include "db/dbformat.h"
 #include "db/job_context.h"
 #include "db/merge_helper.h"
@@ -1455,6 +1456,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       continue;
     }
     mc_.compaction_picker->RegisterCompaction(compaction.get());
+    // step 0a 诊断（临时）：登记本融合占用（being_compacted）的 existing
+    // 文件号，用于回答"下沉目标文件被谁占用"。
+    for (ROCKSDB_NAMESPACE::FileMetaData* hf : plan.overlap_all) {
+      ROCKSDB_NAMESPACE::zf_sink_diag::MergeHoldAdd(hf->fd.GetNumber());
+    }
     // 记录被本注册标记 being_compacted 的 existing 文件号，供同批次
     // 后序 epoch 的 PlanLocked 识别并跳过（§7.4 批内链式替换互斥）。
     for (ROCKSDB_NAMESPACE::FileMetaData* r : overlap) {
@@ -1554,6 +1560,10 @@ void ZfMaterializeJob::FinishPlansLocked() {
     // FinalizeInputInfo）。二者均为 public，等价手动完成。
     mc_.compaction_picker->UnregisterCompaction(p.compaction.get());
     p.compaction->MarkFilesBeingCompacted(false);
+    // step 0a 诊断（临时）：解除占用登记（与注册 1:1，窗口 = being_compacted）。
+    for (ROCKSDB_NAMESPACE::FileMetaData* hf : p.overlap_all) {
+      ROCKSDB_NAMESPACE::zf_sink_diag::MergeHoldDel(hf->fd.GetNumber());
+    }
     p.compaction.reset();
     p.decision = MaterializeDecision::kDirect;  // 防重复释放
   }

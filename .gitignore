@@ -1,0 +1,8 @@
+
+# 构建产物：zf_valcheck 由本仓库新增目标生成（其余 build_rel 产物已在既有规则内）
+source/rocksdb-zeroflush/build_rel/zf_valcheck
+
+# ZF 实验产物：原始日志与实验库不入库，改为在 RUN_MANIFEST.md 记录配置与结果
+output/**/*.LOG
+output/**/fill_*.log
+output/**/db_*/

@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "db/column_family.h"
+#include "db/compaction/zf_sink_diag.h"  // step 0a 诊断（临时）
 #include "file/filename.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
@@ -679,6 +680,9 @@ Compaction* CompactionPicker::PickCompactionForCompactRange(
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
 
+  // step 0a 诊断（临时）：复位失败原因，供 ZF sink 调用方读取。
+  zf_sink_diag::TReason() = zf_sink_diag::kOk;
+
   if (input_level == ColumnFamilyData::kCompactAllLevels) {
     assert(ioptions_.compaction_style == kCompactionStyleUniversal);
 
@@ -772,6 +776,7 @@ Compaction* CompactionPicker::PickCompactionForCompactRange(
 
   vstorage->GetOverlappingInputs(input_level, begin, end, &inputs.files);
   if (inputs.empty()) {
+    zf_sink_diag::TReason() = zf_sink_diag::kInputsEmpty;  // step 0a 诊断
     return nullptr;
   }
 
@@ -847,6 +852,7 @@ Compaction* CompactionPicker::PickCompactionForCompactRange(
       }
     }
     if (inputs_shrunk.empty()) {
+      zf_sink_diag::TReason() = zf_sink_diag::kShrunkEmpty;  // step 0a 诊断
       return nullptr;
     }
     if (inputs.size() != inputs_shrunk.size()) {
@@ -868,6 +874,7 @@ Compaction* CompactionPicker::PickCompactionForCompactRange(
     // manual compaction is now multi-threaded, so it can
     // happen that ExpandWhileOverlapping fails
     // we handle it higher in RunManualCompaction
+    zf_sink_diag::TReason() = zf_sink_diag::kExpandCleanCut;  // step 0a 诊断
     *manual_conflict = true;
     return nullptr;
   }
@@ -895,6 +902,8 @@ Compaction* CompactionPicker::PickCompactionForCompactRange(
       // manual compaction is now multi-threaded, so it can
       // happen that SetupOtherInputs fails
       // we handle it higher in RunManualCompaction
+      zf_sink_diag::TReason() =
+          zf_sink_diag::kSetupOtherInputs;  // step 0a 诊断
       *manual_conflict = true;
       return nullptr;
     }
@@ -906,6 +915,8 @@ Compaction* CompactionPicker::PickCompactionForCompactRange(
   }
   for (size_t i = 0; i < compaction_inputs.size(); i++) {
     if (AreFilesInCompaction(compaction_inputs[i].files)) {
+      zf_sink_diag::TReason() =
+          zf_sink_diag::kFilesInCompaction;  // step 0a 诊断
       *manual_conflict = true;
       return nullptr;
     }
@@ -920,6 +931,7 @@ Compaction* CompactionPicker::PickCompactionForCompactRange(
                                             output_level))) {
     // This compaction output could potentially conflict with the output
     // of a currently running compaction, we cannot run it.
+    zf_sink_diag::TReason() = zf_sink_diag::kRangeOverlap;  // step 0a 诊断
     *manual_conflict = true;
     return nullptr;
   }

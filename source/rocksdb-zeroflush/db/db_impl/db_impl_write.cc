@@ -2372,8 +2372,21 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   PERF_TIMER_STOP(write_scheduling_flushes_compactions_time);
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
 
+  // step 0b-3：ZF ledger 水位背压也必须能把控制权交给 DelayWrite——native
+  // 只在“控制器想延迟/已停写”时才调用 DelayWrite，若只把逻辑挂在 DelayWrite
+  // 内部，水位超限但控制器空闲时就不会被调用。此处把水位并入同一判定，
+  // 等待与唤醒全部复用 native bg_cv_（不新建条件变量）。
+  bool zf_bp_wanted = false;
+  if (zf_ctx_ != nullptr) {
+    const uint64_t zf_stop = zf_ctx_->options().ledger_stop_bytes;
+    const uint64_t zf_resume = zf_ctx_->options().ledger_resume_bytes;
+    if (zf_stop > zf_resume && zf_ctx_->PendingMaterializeBytes() >= zf_stop) {
+      zf_bp_wanted = true;
+    }
+  }
   if (UNLIKELY(status.ok() && (write_controller_.IsStopped() ||
-                               write_controller_.NeedsDelay()))) {
+                               write_controller_.NeedsDelay() ||
+                               zf_bp_wanted))) {
     PERF_TIMER_STOP(write_pre_and_post_process_time);
     PERF_TIMER_FOR_WAIT_GUARD(write_delay_time);
     // We don't know size of curent batch so that we always use the size
@@ -3036,6 +3049,42 @@ Status DBImpl::DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
   mutex_.AssertHeld();
   uint64_t start_time = 0;
   bool delayed = false;
+  // ---- step 0b-3：ZF pending ledger 水位背压 ----
+  // 只统计已封存未安装的 generation（不含 active；active 只喂 ShouldSeal）。
+  // 进展判据是单调的 ledger_drained_bytes（安装归还时增加）——不能用当前
+  // pending 覆盖历史值：并发 seal 会让 pending 上涨，从而误判为“无进展”。
+  // 唤醒源仅限 installed/retired；空 edit、barrier 推进、任务入队都不增加
+  // drained，因此不会提前放行（它们并未释放容量）。
+  // 等待按 1ms 时间片复用 native bg_cv_（TimedWait 会在等待期释放 DB mutex，
+  // 因此 install/materialize 后台可继续推进——这是水位能被 drain 掉的前提）。
+  if (zf_ctx_ != nullptr) {
+    const uint64_t zf_stop = zf_ctx_->options().ledger_stop_bytes;
+    const uint64_t zf_resume = zf_ctx_->options().ledger_resume_bytes;
+    const uint64_t zf_timeout = zf_ctx_->options().backpressure_timeout_micros;
+    if (zf_stop > zf_resume && zf_ctx_->PendingMaterializeBytes() >= zf_stop) {
+      if (write_options.no_slowdown) {
+        return Status::Incomplete("ZF pending backpressure (Write stall)");
+      }
+      uint64_t observed_drained = zf_ctx_->DrainedMaterializeBytes();
+      uint64_t last_progress =
+          immutable_db_options_.clock->NowMicros();
+      zf_ctx_->NoteBackpressureWait();
+      while (zf_ctx_->PendingMaterializeBytes() > zf_resume) {
+        bg_cv_.TimedWait(immutable_db_options_.clock->NowMicros() + 1000);
+        const uint64_t now = immutable_db_options_.clock->NowMicros();
+        const uint64_t d = zf_ctx_->DrainedMaterializeBytes();
+        if (d > observed_drained) {
+          observed_drained = d;      // 有真实 drain 才重置 deadline
+          last_progress = now;
+        }
+        if (zf_timeout > 0 && now - last_progress >= zf_timeout) {
+          // 前台逃生：与 native no_slowdown 同款可重试状态。
+          zf_ctx_->NoteBackpressureTimeout();
+          return Status::Incomplete("ZF pending backpressure timeout");
+        }
+      }
+    }
+  }
   {
     // To avoid parallel timed delays (bad throttling), only support them
     // on the primary write queue.

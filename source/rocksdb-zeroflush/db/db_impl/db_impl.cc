@@ -876,12 +876,24 @@ void DBImpl::ZfCloseFlush() {
   }
   ColumnFamilyData* cfd = default_cf_handle_->cfd();
   zf_ctx_->SetClosingFlush(true);
+  // step 0b-1：排空阶段可观测——固定写量运行的末态决定"总输出"能否跨运行
+  // 比较（未完成的 L0/fallback 残留会让工作量显得更少）。此处记录排空起止
+  // 的 pending 与耗时，末态 LSM 由 db_bench 结束时打印。
+  const uint64_t zf_drain_t0 = env_->NowMicros();
+  const uint64_t zf_sealed_cum_before = zf_ctx_->sealed_bytes();
+  const int zf_has_pending_before = (int)zf_ctx_->HasPendingSealedData();
   FlushOptions fo;
   fo.wait = true;
   fo.allow_write_stall = true;
   Status zs = FlushMemTable(cfd, fo, FlushReason::kManualCompaction);
   int zf_guard = 0;
   while (zs.ok() && zf_ctx_->HasPendingSealedData() && zf_guard++ < 16) {
+    // step 0b-3 第二阶段：区分"本轮真实安装了 AddFile"与"本轮只产出空
+    // VersionEdit"。空 edit 只推进 barrier、不释放 pending 容量——若一轮
+    // 下来 drained 计数与 pending 都没动，说明再做下去也是空转，立即结束
+    // 并报告残留，而不是把 guard 轮数烧完。
+    const uint64_t zf_drained_before = zf_ctx_->DrainedMaterializeBytes();
+    const uint64_t zf_pending_before_round = zf_ctx_->PendingMaterializeBytes();
     {
       InstrumentedMutexLock l(&mutex_);
       zs = zf_ctx_->SealEpochAndSwitch(this, cfd);
@@ -890,7 +902,39 @@ void DBImpl::ZfCloseFlush() {
       break;
     }
     zs = FlushMemTable(cfd, fo, FlushReason::kManualCompaction);
+    if (zs.ok() &&
+        zf_ctx_->DrainedMaterializeBytes() == zf_drained_before &&
+        zf_ctx_->PendingMaterializeBytes() >= zf_pending_before_round) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "[%s] ZeroFlush close-flush: no real install progress "
+                     "(pending=%.1fMB, empty_edit=%llu) — stop draining",
+                     cfd->GetName().c_str(),
+                     (double)zf_ctx_->PendingMaterializeBytes() / 1048576.0,
+                     (unsigned long long)zf_ctx_->empty_edit_count());
+      break;
+    }
   }
+  // 注意：sealed_bytes() 是"累计已封存字节"统计量，不是当前 pending——真正的
+  // pending 判据是 HasPendingSealedData()（此处记 before->after）。
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "[%s] ZeroFlush drain: rounds=%d has_pending=%d->%d "
+                 "recovery=%zu skip=%.1fMB sealed_cum=%.1fMB->%.1fMB "
+                 "elapsed=%.1fs",
+                 cfd->GetName().c_str(), zf_guard, zf_has_pending_before,
+                 (int)zf_ctx_->HasPendingSealedData(), zf_ctx_->recovery_count(),
+                 (double)zf_ctx_->skipped_bytes() / 1048576.0,
+                 (double)zf_sealed_cum_before / 1048576.0,
+                 (double)zf_ctx_->sealed_bytes() / 1048576.0,
+                 (double)(env_->NowMicros() - zf_drain_t0) / 1e6);
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "[%s] ZeroFlush after drain: pending=%.1fMB gens=%zu "
+                 "drained=%.1fMB reclaimed=%.1fMB%s",
+                 cfd->GetName().c_str(),
+                 (double)zf_ctx_->PendingMaterializeBytes() / 1048576.0,
+                 zf_ctx_->RegisteredGens(),
+                 (double)zf_ctx_->DrainedMaterializeBytes() / 1048576.0,
+                 (double)zf_ctx_->ReclaimedBytes() / 1048576.0,
+                 "");
   if (!zs.ok()) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "[%s] ZeroFlush close-flush failed: %s",

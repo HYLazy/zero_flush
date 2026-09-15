@@ -90,6 +90,50 @@ void SealedFileCache::AddEpochWithRecoveryAdoption(const SealedEpoch& e,
   sealed_bytes_ += merged.total_bytes;
 }
 
+void SealedFileCache::RegisterGen(uint32_t part, uint32_t gen, uint64_t bytes) {
+  if (bytes == 0) {
+    return;
+  }
+  rocksdb::MutexLock l(&mu_);
+  const ZfFileKey key = MakeFileKey(part, gen);
+  if (gens_.find(key) != gens_.end()) {
+    return;  // 同一 (part,gen) 只注册一次（收养/重复封存路径不重复计账）
+  }
+  gens_[key] = GenInfo{bytes, false};
+  const uint64_t now = pending_bytes_.fetch_add(bytes, std::memory_order_relaxed) + bytes;
+  if (now > peak_pending_bytes_) {
+    peak_pending_bytes_ = now;
+  }
+}
+
+void SealedFileCache::MarkEpochInstalled(uint64_t epoch) {
+  rocksdb::MutexLock l(&mu_);
+  auto eit = epochs_.find(epoch);
+  if (eit == epochs_.end()) {
+    return;
+  }
+  uint64_t freed = 0;
+  for (const auto& [part, gen] : eit->second.gens) {
+    auto it = gens_.find(MakeFileKey(part, gen));
+    if (it == gens_.end() || it->second.installed) {
+      continue;
+    }
+    it->second.installed = true;
+    freed += it->second.bytes;
+  }
+  if (freed > 0) {
+    pending_bytes_.fetch_sub(freed, std::memory_order_relaxed);
+    drained_bytes_ += freed;
+    ++installed_epochs_;
+  }
+}
+
+size_t SealedFileCache::registered_gens() const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  return gens_.size();
+}
+
 void SealedFileCache::AddRecoveryGens(
     const std::vector<std::pair<uint32_t, uint32_t>>& gens,
     uint64_t total_bytes) {
@@ -114,18 +158,48 @@ void SealedFileCache::HandOffSkippedToRecovery(
     fprintf(stderr, "ZFDBG-handoff epoch=%llu gens=[%s]\n",
             (unsigned long long)epoch, gl.c_str());
   }
+  // step 0b-3 修复：**已安装的 generation 不参与移交**。
+  // 背景（0b-3 实测）：调用方可能带着过期 gens 列表调用移交（批次让位时按
+  // job 全量移交，其中某些 epoch 的数据已由前一批经 LogAndApply 安装）。
+  // 若不过滤，已安装数据会被重新塞进 skip/recovery 集合 → skip_bytes_ 虚高、
+  // HasPendingGens() 恒真 → 关闭收敛判据永不满足（实测 skip=407.4MB 与
+  // drained=407.4MB 相等，即同一批字节同时被判为"待物化"和"已安装"）。
+  // 语义依据：installed 之后不得再被当作未安装数据（用户 2026-09-15 规则）。
+  std::vector<std::pair<uint32_t, uint32_t>> feasible;
+  feasible.reserve(gens.size());
+  size_t skipped_installed = 0;
+  uint64_t skipped_installed_bytes = 0;
+  for (const auto& g : gens) {
+    auto git = gens_.find(MakeFileKey(g.first, g.second));
+    if (git != gens_.end() && git->second.installed) {
+      ++skipped_installed;
+      skipped_installed_bytes += git->second.bytes;
+      continue;
+    }
+    feasible.push_back(g);
+  }
+  if (skipped_installed > 0) {
+    handoff_installed_filtered_.fetch_add(skipped_installed,
+                                          std::memory_order_relaxed);
+    handoff_installed_filtered_bytes_.fetch_add(skipped_installed_bytes,
+                                                std::memory_order_relaxed);
+  }
+  if (feasible.empty()) {
+    return;  // 全部已安装：无需移交，也不得把它们重新标记为待物化
+  }
+  const std::vector<std::pair<uint32_t, uint32_t>>& gens2 = feasible;
   // 1) 从 epoch 移除跳过的 gens（ReleaseEpoch 不再 unlink 它们）。
   auto eit = epochs_.find(epoch);
   if (eit != epochs_.end()) {
     auto& egens = eit->second.gens;
     egens.erase(
         std::remove_if(egens.begin(), egens.end(),
-                       [&gens](const std::pair<uint32_t, uint32_t>& g) {
-                         return std::find(gens.begin(), gens.end(), g) !=
-                                gens.end();
+                       [&gens2](const std::pair<uint32_t, uint32_t>& g) {
+                         return std::find(gens2.begin(), gens2.end(), g) !=
+                                gens2.end();
                        }),
         egens.end());
-    for (const auto& [part, gen] : gens) {
+    for (const auto& [part, gen] : gens2) {
       auto pb = eit->second.part_bytes.find(part);
       if (pb != eit->second.part_bytes.end()) {
         eit->second.total_bytes -= pb->second;
@@ -134,7 +208,7 @@ void SealedFileCache::HandOffSkippedToRecovery(
     }
   }
   // 2) 移交 skip 集合（可读、不回收；per-part 字节供收养时 ratio 合并）。
-  for (const auto& [part, gen] : gens) {
+  for (const auto& [part, gen] : gens2) {
     skip_gens_.emplace(MakeFileKey(part, gen));
   }
   for (const auto& [part, bytes] : part_bytes) {
@@ -148,7 +222,7 @@ void SealedFileCache::HandOffSkippedToRecovery(
   // epoch 完全回收（统计/封存字节结算，与 ReleaseGens 收尾一致）。
   auto git = gen_refs_.find(epoch);
   if (git != gen_refs_.end()) {
-    for (const auto& [part, gen] : gens) {
+    for (const auto& [part, gen] : gens2) {
       git->second.erase(MakeFileKey(part, gen));
     }
     if (git->second.empty()) {
@@ -207,6 +281,15 @@ uint64_t SealedFileCache::ReleaseGens(
         continue;  // 仍有其他 CF 引用，不回收
       }
       grefs.erase(rit);
+      // step 0b-3：引用归零 = 物理可回收（与"数据已安装"是两件事，分别记账）。
+      {
+        auto git = gens_.find(key);
+        if (git != gens_.end()) {
+          reclaimed_bytes_ += git->second.bytes;
+          ++reclaimed_gens_;
+          gens_.erase(git);
+        }
+      }
       if (reclaim_enabled_) {
         to_unlink.push_back(FileName(part, gen));
       }
