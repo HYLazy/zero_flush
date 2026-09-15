@@ -593,6 +593,10 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(HandoffInstalledFiltered());
   } else if (prop == "rocksdb.zeroflush.reclaimed_gens") {
     *value = std::to_string(ReclaimedGens());
+  } else if (prop == "rocksdb.zeroflush.fence_advance_count") {
+    *value = std::to_string(fence_advance_count());
+  } else if (prop == "rocksdb.zeroflush.fence_gap_count") {
+    *value = std::to_string(fence_gap_count());
   } else if (prop == "rocksdb.zeroflush.empty_edit_count") {
     *value = std::to_string(empty_edit_count());
   } else if (prop == "rocksdb.zeroflush.empty_edit_barrier_advance") {

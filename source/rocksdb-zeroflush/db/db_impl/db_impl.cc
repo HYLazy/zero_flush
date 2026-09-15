@@ -5225,6 +5225,21 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
   value->clear();
   // M3.0：ZeroFlush 指标（rocksdb.zeroflush.*）不经 DBPropertyInfo 表，
   // 直接分派给 zf_ctx_（M3_DESIGN.md §13）。
+  // step 1c：installed_fence 观测——读**当前版本的 VersionStorageInfo**。
+  // 重开后若能打印出来，即证明"编解码 + Apply + 快照携带"整条持久化链路成立。
+  if (property == "rocksdb.zeroflush.installed_fences" && zf_ctx_ != nullptr &&
+      default_cf_handle_ != nullptr) {
+    const auto* vs_f = default_cf_handle_->cfd()->current()->storage_info();
+    std::string out;
+    for (const auto& f : vs_f->GetZfInstallFences()) {
+      out += "p" + std::to_string(f.physical_part) + "=[" +
+             std::to_string(f.first_generation) + "," +
+             std::to_string(f.last_generation) + "]b" +
+             std::to_string(f.consumed_bytes) + " ";
+    }
+    *value = out.empty() ? "(none)" : out;
+    return true;
+  }
   if (zf_ctx_ != nullptr && property.starts_with("rocksdb.zeroflush.")) {
     return zf_ctx_->GetProperty(property.ToString(), value);
   }

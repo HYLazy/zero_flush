@@ -221,6 +221,19 @@ class ZfMaterializeJob {
 
   uint64_t epoch() const { return epoch_; }
 
+  // step 1c：本 epoch 中"完整消费"的 (physical_wal_part, generation) 区间。
+  // 语义：se_.gens 去掉阶段 0 决策为 kSkip 的部分（skipped_gens_，Run 尾部
+  // 移交 recovery，其数据未被消费，**不得**被 fence 声明为已安装）。
+  // 每个分区只返回其连续区间；非连续则整段不返回（保守：宁可少过滤也不误过滤）。
+  // bytes 按 se_.part_bytes[part] 在本分区代间等比摊分（诊断量）。
+  struct FenceRange {
+    uint32_t part = 0;
+    uint32_t first_gen = 0;
+    uint32_t last_gen = 0;
+    uint64_t bytes = 0;
+  };
+  std::vector<FenceRange> ConsumedRanges() const;
+
   // 阶段 0（须持 DB mutex）：逐分区做融合归并触发判定（§7.2）并构造/
   // 注册 Compaction（§7.3）。决策写入 plans_；冲突（being_compacted/
   // 边界越界）→ 直装优先（M4.8）：kSkip 等待（gen 上限强制落地兜底）。

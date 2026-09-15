@@ -489,6 +489,20 @@ class ZeroFlushContext {
   // 收养时重新认领（状态迁移，不重复计账）。
   void NoteEmptyEdit(uint64_t pending_before, uint64_t lm_before,
                      uint64_t lm_after);
+  // step 1c：fence 推进/保守跳过的诊断计数
+  void NoteFenceAdvance() {
+    fence_advance_count_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void NoteFenceGap() {
+    fence_gap_count_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t fence_advance_count() const {
+    return fence_advance_count_.load(std::memory_order_relaxed);
+  }
+  uint64_t fence_gap_count() const {
+    return fence_gap_count_.load(std::memory_order_relaxed);
+  }
+
   void NoteEmptyEditBarrierAdvance() {
     empty_edit_barrier_advance_.fetch_add(1, std::memory_order_relaxed);
   }
@@ -899,6 +913,8 @@ class ZeroFlushContext {
   std::atomic<uint64_t> empty_edit_lm_after_{0};
   std::atomic<uint64_t> empty_edit_pending_unchanged_{0};
   std::atomic<uint64_t> backpressure_waits_{0};
+  std::atomic<uint64_t> fence_advance_count_{0};
+  std::atomic<uint64_t> fence_gap_count_{0};
   std::atomic<uint64_t> backpressure_timeouts_{0};
 
   // ---- M5P1b 跨批互斥登记状态（mm_*：materialize mutex 缩写）----

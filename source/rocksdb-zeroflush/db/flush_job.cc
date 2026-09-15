@@ -1843,6 +1843,39 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     }
     edit_->AddFile(o.level, o.meta);
   }
+  // ---- step 1c：把"连续、完整消费且真实安装"的 generation 区间写入**同一个**
+  // VersionEdit（与上面的 AddFile 同处一条 MANIFEST 记录 ⇒ 由 RocksDB 的恢复
+  // 原子性保证 fence 与安装要么都在、要么都不在）。
+  // 规则（用户 2026-09-15 定稿）：
+  //   * 只推进"连续且完整消费"的区间——非连续 / 含 kSkip 的分区不推进；
+  //   * 必须与既有 fence 首尾相接（first == prev.last+1；无 fence 时须从 0 起），
+  //     否则保守跳过（宁可少过滤，不可误过滤——误过滤会丢数据）；
+  //   * 空 edit / 冲突让位批次走不到这里（上面已 return），故不推进；
+  //   * 不同 physical part 各自推进。
+  if (zf_mode_ && !jobs.empty()) {
+    const auto* vs_fence = cfd_->current()->storage_info();
+    for (auto& job : jobs) {
+      for (const auto& fr : job->ConsumedRanges()) {
+        ROCKSDB_NAMESPACE::VersionEdit::ZfInstallFence prev;
+        const bool has_prev = vs_fence->GetZfInstallFence(fr.part, &prev);
+        const uint32_t expected_first =
+            has_prev ? prev.last_generation + 1 : 0;
+        if (fr.first_gen != expected_first) {
+          zf_ctx->NoteFenceGap();  // 与既有 fence 不连续 ⇒ 保守不推进
+          continue;
+        }
+        ROCKSDB_NAMESPACE::VersionEdit::ZfInstallFence f;
+        f.physical_part = fr.part;
+        f.first_generation = fr.first_gen;
+        f.last_generation = fr.last_gen;
+        f.consumed_record_count = 0;  // TODO(1c-2)：由物化任务累计后再填
+        f.consumed_bytes = fr.bytes;
+        f.install_sequence = job->epoch();  // 单调（epoch 序）
+        edit_->AddZfInstallFence(f);
+        zf_ctx->NoteFenceAdvance();
+      }
+    }
+  }
   // Piggyback FlushJobInfo on the first flushed memtable（对齐原生路径）。
   mems_[0]->SetFlushJobInfo(GetFlushJobInfo());
 

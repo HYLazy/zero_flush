@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <limits>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 
 #include "db/blob/blob_file_addition.h"
@@ -1546,6 +1547,50 @@ uint32_t ZfMaterializeJob::PendingGenCount(uint32_t pid) const {
     }
   }
   return n;
+}
+
+std::vector<ZfMaterializeJob::FenceRange> ZfMaterializeJob::ConsumedRanges()
+    const {
+  std::vector<FenceRange> out;
+  std::unordered_map<uint32_t, std::vector<uint32_t>> per_part;
+  std::unordered_map<uint32_t, uint32_t> per_part_total;
+  for (const auto& [part, gen] : se_.gens) {
+    per_part_total[part]++;
+    const bool skipped =
+        std::find(skipped_gens_.begin(), skipped_gens_.end(),
+                  std::make_pair(part, gen)) != skipped_gens_.end();
+    if (!skipped) {
+      per_part[part].push_back(gen);
+    }
+  }
+  for (auto& [part, gens] : per_part) {
+    std::sort(gens.begin(), gens.end());
+    bool contiguous = true;
+    for (size_t i = 1; i < gens.size(); ++i) {
+      if (gens[i] != gens[i - 1] + 1) {
+        contiguous = false;
+        break;
+      }
+    }
+    if (!contiguous) {
+      continue;  // 保守：非连续不推进（由调用方计入 fence_gap）
+    }
+    FenceRange fr;
+    fr.part = part;
+    fr.first_gen = gens.front();
+    fr.last_gen = gens.back();
+    const auto bit = se_.part_bytes.find(part);
+    if (bit != se_.part_bytes.end() && per_part_total[part] > 0) {
+      // 该分区本 epoch 封存字节按代等比摊分（fence.bytes 仅诊断用途）
+      fr.bytes = bit->second * gens.size() / per_part_total[part];
+    }
+    out.push_back(fr);
+  }
+  std::sort(out.begin(), out.end(),
+            [](const FenceRange& a, const FenceRange& b) {
+              return a.part < b.part;
+            });
+  return out;
 }
 
 void ZfMaterializeJob::FinishPlansLocked() {
