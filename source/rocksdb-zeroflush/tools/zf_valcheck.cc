@@ -1387,18 +1387,20 @@ int main(int argc, char** argv) {
                part5, gen5);
       const uint64_t refs5 = Prop2(db.get(), refprop);
       // 换代 + 安装该代（写足量数据 + 显式排空）
-      // 定向把 **part5** 写到换代（否则该代不封存、不可安装；随机铺开不保证命中）。
-      {
-        uint64_t w = 0;
-        for (uint64_t round = 0; round < 12; ++round) {
-          if (ctx5->wal()->ActiveGenOpt(part5).value_or(0) != gen5) break;
-          for (int i = 0; i < 400; ++i, ++w) {
-            const uint64_t vv = total + 20000 + w;
-            const std::string wk = zf_keygen::KeyFromInt(vv, kKeySize);
-            db->Put(rocksdb::WriteOptions(), wk,
-                    zf_keygen::ValueFor(vv, 1, kValueSize));
-          }
-          env_sleep_ms(5);
+      // 用**读者实际选中的 locator**（part/gen）调用指定代封存入口（完整生产流程）；
+      // 不靠阈值/路由碰换代、不增加写入量。
+      const uint32_t sel_part5 =
+          zeroflush::get_trace::LastPinIdentityGlobal().part.load();
+      const uint32_t sel_gen5 =
+          zeroflush::get_trace::LastPinIdentityGlobal().gen.load();
+      int seal_rc5 = -2;
+      if (zeroflush::get_trace::LastPinIdentityGlobal().set.load()) {
+        uint32_t sealed_gen5 = 0;
+        seal_rc5 = ctx5->ForceSealForTest(impl5, impl5->GetDefaultColumnFamily(),
+                                         sel_part5, sel_gen5, &sealed_gen5);
+        if (seal_rc5 < 0) {
+          printf("case5 SEAL_FAILURE: part=%u gen=%u rc=%d\n", sel_part5,
+                 sel_gen5, seal_rc5);
         }
       }
       {
@@ -1422,7 +1424,7 @@ int main(int argc, char** argv) {
           unsigned fp = 0, lo = 0, hi = 0;
           if (fx5[pos] == 'p' &&
               sscanf(fx5.c_str() + pos, "p%u=[%u,%u]", &fp, &lo, &hi) == 3) {
-            if (fp == part5) {
+            if (fp == sel_part5) {
               fence_last5 = hi;
               has_fence5 = true;  // 必须区分"无条目"与"条目=[0,0]"
             }
@@ -1431,9 +1433,10 @@ int main(int argc, char** argv) {
         }
       }
       // 用户纠正：无 fence 只说明"未证明安装"，**换代要直接核对 active_gen**
-      const uint32_t gen_after5 = ctx5->wal()->ActiveGenOpt(part5).value_or(gen5);
-      const bool rotated5 = gen_after5 != gen5;
-      const bool installed5 = has_fence5 && fence_last5 >= gen5;
+      const uint32_t gen_after5 =
+          ctx5->wal()->ActiveGenOpt(sel_part5).value_or(sel_gen5);
+      const bool rotated5 = (gen_after5 != sel_gen5) || (seal_rc5 >= 0);
+      const bool installed5 = has_fence5 && fence_last5 >= sel_gen5;
       const uint64_t deferred5 =
           Prop2(db.get(), "rocksdb.zeroflush.reclaim_deferred_by_reader");
       uint64_t fsize_during = 0;
@@ -1472,7 +1475,7 @@ int main(int argc, char** argv) {
         printf("case5 INSTALL_PROGRESS_FAILURE: rotated=%d(gen %u→%u) 但该代未安装"
                "（无 fence 条目或未覆盖 gen=%u）—— 需追该 attempt 的规划/融合输入/"
                "最终 edit/拒绝原因\n",
-               rotated5 ? 1 : 0, gen5, gen_after5, gen5);
+               rotated5 ? 1 : 0, sel_gen5, gen_after5, sel_gen5);
         ++fails;
       } else if (!installed5) {
         ++setup_incomplete;  // 未换代（封存没发生）⇒ fixture 未建成
@@ -1484,7 +1487,7 @@ int main(int argc, char** argv) {
              (installed5 && rotated5) ? (pass5 ? "PASS" : "FAIL")
                         : "INCOMPLETE(该代未安装 ⇒ 回收验收不适用)",
              (unsigned long long)refs5,
-             installed5 ? 1 : 0, gen5, (unsigned long long)fence_last5,
+             installed5 ? 1 : 0, sel_gen5, (unsigned long long)fence_last5,
              (unsigned long long)deferred5, (unsigned long long)fsize_during,
              (unsigned long long)fsize_after, (unsigned long long)reclaimed5,
              keep_wal ? "off" : "on", st5.ok() ? "OK" : st5.ToString().c_str(),

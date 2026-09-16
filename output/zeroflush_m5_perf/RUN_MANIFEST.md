@@ -1585,3 +1585,38 @@ fixture 未建成、不手工标记 installed）。当前走的是"未换代"分
 这不算"增加写入量碰运气"（是降低阈值使封存确定发生）。
 
 **压力回归**：仍未做（关闭短读重试；引用机制改动后必须重跑）。
+
+### D-33. step 1ar：retiring 拒绝→整次重试；case5 真实回收闭环 **PASS** — 见提交
+
+**1. retiring 拒绝不再降级（用户第 1 项）**
+- 胜出候选因 retiring 无法取得读引用时：**整次选择作废**（置 `RetryReadViewNeeded`
+  + 线程局部 `RetiringRejected`），`GetFromPartitionIndex` 据此走既有协议——
+  `retry_requested` + `Status::TryAgain()` ⇒ DBImpl **刷新读视图并保持 read_sequence** 重试；
+  刷新后仍无法安全完成则返回**明确 IOError**（`no downgrade`）。
+- **不再 `continue` 找其它候选**（那会返回更低版本且不触发重试）。
+
+**2. 指定代封存入口（生产路径，用户第 2 项）**
+- `ZeroFlushContext::ForceSealForTest(impl, cfd, part, expect_gen, &sealed_gen)`：
+  复用**完整生产封存流程** `FreezePartitionTailLocked`（WAL 封存 + registry 登记 +
+  索引换代 + 物化调度；经 `DBImpl::ZfForceSealPartition` 持 DB mutex）。
+  返回 0=封存成功、1=该代**已封存**（核对 `GetSealMeta` 即可，不制造新代）、-1=失败。
+  参数取自**读者实际选中的 locator**（`LastPinIdentity` 另存全局供测试主线程读取，
+  TLS 跨线程不可见——本轮修掉这个接线缺口）。
+- 未用阈值/路由碰换代、未增加写入量、未手工标记 installed。
+
+**3. case5 结果（真实回收闭环）**
+```
+case5 real-reclaim: PASS
+   refs_during=1（读引用在选择时取得并持有）installed=1（fence 有该分区条目且覆盖该代）
+   file_during=1068（读期间文件仍在 ⇒ **未提前回收**）
+   file_after=1068 reclaimed=1068 reclaim=on（读完引用释放后**最终回收完成**）
+   read status=OK correct=1 src=INDEX（放行后读取正确）
+semtest cases1-7: PASS (fails=0 setup_incomplete=0)   [case6=N/A(前提失效) 单列]
+```
+⇒ **回收既不提前、也不永久推迟**；且"引用恰好在选择时取得、读取完成后释放"由 RAII 保证。
+
+**仍未做（下一阶段）**：retiring 拒绝的小用例（新版本已装、旧版本仍在索引 ⇒ 重试后返回
+新版本，不返回旧版本）；case5 的"retiring 未 unlink 期间取新引用被拒"竞争小检查；
+**压力组回归（短读重试关闭，引用机制已改动必须重跑）**；整单元撤销与提交失败注入；
+`level=-1` 融合/排空阻塞（若 case5 的 INSTALL_PROGRESS_FAILURE 再现则优先追）；
+合法路径 A；固定路由。

@@ -1159,6 +1159,16 @@ class DBImpl : public DB {
     return zf_ctx_;
   }
 
+  // step 1ar：持锁包装（测试适配层）——复用生产封存入口
+  // `ZeroFlushContext::FreezePartitionTailLocked`（WAL 封存 + registry 登记 +
+  // 索引换代 + 物化调度）。
+  ROCKSDB_NAMESPACE::Status ZfForceSealPartition(
+      zeroflush::ZeroFlushContext* ctx, ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
+      uint32_t part, uint64_t* epoch_out) {
+    ROCKSDB_NAMESPACE::InstrumentedMutexLock l(&mutex_);
+    return ctx->FreezePartitionTailLocked(this, cfd, part, epoch_out);
+  }
+
   // step 1w：显式排空入口（测试/运维）——关闭冲刷语义：显式封存当前活跃代并驱动
   // 有界 Flush 轮询，直到 pending 归零或无实质进展。用于"停写后排空"。
   void ZfDrainNow() { ZfCloseFlush(); }

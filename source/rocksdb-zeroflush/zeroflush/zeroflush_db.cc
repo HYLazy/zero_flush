@@ -1673,7 +1673,17 @@ bool ZeroFlushContext::SelectBestIndexRecord(
           // 不得静默返回旧值。
           if (sealed_cache_ != nullptr &&
               !sealed_cache_->TryAcquireGenReadRef(best_phys, best_gen)) {
-            continue;
+            // 该代已 retiring（回收已入队）⇒ **整次选择作废**：交由调用方刷新读视图
+            // 后完整重试（不得继续尝试其它候选而返回更低版本）。
+            zeroflush::get_trace::RetryReadViewNeeded().fetch_add(
+                1, std::memory_order_relaxed);
+            zeroflush::get_trace::SetRetiringRejected(true);
+            have_any = false;
+            if (out_slot != nullptr) {
+              *out_slot = ZfPinSlot();
+              out_slot->ctx = this;
+            }
+            return false;
           }
           *out_slot = std::move(cand_pin);  // 胜出候选：locator + 读引用整体替换
           out_slot->ctx = this;
@@ -1683,6 +1693,12 @@ bool ZeroFlushContext::SelectBestIndexRecord(
           pi.gen = out_slot->gen;
           pi.pinned = out_slot->pinned;
           pi.is_active = out_slot->is_active;
+          // step 1ar：同一身份另存**全局**（测试主线程要读读者线程选中的 (part,gen)；
+          // TLS 跨线程不可见）。
+          auto& pig = zeroflush::get_trace::LastPinIdentityGlobal();
+          pig.part.store(out_slot->part, std::memory_order_relaxed);
+          pig.gen.store(out_slot->gen, std::memory_order_relaxed);
+          pig.set.store(true, std::memory_order_relaxed);
         }
       }
       // 测试开关（仅诊断）：复现**旧的共享槽语义**——每个命中的候选都把 pin 写进
@@ -1802,9 +1818,28 @@ bool ZeroFlushContext::GetFromPartitionIndex(
   uint64_t sel_off = 0;
   ROCKSDB_NAMESPACE::ValueType sel_type = ROCKSDB_NAMESPACE::kTypeValue;
   ROCKSDB_NAMESPACE::SequenceNumber sel_seq = 0;
+  zeroflush::get_trace::SetRetiringRejected(false);
   const bool have_any = SelectBestIndexRecord(
       user_key, snapshot, /*candidates=*/nullptr, &sel_part, &sel_phys, &sel_gen,
       &sel_off, &sel_type, &sel_seq, &best_pin);
+  if (!have_any && zeroflush::get_trace::ConsumeRetiringRejected()) {
+    // step 1ar（用户 2026-09-17）：胜出代已 retiring（回收入队）⇒ **整次读取重试**
+    // （刷新读视图、保持 read_sequence）；重试若仍无法安全完成则明确报错——
+    // **绝不**返回更低版本或 NotFound。
+    if (retry_requested != nullptr && !read_view_refreshed) {
+      *retry_requested = true;
+      if (s != nullptr) {
+        *s = ROCKSDB_NAMESPACE::Status::TryAgain();
+      }
+      return true;
+    }
+    if (s != nullptr) {
+      *s = ROCKSDB_NAMESPACE::Status::IOError(
+          "ZF: generation retiring; read view refresh could not complete "
+          "safely (no downgrade)");
+    }
+    return true;
+  }
   if (have_any) {
     // step 1j：测试挂钩——选择完成（pin 已取）、ReadValue 之前暂停，供
     // "选中 locator 后触发安装/换代/回收"的确定性用例驱动（仅测试；
@@ -3206,6 +3241,38 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
     *child_r = r;
   }
   return ROCKSDB_NAMESPACE::Status::OK();
+}
+
+// step 1ar：指定代封存（测试适配层）——复用生产封存流程。
+int ZeroFlushContext::ForceSealForTest(ROCKSDB_NAMESPACE::DBImpl* impl,
+                                      ROCKSDB_NAMESPACE::ColumnFamilyData* cfd,
+                                      uint32_t part, uint32_t expect_gen,
+                                      uint32_t* sealed_gen_out) {
+  if (impl == nullptr || cfd == nullptr || wal_ == nullptr) {
+    return -1;
+  }
+  const std::optional<uint32_t> active = wal_->ActiveGenOpt(part);
+  // 已换代：核对**原目标代**的封存状态即可（不必继续制造新代）。
+  if (active.has_value() && *active != expect_gen) {
+    GenSealMeta meta;
+    const bool sealed = wal_->GetSealMeta(part, expect_gen, &meta);
+    if (sealed_gen_out != nullptr) *sealed_gen_out = expect_gen;
+    return sealed ? 1 : -1;
+  }
+  if (!active.has_value() || *active != expect_gen) {
+    return -1;  // 无活跃代且非目标代
+  }
+  // 走完整生产封存流程：由 DBImpl 的公开包装持锁后调用（与写路径封存同一入口）。
+  uint64_t epoch_out = 0;
+  const ROCKSDB_NAMESPACE::Status st =
+      impl->ZfForceSealPartition(this, cfd, part, &epoch_out);
+  if (!st.ok()) {
+    return -1;
+  }
+  GenSealMeta meta;
+  const bool sealed = wal_->GetSealMeta(part, expect_gen, &meta);
+  if (sealed_gen_out != nullptr) *sealed_gen_out = expect_gen;
+  return sealed ? 0 : -1;
 }
 
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezePartitionTailLocked(

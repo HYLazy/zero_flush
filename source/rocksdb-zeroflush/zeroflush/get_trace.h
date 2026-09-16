@@ -274,6 +274,34 @@ inline std::vector<CandidateVisit>& CandidateVisits() {
   return v;
 }
 inline void ClearCandidateVisits() { CandidateVisits().clear(); }
+
+// step 1ar（用户 2026-09-17）：胜出候选因 **retiring** 无法取得读引用 ⇒ 整次选择作废、
+// 需要**刷新读视图后完整重试**（不得继续尝试其它候选而返回更低版本）。
+inline bool& RetiringRejectedTls() {
+  static thread_local bool b = false;
+  return b;
+}
+inline void SetRetiringRejected(bool v) { RetiringRejectedTls() = v; }
+inline bool ConsumeRetiringRejected() {
+  const bool b = RetiringRejectedTls();
+  RetiringRejectedTls() = false;
+  return b;
+}
+
+inline std::atomic<uint64_t>& RetryReadViewNeeded() {
+  static std::atomic<uint64_t> n{0};
+  return n;
+}
+// 供测试主线程读取读者线程选中的 (part, gen)（TLS 不可跨线程 ⇒ 另存全局）。
+struct PinIdentityGlobal {
+  std::atomic<uint32_t> part{0};
+  std::atomic<uint32_t> gen{0};
+  std::atomic<bool> set{false};
+};
+inline PinIdentityGlobal& LastPinIdentityGlobal() {
+  static PinIdentityGlobal g;
+  return g;
+}
 inline void NoteCandidateVisit(uint32_t part, uint32_t order, bool hit,
                                uint64_t seq) {
   CandidateVisits().push_back(CandidateVisit{part, order, hit, seq});

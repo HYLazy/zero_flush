@@ -274,6 +274,14 @@ class ZeroFlushContext {
   // candidates == nullptr ⇒ 用读路径计算的集合（路由分区+别名+链上其它分区）；
   // 非空 ⇒ 只用给定候选（第一个视为路由分区）。不读 value、不做 tombstone
   // 映射——调用方自己解释 type。pin_slot 为可选 ZfPinSlot（内部 void* 传递）。
+  // step 1ar（用户 2026-09-17）：**指定代的封存入口（测试适配层）**——复用完整
+  // 生产封存流程（WAL 封存 + registry 登记 + 索引换代 + 物化调度），不由测试分别拼装。
+  // 参数应来自**读者实际选中的 locator**（physical_part, generation）。
+  // 返回值：0=已封存成功；1=该代已封存（并发封存/早已换代）；-1=失败（不满足前置）。
+  int ForceSealForTest(ROCKSDB_NAMESPACE::DBImpl* impl,
+                       ROCKSDB_NAMESPACE::ColumnFamilyData* cfd, uint32_t part,
+                       uint32_t expect_gen, uint32_t* sealed_gen_out);
+
   // step 1an（用户 2026-09-17）：把读引用槽公开，便于**组件级 fixture** 传入真实槽
   // 并断言"胜出候选的 locator 与读引用成对"（此前工具只能传 nullptr，读到的是
   // 上一次调用留下的陈旧身份——测试会误判）。
