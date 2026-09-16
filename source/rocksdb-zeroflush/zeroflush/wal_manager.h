@@ -196,6 +196,14 @@ class PartitionedWalManager {
     return FileName(part, gen);
   }
 
+  // step 1aa：分区/代的**字节级**状态描述（读失败现场用）：当前活跃代、该代是否
+  // 活跃、已刷出末尾（flushed_size）、逻辑末尾（total_size）、未刷缓冲大小、
+  // 磁盘文件长度、封存时刻记录的末尾与记录数。用于按证据区分：
+  //   · 记录跨过"已刷出末尾"却被发布为 sealed ⇒ 封存发布顺序问题；
+  //   · 文件长度足够但读回不足 ⇒ 短读/接口契约问题；
+  //   · offset 处是别的 key/seq ⇒ locator 或文件身份问题。
+  std::string DescribePartition(uint32_t part, uint32_t gen) const;
+
   // step 1k：以只读方式打开某代文件（不依赖写句柄/读句柄状态）。**仅对已
   // 封存（已刷盘）的代有效**——活跃代的数据可能还在写缓冲里，单独开 fd 会
   // 读到不完整文件。返回的 fd 独立于回收：即使文件之后被 unlink，fd 仍可读。

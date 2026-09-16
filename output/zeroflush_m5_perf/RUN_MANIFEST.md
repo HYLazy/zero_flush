@@ -1122,3 +1122,46 @@ ZFDBG-missdiag v=794/804 ... (phys_part=4 gen=0 pinned=1 active=0 installed=0):
 
 **当前状态**：提前销账路径已调整（D-18/668d3c1）；安装成功证明与撤销原子性**仍在验证中**；
 新增读失败已定位到成因类别（未刷盘尾部/被读成截断），待修。
+
+### D-20. step 1aa–1ac：截断读的字节级核对（发布时序假设被证伪；修复未生效）— 见提交
+
+**要做的字节级核对（已实现）**：读失败现场打印
+`locator(part/gen/off)` + `cache/fd 状态` + 文件路径与长度 + 分区状态
+（`DescribePartition`：active_gen/is_active_gen/flushed_size/total_size/buf_bytes/
+file_size/seal_bytes/seal_records）+ **同一句柄同一 offset 的独立头解析**
+（want/got 字节、total、二次读 want/got、decode、key、seq）。
+
+**实测现场（`all 20000 4`）**
+```
+ZFDBG-readfail part=6 gen=0 off=10680 cache=NotFound: ZF sealed gen not in any active epoch
+               fd=ok file=db_bytes/zfwal/zf-wal-6-0.log file_size=1086156(ok)
+ZFDBG-readfail state: active_gen=1 is_active_gen=0 flushed_size=1127852 total_size=1128920
+               buf_bytes=1068 file_size=1086156(ok) seal_meta=yes
+               seal_bytes=1086156 seal_records=1017 seal_rec_known=1
+ZFDBG-readfail hdr: want=24 got=24 st=OK | total=1068 want2=1044 got2=1044 st2=OK
+               | decode=OK key=...2712... seq=129
+```
+**结论（按你给的判定表）**：
+- 文件长度充足（`file_size == seal_bytes`）、记录在**同一句柄同一 offset 上重读完全成功且
+  CRC/key/seq 正确** ⇒ **不是"记录跨过已刷出缓冲末尾却被发布为 sealed"**（发布时序假设证伪），
+  也不是 locator 指向别的 key/seq。
+- 失败与成功发生在**同一调用内的前后两次读**上 ⇒ 窗口是"**文件正被追加/刷出时被独立 fd 读到**"
+  （读到扩展中的文件 → 短读 → `ZF record truncated`），而不是数据从未落盘。
+
+**据此做的两处修改（均已构建）**
+1. `Freeze` 发布前校验：`FlushBuf` + `Sync` 必须成功，且刷出后 `GetFileSize() >= total_size`
+   才继续换代并发布 sealed；否则**中止封存**（保持原代活跃、返回 `sealed_bytes=0`），
+   4 个调用点同步守卫（不换代、不冻索引、不登记 epoch）。
+2. sealed 代读的**短读有界重试**（1ms×50，仅读可见性等待，不引入 fsync）+ 计数
+   `read_short_read_retried`。
+
+**效果：in-flight 失败未消除**（`all`：mismatch 460–880 / miss 465–662，反复运行同量级波动）。
+但**重开后全部正确**：同一库 `verify`（另一进程）= `checked=20064 mismatch=0 miss=0`。
+⇒ 失败只发生在**写-物化在飞窗口**；持久化数据无丢失。
+
+**下一步要抓的缺失数据点（本轮未取到）**：上面记录的是"**失败之后**的重读"结果，
+还缺**失败那次读本身**的字节数——需要在 `ReadFromSealed` 内部记录
+`(offset, want, got, file_size_at_that_moment, status)`，才能最终区分：
+  · 读接口短读契约（`RandomAccessFile::Read` 在文件小于 offset+len 时的返回语义）⇒ 修读路径；
+  · 还是"读到扩展中的文件" ⇒ 修"sealed 发布/写可见性"（例如发布前在该代上做一次
+    "长度=逻辑末尾"的**持锁复核**并直到通过；读者侧则对该窗口做退避重试）。

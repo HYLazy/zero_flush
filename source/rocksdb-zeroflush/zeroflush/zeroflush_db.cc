@@ -608,6 +608,8 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(materialize_micros());
   } else if (prop == "rocksdb.zeroflush.index_parts_scanned") {
     *value = std::to_string(index_parts_scanned());
+  } else if (prop == "rocksdb.zeroflush.read_short_read_retried") {
+    *value = std::to_string(read_short_read_retried());
   } else if (prop == "rocksdb.zeroflush.read_readfail_propagated") {
     *value = std::to_string(read_readfail_propagated());
   } else if (prop == "rocksdb.zeroflush.read_readfail_fallen_back") {
@@ -1364,7 +1366,9 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeBatchPartitions(
     }
     // 新活跃索引的 gen = 新 WAL 代（old_gen + 1）——否则 freeze 后写组的
     // 记录（ref.gen = 新代）Insert 时找不到匹配索引被丢弃（数据丢失）。
-    index_set_->Freeze(p, fr.old_gen + 1);
+    if (fr.sealed_bytes > 0) {
+      index_set_->Freeze(p, fr.old_gen + 1);
+    }  // step 1ab：封存中止（不可见）时不换代
     if (fr.sealed_bytes > 0) {
       se.gens.emplace_back(p, fr.old_gen);
       se.part_bytes[p] = fr.sealed_bytes;
@@ -2187,6 +2191,65 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
                           : rocksdb::Status::NotFound();
   if (!s.ok()) {
     rocksdb::Status fs = wal_->OpenGenForRead(ref.part_id, ref.gen, &rf);
+    // step 1aa（用户 2026-09-17）：**字节级核对**——把"索引命中但读失败"的
+    // 全部现场打出来，按证据区分 封存发布顺序 / 短读 / locator·文件身份 /
+    // 扫描提前失败，而不是猜。
+    {
+      static std::atomic<int> zf_readfail_diag{0};
+      if (zf_readfail_diag.fetch_add(1) < 6) {
+        const std::string path = wal_->GenFilePath(ref.part_id, ref.gen);
+        uint64_t fsize = 0;
+        const rocksdb::Status gfs = env_->GetFileSize(path, &fsize);
+        fprintf(stderr,
+                "ZFDBG-readfail part=%u gen=%u off=%llu cache=%s fd=%s "
+                "file=%s file_size=%llu(%s)\n",
+                ref.part_id, ref.gen, (unsigned long long)ref.offset,
+                s.ToString().c_str(),
+                fs.ok() ? "ok" : fs.ToString().c_str(), path.c_str(),
+                (unsigned long long)fsize,
+                gfs.ok() ? "ok" : gfs.ToString().c_str());
+        const std::string desc = wal_->DescribePartition(ref.part_id, ref.gen);
+        fprintf(stderr, "ZFDBG-readfail state: %s\n", desc.c_str());
+        if (fs.ok()) {
+          // 同一句柄、同一 offset 的**独立**头解析（请求字节数/实读字节数/
+          // key_len/val_len/CRC/key/seq 全部打印）。
+          char scratch[24];
+          rocksdb::Slice hdr;
+          const rocksdb::Status rs = rf->Read(ref.offset, 24, &hdr, scratch);
+          uint32_t klen = 0, vlen = 0;
+          if (rs.ok() && hdr.size() == 24) {
+            // 布局：magic(4) cf_id(1) type(1) flags(2) key_len(4) val_len(4) seq(8)
+            std::memcpy(&klen, hdr.data() + 8, 4);
+            std::memcpy(&vlen, hdr.data() + 12, 4);
+            const uint32_t total = zeroflush::ZfRecordLength(klen, vlen);
+            std::string rec;
+            rec.resize(total);
+            std::memcpy(&rec[0], hdr.data(), 24);
+            rocksdb::Slice rest;
+            const rocksdb::Status rs2 =
+                rf->Read(ref.offset + 24, total - 24, &rest, &rec[0] + 24);
+            zeroflush::ZfRecordHeader h;
+            rocksdb::Slice k, v;
+            const rocksdb::Status ds =
+                rs2.ok() && rest.size() == total - 24
+                    ? DecodeZfRecord(rec.data(), total, &h, &k, &v)
+                    : rocksdb::Status::Corruption("short read in diag");
+            fprintf(stderr,
+                    "ZFDBG-readfail hdr: want=24 got=%zu st=%s | total=%u "
+                    "want2=%u got2=%zu st2=%s | decode=%s key=%s seq=%llu\n",
+                    hdr.size(), rs.ToString().c_str(), total, total - 24,
+                    rest.size(), rs2.ToString().c_str(), ds.ToString().c_str(),
+                    ds.ok() ? k.ToString(true).c_str() : "-",
+                    ds.ok() ? (unsigned long long)h.seq : 0ULL);
+          } else {
+            fprintf(stderr,
+                    "ZFDBG-readfail hdr: want=24 got=%zu st=%s (header read "
+                    "itself short/failed)\n",
+                    hdr.size(), rs.ToString().c_str());
+          }
+        }
+      }
+    }
     if (!fs.ok()) {
       NoteGenLostBeforeInstall();
       ROCKS_LOG_WARN(wal_->InfoLog(),
@@ -2201,6 +2264,28 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
                    "ZF gen unregistered but file present: part=%u gen=%u "
                    "(fd fallback; cache=%s)",
                    ref.part_id, ref.gen, s.ToString().c_str());
+  }
+  // step 1ac（用户 2026-09-17）：**短读/截断的有界重试**。
+  // 字节级实证：同一 fd、同一 offset 的读取"先失败后立刻成功"，说明失败发生在
+  // "文件正在被追加/刷出"的窗口内（独立 fd 看到的是扩展中的文件），而不是数据
+  // 从未落盘。这里只做**读可见性**等待（1ms×最多 50 次），不引入 fsync；
+  // 超时仍失败则维持原有错误语义（不静默降级）。
+  {
+    rocksdb::Slice v_first;
+    rocksdb::Status rs =
+        PartitionedWalManager::ReadFromSealed(rf.get(), ref, out, &v_first);
+    if (!rs.ok()) {
+      for (int i = 0; i < 50 && !rs.ok(); ++i) {
+        env_->SleepForMicroseconds(1000);
+        rs = PartitionedWalManager::ReadFromSealed(rf.get(), ref, out, &v_first);
+      }
+      if (rs.ok()) {
+        NoteReadShortReadRetried();
+        return rocksdb::Status::OK();
+      }
+      return rs;
+    }
+    // 首读即成功：沿用下方原有路径（value_cache 写入等）。
   }
   rocksdb::Slice val_slice;
   s = PartitionedWalManager::ReadFromSealed(rf.get(), ref, out, &val_slice);
@@ -2616,7 +2701,9 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
     if (sealed_cache_ != nullptr && fr.sealed_bytes > 0) {
       sealed_cache_->RegisterGen(drain_part, fr.old_gen, fr.sealed_bytes);
     }
-    index_set_->Freeze(drain_part, fr.old_gen + 1);
+    if (fr.sealed_bytes > 0) {
+      index_set_->Freeze(drain_part, fr.old_gen + 1);
+    }  // step 1ab：封存中止时不换代
     SealedEpoch se;
     se.epoch = epoch;
     se.table_version = tables_ ? tables_->current_version() : 0;
@@ -2797,7 +2884,9 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SplitPartitionLocked(
       wal_ != nullptr) {
     const uint64_t epoch = epoch_counter_.fetch_add(1) + 1;
     const FreezeResult fr = wal_->Freeze(part);
-    index_set_->Freeze(part, fr.old_gen + 1);
+    if (fr.sealed_bytes > 0) {  // step 1ab：封存中止时不换代
+      index_set_->Freeze(part, fr.old_gen + 1);
+    }
     SealedEpoch se;
     se.epoch = epoch;
     se.table_version = tables_ ? tables_->current_version() : 0;
@@ -2861,6 +2950,9 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezePartitionTailLocked(
   }
   const uint64_t epoch = epoch_counter_.fetch_add(1) + 1;
   const FreezeResult fr = wal_->Freeze(part);
+  if (fr.sealed_bytes == 0) {
+    return ROCKSDB_NAMESPACE::Status::OK();  // step 1ab：封存中止（不可见）
+  }
   index_set_->Freeze(part, fr.old_gen + 1);
   SealedEpoch se;
   se.epoch = epoch;

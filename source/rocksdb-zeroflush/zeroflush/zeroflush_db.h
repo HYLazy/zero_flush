@@ -286,6 +286,13 @@ class ZeroFlushContext {
   void NoteReadReadfailPropagated() const {
     read_readfail_propagated_.fetch_add(1, std::memory_order_relaxed);
   }
+  // step 1ac：sealed 代短读经有界重试后成功（读可见性窗口）次数。
+  void NoteReadShortReadRetried() const {
+    read_short_read_retried_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t read_short_read_retried() const {
+    return read_short_read_retried_.load(std::memory_order_relaxed);
+  }
   uint64_t read_readfail_propagated() const {
     return read_readfail_propagated_.load(std::memory_order_relaxed);
   }
@@ -1151,6 +1158,7 @@ class ZeroFlushContext {
   mutable std::atomic<uint64_t> active_wal_read_count_{0};
   mutable std::atomic<uint64_t> index_parts_scanned_{0};
   mutable std::atomic<uint64_t> read_readfail_propagated_{0};
+  mutable std::atomic<uint64_t> read_short_read_retried_{0};
   mutable std::atomic<uint64_t> read_readfail_fallen_back_{0};
   mutable std::atomic<uint64_t> wal_pin_acquired_{0};
   mutable std::atomic<uint64_t> l0_install_count_{0};

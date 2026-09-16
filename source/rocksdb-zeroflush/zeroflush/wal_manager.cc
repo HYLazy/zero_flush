@@ -630,6 +630,43 @@ rocksdb::Status PartitionedWalManager::ReadActiveRecordChecked(
 }
 
 // step 1k：独立只读句柄（仅供**已封存**代使用）。
+std::string PartitionedWalManager::DescribePartition(uint32_t part,
+                                                    uint32_t gen) const {
+  auto it = parts_.find(part);
+  std::string out;
+  char buf[512];
+  uint64_t file_size = 0;
+  const rocksdb::Status fs = env_->GetFileSize(GenFilePath(part, gen), &file_size);
+  GenSealMeta meta;
+  const bool has_meta = GetSealMeta(part, gen, &meta);
+  if (it == parts_.end()) {
+    snprintf(buf, sizeof(buf),
+             "partition_absent file_size=%llu(%s) seal_meta=%s",
+             (unsigned long long)file_size,
+             fs.ok() ? "ok" : fs.ToString().c_str(),
+             has_meta ? "yes" : "no");
+    return buf;
+  }
+  Partition* p = it->second.get();
+  rocksdb::MutexLock l(&p->mu);
+  snprintf(buf, sizeof(buf),
+           "active_gen=%u is_active_gen=%d flushed_size=%llu total_size=%llu "
+           "buf_bytes=%zu file_size=%llu(%s) seal_meta=%s",
+           p->gen, (p->gen == gen) ? 1 : 0,
+           (unsigned long long)p->flushed_size,
+           (unsigned long long)p->total_size, p->buf.size(),
+           (unsigned long long)file_size, fs.ok() ? "ok" : fs.ToString().c_str(),
+           has_meta ? "yes" : "no");
+  out = buf;
+  if (has_meta) {
+    snprintf(buf, sizeof(buf), " seal_bytes=%llu seal_records=%llu seal_rec_known=%d",
+             (unsigned long long)meta.bytes, (unsigned long long)meta.records,
+             meta.records_known ? 1 : 0);
+    out += buf;
+  }
+  return out;
+}
+
 rocksdb::Status PartitionedWalManager::OpenGenForRead(
     uint32_t part, uint32_t gen,
     std::shared_ptr<rocksdb::RandomAccessFile>* out) const {
@@ -656,9 +693,43 @@ FreezeResult PartitionedWalManager::Freeze(uint32_t part) {
   rocksdb::MutexLock l(&p->mu);
   // 修 D3：wfile 是延迟打开的，未写过的分区此处为 nullptr。
   if (p->wfile) {
-    FlushBuf(p).PermitUncheckedError();
-    p->wfile->Sync().PermitUncheckedError();
+    const rocksdb::Status fs1 = FlushBuf(p);
+    const rocksdb::Status fs2 = fs1.ok() ? p->wfile->Sync() : fs1;
+    // step 1ab（用户 2026-09-17）：**发布顺序**——刷缓冲必须成功，且刷出后
+    // 文件长度必须 ≥ 逻辑末尾，才允许继续换代并对外发布"sealed"。
+    // 字节级实证：失败 locator 的记录在**同一句柄上独立重读完全成功**
+    // （want=24/got=24、want2=1044/got2=1044、decode=OK），说明读发生的那一刻
+    // 字节对独立 fd 还不可见——即"sealed 发布早于写缓冲可见"。
+    // 这里只保证**读可见性**（不引入 fsync）：若刷出失败或长度不足，保持原代
+    // 不变并返回空结果（调用方据此不发布 sealed），下轮重试。
+    bool visible = fs1.ok() && fs2.ok();
+    if (visible) {
+      uint64_t fsize = 0;
+      uint64_t spins = 0;
+      while (spins++ < 1000) {  // 有界等待（最多 ~1s）
+        const rocksdb::Status gs = env_->GetFileSize(FileName(part, p->gen), &fsize);
+        if (gs.ok() && fsize >= p->total_size) break;
+        env_->SleepForMicroseconds(1000);
+      }
+      if (fsize < p->total_size) {
+        visible = false;
+        ROCKS_LOG_WARN(info_log_,
+                       "ZeroFlush Freeze: part=%u gen=%u not visible after "
+                       "flush (file=%llu < logical=%llu) — seal aborted",
+                       part, p->gen, (unsigned long long)fsize,
+                       (unsigned long long)p->total_size);
+      }
+    }
     p->wfile.reset();
+    if (!visible) {
+      // 不发布 sealed：保持该代活跃（数据继续经受保护的缓冲读路径服务），
+      // 调用方看到 sealed_bytes==0 即不登记/不换代。
+      FreezeResult none;
+      none.old_gen = p->gen;
+      none.sealed_bytes = 0;
+      none.sealed_records = 0;
+      return none;
+    }
   }
   // M5 诊断：part3 freeze 段大小（Concurrent 写丢失定位——Insert
   // offset 对照）。
