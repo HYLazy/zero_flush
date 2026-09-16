@@ -1892,3 +1892,29 @@ after_drain_2: pending=38383920 drained=0 empty_edit=2 barrier=2 pend_unchanged=
 保留契约生效）。**下一步（引擎侧）**：层判定必须与目标模式一致 —— 规划输出层为 L0 时，
 要么按 `merge_into_base_level` 下沉到 base 层，要么让 skip 等待集合有可终结的出口；
 在此之前 `B（安全安装）门禁保持红`。
+
+### D-41. 压力组 1 **500 轮通过**（完整组 300→500 全部通过）+ semtest 在当前 build 复验全绿
+
+```
+stress group=1 rounds=500 failures=0 silent_stale=0 notfound=0 corruption=0
+               rotations=500 propagated=0 fellback=0 pin_ok=0 pin_active=500
+               ms_avg=10155 ms_max=10570 -> PASS     (exit=0，无外部终止)
+stress gate: index_kept_uninstalled=1870 gen_release_before_install=0
+             handoff_at_release=612 gen_lost_before_install=0
+stress reclaim: acquire_rejected_retiring=0 reclaim_deferred_by_reader=0
+                reclaimed_bytes=0 reclaimed_gens=0 | 三项断言全 0 -> OK
+```
+逐轮 `ms=`：n≈500，min=0，avg=9667，max=10570（仍由 10s 安装等待期限主导，见 D-40）。
+
+semtest 在含新诊断（`pending_gens` 属性 + `drainprobe`）的同一 build 上复验：
+```
+case1/2/3 PASS  case5 real-reclaim PASS（purged=2 file_final=0 reclaimed=1068 acct_ok=1）
+case8b PASS（retiring=1 new_ref_rejected=1 deferred_by_reader=1）
+case8a PASS（db_gate=1 read_status=IO error(...no downgrade) read_is_notfound=0）
+case7 fixture PASS（exec[A=1 B=1 B_hit=1 B_lost=1]）  case7 sealed PASS
+semtest cases1-7: PASS (fails=0 setup_incomplete=0)   exit=0
+```
+
+**后续（顺序启动，互不并发）**：压力组 2/3/4/5 各 300 轮已排队后台执行
+（`ZF_READ_SHORT_RETRY=0`、`ZF_VC_PARTITION_TARGET_KB=128`、watchdog=30s），
+日志 `/tmp/g{2,3,4,5}_300.log`；外部终止一律记未完成。
