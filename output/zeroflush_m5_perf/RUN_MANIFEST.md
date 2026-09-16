@@ -1360,3 +1360,39 @@ all   : checked=30064 mismatch=0 miss=0 unexpected_found=0 errors=0   ← 连跑
   （step 1t），其"索引里没有该键"的前提不再成立 ⇒ 需要按新前提重写该用例（它仍是 A 的
   防御性门禁，但当前不再是有效红灯）。
 - 整单元撤销断言、提交失败注入、`level=-1` 融合进展、A 的合法路径结论、固定路由仍待做。
+
+### D-26. step 1ak：case7 覆盖条件收紧、case6 标 SETUP_INVALID、case5 出现回归 — 见提交
+
+**1. case7 的覆盖条件（按用户不等式）**
+初版把 B 段上界抬到 100000 ⇒ `upper(A)=200 < upper(B)` ⇒ **B 先访问**，未覆盖缺陷形态。
+按 `A.upper > B.upper > A.seq > B.seq` 重做填充后：
+```
+case7 locator-pin-same-candidate: PASS
+   A=(part=4 gen=0 seq=200 upper=100000) B=(part=6 gen=0 seq=100 upper=300)
+   upper_order_ok=1 => 访问顺序 A→B、B 命中但落选；status=OK correct=1
+```
+覆盖条件（`upper_order_ok`）现纳入断言，避免"抬 B 上界反而先访问"的假覆盖。
+**未做**：父提交（`668d3c1` 之前）跑同一用例以证明"父提交失败、`9229709` 通过"——
+需要额外一次全量重建，本轮未做，不声称已完成。
+
+**2. case6 状态修正**
+```
+case6 A_CLASS_REPRO: SETUP_INVALID(真实索引条目已被保留，旧前提不成立) … 返回来源=INDEX correct=1
+```
+理由：step 1t 之后未安装代的索引条目会被保留，case6"索引里没有该键"的前提不成立 ⇒
+不再显示 FIXED，也不作为红灯（其 `fails` 计数已移除；当前 `fails=1` 来自 case5，见下）。
+
+**3. 新回归：case5（活跃代 + Freeze + unlink）**
+```
+case5 active_gen_survives_freeze: FAIL
+   (status=ERR correct=0 read_error=1 gen_before=0 gen_after=1 rotated=1
+    readfail_fellback=0 propagated=1)
+```
+在 `9229709` 之前该用例通过（`status=OK propagated=0`）。改动后：选择时该代是活跃代
+（无法 pin，符合设计）⇒ 读取走 `ReadValue`；Freeze 换代后走封存路径；文件被 unlink 后
+封存路径失败 ⇒ 传播错误。**需要查**：为何此前能成功（封存缓存/LRU 句柄在该次 unlink 后
+仍可读），以及 per-candidate pin 改动如何改变了保留的句柄集合。属"未安装代读依赖"
+一类，下一步优先。
+
+**4. 压力回归**
+仍未完成（前次后台运行被终止）。验收要求：短读重试关闭、五组零错误。

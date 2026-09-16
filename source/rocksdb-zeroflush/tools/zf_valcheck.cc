@@ -1415,18 +1415,35 @@ int main(int argc, char** argv) {
                                   loc_of(pa7, ga7, oa7));
         ctx7->index_set()->Insert(cand_b, gb7, ik(v7, 1, 100),
                                   loc_of(pb7, gb7, ob7));
-        // 抬高 B 段 max_seq（同段插一条不同键、seq=100000）⇒ 不被剪枝
-        ctx7->index_set()->Insert(cand_b, gb7, ik(v7b, 1, 100000),
+        // 按用户不等式构造：**A.upper > B.upper > A.seq(200) > B.seq(100)**
+        // · A 段插入填充键 seq=100000 ⇒ upper(A)=100000（A 先访问）
+        // · B 段插入填充键 seq=300   ⇒ upper(B)=300（B 随后访问且不被剪枝：
+        //   300 > best_seq(200)），但 B 对目标键只命中 seq=100 ⇒ 落选。
+        // 这两个填充键与被测键不同，只用于抬高段上界。
+        const uint64_t v7fill_a = total + 7, v7fill_b = total + 8;
+        ctx7->index_set()->Insert(cand_a, ga7, ik(v7fill_a, 1, 100000),
+                                  loc_of(pa7, ga7, oa7));
+        ctx7->index_set()->Insert(cand_b, gb7, ik(v7fill_b, 1, 300),
                                   loc_of(pb7, gb7, ob7));
         std::vector<uint32_t> cands{cand_a, cand_b};
+        // (1) 覆盖性断言：候选按**段上界降序**访问 ⇒ 必须满足
+        //   upper(A) > upper(B) > seq(A)=200 > seq(B)=100
+        // 这样 A 先访问且胜出，B 随后访问、命中但不胜出（正是缺陷触发的形态）。
+        const uint64_t up_a = ctx7->index_set()->PartMaxSeqUpper(cand_a);
+        const uint64_t up_b = ctx7->index_set()->PartMaxSeqUpper(cand_b);
         // 通过读路径验证：Get 必须返回 k7 的值（seed1 for v7）
         std::string got7;
         const rocksdb::Status st7 = db->Get(rocksdb::ReadOptions(), k7, &got7);
         const std::string want7 = zf_keygen::ValueFor(v7, 1, kValueSize);
         pass7 = st7.ok() && got7 == want7;
-        printf("case7 locator-pin-same-candidate: %s (A=(part=%u gen=%u seq=200) "
-               "B=(part=%u gen=%u seq=100, 段 max 抬高) status=%s correct=%d)\n",
-               pass7 ? "PASS" : "FAIL", cand_a, ga7, cand_b, gb7,
+        const bool cover_ok = (up_a > up_b) && (up_b > 200) && (200 > 100);
+        pass7 = pass7 && cover_ok;
+        printf("case7 locator-pin-same-candidate: %s (A=(part=%u gen=%u seq=200 "
+               "upper=%llu) B=(part=%u gen=%u seq=100 upper=%llu) "
+               "upper_order_ok=%d => 访问顺序 A→B、B 命中但落选；status=%s "
+               "correct=%d)\n",
+               pass7 ? "PASS" : "FAIL", cand_a, ga7, (unsigned long long)up_a,
+               cand_b, gb7, (unsigned long long)up_b, cover_ok ? 1 : 0,
                st7.ok() ? "OK" : st7.ToString().c_str(),
                (st7.ok() && got7 == want7) ? 1 : 0);
         if (!pass7) ++fails;
@@ -1699,7 +1716,9 @@ int main(int argc, char** argv) {
         printf("case6 A_CLASS_REPRO: %s (index_seq=%llu lsm_seq=%llu "
                "read_seq=%llu ins_ok=%d 返回来源=%s status=%s correct=%d "
                "got_len=%zu readfail_fellback=%llu；正确行为=返回 LSM 值)\n",
-               correct6 ? "FIXED" : "BUG_PRESENT", (unsigned long long)idx_seq,
+               correct6 ? "SETUP_INVALID(真实索引条目已被保留，旧前提不成立)"
+                        : "BUG_PRESENT",
+               (unsigned long long)idx_seq,
                (unsigned long long)db->GetLatestSequenceNumber(),
                (unsigned long long)db->GetLatestSequenceNumber(), ins_ok ? 1 : 0,
                zeroflush::get_trace::SourceName(
