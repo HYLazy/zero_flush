@@ -1840,3 +1840,25 @@ baccept phase3: pending=38383920 drained=4336080 → FAIL（drained 仍纹丝不
 **状态**：`B（安全安装）门禁：仍红`——phase3（冲突解除后继续安装并排空）与
 phase4（保护非永久保留）在修复前后**同数失败**（见 D-37 的 A/B），根因已从
 "本轮改动"排除，收窄到"安装点在无新写入/空 edit 反复出现时不再推进"。
+
+### D-39. 压力组 1 **完整 300 轮通过**（观察窗关闭外部终止风险）
+
+```
+stress group=1 rounds=300 failures=0 silent_stale=0 notfound=0 corruption=0
+               rotations=300 propagated=0 fellback=0 pin_ok=0 pin_active=300
+               ms_avg=10141 ms_max=10403 -> PASS
+stress gate: index_kept_uninstalled=1119 gen_release_before_install=0
+             handoff_at_release=366 gen_lost_before_install=0
+stress reclaim: acquire_rejected_retiring=0 reclaim_deferred_by_reader=0
+                reclaimed_bytes=0 reclaimed_gens=0 |
+                断言 retiring=>no_new_ref=0(应0) reclaimed=>installed&&refs==0=0(应0)
+                读引用未释放=0(应0) -> OK
+```
+逐轮耗时（`ms=`）：n=300，min=0，avg=9635，max=10403 —— **由 10s 安装等待期限主导**
+（`pending_materialize_bytes != 0` 整段耗尽，见 D-38：无新写入时安装点不推进）。
+本组设计上读**活跃代**（`pin_active=300`）⇒ 不进入 sealed 引用/回收路径，
+`acquire_rejected_retiring / reclaim_deferred_by_reader / reclaimed` 为 0 属预期；
+回收路径的确定性覆盖见 case5/case8a/case8b 与压力组 2（`reclaimed_gens=28`）。
+
+**运行信息**：`ZF_READ_SHORT_RETRY=0`、`ZF_VC_PARTITION_TARGET_KB=128`、watchdog=30s、
+独立进程前台后台各一次；无外部终止（exit=0）。500 轮已启动（`/tmp/g1_500.log`）。
