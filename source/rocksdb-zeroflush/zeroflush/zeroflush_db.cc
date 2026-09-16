@@ -1547,7 +1547,6 @@ static void ZfPinThunk(void* c, uint32_t part, uint32_t gen) {
   const std::optional<uint32_t> ag =
       wal != nullptr ? wal->ActiveGenOpt(part) : std::nullopt;
   slot->is_active = ag.has_value() && *ag == gen;
-  slot->read_ref_taken = true;  // PinWalGen 内已取得 generation 读引用
   slot->pinned = slot->ctx->PinWalGen(part, gen, &slot->handle);
 }
 
@@ -1669,6 +1668,13 @@ bool ZeroFlushContext::SelectBestIndexRecord(
           best_off = sl->wal_offset;
         }
         if (out_slot != nullptr) {
+          // step 1aq：胜出候选**整体接管** locator + RAII 读引用（可移动、不可复制）。
+          // 若该代已 retiring（回收已入队）⇒ 本候选失效，继续尝试其它候选（重选），
+          // 不得静默返回旧值。
+          if (sealed_cache_ != nullptr &&
+              !sealed_cache_->TryAcquireGenReadRef(best_phys, best_gen)) {
+            continue;
+          }
           *out_slot = std::move(cand_pin);  // 胜出候选：locator + 读引用整体替换
           out_slot->ctx = this;
           auto& pi = zeroflush::get_trace::LastPinIdentity();
@@ -1863,12 +1869,8 @@ bool ZeroFlushContext::GetFromPartitionIndex(
           best_pin.handle != nullptr
               ? ReadValuePinned(loc, best_pin.handle.get(), value)
               : ReadValue(loc, value);
-      // step 1ao：读完成（成功或失败）后释放 generation 读引用；释放即触发
-      // "已安装且有读者推迟过" 的最终回收。
-      if (sealed_cache_ != nullptr && best_pin.read_ref_taken) {
-        sealed_cache_->ReleaseGenReadRef(best_pin.part, best_pin.gen);
-        best_pin.read_ref_taken = false;
-      }
+      // step 1aq：读引用由 best_pin.read_ref（RAII）在本函数返回时自动释放——
+      // 成功/失败/提前 return 都恰好释放一次。
       if (!rs.ok()) {
         zeroflush::get_trace::SetLastSource(
             zeroflush::get_trace::GetSource::kIndexReadFailed);
@@ -2215,12 +2217,8 @@ bool ZeroFlushContext::PinWalGen(
   if (wal_ == nullptr || !wal_->HasPartition(phys_part)) {
     return false;
   }
-  // step 1ao：先取 **generation 读引用**（活跃代也取）——它在选择保护释放前取得、
-  // 随胜出候选整体转移；就算句柄暂时拿不到（活跃代），该引用也保证换代/回收期间
-  // 文件与读取所需状态不被移除。读引用**不计入 pending**。
-  if (sealed_cache_ != nullptr) {
-    sealed_cache_->AcquireGenReadRef(phys_part, gen);
-  }
+  // step 1aq：generation 读引用改由调用方用 RAII 取得（见 ZfPinSlot.read_ref），
+  // 此处只负责句柄。
   const std::optional<uint32_t> active_gen = wal_->ActiveGenOpt(phys_part);
   if (active_gen.has_value() && gen == *active_gen) {
     // 活跃代：**不能**用独立 fd（数据可能还在写缓冲里，单开 fd 会读到不完整

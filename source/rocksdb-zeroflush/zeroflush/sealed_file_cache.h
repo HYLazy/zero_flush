@@ -147,8 +147,16 @@ class SealedFileCache {
   // 在选择保护释放前取得、随胜出候选整体转移；回收必须尊重它（不依赖 LRU 偶然持有
   // 句柄）。活跃代同样要取引用（其数据可能尚在写缓冲，换代后由本引用保证文件不被回收）。
   // 注意：读引用**不计入 pending 字节**（pending 只由 registry 的 sealed && !installed 定义）。
-  void AcquireGenReadRef(uint32_t part, uint32_t gen);
+  // step 1aq（用户 2026-09-17）：**RAII 读引用 + retiring 状态**。
+  // 两个互斥决定在同一把锁下完成：
+  //   取得引用：该代仍允许读取（未 retiring、仍在册）→ refs++
+  //   开始回收：已安装且 refs==0 → 标记 retiring → 入队（此后**禁止**新引用加入）
+  // 返回 false 表示"已 retiring / 不可读"——调用方必须**重新选择**（或走受保护的
+  // 读视图协议），不得静默跳过并返回旧 LSM 值。
+  bool TryAcquireGenReadRef(uint32_t part, uint32_t gen);
   void ReleaseGenReadRef(uint32_t part, uint32_t gen);
+  // 是否已进入 retiring（测试/诊断用）。
+  bool GenRetiring(uint32_t part, uint32_t gen) const;
   uint64_t GenReadRefs(uint32_t part, uint32_t gen) const;
   uint64_t gen_read_ref_total() const {
     return gen_read_ref_total_.load(std::memory_order_relaxed);
@@ -157,6 +165,50 @@ class SealedFileCache {
   uint64_t reclaim_deferred_by_reader() const {
     return reclaim_deferred_by_reader_.load(std::memory_order_relaxed);
   }
+  uint64_t acquire_rejected_retiring() const {
+    return acquire_rejected_retiring_.load(std::memory_order_relaxed);
+  }
+
+  // step 1aq：RAII 句柄（可移动、不可复制）——候选落选/替换/错误返回都恰好释放一次。
+  class GenReadRef {
+   public:
+    GenReadRef() = default;
+    GenReadRef(SealedFileCache* c, uint32_t part, uint32_t gen)
+        : c_(c), part_(part), gen_(gen), owned_(true) {}
+    GenReadRef(const GenReadRef&) = delete;
+    GenReadRef& operator=(const GenReadRef&) = delete;
+    GenReadRef(GenReadRef&& o) noexcept
+        : c_(o.c_), part_(o.part_), gen_(o.gen_), owned_(o.owned_) {
+      o.owned_ = false;
+    }
+    GenReadRef& operator=(GenReadRef&& o) noexcept {
+      if (this != &o) {
+        Reset();
+        c_ = o.c_;
+        part_ = o.part_;
+        gen_ = o.gen_;
+        owned_ = o.owned_;
+        o.owned_ = false;
+      }
+      return *this;
+    }
+    ~GenReadRef() { Reset(); }
+    void Reset() {
+      if (owned_ && c_ != nullptr) {
+        c_->ReleaseGenReadRef(part_, gen_);
+        owned_ = false;
+      }
+    }
+    bool valid() const { return owned_; }
+    uint32_t part() const { return part_; }
+    uint32_t gen() const { return gen_; }
+
+   private:
+    SealedFileCache* c_ = nullptr;
+    uint32_t part_ = 0;
+    uint32_t gen_ = 0;
+    bool owned_ = false;
+  };
 
   uint64_t PendingBytesRecomputed() const;
   uint64_t pending_drift_events() const { return pending_drift_events_; }
@@ -307,6 +359,9 @@ class SealedFileCache {
   std::atomic<uint64_t> gen_release_before_install_{0};
   // step 1ao：per-gen 读引用（mu_ 保护）+ 统计
   std::unordered_map<ZfFileKey, uint64_t> gen_read_refs_;
+  // step 1aq：已进入回收（retiring）的代——禁止新读引用加入。
+  std::unordered_set<ZfFileKey> retiring_gens_;
+  std::atomic<uint64_t> acquire_rejected_retiring_{0};
   std::atomic<uint64_t> gen_read_ref_total_{0};
   std::atomic<uint64_t> reclaim_deferred_by_reader_{0};
   mutable uint64_t last_recomputed_pending_ = 0;

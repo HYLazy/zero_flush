@@ -141,10 +141,23 @@ void SealedFileCache::RegisterGen(uint32_t part, uint32_t gen, uint64_t bytes) {
   }
 }
 
-void SealedFileCache::AcquireGenReadRef(uint32_t part, uint32_t gen) {
+bool SealedFileCache::TryAcquireGenReadRef(uint32_t part, uint32_t gen) {
   rocksdb::MutexLock l(&mu_);
-  ++gen_read_refs_[MakeFileKey(part, gen)];
+  const ZfFileKey key = MakeFileKey(part, gen);
+  // retiring 中（回收已入队）⇒ 拒绝新引用：调用方必须重新选择。
+  if (retiring_gens_.count(key) > 0) {
+    acquire_rejected_retiring_.fetch_add(1, std::memory_order_relaxed);
+    return false;
+  }
+  ++gen_read_refs_[key];
   gen_read_ref_total_.fetch_add(1, std::memory_order_relaxed);
+  return true;
+}
+
+bool SealedFileCache::GenRetiring(uint32_t part, uint32_t gen) const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  return retiring_gens_.count(MakeFileKey(part, gen)) > 0;
 }
 
 void SealedFileCache::ReleaseGenReadRef(uint32_t part, uint32_t gen) {
@@ -158,10 +171,11 @@ void SealedFileCache::ReleaseGenReadRef(uint32_t part, uint32_t gen) {
     if (--(it->second) == 0) {
       gen_read_refs_.erase(it);
       gen_read_ref_total_.fetch_sub(1, std::memory_order_relaxed);
-      // 最后一个读引用释放：若该代已安装（数据在 LSM）且回收开启，则此刻入队 unlink
-      // （即"回收最终完成"）；未安装的由既有的未安装守护拦住。
+      // 最后一个读引用释放：若该代已安装（数据在 LSM）且回收开启 ⇒ **标记 retiring**
+      // 并此刻入队 unlink（此后新引用被拒）。
       auto git = gens_.find(MakeFileKey(part, gen));
       if (git != gens_.end() && git->second.installed && reclaim_enabled_) {
+        retiring_gens_.insert(MakeFileKey(part, gen));
         to_unlink.push_back(FileName(part, gen));
       }
     } else {
@@ -464,6 +478,7 @@ uint64_t SealedFileCache::ReleaseGens(
       if (gen_read_refs_.find(key) != gen_read_refs_.end()) {
         reclaim_deferred_by_reader_.fetch_add(1, std::memory_order_relaxed);
       } else if (reclaim_enabled_) {
+        retiring_gens_.insert(key);  // 与取得引用同锁互斥：入队后不再接受新引用
         to_unlink.push_back(FileName(part, gen));
       }
       // 从 epoch 登记中移除该 gen（Get 校验随之失效——文件已入

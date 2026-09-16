@@ -21,6 +21,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "zeroflush/sealed_file_cache.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -283,8 +284,9 @@ class ZeroFlushContext {
     uint32_t gen = 0;
     bool pinned = false;
     bool is_active = false;
-    // step 1ao：本槽是否已为 (part, gen) 取得 generation 读引用（读后释放）。
-    bool read_ref_taken = false;
+    // step 1aq：RAII 读引用（可移动、不可复制）——落选/替换/错误返回都自动释放，
+    // 胜出候选整体接管。active 引用不计入 pending。
+    SealedFileCache::GenReadRef read_ref;
   };
 
   bool SelectBestIndexRecord(const ROCKSDB_NAMESPACE::Slice& user_key,

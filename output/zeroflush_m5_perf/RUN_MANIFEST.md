@@ -1555,3 +1555,33 @@ pin=(part=3 gen=0 pinned=1 active=0)   ← 读引用被落选候选 B 覆盖（p
 **读引用契约（用户第 2 条）**：RAII 化与"最后引用释放 vs 新读者取得"的同步协议**未做**；
 当前实现仅在 `mu_` 下检查引用计数（检查与入队同一锁内 ✓），但"入队后新读者再来"的竞态
 未加协议，需与 case5 一起解决。
+
+### D-32. step 1aq：RAII 读引用 + retiring 门（已实现）；case5 仍缺"确定性封存入口"
+
+**已实现（用户"最优先"项）**
+- `SealedFileCache::GenReadRef`：**可移动、不可复制**的 RAII 句柄；落选候选、胜出替换、
+  错误/提前返回都**恰好释放一次**（析构调用 `ReleaseGenReadRef`）。
+- **同一把锁下的两个互斥决定**：
+  * 取得引用：`TryAcquireGenReadRef` —— 已 retiring ⇒ **拒绝**（计 `acquire_rejected_retiring`）；
+  * 开始回收：`refs==0 && installed && reclaim_enabled` ⇒ **标记 retiring + 入队**
+    （`ReleaseGens` 与 `ReleaseGenReadRef` 两处都先标记再入队）。
+  ⇒ 入队后**不再接受新引用**（不再是"检查为零并入队、却继续接受读者"）。
+- 读者选中了已 retiring 的代 ⇒ `SelectBestIndexRecord` **不静默跳过**，而是让该候选失效并
+  继续尝试其它候选（重选）；调用方既有的"刷新读视图后重试"协议保留。
+- 读引用不改变 pending 计账；**安装不等待读引用**（避免"读线程暂停等安装 / 安装等读引用"
+  的环形等待）。
+
+**case5 当前状态：INCOMPLETE（未换代）**
+```
+case5 real-reclaim: INCOMPLETE(该代未安装 ⇒ 回收验收不适用)
+   refs_during=1 read=OK correct=1 installed=0 fence_last=0 rotated=?（未换代）
+```
+本轮把判据改成"**直接核对 active_gen 是否换代**"（用户纠正：无 fence ≠ 没换代），并新增
+`INSTALL_PROGRESS_FAILURE` 分支：**若已换代但迟迟未安装，直接报安装进展失败**（不归为
+fixture 未建成、不手工标记 installed）。当前走的是"未换代"分支 ⇒ 我用的排空入口
+（`ZfDrainNow`）没有封存到目标分区 part5。
+**下一步（确定性封存入口）**：用封存阈值旋钮（`ZF_VC_PARTITION_TARGET_KB`，已有）让目标
+分区的写入**必然触发换代** + 目标定向写入 ⇒ 断言 `active_gen` 变化 ⇒ 再驱动安装。
+这不算"增加写入量碰运气"（是降低阈值使封存确定发生）。
+
+**压力回归**：仍未做（关闭短读重试；引用机制改动后必须重跑）。

@@ -1430,6 +1430,9 @@ int main(int argc, char** argv) {
           ++pos;
         }
       }
+      // 用户纠正：无 fence 只说明"未证明安装"，**换代要直接核对 active_gen**
+      const uint32_t gen_after5 = ctx5->wal()->ActiveGenOpt(part5).value_or(gen5);
+      const bool rotated5 = gen_after5 != gen5;
       const bool installed5 = has_fence5 && fence_last5 >= gen5;
       const uint64_t deferred5 =
           Prop2(db.get(), "rocksdb.zeroflush.reclaim_deferred_by_reader");
@@ -1460,16 +1463,25 @@ int main(int argc, char** argv) {
                                   : (fsize_after == 0 || !gs5.ok() || reclaimed5 > 0);
       // **真实回收验收的前提是该代确已安装**；未安装时不能说"回收被延迟/最终回收"，
       // 只能报 INCOMPLETE（避免"未安装 ⇒ 不适用"被当成通过）。
-      const bool pass5 = installed5 && ref_ok && read_ok5 && delayed_ok &&
-                         final_reclaim_ok;
-      if (!installed5) {
-        ++setup_incomplete;
+      const bool pass5 = installed5 && rotated5 && ref_ok && read_ok5 &&
+                         delayed_ok && final_reclaim_ok;
+      if (rotated5 && !installed5) {
+        // 封存成功但安装迟迟不完成 ⇒ **安装进展失败**（用户要求：不得再归为
+        // fixture 未建成、也不得手工标记 installed）。这指向尚未解决的
+        // 融合/排空阻塞（level=-1）。
+        printf("case5 INSTALL_PROGRESS_FAILURE: rotated=%d(gen %u→%u) 但该代未安装"
+               "（无 fence 条目或未覆盖 gen=%u）—— 需追该 attempt 的规划/融合输入/"
+               "最终 edit/拒绝原因\n",
+               rotated5 ? 1 : 0, gen5, gen_after5, gen5);
+        ++fails;
+      } else if (!installed5) {
+        ++setup_incomplete;  // 未换代（封存没发生）⇒ fixture 未建成
       }
       printf("case5 real-reclaim: %s (refs_during=%llu installed=%d(gen=%u "
              "fence_last=%llu) deferred_by_reader=%llu file_during=%llu "
              "file_after=%llu reclaimed=%llu reclaim=%s | read status=%s "
              "correct=%d src=%s)\n",
-             installed5 ? (pass5 ? "PASS" : "FAIL")
+             (installed5 && rotated5) ? (pass5 ? "PASS" : "FAIL")
                         : "INCOMPLETE(该代未安装 ⇒ 回收验收不适用)",
              (unsigned long long)refs5,
              installed5 ? 1 : 0, gen5, (unsigned long long)fence_last5,
@@ -1477,7 +1489,7 @@ int main(int argc, char** argv) {
              (unsigned long long)fsize_after, (unsigned long long)reclaimed5,
              keep_wal ? "off" : "on", st5.ok() ? "OK" : st5.ToString().c_str(),
              read_ok5 ? 1 : 0, src5);
-      if (installed5 && !pass5) ++fails;
+      if (installed5 && rotated5 && !pass5) ++fails;
     }
     // ---- 用例 7（用户 2026-09-17 指令：**组件级隔离 fixture**）----
     // 不依赖路由/后台物化/大量写入：直接用 WAL 管理器的 Append 接口在**两个显式
