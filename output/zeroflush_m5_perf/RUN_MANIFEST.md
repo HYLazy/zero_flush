@@ -1165,3 +1165,41 @@ ZFDBG-readfail hdr: want=24 got=24 st=OK | total=1068 want2=1044 got2=1044 st2=O
   · 读接口短读契约（`RandomAccessFile::Read` 在文件小于 offset+len 时的返回语义）⇒ 修读路径；
   · 还是"读到扩展中的文件" ⇒ 修"sealed 发布/写可见性"（例如发布前在该代上做一次
     "长度=逻辑末尾"的**持锁复核**并直到通过；读者侧则对该窗口做退避重试）。
+
+### D-21. step 1ad：原始失败读取证（结论与预期不同，未定位到最终生产者）— 见提交
+
+**实现**：`ReadFromSealed` 内记录**每一次底层 Read** 的证据到线程局部结构
+（`read_id/thread_hash/part/gen/stage/second_read/offset/requested/returned/ok/
+result_size/parsed(k,v,total)`）；调用方在失败时**先打印原始证据**，再做诊断重读。
+短读重试改为**默认关闭**的诊断选项 `ZF_READ_SHORT_RETRY=<n>`（验收要求关闭时通过）。
+
+**实测（`all 20000 4`，重试关闭）**
+```
+ZFDBG-readfail raw: read_id=0  thr=0 part=0 gen=0 ... want=0 got=0 st=ERR ...   ← 全零
+ZFDBG-readfail raw: read_id=13 ... part=4 gen=0 stage=0 second=0 off=9612
+                    want=4120 got=4120 st=OK result_size=4120 parsed(k=16 v=1024 total=1068)
+ZFDBG-readfail raw: read_id=5  ... part=4 gen=0 stage=0 second=0 off=6408 ... st=OK
+ZFDBG-readfail raw: read_id=29 ... part=7 gen=0 ... st=OK
+```
+**两条关键事实**
+1. 被打印的底层 Read **全部成功**（`got == want == 4120`、`st=OK`、`total=1068 ≤ 4120`
+   ⇒ **没有走补读分支**）——**与"短读/truncated"假设不符**。
+2. 出现 `read_id=0`（全零）的失败 ⇒ 该次失败**没有经过 `ReadFromSealed`**（线程局部未被
+   填写）⇒ 报出的 `ZF sealed record truncated` 由**另一条路径/另一线程**产生。
+
+**因此两处判断需要撤回**：① "文件正在扩展导致短读"无证据；② 我先前"同一 fd 前后两次读"
+的解读也站不住（那是诊断重读，不是被观测的那次读）。
+
+**Slice 生命周期核查（你要求的一项，已完成）**：`ReadFromSealed` 返回
+`Slice(*buf)`（指向**调用方**缓冲）、局部 `rec` 仅函数内使用 ⇒ **无悬垂/共享覆盖问题**。
+
+**下一步（唯一缺口）**：把产生 `truncated` 的**每一处**都打唯一标记（
+`ReadFromSealed` 380/411、`ReadRecord` 644/657、`ReadActiveRecordChecked` 937/952、
+scanner 107/125），并带上 thread_hash 与 read_id，直接看是哪一处、哪个线程触发；
+随后按你给的证据表分支修复。**未完成**：确定性复现（同步钩子暂停于刷缓冲/发布/换代
+边界）、最小修复、关闭重试后的 `all` 零错误、整单元撤销断言。
+
+**`Sync()` 实现核实（你要求的一项，已完成）**：`Freeze` 调用的 `p->wfile->Sync()` 是
+`WritableFile::Sync`（`use_fsync=false` 时走 `fdatasync`/`fsync` 路径，取决于 Env 实现）
+⇒ 我先前"只加可见性检查、不引入 fsync"的说法**不严谨**：该调用本身可能触发 fdatasync；
+D-20 的守卫并未新增调用，只是**校验其成功与长度**。

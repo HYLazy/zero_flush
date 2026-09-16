@@ -196,6 +196,29 @@ class PartitionedWalManager {
     return FileName(part, gen);
   }
 
+  // step 1ad（用户 2026-09-17）：**失败读本身的证据**（线程局部，最近的两次底层
+  // Read）——requested/returned/status、阶段（0=整条一次读，1=补读 body）、
+  // 以及是否走了补读分支。由 ReadFromSealed 填写；调用方在失败时连同文件长度
+  // 采样与代状态一起打印。注意：**先复制证据再做诊断重读**。
+  struct ReadEvidence {
+    uint64_t read_id = 0;
+    uint64_t thread_hash = 0;
+    uint32_t part = 0;
+    uint32_t gen = 0;
+    uint64_t offset = 0;
+    size_t requested = 0;
+    size_t returned = 0;
+    bool ok = false;
+    int stage = 0;          // 0 = 首次读（header+inline），1 = 补读 body
+    bool second_read = false;
+    size_t result_size = 0; // 首次读返回的 Slice 长度
+    uint32_t parsed_key_len = 0;
+    uint32_t parsed_val_len = 0;
+    uint32_t parsed_total = 0;
+  };
+  static const ReadEvidence& LastReadEvidence();
+  static void ResetReadEvidence();
+
   // step 1aa：分区/代的**字节级**状态描述（读失败现场用）：当前活跃代、该代是否
   // 活跃、已刷出末尾（flushed_size）、逻辑末尾（total_size）、未刷缓冲大小、
   // 磁盘文件长度、封存时刻记录的末尾与记录数。用于按证据区分：

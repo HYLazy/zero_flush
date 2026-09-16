@@ -2210,9 +2210,22 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
                 gfs.ok() ? "ok" : gfs.ToString().c_str());
         const std::string desc = wal_->DescribePartition(ref.part_id, ref.gen);
         fprintf(stderr, "ZFDBG-readfail state: %s\n", desc.c_str());
+        // ① **先打印失败那次底层 Read 的原始证据**（不依赖任何重读）。
+        {
+          const auto& ev = PartitionedWalManager::LastReadEvidence();
+          fprintf(stderr,
+                  "ZFDBG-readfail raw: read_id=%llu thr=%llu part=%u gen=%u "
+                  "stage=%d second=%d off=%llu want=%zu got=%zu st=%s "
+                  "result_size=%zu parsed(k=%u v=%u total=%u)\n",
+                  (unsigned long long)ev.read_id,
+                  (unsigned long long)ev.thread_hash, ev.part, ev.gen, ev.stage,
+                  ev.second_read ? 1 : 0, (unsigned long long)ev.offset,
+                  ev.requested, ev.returned, ev.ok ? "OK" : "ERR",
+                  ev.result_size, ev.parsed_key_len, ev.parsed_val_len,
+                  ev.parsed_total);
+        }
         if (fs.ok()) {
-          // 同一句柄、同一 offset 的**独立**头解析（请求字节数/实读字节数/
-          // key_len/val_len/CRC/key/seq 全部打印）。
+          // ② 然后才做诊断重读（同一句柄、同一 offset 的独立头解析）。
           char scratch[24];
           rocksdb::Slice hdr;
           const rocksdb::Status rs = rf->Read(ref.offset, 24, &hdr, scratch);
@@ -2275,7 +2288,11 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
     rocksdb::Status rs =
         PartitionedWalManager::ReadFromSealed(rf.get(), ref, out, &v_first);
     if (!rs.ok()) {
-      for (int i = 0; i < 50 && !rs.ok(); ++i) {
+      // step 1ad：**默认关闭**（诊断选项 ZF_READ_SHORT_RETRY=<n>）。修复验收
+      // 必须在关闭它时通过（1ms×50 未能消除失败）。
+      const char* rr = getenv("ZF_READ_SHORT_RETRY");
+      const int n_retry = rr != nullptr ? atoi(rr) : 0;
+      for (int i = 0; i < n_retry && !rs.ok(); ++i) {
         env_->SleepForMicroseconds(1000);
         rs = PartitionedWalManager::ReadFromSealed(rf.get(), ref, out, &v_first);
       }

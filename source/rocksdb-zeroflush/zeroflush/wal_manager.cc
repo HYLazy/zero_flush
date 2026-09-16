@@ -3,6 +3,9 @@
 
 #include "zeroflush/wal_manager.h"
 
+#include <thread>
+#include <functional>
+
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -334,6 +337,19 @@ std::optional<uint32_t> PartitionedWalManager::ActiveGenOpt(
   return p->gen;
 }
 
+// step 1ad：线程局部证据（最后两次底层 Read）。
+static thread_local PartitionedWalManager::ReadEvidence g_zf_read_ev;
+static std::atomic<uint64_t> g_zf_read_id{0};
+
+const PartitionedWalManager::ReadEvidence&
+PartitionedWalManager::LastReadEvidence() {
+  return g_zf_read_ev;
+}
+
+void PartitionedWalManager::ResetReadEvidence() {
+  g_zf_read_ev = ReadEvidence();
+}
+
 rocksdb::Status PartitionedWalManager::ReadFromSealed(
     rocksdb::RandomAccessFile* rf, const WalRecordRef& ref,
     std::string* buf, rocksdb::Slice* value) {
@@ -342,7 +358,21 @@ rocksdb::Status PartitionedWalManager::ReadFromSealed(
   constexpr size_t kInlineRead = kZfHeaderSize + 4096;
   char scratch[kInlineRead];
   rocksdb::Slice result;
+  const uint64_t zf_read_id = g_zf_read_id.fetch_add(1) + 1;
+  const uint64_t zf_thr =
+      static_cast<uint64_t>(std::hash<std::thread::id>{}(
+          std::this_thread::get_id()));
+  g_zf_read_ev = ReadEvidence();
+  g_zf_read_ev.read_id = zf_read_id;
+  g_zf_read_ev.thread_hash = zf_thr;
+  g_zf_read_ev.part = ref.part_id;
+  g_zf_read_ev.gen = ref.gen;
+  g_zf_read_ev.offset = ref.offset;
+  g_zf_read_ev.requested = kInlineRead;
+  g_zf_read_ev.stage = 0;
   rocksdb::Status s = rf->Read(ref.offset, kInlineRead, &result, scratch);
+  g_zf_read_ev.returned = result.size();
+  g_zf_read_ev.ok = s.ok();
   if (!s.ok()) {
     return s;
   }
@@ -352,6 +382,10 @@ rocksdb::Status PartitionedWalManager::ReadFromSealed(
   uint32_t key_len = 0, val_len = 0;
   DecodeKeyValLen(result.data(), &key_len, &val_len);
   uint32_t total = ZfRecordLength(key_len, val_len);
+  g_zf_read_ev.result_size = result.size();
+  g_zf_read_ev.parsed_key_len = key_len;
+  g_zf_read_ev.parsed_val_len = val_len;
+  g_zf_read_ev.parsed_total = total;
   std::string rec;
   if (total <= result.size()) {
     // 整条在一次 Read 内（1KB 级记录常态）——免第二次 syscall。
@@ -361,12 +395,19 @@ rocksdb::Status PartitionedWalManager::ReadFromSealed(
     rec.resize(total);
     std::memcpy(&rec[0], result.data(), result.size());
     rocksdb::Slice rest;
-    s = rf->Read(ref.offset + result.size(), total - result.size(), &rest,
+    g_zf_read_ev.second_read = true;
+    g_zf_read_ev.stage = 1;
+    const size_t want2 = total - result.size();
+    g_zf_read_ev.requested = want2;
+    g_zf_read_ev.offset = ref.offset + result.size();
+    s = rf->Read(ref.offset + result.size(), want2, &rest,
                  &rec[0] + result.size());
+    g_zf_read_ev.returned = rest.size();
+    g_zf_read_ev.ok = s.ok();
     if (!s.ok()) {
       return s;
     }
-    if (rest.size() < total - result.size()) {
+    if (rest.size() < want2) {
       return rocksdb::Status::Corruption("ZF sealed record truncated");
     }
   }
