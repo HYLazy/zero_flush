@@ -163,6 +163,13 @@ bool SealedFileCache::GenRetiring(uint32_t part, uint32_t gen) const {
   return retiring_gens_.count(MakeFileKey(part, gen)) > 0;
 }
 
+bool SealedFileCache::GenInstalledPublished(uint32_t part, uint32_t gen) const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  auto it = gens_.find(MakeFileKey(part, gen));
+  return it != gens_.end() && it->second.installed;
+}
+
 void SealedFileCache::ReleaseGenReadRef(uint32_t part, uint32_t gen) {
   std::vector<UnlinkRequest> to_unlink;
   {

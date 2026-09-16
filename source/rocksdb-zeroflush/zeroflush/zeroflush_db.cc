@@ -1878,20 +1878,26 @@ bool ZeroFlushContext::GetFromPartitionIndex(
       }
       return true;
     }
-    // step 1as 修正（压力组 5 实证）：重取视图后仍被拒时，按**该代是否已安装**
-    // 分流——同一个 true 结论不能既代表"数据已在 LSM（可回落取值）"又代表
-    // "唯一副本正在消失（必须报错）"：
-    //   · 已安装（Version fence 覆盖该代）⇒ 该代记录的同 seq 版本已在 LSM，
-    //     回落原生查找即取到**同一版本**（fence 不变量；不是降级）；
+    // step 1as 修正（压力组 5 实证）：重取视图后仍被拒时，按**该代是否已安装**分流
+    // ——同一个 true 结论不能既代表"数据已在 LSM（可回落取值）"又代表"唯一副本
+    // 正在消失（必须报错）"：
+    //   · 已安装 ⇒ 该代记录的同 seq 版本已在 LSM（发布证据），回落原生查找即取到
+    //     **同一或更新版本**（不是降级）；
     //   · 未安装 ⇒ WAL 是唯一副本正在被回收 ⇒ 明确报错（不降级、不 NotFound）。
+    // 判据用**发布证据**（cache 级 installed，随成功发布的 VersionEdit 置位），
+    // 不用 fence：fence 还要求消费证明完整，可能滞后于发布（实测正是这一点让
+    // 真实已安装的代被判成"不可回落"而产生 6 次 IO error）。
     {
       const auto& rej = zeroflush::get_trace::LastRejectedGenTls();
-      if (rej.set && IsGenInstalled(rej.part, rej.gen)) {
+      const bool published =
+          rej.set && sealed_cache_ != nullptr &&
+          sealed_cache_->GenInstalledPublished(rej.part, rej.gen);
+      if (published) {
         if (zeroflush::get_trace::LocatorDiagEnabled()) {
           fprintf(stderr,
-                  "ZFDBG-get-final source=LSM_AFTER_RETIRE(installed part=%u "
-                  "gen=%u) → 回落原生查找（同 seq 版本已在 LSM）\n",
-                  rej.part, rej.gen);
+                  "ZFDBG-get-final source=LSM_AFTER_RETIRE(installed_by_publish "
+                  "part=%u gen=%u fence_covers=%d) → 回落原生查找\n",
+                  rej.part, rej.gen, IsGenInstalled(rej.part, rej.gen) ? 1 : 0);
         }
         return false;  // 未命中索引层：交给调用方走 LSM（非降级）
       }

@@ -1594,13 +1594,50 @@ int main(int argc, char** argv) {
     // 8b：retiring 标记完成后新引用必须被拒；已有引用完成前不得 unlink；
     //     引用释放后才允许回收。
     {
-      const uint64_t v8 = total + 6000;    // 目标键（本 fixture 专用，从未写过）
+      const uint64_t v8 = total + 6000;    // 目标键（本 fixture 专用）
       const std::string k8 = zf_keygen::KeyFromInt(v8, kKeySize);
       const std::string val_o = zf_keygen::ValueFor(v8, 1, kValueSize);
       const std::string val_n = zf_keygen::ValueFor(v8, 2, kValueSize);
       rocksdb::DBImpl* impl8 = static_cast<rocksdb::DBImpl*>(db.get());
       std::shared_ptr<zeroflush::ZeroFlushContext> ctx8 =
           impl8->GetZeroFlushContext();
+      // step 1as 修正（压力组 5 实证后收紧）：**新版本必须是 LSM 里真实存在的数据**。
+      // 旧 fixture 只把合成条目标成 cache 级 installed，LSM 里根本没有该键 ⇒ 读路径
+      // 无论怎么修都只能"报错或 NotFound"，无法体现用户要求的"重取视图后返回新值"。
+      // 现在：先用真实写入把 k8=new 写进库（seq 小），再封存+安装，等安装完成；
+      // 合成索引条目（seq=200 新 / 100 旧）只作为"胜出代已 retiring"的触发器。
+      db->Put(rocksdb::WriteOptions(), k8, val_n);
+      bool ls8_installed = false;
+      {
+        const uint32_t rp8 = ctx8->RoutePartId(rocksdb::Slice(k8));
+        ctx8->wal()->Sync(rp8).PermitUncheckedError();
+        const uint32_t rg8 = ctx8->wal()->ActiveGenOpt(rp8).value_or(0);
+        uint32_t sealed8 = 0;
+        const int rc8 =
+            ctx8->ForceSealForTest(impl8, impl8->GetDefaultColumnFamily(), rp8,
+                                   rg8, &sealed8);
+        if (rc8 < 0) {
+          printf("case8a SEAL_FAILURE: part=%u gen=%u rc=%d\n", rp8, rg8, rc8);
+        }
+        for (int t = 0; t < 40 && !ls8_installed; ++t) {
+          impl8->ZfDrainNow();
+          db->Flush(rocksdb::FlushOptions());
+          env_sleep_ms(50);
+          std::string fx8;
+          db->GetProperty("rocksdb.zeroflush.installed_fences", &fx8);
+          size_t pos = 0;
+          while (pos < fx8.size()) {
+            unsigned fp = 0, lo = 0, hi = 0;
+            if (fx8[pos] == 'p' &&
+                sscanf(fx8.c_str() + pos, "p%u=[%u,%u]", &fp, &lo, &hi) == 3) {
+              if (fp == rp8 && rg8 >= lo && rg8 <= hi) {
+                ls8_installed = true;
+              }
+            }
+            ++pos;
+          }
+        }
+      }
       const uint32_t P8A = 4, P8B = 5;     // 新代在 4、旧代在 5（互不相同）
       zeroflush::WalRecordRef ro{}, rn{};
       const bool ap_ok =
@@ -1770,20 +1807,25 @@ int main(int argc, char** argv) {
                    zeroflush::get_trace::LastSourceTls()));
         const bool read_is_new = st8.ok() && got8 == val_n;
         const bool read_is_old = st8.ok() && got8 == val_o;
-        // 合格：新值（协议完整走通）或**明确错误**（TryAgain/IOError/...）。
-        // 不合格：NotFound（静默丢失）、旧值（降级）。
         const bool read_not_found = st8.IsNotFound();
-        const bool pass8a =
-            rejected && no_downgrade && db_retired_gate &&
-            (read_is_new || (!st8.ok() && !read_not_found));
+        // 收紧后的合格判据（用户 2026-09-17 原话："重取视图后**返回新值**；
+        // 不能返回旧值、NotFound 或静默降级"）——前置已保证 LSM 真有 k8=new：
+        // 必须 OK 且等于新值；旧值/NotFound/报错都不合格。
+        const bool pass8a = rejected && no_downgrade && db_retired_gate &&
+                            read_is_new;
         printf("case8a retiring-reject-no-downgrade: %s (sel_returned=%d "
-               "retiring_rejected=%d db_gate=%d read_status=%s read_is_new=%d "
-               "read_is_old=%d read_is_notfound=%d)\n",
-               pass8a ? "PASS" : "FAIL", sel8 ? 1 : 0, rejected ? 1 : 0,
-               db_retired_gate ? 1 : 0,
+               "retiring_rejected=%d db_gate=%d lsm_has_new=%d read_status=%s "
+               "read_is_new=%d read_is_old=%d read_is_notfound=%d)\n",
+               pass8a ? "PASS" : (ls8_installed ? "FAIL" : "INCOMPLETE"),
+               sel8 ? 1 : 0, rejected ? 1 : 0, db_retired_gate ? 1 : 0,
+               ls8_installed ? 1 : 0,
                st8.ok() ? "OK" : st8.ToString().c_str(), read_is_new ? 1 : 0,
                read_is_old ? 1 : 0, read_not_found ? 1 : 0);
-        if (!pass8a) ++fails;
+        if (!ls8_installed) {
+          ++setup_incomplete;  // LSM 里没有新版本 ⇒ 本用例前提未建成，记未完成
+        } else if (!pass8a) {
+          ++fails;
+        }
       }
     }
     // ---- 用例 7（用户 2026-09-17 指令：**组件级隔离 fixture**）----

@@ -157,6 +157,12 @@ class SealedFileCache {
   void ReleaseGenReadRef(uint32_t part, uint32_t gen);
   // 是否已进入 retiring（测试/诊断用）。
   bool GenRetiring(uint32_t part, uint32_t gen) const;
+  // step 1as 修正（压力组 5）：**发布证据**——该代的 AddFile 是否已随某次成功发布的
+  // VersionEdit 进入当前 Version（`MarkGensInstalled` 只在"本次 edit 已发布"后调用）。
+  // 读路径据此判定"该代记录的同 seq 版本已在 LSM ⇒ 可回落 LSM（非降级）"。
+  // 注意与 fence 的区别：fence 还要求消费证明完整，可能**滞后于**发布 ⇒ 判"能否回落"
+  // 必须用发布证据，而不是 fence（实测：用 fence 会让真实已安装的代被判为不可回落）。
+  bool GenInstalledPublished(uint32_t part, uint32_t gen) const;
   uint64_t GenReadRefs(uint32_t part, uint32_t gen) const;
   uint64_t gen_read_ref_total() const {
     return gen_read_ref_total_.load(std::memory_order_relaxed);
