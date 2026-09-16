@@ -273,6 +273,18 @@ class ZeroFlushContext {
   // candidates == nullptr ⇒ 用读路径计算的集合（路由分区+别名+链上其它分区）；
   // 非空 ⇒ 只用给定候选（第一个视为路由分区）。不读 value、不做 tombstone
   // 映射——调用方自己解释 type。pin_slot 为可选 ZfPinSlot（内部 void* 传递）。
+  // step 1an（用户 2026-09-17）：把读引用槽公开，便于**组件级 fixture** 传入真实槽
+  // 并断言"胜出候选的 locator 与读引用成对"（此前工具只能传 nullptr，读到的是
+  // 上一次调用留下的陈旧身份——测试会误判）。
+  struct ZfPinSlot {
+    const ZeroFlushContext* ctx = nullptr;
+    std::shared_ptr<ROCKSDB_NAMESPACE::RandomAccessFile> handle;
+    uint32_t part = 0;
+    uint32_t gen = 0;
+    bool pinned = false;
+    bool is_active = false;
+  };
+
   bool SelectBestIndexRecord(const ROCKSDB_NAMESPACE::Slice& user_key,
                              ROCKSDB_NAMESPACE::SequenceNumber snapshot,
                              const std::vector<uint32_t>* candidates,

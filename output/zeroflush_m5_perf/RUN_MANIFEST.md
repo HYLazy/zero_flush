@@ -1452,3 +1452,35 @@ case5 active_gen_survives_freeze: FAIL
 "手工 unlink"独立为破坏性测试。当前 case5 仍为手工 unlink。
 
 **压力回归**：仍未完成（短读重试关闭下分批跑）。
+
+### D-29. step 1an：case7 组件级隔离 fixture **通过**（含旧实现对照）— 见提交
+
+**按用户指令重建（不依赖路由/后台物化/大写入）**：组件层直接构造——
+- 用 WAL 管理器的 `Append` 接口在**两个显式 physical part** 写受控记录（返回真实 locator）：
+  K 旧值→B(seq=100)、K 新值→A(seq=200)、填充→B(seq=300)、填充→A(seq=100000)；
+- `Sync` 两个分区后，把四个条目**各插一次**进各自索引段（`Active(part)` 保证段存在）；
+- 前置断言：追加成功 / 四插成功 / 分别验证 A、B（索引找得到预期版本，且 locator 按
+  `ReadValue` 读回并核对值与 gen 一致）；
+- 调用**生产选择逻辑**（新增组件级入口：把 `ZfPinSlot` 公开，fixture 传**真实槽**，
+  避免此前传 nullptr 读到上一次调用的陈旧身份）；`ZF_DBG_LOCATOR` 由进程启动前设置。
+
+**结果（新实现）**
+```
+case7 fixture: appends=1 ins=1 candA=1 candB=1
+   sel =(part=2 gen=0 off=0 seq=200)=expect      ← locator 属于 A
+   pin =(part=2 gen=0 pinned=0 active=1)         ← **读引用也属于 A**（活跃代暂不可 pin）
+   exec[A=1 B=1 B_hit=1 B_lost=1]                ← 实际访问 A→B，B 命中但落选
+   legacy=off => PASS        semtest cases1-7: PASS (fails=0 setup_incomplete=0)  exit=0
+```
+**旧共享槽实现对照**（`ZF_TEST_LEGACY_PIN_SLOT=1`，仅诊断开关；每个命中候选都写输出槽）
+```
+   pin =(part=3 gen=0 …)     ← 读引用被落选候选 B 覆盖（part=3=B）
+   => FAIL（用例按预期失败）
+case7 legacy-check: PASS（legacy 模式：用例按预期失败 ⇒ 用例有区分力）
+```
+⇒ **同一 fixture 下：旧实现失败、新实现通过**，确定性回归闭环（不再依赖 `all` 的统计）。
+`INCOMPLETE` 处理保留（exit=3，汇总计"未完成"）。
+
+**仍未做**：case5 的真实回收验收（读引用存在时延迟回收 → 读正确 → 释放引用后最终回收；
+需先实现跨 active→sealed 的 generation 读引用，不能靠跳过 unlink）；压力组回归
+（短读重试关闭下分批）；整单元撤销与提交失败注入；`level=-1` 融合进展；合法路径 A；固定路由。

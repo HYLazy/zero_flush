@@ -1344,184 +1344,141 @@ int main(int argc, char** argv) {
              pass ? "PASS" : "FAIL", lp, (unsigned long long)sq, (int)t, pb);
       if (!pass) ++fails;
     }
-    // ---- 用例 7（用户 2026-09-17 重建）：**隔离 fixture** 验证 locator/pin 配对 ----
-    // 合法状态：同一个用户键 K 的**两条真实记录**（较新 s2、较旧 s1，均来自本进程写入），
-    //   A = 索引条目(K, s2) → K 的较新记录 locator（key/seq/type 与该 WAL 记录一致）
-    //   B = 索引条目(K, s1) → K 的较旧记录 locator（同上）
-    // 段上界由"填充键"抬高：upper(A) > upper(B) > s2 > s1（保证访问序 A→B 且 B 不被剪枝）。
-    // 断言（执行记录，而非仅上界）：实际访问 A→B、B 命中但落选、最终 locator 与 pin 均属 A，
-    //   且读回的是**较新的值**（若 pin 被 B 覆盖，会读回较旧值 ⇒ 失败）。
+    // ---- 用例 7（用户 2026-09-17 指令：**组件级隔离 fixture**）----
+    // 不依赖路由/后台物化/大量写入：直接用 WAL 管理器的 Append 接口在**两个显式
+    // physical part** 上写受控记录（返回真实 locator），再把它们插入**各自的索引段**
+    // （每个条目只插一次），然后调用**生产选择逻辑**并断言：
+    //   访问 A → 访问 B；A 命中 seq=200（胜出）；B 命中 seq=100（落选）；
+    //   最终 locator 与**读引用**都属于 A；读回 A 的值。
+    // 旧共享槽实现（ZF_TEST_LEGACY_PIN_SLOT=1）在同一 fixture 下必须失败。
     {
-      const uint64_t vK = total + 5;      // 目标键 K：真实写入两次（s1 < s2）
-      const uint64_t vFA = total + 6;     // A 段填充键（仅抬上界，不读）
-      const uint64_t vFB = total + 7;     // B 段填充键
+      const uint64_t vK = total + 5000;   // 目标键：**从未被写过**（索引里只有本 fixture 的条目）
       const std::string kK = zf_keygen::KeyFromInt(vK, kKeySize);
-      const std::string kFA = zf_keygen::KeyFromInt(vFA, kKeySize);
-      const std::string kFB = zf_keygen::KeyFromInt(vFB, kKeySize);
+      const std::string val_old = zf_keygen::ValueFor(vK, 1, kValueSize);
+      const std::string val_new = zf_keygen::ValueFor(vK, 2, kValueSize);
       rocksdb::DBImpl* impl7 = static_cast<rocksdb::DBImpl*>(db.get());
       std::shared_ptr<zeroflush::ZeroFlushContext> ctx7 =
           impl7->GetZeroFlushContext();
-      const std::string val_old = zf_keygen::ValueFor(vK, 1, kValueSize);
-      const std::string val_new = zf_keygen::ValueFor(vK, 2, kValueSize);
-      // 真实缺陷的形态：同一个键因**路由变化**落在不同 physical_part。
-      // 做法：写入 → 触发封存/换代（路由表随之重建）→ 再写 → … 直到 K 的记录
-      // 出现在 ≥2 个不同 part（否则报 INCOMPLETE，不硬造）。
-      db->Put(rocksdb::WriteOptions(), kK, val_old);   // 第一次（s1）
-      for (int round = 0; round < 10; ++round) {
-        // 触发换代：写足量数据并 Flush（epoch→align_l1 重建表）；
-        // 规模不足时路由表不会真正变化 ⇒ 前置断言会报 INCOMPLETE（不硬造）。
-        for (int i = 0; i < 3000; ++i) {
-          const uint64_t vv = total + 1000 + round * 1000 + i;
-          db->Put(rocksdb::WriteOptions(), zf_keygen::KeyFromInt(vv, kKeySize),
-                  zf_keygen::ValueFor(vv, 1, kValueSize));
+      const uint32_t PA = 2, PB = 3;      // 显式指定两个 physical part
+      // 1) 受控 WAL 追加（真实 locator；按 seq 顺序）
+      zeroflush::WalRecordRef r_old{}, r_new{}, r_fb{}, r_fa{};
+      const uint64_t vFB = total + 5001, vFA = total + 5002;
+      const std::string kFB = zf_keygen::KeyFromInt(vFB, kKeySize);
+      const std::string kFA = zf_keygen::KeyFromInt(vFA, kKeySize);
+      const rocksdb::Status a1 = ctx7->wal()->Append(
+          PB, rocksdb::Slice(kK), rocksdb::Slice(val_old),
+          static_cast<uint8_t>(rocksdb::kTypeValue), 100, &r_old);
+      const rocksdb::Status a2 = ctx7->wal()->Append(
+          PA, rocksdb::Slice(kK), rocksdb::Slice(val_new),
+          static_cast<uint8_t>(rocksdb::kTypeValue), 200, &r_new);
+      const rocksdb::Status a3 = ctx7->wal()->Append(
+          PB, rocksdb::Slice(kFB), rocksdb::Slice(val_old),
+          static_cast<uint8_t>(rocksdb::kTypeValue), 300, &r_fb);
+      const rocksdb::Status a4 = ctx7->wal()->Append(
+          PA, rocksdb::Slice(kFA), rocksdb::Slice(val_old),
+          static_cast<uint8_t>(rocksdb::kTypeValue), 100000, &r_fa);
+      const bool appends_ok = a1.ok() && a2.ok() && a3.ok() && a4.ok();
+      ctx7->wal()->Sync(PA).PermitUncheckedError();
+      ctx7->wal()->Sync(PB).PermitUncheckedError();
+      // 确保两个 part 有索引段（Active 会创建），再把四个条目各插一次
+      ctx7->index_set()->Active(PA);
+      ctx7->index_set()->Active(PB);
+      const uint32_t gA = ctx7->wal()->ActiveGenOpt(PA).value_or(0);
+      const uint32_t gB = ctx7->wal()->ActiveGenOpt(PB).value_or(0);
+      auto loc_of_ref = [](const zeroflush::WalRecordRef& r) {
+        zeroflush::SlimLocator sl{};
+        sl.part_id = r.part_id;
+        sl.gen = r.gen;
+        sl.wal_offset = r.offset;
+        return std::string(reinterpret_cast<const char*>(&sl), sizeof(sl));
+      };
+      const uint64_t i1 = ctx7->index_set()->Insert(PA, gA, ik(vK, 1, 200),
+                                                    loc_of_ref(r_new));
+      const uint64_t i2 = ctx7->index_set()->Insert(PB, gB, ik(vK, 1, 100),
+                                                    loc_of_ref(r_old));
+      const uint64_t i3 = ctx7->index_set()->Insert(PA, gA, ik(vFA, 1, 100000),
+                                                    loc_of_ref(r_fa));
+      const uint64_t i4 = ctx7->index_set()->Insert(PB, gB, ik(vFB, 1, 300),
+                                                    loc_of_ref(r_fb));
+      const bool ins_ok = i1 > 0 && i2 > 0 && i3 > 0 && i4 > 0;
+      // 2) 分别验证 A/B：索引找得到预期版本，且 locator 能解码出**一致的 key/seq/type/值**
+      auto verify_cand = [&](uint32_t part, uint64_t expect_seq,
+                             const zeroflush::WalRecordRef& ref,
+                             const std::string& expect_val) {
+        std::string lb;
+        rocksdb::ValueType t = rocksdb::kTypeValue;
+        rocksdb::SequenceNumber sq = 0;
+        if (!ctx7->index_set()->GetCopy(part, rocksdb::Slice(kK), 99999999ULL,
+                                        &lb, &t, &sq, nullptr, nullptr) ||
+            sq != expect_seq) {
+          return false;
         }
-        db->Flush(rocksdb::FlushOptions());
-        db->Put(rocksdb::WriteOptions(), kK, val_new);  // 再写一次（s2+）
-      }
-      db->Put(rocksdb::WriteOptions(), kFA, val_old);  // 填充（真实写入）
-      db->Put(rocksdb::WriteOptions(), kFB, val_old);
-      // 刷盘：让四条记录可被扫描到 locator
-      for (uint32_t pp : ctx7->wal()->AllPartitionIds()) {
-        ctx7->wal()->Sync(pp).PermitUncheckedError();
-      }
-      // 扫 WAL 取 K 的**两条**记录（seq/offset/part/gen/type 与索引条目必须一致）
-      struct Rec { uint32_t part, gen; uint64_t off, seq; int type; };
-      std::vector<Rec> krecs;
-      {
-        const std::string wdir = dbdir + "/zfwal";
-        std::vector<std::pair<uint32_t, uint32_t>> wfs;
-        if (DIR* d = opendir(wdir.c_str())) {
-          while (struct dirent* e = readdir(d)) {
-            uint32_t a = 0, b = 0;
-            if (ParseZfWalName(e->d_name, &a, &b)) wfs.emplace_back(a, b);
+        // locator ↔ 记录一致性：按 locator 读回并核对 key/seq/type/值
+        std::string v;
+        if (!ctx7->ReadValue(rocksdb::Slice(lb), &v).ok()) return false;
+        return v == expect_val && ref.gen ==
+                                      reinterpret_cast<const zeroflush::SlimLocator*>(
+                                          lb.data())
+                                          ->gen;
+      };
+      const bool candA_ok = verify_cand(PA, 200, r_new, val_new);
+      const bool candB_ok = verify_cand(PB, 100, r_old, val_old);
+      // 3) 生产选择 + 执行记录 + 读引用身份
+      zeroflush::get_trace::ClearCandidateVisits();
+      uint32_t sel_part = 0, sel_phys = 0, sel_gen = 0;
+      uint64_t sel_off = 0, sel_seq = 0;
+      rocksdb::ValueType sel_type = rocksdb::kTypeValue;
+      // 传入**真实 pin 槽**（组件级入口）：胜出候选的 locator 与读引用必须成对。
+      zeroflush::ZeroFlushContext::ZfPinSlot pin_slot;
+      pin_slot.ctx = ctx7.get();
+      const bool sel_ok = ctx7->SelectBestIndexRecord(
+          rocksdb::Slice(kK), 99999999ULL, nullptr, &sel_part, &sel_phys,
+          &sel_gen, &sel_off, &sel_type, &sel_seq, &pin_slot);
+      const auto& pin7 = zeroflush::get_trace::LastPinIdentity();
+      bool visited_a = false, visited_b = false, b_hit = false, b_lost = false;
+      for (const auto& v : zeroflush::get_trace::CandidateVisits()) {
+        if (v.part == PA) visited_a = true;
+        if (v.part == PB) {
+          visited_b = true;
+          if (v.hit) {
+            b_hit = true;
+            b_lost = (v.seq == 100);
           }
-          closedir(d);
-        }
-        for (const auto& [a, b] : wfs) {
-          std::ifstream in(ZfWalPath(wdir, a, b), std::ios::binary);
-          if (!in.good()) continue;
-          const std::string buf((std::istreambuf_iterator<char>(in)),
-                                std::istreambuf_iterator<char>());
-          size_t o = 0;
-          while (o + zeroflush::kZfHeaderSize <= buf.size()) {
-            const uint32_t kl =
-                *reinterpret_cast<const uint32_t*>(buf.data() + o + 8);
-            const uint32_t vl =
-                *reinterpret_cast<const uint32_t*>(buf.data() + o + 12);
-            const uint32_t tl = zeroflush::ZfRecordLength(kl, vl);
-            if (o + tl > buf.size()) break;
-            zeroflush::ZfRecordHeader h;
-            rocksdb::Slice kk, vv;
-            if (zeroflush::DecodeZfRecord(buf.data() + o, tl, &h, &kk, &vv).ok() &&
-                kl == kK.size() &&
-                memcmp(kk.data(), kK.data(), kl) == 0) {
-              krecs.push_back({a, b, o, h.seq, static_cast<int>(h.type)});
-            }
-            o += tl;
-          }
         }
       }
-      std::sort(krecs.begin(), krecs.end(),
-                [](const Rec& x, const Rec& y) { return x.seq < y.seq; });
-      bool cross_part = false;
-      for (const auto& r : krecs) {
-        if (r.part != krecs.empty() ? krecs.front().part : 0) cross_part = true;
-      }
-      if (krecs.size() < 2 || !cross_part) {
-        printf("case7 locator-pin-same-candidate: INCOMPLETE "
-               "(K 的真实记录=%zu 条、跨-part=%d；需 ≥2 且跨 part)\n",
-               krecs.size(), cross_part ? 1 : 0);
+      const bool loc_ok = sel_ok && sel_seq == 200 && sel_phys == r_new.part_id &&
+                          sel_gen == r_new.gen && sel_off == r_new.offset;
+      const bool pin_ok = pin_slot.part == r_new.part_id &&
+                          pin_slot.gen == r_new.gen;
+      const bool setup_ok = appends_ok && ins_ok && candA_ok && candB_ok;
+      const bool pass7 = setup_ok && loc_ok && pin_ok && visited_a &&
+                         visited_b && b_hit && b_lost;
+      printf("case7 fixture: appends=%d ins=%d candA=%d candB=%d | sel=(part=%u "
+             "gen=%u off=%llu seq=%llu) expect=(part=%u gen=%u off=%llu seq=200) "
+             "| pin=(part=%u gen=%u pinned=%d active=%d) | exec[A=%d B=%d "
+             "B_hit=%d B_lost=%d] | legacy=%s => %s\n",
+             appends_ok ? 1 : 0, ins_ok ? 1 : 0, candA_ok ? 1 : 0,
+             candB_ok ? 1 : 0, sel_phys, sel_gen,
+             (unsigned long long)sel_off, (unsigned long long)sel_seq,
+             r_new.part_id, r_new.gen, (unsigned long long)r_new.offset,
+             pin7.part, pin7.gen, pin7.pinned ? 1 : 0, pin7.is_active ? 1 : 0,
+             visited_a ? 1 : 0, visited_b ? 1 : 0, b_hit ? 1 : 0, b_lost ? 1 : 0,
+             getenv("ZF_TEST_LEGACY_PIN_SLOT") != nullptr ? "ON" : "off",
+             pass7 ? "PASS" : "FAIL");
+      if (!setup_ok) {
         ++setup_incomplete;
       } else {
-        const Rec r_old = krecs.front();   // 较旧（B 用）
-        const Rec r_new = krecs.back();    // 较新（A 用）
-        const uint32_t partA = r_new.part, partB = r_old.part;
-        const uint32_t gA = ctx7->wal()->ActiveGenOpt(partA).value_or(0);
-        const uint32_t gB = ctx7->wal()->ActiveGenOpt(partB).value_or(0);
-        // 前置断言 1：目标段存在
-        // 前置断言 1：目标段存在（该 part 已有索引段 ⇒ upper > 0）
-        const bool seg_ok = ctx7->index_set()->PartMaxSeqUpper(partA) > 0 ||
-                            r_new.seq > 0;
-        // 前置断言 2/3：两条插入成功（返回字节 >0）
-        auto ins_bytes = [&](uint32_t part, uint32_t gen, uint64_t keyv,
-                             uint64_t seq, const Rec& r) {
-          return ctx7->index_set()->Insert(part, gen, ik(keyv, 1, seq),
-                                           loc_of(r.part, r.gen, r.off));
-        };
-        // A：填充键（抬 upper(A) 到 100000）→ 必须最先被访问
-        const uint64_t bA_fill = ins_bytes(partA, gA, vFA, 100000, r_new);
-        const uint64_t bA = ins_bytes(partA, gA, vK, r_new.seq, r_new);
-        // B：填充键（抬 upper(B) 到 s2+100，> s2 ⇒ 不被剪枝）→ 后访问
-        const uint64_t bB_fill = ins_bytes(partB, gB, vFB, r_new.seq + 100, r_old);
-        const uint64_t bB = ins_bytes(partB, gB, vK, r_old.seq, r_old);
-        const bool ins_ok = bA > 0 && bB > 0 && bA_fill > 0 && bB_fill > 0;
-        // 前置断言 4：分别查询 A/B 段能得到预期记录（seq 一致）
-        auto probe = [&](uint32_t part, uint64_t expect_seq) {
-          std::string lb;
-          rocksdb::ValueType t = rocksdb::kTypeValue;
-          rocksdb::SequenceNumber sq = 0;
-          if (!ctx7->index_set()->GetCopy(part, rocksdb::Slice(kK),
-                                          /*snapshot=*/99999999ULL, &lb, &t, &sq,
-                                          nullptr, nullptr)) {
-            return false;
-          }
-          return sq == expect_seq;
-        };
-        const bool probe_a = probe(partA, r_new.seq);
-        const bool probe_b = probe(partB, r_old.seq);
-        const bool setup_ok = seg_ok && ins_ok && probe_a && probe_b;
-        if (!setup_ok) {
-          printf("case7 locator-pin-same-candidate: INCOMPLETE "
-                 "(seg=%d ins(A=%llu,B=%llu,fillA=%llu,fillB=%llu) probeA=%d "
-                 "probeB=%d partA=%u gA=%u seq=%llu partB=%u gB=%u seq=%llu)\n",
-                 seg_ok ? 1 : 0, (unsigned long long)bA, (unsigned long long)bB,
-                 (unsigned long long)bA_fill, (unsigned long long)bB_fill,
-                 probe_a ? 1 : 0, probe_b ? 1 : 0, partA, gA,
-                 (unsigned long long)r_new.seq, partB, gB,
-                 (unsigned long long)r_old.seq);
-          ++setup_incomplete;
-        } else {
-          // 生产选择函数 + 执行记录（ZF_DBG_LOCATOR 需在**进程启动前**设置）
-          zeroflush::get_trace::ClearCandidateVisits();
-          std::vector<uint32_t> cands{partA, partB};
-          uint32_t sel_part = 0, sel_phys = 0, sel_gen = 0;
-          uint64_t sel_off = 0, sel_seq = 0;
-          rocksdb::ValueType sel_type = rocksdb::kTypeValue;
-          // pin 配对无法从此处直接读取（ZfPinSlot 为内部类型）⇒ 用**读值**判定：
-          // pin 若被 B 覆盖，读会解码到较旧记录 ⇒ 值不是 val_new。
-          const bool sel_ok = ctx7->SelectBestIndexRecord(
-              rocksdb::Slice(kK), 99999999ULL, &cands, &sel_part, &sel_phys,
-              &sel_gen, &sel_off, &sel_type, &sel_seq, nullptr);
-          bool visited_a = false, visited_b = false, b_hit = false, b_lost = false;
-          for (const auto& v : zeroflush::get_trace::CandidateVisits()) {
-            if (v.part == partA) visited_a = true;
-            if (v.part == partB) {
-              visited_b = true;
-              if (v.hit) {
-                b_hit = true;
-                b_lost = (v.seq == r_old.seq);
-              }
-            }
-          }
-          std::string got7;
-          const rocksdb::Status st7 = db->Get(rocksdb::ReadOptions(), kK, &got7);
-          const bool value_new = st7.ok() && got7 == val_new;
-          const bool pass7 = sel_ok && (sel_seq == r_new.seq) &&
-                             (sel_phys == r_new.part && sel_gen == r_new.gen &&
-                              sel_off == r_new.off) &&
-                             visited_a && visited_b && b_hit && b_lost &&
-                             value_new;
-          printf("case7 locator-pin-same-candidate: %s\n", pass7 ? "PASS" : "FAIL");
-          printf("case7 detail: sel_ok=%d sel=(part=%u gen=%u off=%llu seq=%llu) "
-                 "expected=(part=%u gen=%u off=%llu seq=%llu) exec[A=%d B=%d "
-                 "B_hit=%d B_lost=%d] read_new_value=%d\n",
-                 sel_ok ? 1 : 0, sel_phys, sel_gen,
-                 (unsigned long long)sel_off, (unsigned long long)sel_seq,
-                 r_new.part, r_new.gen, (unsigned long long)r_new.off,
-                 (unsigned long long)r_new.seq, visited_a ? 1 : 0,
-                 visited_b ? 1 : 0, b_hit ? 1 : 0, b_lost ? 1 : 0,
-                 value_new ? 1 : 0);
-          if (!pass7) ++fails;
+        // 旧共享槽模式下**必须失败**（否则说明用例区分不出该缺陷）。
+        const bool legacy = getenv("ZF_TEST_LEGACY_PIN_SLOT") != nullptr;
+        if (legacy) {
+          const bool legacy_check_ok = !pass7;  // 期望失败
+          printf("case7 legacy-check: %s（legacy 模式：用例%s）\n",
+                 legacy_check_ok ? "PASS" : "FAIL",
+                 legacy_check_ok ? "按预期失败 ⇒ 用例有区分力"
+                                 : "竟然通过 ⇒ 用例无区分力");
+          if (!legacy_check_ok) ++fails;
+        } else if (!pass7) {
+          ++fails;
         }
       }
     }

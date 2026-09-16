@@ -279,6 +279,20 @@ inline void NoteCandidateVisit(uint32_t part, uint32_t order, bool hit,
   CandidateVisits().push_back(CandidateVisit{part, order, hit, seq});
 }
 
+// step 1an（用户 2026-09-17）：**胜出候选的读引用身份**（选择结束后由实现写入，
+// 测试据此断言 pin 属于胜出候选，而不是被落选候选覆盖）。
+struct PinIdentity {
+  bool set = false;
+  uint32_t part = 0;   // 读引用请求的 physical_part
+  uint32_t gen = 0;
+  bool pinned = false;      // 是否真的取得句柄
+  bool is_active = false;   // 请求时该代是否活跃（活跃代当前无法 pin）
+};
+inline PinIdentity& LastPinIdentity() {
+  static thread_local PinIdentity p;
+  return p;
+}
+
 // B/C 不一致计数（索引插入 / 选择胜出，与 A 表对照）
 inline std::atomic<uint64_t>& LocatorBMismatch() {
   static std::atomic<uint64_t> n{0};

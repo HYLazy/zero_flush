@@ -1521,20 +1521,8 @@ void ZeroFlushContext::ReleaseFrozenIndexes(uint64_t epoch) {
 // M4.3a：Get 查分区索引（替代 mem/imm 链）。
 // 命中返回 true（含 tombstone：type 为 Deletion 时置 NotFound）；未命中
 // 返回 false（调用方继续走原生 SST 查找）。
-// step 1h：pin 槽与 thunk——在索引选择完成、链引用释放**之前**取 WAL 读
-// 句柄，覆盖"选择 → ReadValue"窗口（用户 2026-09-15 缺口 3）。活跃代无法
-// pin（Freeze 会轮换写句柄），记 is_active 供错误协议使用。
-struct ZfPinSlot {
-  const ZeroFlushContext* ctx = nullptr;
-  std::shared_ptr<ROCKSDB_NAMESPACE::RandomAccessFile> handle;
-  uint32_t part = 0;
-  uint32_t gen = 0;
-  bool pinned = false;
-  bool is_active = false;
-};
-
 static void ZfPinThunk(void* c, uint32_t part, uint32_t gen) {
-  auto* slot = static_cast<ZfPinSlot*>(c);
+  auto* slot = static_cast<ZeroFlushContext::ZfPinSlot*>(c);
   if (slot == nullptr) return;
   slot->part = part;
   slot->gen = gen;
@@ -1668,7 +1656,25 @@ bool ZeroFlushContext::SelectBestIndexRecord(
         if (out_slot != nullptr) {
           *out_slot = std::move(cand_pin);  // 胜出候选：locator + 读引用整体替换
           out_slot->ctx = this;
+          auto& pi = zeroflush::get_trace::LastPinIdentity();
+          pi.set = true;
+          pi.part = out_slot->part;
+          pi.gen = out_slot->gen;
+          pi.pinned = out_slot->pinned;
+          pi.is_active = out_slot->is_active;
         }
+      }
+      // 测试开关（仅诊断）：复现**旧的共享槽语义**——每个命中的候选都把 pin 写进
+      // 输出槽（落选者会覆盖胜出者的句柄）⇒ 同一 fixture 下应当失败。
+      if (out_slot != nullptr && getenv("ZF_TEST_LEGACY_PIN_SLOT") != nullptr) {
+        *out_slot = std::move(cand_pin);
+        out_slot->ctx = this;
+        auto& pi = zeroflush::get_trace::LastPinIdentity();
+        pi.set = true;
+        pi.part = out_slot->part;
+        pi.gen = out_slot->gen;
+        pi.pinned = out_slot->pinned;
+        pi.is_active = out_slot->is_active;
       }
     }
   }
