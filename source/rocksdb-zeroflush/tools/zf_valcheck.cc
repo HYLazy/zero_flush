@@ -1558,6 +1558,40 @@ int main(int argc, char** argv) {
       };
       const bool candA_ok = verify_cand(PA, 200, r_new, val_new);
       const bool candB_ok = verify_cand(PB, 100, r_old, val_old);
+      // 2b) **真实 sealed pin 变体**：把 A/B 走组件级封存（WAL 换代 + 索引换代 +
+      // registry 登记；不含 memtable/epoch 归属，工具无法构造那部分），
+      // 使选择时确实取得 **sealed 句柄**（pinned=1），并**经由该句柄读取 A**。
+      bool sealed_ok = false, pin_read_ok = false;
+      {
+        const uint32_t bytesA = static_cast<uint32_t>(
+            ctx7->wal()->ActiveSize(PA));
+        const uint32_t bytesB = static_cast<uint32_t>(
+            ctx7->wal()->ActiveSize(PB));
+        // WAL 换代（production Freeze：FlushBuf + Sync + 长度校验 + 换代）
+        const zeroflush::FreezeResult frA = ctx7->wal()->Freeze(PA);
+        const zeroflush::FreezeResult frB = ctx7->wal()->Freeze(PB);
+        if (frA.old_gen == gA && frB.old_gen == gB && frA.sealed_bytes > 0) {
+          // 索引换代（新活跃段接替，旧段冻结）
+          ctx7->index_set()->Freeze(PA, frA.old_gen + 1);
+          ctx7->index_set()->Freeze(PB, frB.old_gen + 1);
+          // registry 登记（sealed && !installed ⇒ 计入 pending；Get 校验要求登记）
+          ctx7->sealed_cache()->RegisterGen(PA, frA.old_gen, frA.sealed_bytes);
+          ctx7->sealed_cache()->RegisterGen(PB, frB.old_gen, frB.sealed_bytes);
+          zeroflush::SealedEpoch seA;
+          seA.epoch = 900001;
+          seA.total_bytes = frA.sealed_bytes;
+          seA.gens.emplace_back(PA, frA.old_gen);
+          seA.part_bytes[PA] = frA.sealed_bytes;
+          zeroflush::SealedEpoch seB;
+          seB.epoch = 900002;
+          seB.total_bytes = frB.sealed_bytes;
+          seB.gens.emplace_back(PB, frB.old_gen);
+          seB.part_bytes[PB] = frB.sealed_bytes;
+          ctx7->sealed_cache()->AddEpochWithRecoveryAdoption(seA);
+          ctx7->sealed_cache()->AddEpochWithRecoveryAdoption(seB);
+          sealed_ok = true;
+        }
+      }
       // 3) 生产选择 + 执行记录 + 读引用身份
       zeroflush::get_trace::ClearCandidateVisits();
       uint32_t sel_part = 0, sel_phys = 0, sel_gen = 0;
@@ -1585,9 +1619,57 @@ int main(int argc, char** argv) {
                           sel_gen == r_new.gen && sel_off == r_new.offset;
       const bool pin_ok = pin_slot.part == r_new.part_id &&
                           pin_slot.gen == r_new.gen;
+      const bool sealed_pin = pin_slot.pinned && pin_slot.handle != nullptr;
+      // 经**该 pin 的句柄**读取：key/seq/type/value 必须全部匹配 A
+      if (sealed_pin && loc_ok) {
+        zeroflush::SlimLocator sl{};
+        sl.part_id = (uint32_t)sel_phys;
+        sl.gen = sel_gen;
+        sl.wal_offset = sel_off;
+        const std::string lb(reinterpret_cast<const char*>(&sl), sizeof(sl));
+        std::string v2;
+        if (ctx7->ReadValuePinned(rocksdb::Slice(lb), pin_slot.handle.get(), &v2)
+                .ok() &&
+            v2 == val_new) {
+          // （记录头与 value 直接从句柄原始读取核对，见下）
+          // 经 pin：先确认 value 一致（ReadValuePinned 已在上方核对），
+          // 再**直接从句柄读原始记录头**解出 key/seq/type 与 A 的记录核对
+          // （注意：ReadFromSealed 只回填 value，不能拿它解记录头）。
+          char hdrbuf[24];
+          rocksdb::Slice hres;
+          (void)hres;
+          if (pin_slot.handle->Read(r_new.offset, 24, &hres, hdrbuf).ok() &&
+              hres.size() == 24) {
+            uint32_t kl2 = 0, vl2 = 0;
+            std::memcpy(&kl2, hres.data() + 8, 4);
+            std::memcpy(&vl2, hres.data() + 12, 4);
+            const uint32_t tl2 = zeroflush::ZfRecordLength(kl2, vl2);
+            std::string rec2;
+            rec2.resize(tl2);
+            std::memcpy(&rec2[0], hres.data(), 24);
+            rocksdb::Slice rest2;
+            const bool ok2 =
+                pin_slot.handle
+                    ->Read(r_new.offset + 24, tl2 - 24, &rest2, &rec2[0] + 24)
+                    .ok() &&
+                rest2.size() == tl2 - 24;
+            zeroflush::ZfRecordHeader h2;
+            rocksdb::Slice k2, v2s;
+            const bool dec = ok2 && zeroflush::DecodeZfRecord(
+                                        rec2.data(), tl2, &h2, &k2, &v2s)
+                                        .ok();
+            pin_read_ok = dec && v2s == rocksdb::Slice(val_new) &&
+                          h2.seq == 200 &&
+                          h2.type == static_cast<uint8_t>(rocksdb::kTypeValue) &&
+                          k2 == rocksdb::Slice(kK);
+          }
+        }
+      }
       const bool setup_ok = appends_ok && ins_ok && candA_ok && candB_ok;
+      // sealed 变体（封存成功时）必须 pinned=1 且经 pin 读回 A；未封存成功则记 INCOMPLETE。
+      const bool sealed_ok_all = sealed_ok && sealed_pin && pin_read_ok;
       const bool pass7 = setup_ok && loc_ok && pin_ok && visited_a &&
-                         visited_b && b_hit && b_lost;
+                         visited_b && b_hit && b_lost && sealed_ok_all;
       printf("case7 fixture: appends=%d ins=%d candA=%d candB=%d | sel=(part=%u "
              "gen=%u off=%llu seq=%llu) expect=(part=%u gen=%u off=%llu seq=200) "
              "| pin=(part=%u gen=%u pinned=%d active=%d) | exec[A=%d B=%d "
@@ -1600,7 +1682,9 @@ int main(int argc, char** argv) {
              visited_a ? 1 : 0, visited_b ? 1 : 0, b_hit ? 1 : 0, b_lost ? 1 : 0,
              getenv("ZF_TEST_LEGACY_PIN_SLOT") != nullptr ? "ON" : "off",
              pass7 ? "PASS" : "FAIL");
-      if (!setup_ok) {
+      printf("case7 sealed: sealed=%d pinned=%d pin_read_A=%d\n", sealed_ok ? 1 : 0,
+             sealed_pin ? 1 : 0, pin_read_ok ? 1 : 0);
+      if (!setup_ok || !sealed_ok) {
         ++setup_incomplete;
       } else {
         // 旧共享槽模式下**必须失败**（否则说明用例区分不出该缺陷）。

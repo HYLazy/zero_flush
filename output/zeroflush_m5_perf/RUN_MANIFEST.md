@@ -1521,3 +1521,37 @@ semtest cases1-7: SEMTEST_INCOMPLETE (fails=0 setup_incomplete=1)   exit=3
 **未做**：让 case5 真正做到"该代安装成功 → 回收延迟 → 读正确 → 释放后最终回收"
 （需要把目标分区确定性推到换代并完成安装）；case7 的 sealed 变体（封存+登记后断言
 `pinned=1` 并经由 pin 读取 A）；压力组回归；整单元撤销与提交失败注入；融合进展；A；固定路由。
+
+### D-31. step 1ap：case7 **真实 sealed pin 验收通过**（旧实现对照仍失败）；case5 仍 INCOMPLETE
+
+**case7 sealed 变体（按用户要求）**：复用同一组件 fixture，把 A/B 走**组件级封存**——
+`wal_->Freeze(part)`（production Freeze：FlushBuf+Sync+长度校验+换代）+ `index_set_->Freeze`
+（活跃段接替、旧段冻结）+ `sealed_cache_->RegisterGen` + `AddEpochWithRecoveryAdoption`
+（registry 登记；工具无法构造 memtable/epoch 归属那部分，已注明）——然后：
+```
+case7 fixture: appends=1 ins=1 candA=1 candB=1
+   sel=(part=2 gen=0 off=336420 seq=200)=expect     ← locator 属于 A
+   pin=(part=2 gen=0 pinned=1 active=0)             ← **真实 sealed 句柄**（pinned=1，非活跃代）
+   exec[A=1 B=1 B_hit=1 B_lost=1]                   ← 访问 A→B，B 命中但落选
+   => PASS
+case7 sealed: sealed=1 pinned=1 pin_read_A=1
+```
+`pin_read_A` = **经该 pin 句柄**原始读取记录头并解码，核对 **key/seq(=200)/type(VAL)/value**
+全部匹配 A ✓（此前 `pin_read_A=0` 是**我的检查写错**：`ReadFromSealed` 只回填 value，
+不能拿它解记录头；已改为直接从句柄读原始 24B+payload）。
+
+**旧共享槽对照（同一 fixture）**
+```
+pin=(part=3 gen=0 pinned=1 active=0)   ← 读引用被落选候选 B 覆盖（part=3=B）
+=> FAIL；case7 legacy-check: PASS（有区分力）
+```
+
+**case5 仍 INCOMPLETE**（本轮未推进）：`refs_during=1`（读引用取得并持有）✓、读正确 ✓，
+但目标代**未安装**（`installed=0`；按用户纠正：无 fence 只说明"未证明安装"，换代需直接核对
+`active_gen`）。下一步按用户要求：**显式封存目标物理代 → 驱动正常物化与安装 → 若安装迟迟
+不完成则报"安装进展失败"**（不再加写入、不再归为 fixture 未建成）——这可能直接触及
+尚未解决的融合/排空问题。
+
+**读引用契约（用户第 2 条）**：RAII 化与"最后引用释放 vs 新读者取得"的同步协议**未做**；
+当前实现仅在 `mu_` 下检查引用计数（检查与入队同一锁内 ✓），但"入队后新读者再来"的竞态
+未加协议，需与 case5 一起解决。
