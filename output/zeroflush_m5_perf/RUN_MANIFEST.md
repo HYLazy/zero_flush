@@ -1950,3 +1950,35 @@ reclaimed_gens=78 reclaimed_bytes=7482408
 **build 哈希**：见 `/tmp/build_hash_fall.txt`（本轮修复后的 `zf_valcheck` / `librocksdb.so.11`）。
 五组已按**该 build** 重新排队（组 5 → 1 → 2 → 3 → 4，各 300 轮，顺序执行，互不并发），
 日志 `/tmp/v2_g{5,1,2,3,4}_300.log`；外部终止记未完成。
+
+### D-43. 组 5 根因与修复：判据要用**发布证据**（不是 fence）；case8a fixture 改为真实可读状态
+
+**证据链**
+- 旧 build 组 5：`failures=6 corruption=6`，6 次同一签名
+  `IO error: ZF: generation retiring; read view refresh could not complete safely
+  (no downgrade)`，且 `pin_ok=0 / pin_active=0`（胜出代在 cache 里已无条目 ⇒ 拿不到句柄）、
+  `acquire_rejected_retiring=12`。
+- 第一版修复用 **Version fence** 判"已安装 ⇒ 可回落 LSM" ⇒ 组 5 仍 6 次同签名失败
+  ⇒ 说明 fence **滞后于发布**（fence 还要求消费证明完整；`MarkGensInstalled` 只要求
+  "本次 edit 已发布"）。
+- 第二版修复改用**发布证据** `GenInstalledPublished(part,gen)`（与 `MarkGensInstalled`
+  同一事件置位）⇒ 组 5 **50 轮 PASS**（`failures=0 rotations=50
+  acquire_rejected_retiring=14 pin_ok=38 reclaimed_gens=92/8619828`，断言全 0）。
+
+**规则（写进代码注释）**
+- 胜出代 retiring + **已发布安装** ⇒ 该代记录的同 seq 版本已在 LSM ⇒ 回落原生查找
+  （取到同一或更新版本，**不是降级**）；
+- 胜出代 retiring + **未发布** ⇒ WAL 是唯一副本且正在回收 ⇒ 明确 IOError
+  （不降级、不 NotFound）。
+
+**case8a fixture 同步改为真实可读状态**（用户 2026-09-17 原话："重取视图后**返回新值**"）：
+先用真实写入把 `k8=new` 写进库、封存并等安装完成（fence 未覆盖则记 INCOMPLETE），
+合成索引条目（seq=200 新 / 100 旧）只作为"胜出代已 retiring"的触发器；判据收紧为
+**必须 OK 且等于新值**。实测：
+```
+case8a PASS: sel_returned=0 retiring_rejected=1 db_gate=1 lsm_has_new=1
+             read_status=OK read_is_new=1 read_is_old=0 read_is_notfound=0 src=LSM
+             （两个 attempt 都命中 retiring 代；rejected=2->4 retry_view=1->3）
+```
+**build 哈希**：`/tmp/build_hash_v3.txt`（zf_valcheck / librocksdb.so.11）。
+五组全量按该 build 重新排队（组 5→1→2→3→4，各 300 轮），日志 `/tmp/v3_g*_300.log`。
