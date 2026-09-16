@@ -2,6 +2,7 @@
 //  ZeroFlush M1: 全局上下文与 Open 入口实现。
 
 #include "zeroflush/zeroflush_db.h"
+#include "zeroflush/get_trace.h"
 
 #include <algorithm>
 #include <cassert>
@@ -312,6 +313,13 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
   }
   for (uint32_t pid : ids) {
     const FreezeResult fr = wal_->Freeze(pid);
+    // step 1q（用户 2026-09-16 第 2 项）：Freeze 即登记——该代进入唯一
+    // registry（sealed && !installed ⇒ 计入 pending）；此后 epoch 收养只是
+    // 归属迁移。避免已封存但无主的代被 ReleaseGens 当可回收，也避免让位时
+    // 无人接管（组 5 NotFound 的根因）。
+    if (sealed_cache_ != nullptr && fr.sealed_bytes > 0) {
+      sealed_cache_->RegisterGen(pid, fr.old_gen, fr.sealed_bytes);
+    }
     // M3.2：只登记确有数据的分区（wfile 延迟创建，未写分区无物理文件；
     // 物化按 gens 重建路径 scan，空分区条目会导致 "scanner file not open"）。
     if (fr.sealed_bytes > 0) {
@@ -387,9 +395,47 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
 }
 
 uint64_t ZeroFlushContext::ReleaseEpoch(uint64_t epoch) {
-  // M4.3a：imm 析构（物化完成）时释放该 epoch 的 frozen 索引（数据已进
-  // SST，Get 走原生 SST 查找）。须在 SealedFileCache unlink（WAL 删除）
-  // 之前——ReleaseEpoch 内先释放索引再归还缓存引用。
+  // step 1s（用户 2026-09-16 第 1/2/3 项）：**未安装的代不得随 epoch 释放而
+  // 消失**。诊断实证（group5 iter=395）：非安装 epoch 释放时同时丢掉了
+  // registry 条目与 frozen 索引段，而 WAL 文件仍在 ⇒ 索引 miss + LSM 无数据
+  // = NotFound；pending 镜像还继续计着它（泄漏）。
+  // 规则：
+  //   · 已安装的代 → 释放 frozen 索引 + 归还缓存引用（可回收）；
+  //   · 未安装的代 → 移交 recovery（保留归属与可读性），**保留** frozen 索引
+  //     段与 registry 条目（pending 由 registry 定义，保持守恒）。
+  if (sealed_cache_ != nullptr) {
+    SealedEpoch se;
+    std::vector<std::pair<uint32_t, uint32_t>> all_files_cache;
+    if (wal_ != nullptr) {
+      wal_->ListFiles(&all_files_cache);
+    }
+    if (GetSealedEpoch(epoch, &se)) {
+      std::vector<std::pair<uint32_t, uint32_t>> uninstalled;
+      for (const auto& [part, gen] : se.gens) {
+        if (!IsGenInstalled(part, gen)) {
+          uninstalled.emplace_back(part, gen);
+        }
+      }
+      if (!uninstalled.empty()) {
+        // 归属迁移（不改 pending/drained）；frozen 索引段保留 → 读仍可命中。
+        // 索引段的最终释放发生在它真正被安装（MarkEpochInstalled）之后。
+        ctx_stats_handoff_at_release_.fetch_add(1, std::memory_order_relaxed);
+        std::unordered_map<uint32_t, uint64_t> per_part_bytes;
+        for (const auto& [part, gen] : uninstalled) {
+          per_part_bytes[part] +=
+              wal_ != nullptr ? wal_->GetFileSize(part, gen, all_files_cache,
+                                                  env_)
+                              : 0;
+        }
+        sealed_cache_->HandOffSkippedToRecovery(epoch, uninstalled,
+                                                per_part_bytes);
+        ROCKS_LOG_WARN(wal_ != nullptr ? wal_->InfoLog() : nullptr,
+                       "ZF epoch=%llu released with %zu uninstalled gens: "
+                       "handed off to recovery (WAL retained, index kept)",
+                       (unsigned long long)epoch, uninstalled.size());
+      }
+    }
+  }
   ReleaseFrozenIndexes(epoch);
   if (sealed_cache_ != nullptr) {
     const uint64_t b = sealed_cache_->ReleaseEpoch(epoch);
@@ -553,6 +599,53 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(sealed_bytes());
   } else if (prop == "rocksdb.zeroflush.materialize_micros") {
     *value = std::to_string(materialize_micros());
+  } else if (prop == "rocksdb.zeroflush.index_parts_scanned") {
+    *value = std::to_string(index_parts_scanned());
+  } else if (prop == "rocksdb.zeroflush.read_readfail_propagated") {
+    *value = std::to_string(read_readfail_propagated());
+  } else if (prop == "rocksdb.zeroflush.read_readfail_fallen_back") {
+    *value = std::to_string(read_readfail_fallen_back());
+  } else if (prop.starts_with("rocksdb.zeroflush.describe_gen:") &&
+             sealed_cache_ != nullptr) {
+    unsigned p = 0, g = 0;
+    sscanf(prop.c_str() + strlen("rocksdb.zeroflush.describe_gen:"), "%u:%u",
+           &p, &g);
+    *value = sealed_cache_->DescribeGen(p, g);
+  } else if (prop == "rocksdb.zeroflush.pending_recomputed") {
+    *value = std::to_string(sealed_cache_ != nullptr
+                                ? sealed_cache_->PendingBytesRecomputed()
+                                : 0);
+  } else if (prop == "rocksdb.zeroflush.pending_drift_events") {
+    *value = std::to_string(
+        sealed_cache_ != nullptr ? sealed_cache_->pending_drift_events() : 0);
+  } else if (prop == "rocksdb.zeroflush.index_kept_uninstalled") {
+    *value = std::to_string(index_kept_uninstalled());
+  } else if (prop == "rocksdb.zeroflush.gen_release_before_install") {
+    *value = std::to_string(sealed_cache_ != nullptr
+                                ? sealed_cache_->gen_release_before_install()
+                                : 0);
+  } else if (prop == "rocksdb.zeroflush.handoff_at_release") {
+    *value = std::to_string(handoff_at_release());
+  } else if (prop == "rocksdb.zeroflush.gen_handoff") {
+    *value = std::to_string(gen_handoff());
+  } else if (prop == "rocksdb.zeroflush.gen_lost_before_install") {
+    *value = std::to_string(gen_lost_before_install());
+  } else if (prop == "rocksdb.zeroflush.gen_unregistered_fd_fallback") {
+    *value = std::to_string(gen_unregistered_fd_fallback());
+  } else if (prop == "rocksdb.zeroflush.forbid_l0_install") {
+    *value = std::to_string(zfo_.forbid_l0_install ? 1 : 0);
+  } else if (prop == "rocksdb.zeroflush.l0_install_count") {
+    *value = std::to_string(l0_install_count());
+  } else if (prop == "rocksdb.zeroflush.l0_install_blocked") {
+    *value = std::to_string(l0_install_blocked());
+  } else if (prop == "rocksdb.zeroflush.wal_pin_acquired") {
+    *value = std::to_string(wal_pin_acquired());
+  } else if (prop == "rocksdb.zeroflush.wal_pin_active_unpinnable") {
+    *value = std::to_string(wal_pin_active_unpinnable());
+  } else if (prop == "rocksdb.zeroflush.read_union_overflow") {
+    *value = std::to_string(read_union_overflow());
+  } else if (prop == "rocksdb.zeroflush.active_wal_read_count") {
+    *value = std::to_string(active_wal_read_count());
   } else if (prop == "rocksdb.zeroflush.sealed_read_count") {
     *value = std::to_string(sealed_read_count());
   } else if (prop == "rocksdb.zeroflush.sealed_cache_miss") {
@@ -593,8 +686,18 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(HandoffInstalledFiltered());
   } else if (prop == "rocksdb.zeroflush.reclaimed_gens") {
     *value = std::to_string(ReclaimedGens());
+  } else if (prop == "rocksdb.zeroflush.recovery_filtered_gens") {
+    *value = std::to_string(recovery_filtered_gens());
+  } else if (prop == "rocksdb.zeroflush.recovery_filtered_bytes") {
+    *value = std::to_string(recovery_filtered_bytes());
   } else if (prop == "rocksdb.zeroflush.fence_advance_count") {
     *value = std::to_string(fence_advance_count());
+  } else if (prop == "rocksdb.zeroflush.fifo_blocked") {
+    *value = std::to_string(fifo_blocked());
+  } else if (prop == "rocksdb.zeroflush.fifo_bypass") {
+    *value = std::to_string(fifo_bypass());
+  } else if (prop == "rocksdb.zeroflush.fence_hole_advance_count") {
+    *value = std::to_string(fence_hole_advance_count());
   } else if (prop == "rocksdb.zeroflush.fence_gap_count") {
     *value = std::to_string(fence_gap_count());
   } else if (prop == "rocksdb.zeroflush.empty_edit_count") {
@@ -1234,6 +1337,13 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeBatchPartitions(
   }
   for (uint32_t p : batch) {
     const FreezeResult fr = wal_->Freeze(p);
+    // step 1q（用户 2026-09-16 第 2 项）：Freeze 即登记——该代进入唯一
+    // registry（sealed && !installed ⇒ 计入 pending）；此后 epoch 收养只是
+    // 归属迁移。避免已封存但无主的代被 ReleaseGens 当可回收，也避免让位时
+    // 无人接管（组 5 NotFound 的根因）。
+    if (sealed_cache_ != nullptr && fr.sealed_bytes > 0) {
+      sealed_cache_->RegisterGen(p, fr.old_gen, fr.sealed_bytes);
+    }
     // 新活跃索引的 gen = 新 WAL 代（old_gen + 1）——否则 freeze 后写组的
     // 记录（ref.gen = 新代）Insert 时找不到匹配索引被丢弃（数据丢失）。
     index_set_->Freeze(p, fr.old_gen + 1);
@@ -1283,6 +1393,13 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeOnePartition(
   // ---- 单分区冻结 ----
   const uint64_t epoch = epoch_counter_.fetch_add(1) + 1;
   const FreezeResult fr = wal_->Freeze(target);
+    // step 1q（用户 2026-09-16 第 2 项）：Freeze 即登记——该代进入唯一
+    // registry（sealed && !installed ⇒ 计入 pending）；此后 epoch 收养只是
+    // 归属迁移。避免已封存但无主的代被 ReleaseGens 当可回收，也避免让位时
+    // 无人接管（组 5 NotFound 的根因）。
+    if (sealed_cache_ != nullptr && fr.sealed_bytes > 0) {
+      sealed_cache_->RegisterGen(target, fr.old_gen, fr.sealed_bytes);
+    }
   index_set_->Freeze(target, fr.old_gen);
   SealedEpoch se;
   se.epoch = epoch;
@@ -1355,6 +1472,14 @@ void ZeroFlushContext::ReleaseFrozenIndexes(uint64_t epoch) {
     return;
   }
   for (const auto& [part, gen] : se.gens) {
+    // step 1t（用户 2026-09-16）：**未安装的代不得撤除索引段**——段是读依赖
+    // 的唯一载体（撤除后索引 miss → 唯一副本在 WAL 也读不到 = NotFound，
+    // 实证 group5 失败键所在代：已封存未安装、registry/索引全丢）。
+    // 只有已安装（数据在 LSM）才允许撤除。
+    if (!IsGenInstalled(part, gen)) {
+      index_kept_uninstalled_.fetch_add(1, std::memory_order_relaxed);
+      continue;
+    }
     // M5 诊断：frozen 索引释放（Concurrent 用例定位——释放后该代数据
     // 必须已在 SST）。part3 全打（关键分区）。
     if (part == 3) {
@@ -1374,12 +1499,152 @@ void ZeroFlushContext::ReleaseFrozenIndexes(uint64_t epoch) {
 // M4.3a：Get 查分区索引（替代 mem/imm 链）。
 // 命中返回 true（含 tombstone：type 为 Deletion 时置 NotFound）；未命中
 // 返回 false（调用方继续走原生 SST 查找）。
+// step 1h：pin 槽与 thunk——在索引选择完成、链引用释放**之前**取 WAL 读
+// 句柄，覆盖"选择 → ReadValue"窗口（用户 2026-09-15 缺口 3）。活跃代无法
+// pin（Freeze 会轮换写句柄），记 is_active 供错误协议使用。
+struct ZfPinSlot {
+  const ZeroFlushContext* ctx = nullptr;
+  std::shared_ptr<ROCKSDB_NAMESPACE::RandomAccessFile> handle;
+  uint32_t part = 0;
+  uint32_t gen = 0;
+  bool pinned = false;
+  bool is_active = false;
+};
+
+static void ZfPinThunk(void* c, uint32_t part, uint32_t gen) {
+  auto* slot = static_cast<ZfPinSlot*>(c);
+  if (slot == nullptr) return;
+  slot->part = part;
+  slot->gen = gen;
+  slot->pinned = false;
+  slot->is_active = false;
+  if (slot->ctx == nullptr) return;
+  auto* wal = slot->ctx->wal();
+  const std::optional<uint32_t> ag =
+      wal != nullptr ? wal->ActiveGenOpt(part) : std::nullopt;
+  slot->is_active = ag.has_value() && *ag == gen;
+  slot->pinned = slot->ctx->PinWalGen(part, gen, &slot->handle);
+}
+
+// step 1i：候选选择（读路径与测试入口共用的**唯一**实现）。
+//   候选 = 路由分区 ∪ 别名(DRAINING/split) ∪ 其它仍有索引段的分区；
+//   跨候选按 seq 取最优（跨 physical part 唯一可比量），删除标记同等参与；
+//   剪枝只允许用**可靠上界**（候选全部段的 max_seq 最大值，保守高估）：
+//   上界 ≤ 当前最优 ⇒ 该候选不可能更新，之后的可停。
+//   候选数上限 `zfo_.read_union_max_parts` **不截断**——超限扫全量并计数
+//   （read_union_overflow），绝不静默丢候选（用户 2026-09-15）。
+bool ZeroFlushContext::SelectBestIndexRecord(
+    const ROCKSDB_NAMESPACE::Slice& user_key,
+    ROCKSDB_NAMESPACE::SequenceNumber snapshot,
+    const std::vector<uint32_t>* candidates, uint32_t* out_logical_part,
+    uint32_t* out_phys_part, uint32_t* out_gen, uint64_t* out_offset,
+    ROCKSDB_NAMESPACE::ValueType* out_type,
+    ROCKSDB_NAMESPACE::SequenceNumber* out_seq, void* pin_slot) const {
+  struct Cand {
+    uint32_t part;
+    uint64_t upper;
+  };
+  std::vector<Cand> cands;
+  if (candidates != nullptr && !candidates->empty()) {
+    // 测试入口：给定候选列表（每个候选都用**真实上界**参与剪枝）。
+    for (uint32_t p : *candidates) {
+      cands.push_back({p, index_set_->PartMaxSeqUpper(p)});
+    }
+  } else {
+    const uint32_t part = RoutePartId(user_key);
+    std::vector<uint32_t> extra;
+    if (draining_active_.load(std::memory_order_acquire) != 0 &&
+        ucmp_ != nullptr) {
+      std::lock_guard<std::mutex> l(draining_mu_);
+      for (const auto& d : draining_) {
+        if (d.absorb != part) continue;
+        if (d.lo.size() > 0 &&
+            ucmp_->Compare(user_key, ROCKSDB_NAMESPACE::Slice(d.lo)) < 0) {
+          continue;
+        }
+        if (d.hi.size() > 0 &&
+            ucmp_->Compare(user_key, ROCKSDB_NAMESPACE::Slice(d.hi)) >= 0) {
+          continue;
+        }
+        extra.push_back(d.part);
+      }
+    }
+    if (split_orphan_active_.load(std::memory_order_acquire) != 0) {
+      std::lock_guard<std::mutex> l(split_orphan_mu_);
+      for (const auto& o : split_orphans_) {
+        if (o.child_l == part || o.child_r == part) extra.push_back(o.part);
+      }
+    }
+    cands.push_back({part, index_set_->PartMaxSeqUpper(part)});
+    for (uint32_t p : extra) {
+      cands.push_back({p, index_set_->PartMaxSeqUpper(p)});
+    }
+    std::vector<std::pair<uint32_t, uint64_t>> chain_parts;
+    index_set_->ChainParts(&chain_parts);
+    if (chain_parts.size() > zfo_.read_union_max_parts) {
+      read_union_overflow_.fetch_add(1, std::memory_order_relaxed);
+      ROCKS_LOG_WARN(wal_ != nullptr ? wal_->InfoLog() : nullptr,
+                     "ZF read union candidates=%zu exceed cap=%u: scanning ALL "
+                     "(no silent truncation)",
+                     chain_parts.size(), zfo_.read_union_max_parts);
+    }
+    for (const auto& [p, ub] : chain_parts) {
+      if (p == part) continue;
+      if (std::find(extra.begin(), extra.end(), p) != extra.end()) continue;
+      cands.push_back({p, ub});
+      index_parts_scanned_.fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+  std::stable_sort(cands.begin(), cands.end(),
+                   [](const Cand& a, const Cand& b) { return a.upper > b.upper; });
+  bool have_any = false;
+  ROCKSDB_NAMESPACE::ValueType best_type = ROCKSDB_NAMESPACE::kTypeValue;
+  ROCKSDB_NAMESPACE::SequenceNumber best_seq = 0;
+  uint32_t best_part = 0, best_phys = 0, best_gen = 0;
+  uint64_t best_off = 0;
+  auto* slot = static_cast<ZfPinSlot*>(pin_slot);
+  for (size_t ci = 0; ci < cands.size(); ++ci) {
+    if (have_any && cands[ci].upper <= best_seq) break;  // 可靠剪枝
+    std::string cand_loc;
+    ROCKSDB_NAMESPACE::ValueType cand_type = ROCKSDB_NAMESPACE::kTypeValue;
+    ROCKSDB_NAMESPACE::SequenceNumber cand_seq = 0;
+    if (index_set_->GetCopy(cands[ci].part, user_key, snapshot, &cand_loc,
+                            &cand_type, &cand_seq,
+                            slot != nullptr ? &ZfPinThunk : nullptr, slot)) {
+      if (!have_any || cand_seq > best_seq) {
+        have_any = true;
+        best_type = cand_type;
+        best_seq = cand_seq;
+        best_part = cands[ci].part;
+        if (cand_loc.size() == sizeof(SlimLocator)) {
+          const SlimLocator* sl =
+              reinterpret_cast<const SlimLocator*>(cand_loc.data());
+          best_phys = sl->part_id;
+          best_gen = sl->gen;
+          best_off = sl->wal_offset;
+        }
+      }
+    }
+  }
+  if (!have_any) {
+    return false;
+  }
+  if (out_logical_part != nullptr) *out_logical_part = best_part;
+  if (out_phys_part != nullptr) *out_phys_part = best_phys;
+  if (out_gen != nullptr) *out_gen = best_gen;
+  if (out_offset != nullptr) *out_offset = best_off;
+  if (out_type != nullptr) *out_type = best_type;
+  if (out_seq != nullptr) *out_seq = best_seq;
+  return true;
+}
+
 bool ZeroFlushContext::GetFromPartitionIndex(
     const ROCKSDB_NAMESPACE::Slice& user_key,
     ROCKSDB_NAMESPACE::SequenceNumber snapshot,
     ROCKSDB_NAMESPACE::Status* s, std::string* value,
     ROCKSDB_NAMESPACE::MergeContext* merge_context,
-    const ROCKSDB_NAMESPACE::MergeOperator* merge_op) const {
+    const ROCKSDB_NAMESPACE::MergeOperator* merge_op,
+    bool* retry_requested, bool read_view_refreshed) const {
   const uint32_t part = RoutePartId(user_key);
   // ZeroFlushV0 P1b/M1a：DRAINING 别名回查。merge 切路由后，被合并分区
   // 的 E_D 冻结索引在排空完成前仍持有其原区间内 key 的（最新）版本；该
@@ -1417,28 +1682,140 @@ bool ZeroFlushContext::GetFromPartitionIndex(
       }
     }
   }
+  // step 1f：locator 由本次调用持有（拷贝语义）——不依赖索引段存活。
+  std::string loc_buf;
   ROCKSDB_NAMESPACE::Slice loc;
   ROCKSDB_NAMESPACE::ValueType type;
   ROCKSDB_NAMESPACE::SequenceNumber seq;
-  // 先查路由分区；miss 且存在别名候选时再查 DRAINING 分区链。
-  for (size_t pass = 0; pass < 1 + extra.size(); ++pass) {
-    const uint32_t cand = (pass == 0) ? part : extra[pass - 1];
-    if (index_set_->Get(cand, user_key, snapshot, &loc, &type, &seq)) {
+  const bool zf_trace =
+      zeroflush::get_trace::Enabled() && zeroflush::get_trace::Match(user_key);
+  if (zf_trace) {
+    fprintf(stderr,
+            "ZFDBG-get-begin key_id=%lld read_seq=%llu routed_logical_part=%u "
+            "alias_candidates=%zu\n",
+            (long long)zeroflush::get_trace::KeyId(user_key),
+            (unsigned long long)snapshot, part, extra.size());
+  }
+  ZfPinSlot best_pin;
+  best_pin.ctx = this;
+  uint32_t sel_part = 0, sel_phys = 0, sel_gen = 0;
+  uint64_t sel_off = 0;
+  ROCKSDB_NAMESPACE::ValueType sel_type = ROCKSDB_NAMESPACE::kTypeValue;
+  ROCKSDB_NAMESPACE::SequenceNumber sel_seq = 0;
+  const bool have_any = SelectBestIndexRecord(
+      user_key, snapshot, /*candidates=*/nullptr, &sel_part, &sel_phys, &sel_gen,
+      &sel_off, &sel_type, &sel_seq, &best_pin);
+  if (have_any) {
+    // step 1j：测试挂钩——选择完成（pin 已取）、ReadValue 之前暂停，供
+    // "选中 locator 后触发安装/换代/回收"的确定性用例驱动（仅测试；
+    // 未设 ZF_TEST_PAUSE_AFTER_SELECT 时零开销）。
+    {
+      const char* pause_path = getenv("ZF_TEST_PAUSE_AFTER_SELECT");
+      if (pause_path != nullptr && *pause_path != '\0') {
+        const uint64_t deadline =
+            env_->NowMicros() + 15ull * 1000 * 1000;  // 15s 上限
+        while (env_->NowMicros() < deadline) {
+          if (env_->FileExists(pause_path).ok()) break;
+          env_->SleepForMicroseconds(1000);
+        }
+      }
+    }
+    // locator 字节：从胜出字段重建（16B SlimLocator）。best_pin 已在该次
+    // 选择内取得读句柄（缺口 3），并存活到本函数返回。
+    SlimLocator sl{};
+    sl.part_id = sel_phys;
+    sl.gen = sel_gen;
+    sl.wal_offset = sel_off;
+    loc_buf.assign(reinterpret_cast<const char*>(&sl), sizeof(sl));
+    loc = ROCKSDB_NAMESPACE::Slice(loc_buf);
+    type = sel_type;
+    seq = sel_seq;
+    {
+      const uint32_t cand = sel_part;  // 命中来源分区（诊断/日志）
       // M3.4：命中时也检查 tombstone 覆盖（DeleteRange 后写的 range 删除
       // 该 key——tombstone seq 更大则覆盖）。精细 seq 比较（数据后写覆盖
       // 旧 tombstone）留后续；当前按"tombstone ≤ snapshot 即覆盖"。
       if (CheckRangeDelCover(user_key, snapshot)) {
+        zeroflush::get_trace::SetLastSource(
+            zeroflush::get_trace::GetSource::kIndexRangeDel);
+        if (zf_trace) {
+          fprintf(stderr,
+                  "ZFDBG-get-final source=INDEX(rangedel_cover) part=%u "
+                  "hit_seq=%llu hit_type=RANGEDEL value=NOTFOUND\n",
+                  cand, (unsigned long long)seq);
+        }
         *s = ROCKSDB_NAMESPACE::Status::NotFound();
         return true;
       }
       if (type == ROCKSDB_NAMESPACE::kTypeDeletion ||
           type == ROCKSDB_NAMESPACE::kTypeSingleDeletion ||
           type == ROCKSDB_NAMESPACE::kTypeRangeDeletion) {
+        zeroflush::get_trace::SetLastSource(
+            zeroflush::get_trace::GetSource::kIndexTombstone);
+        if (zf_trace) {
+          // 删除标记：正确语义是 NotFound（不是"比较两个 value"）。
+          fprintf(stderr,
+                  "ZFDBG-get-final source=INDEX(tombstone) part=%u hit_seq=%llu "
+                  "hit_type=%s value=NOTFOUND\n",
+                  cand, (unsigned long long)seq,
+                  zeroflush::get_trace::TypeName(static_cast<int>(type)));
+        }
         *s = ROCKSDB_NAMESPACE::Status::NotFound();
         return true;
       }
-      ROCKSDB_NAMESPACE::Status rs = ReadValue(loc, value);
+      // 读句柄已在选择时（链引用释放前）取得并保留在 best_pin 中，
+      // 覆盖"选择 → ReadValue"窗口（缺口 3）。
+      ROCKSDB_NAMESPACE::Status rs =
+          best_pin.handle != nullptr
+              ? ReadValuePinned(loc, best_pin.handle.get(), value)
+              : ReadValue(loc, value);
       if (!rs.ok()) {
+        zeroflush::get_trace::SetLastSource(
+            zeroflush::get_trace::GetSource::kIndexReadFailed);
+        // 判据（用户 2026-09-15 缺口 2 / step 1l）：**不能凭 fence 直接降级**
+        // ——fence 只证明安装已提交，不证明本次 Get 的 SuperVersion 包含那次
+        // 安装。协议：
+        //   · 该代**未安装** → 唯一副本不可读，保留原始错误（传播）。
+        //   · 该代**已安装** → 第一次请求调用方刷新读视图后重试（保持
+        //     read_sequence）；刷新后（read_view_refreshed=true）仍不可读则
+        //     回落 LSM——此时视图已包含该安装，回落是正确的。
+        const bool installed_now = IsGenInstalled(best_pin.part, best_pin.gen);
+        if (installed_now && !read_view_refreshed && retry_requested != nullptr) {
+          *retry_requested = true;
+          *s = ROCKSDB_NAMESPACE::Status::TryAgain();
+          return true;  // 交由调用方刷新读视图后重试
+        }
+        if (installed_now && read_view_refreshed) {
+          read_readfail_fallen_back_.fetch_add(1, std::memory_order_relaxed);
+          if (zf_trace) {
+            fprintf(stderr,
+                    "ZFDBG-get-readfail phys_part=%u phys_gen=%u installed=1 "
+                    "view_refreshed=1 status=%s -> fallthrough(LSM)\n",
+                    best_pin.part, best_pin.gen, rs.ToString().c_str());
+          }
+          return false;  // 刷新后的视图包含该安装 → 由 LSM 服务
+        }
+        read_readfail_propagated_.fetch_add(1, std::memory_order_relaxed);
+        {
+          *s = ROCKSDB_NAMESPACE::Status::IOError(
+              "ZF: index hit but WAL record unreadable (phys_part=" +
+              std::to_string(best_pin.part) + " gen=" +
+              std::to_string(best_pin.gen) + " pinned=" +
+              std::to_string(best_pin.pinned ? 1 : 0) + " active=" +
+              std::to_string(best_pin.is_active ? 1 : 0) + " installed=" +
+              std::to_string(IsGenInstalled(best_pin.part, best_pin.gen) ? 1 : 0) +
+              "): " + rs.ToString());
+          if (zf_trace) {
+            fprintf(stderr,
+                    "ZFDBG-get-readfail phys_part=%u phys_gen=%u pinned=%d "
+                    "is_active=%d installed=%d status=%s -> PROPAGATE(error)\n",
+                    best_pin.part, best_pin.gen, best_pin.pinned ? 1 : 0,
+                    best_pin.is_active ? 1 : 0,
+                    IsGenInstalled(best_pin.part, best_pin.gen) ? 1 : 0,
+                    rs.ToString().c_str());
+          }
+          return true;  // 传播，不再回落 LSM
+        }
         return false;
       }
       if (type == ROCKSDB_NAMESPACE::kTypeMerge && merge_context != nullptr) {
@@ -1482,21 +1859,43 @@ bool ZeroFlushContext::GetFromPartitionIndex(
         *s = ROCKSDB_NAMESPACE::Status::MergeInProgress();
         return false;
       }
+      zeroflush::get_trace::SetLastSource(
+          zeroflush::get_trace::GetSource::kIndex);
+      if (zf_trace) {
+        fprintf(stderr,
+                "ZFDBG-get-final source=INDEX part=%u hit_seq=%llu hit_type=%s "
+                "value_len=%zu\n",
+                cand, (unsigned long long)seq,
+                zeroflush::get_trace::TypeName(static_cast<int>(type)),
+                value != nullptr ? value->size() : 0);
+      }
       *s = ROCKSDB_NAMESPACE::Status::OK();
       return true;
     }
-    // M5 诊断：索引未命中（Concurrent 用例 NotFound 定位——key 不在
-    // frozen/active 链）。
-    static std::atomic<uint64_t> zf_ixmiss_dbg {0};
+  }
+  // M5 诊断：全部候选未命中（key 不在任何链）。
+  {
+    static std::atomic<uint64_t> zf_ixmiss_dbg{0};
     if (zf_ixmiss_dbg.fetch_add(1, std::memory_order_relaxed) < 32) {
-      fprintf(stderr, "ZFDBG-ixmiss part=%u key=%s\n", cand,
+      fprintf(stderr, "ZFDBG-ixmiss routed_part=%u key=%s\n", part,
               user_key.ToString(true).c_str());
     }
   }
   // M3.4：未 compact 窗口的 range tombstone 覆盖检查（无索引命中时）。
   if (CheckRangeDelCover(user_key, snapshot)) {
+    if (zf_trace) {
+      fprintf(stderr,
+              "ZFDBG-get-final source=INDEX(rangedel_cover,no_idx_hit) "
+              "value=NOTFOUND\n");
+    }
     *s = ROCKSDB_NAMESPACE::Status::NotFound();
     return true;
+  }
+  zeroflush::get_trace::SetLastSource(
+      zeroflush::get_trace::GetSource::kNone);  // 索引未命中（来源由调用方定）
+  if (zf_trace) {
+    fprintf(stderr,
+            "ZFDBG-get-fallthrough source=NONE(index_miss) -> LSM lookup\n");
   }
   return false;
 }
@@ -1621,6 +2020,69 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SyncTouchedPartitions(
   return ROCKSDB_NAMESPACE::Status::OK();
 }
 
+bool ZeroFlushContext::IsGenInstalled(uint32_t phys_part, uint32_t gen) const {
+  if (cfd_ == nullptr || cfd_->current() == nullptr) {
+    return false;
+  }
+  const auto* vs_fence = cfd_->current()->storage_info();
+  ROCKSDB_NAMESPACE::VersionEdit::ZfInstallFence f;
+  return vs_fence->GetZfInstallFence(phys_part, &f) &&
+         gen <= f.last_generation;
+}
+
+bool ZeroFlushContext::PinWalGen(
+    uint32_t phys_part, uint32_t gen,
+    std::shared_ptr<ROCKSDB_NAMESPACE::RandomAccessFile>* out) const {
+  if (wal_ == nullptr || !wal_->HasPartition(phys_part)) {
+    return false;
+  }
+  const std::optional<uint32_t> active_gen = wal_->ActiveGenOpt(phys_part);
+  if (active_gen.has_value() && gen == *active_gen) {
+    // 活跃代：**不能**用独立 fd（数据可能还在写缓冲里，单开 fd 会读到不完整
+    // 文件）。跨 Freeze 的读由 `ReadActiveRecordChecked` 保证（p->mu 下校验
+    // 代号，换代则重解析→按已落盘的封存文件读）。
+    NotePinActiveUnpinnable();
+    return false;
+  }
+  if (sealed_cache_ == nullptr) {
+    return false;
+  }
+  const bool ok = sealed_cache_->Get(phys_part, gen, out).ok();
+  if (ok) {
+    NotePinAcquired();
+  }
+  return ok;
+}
+
+// step 1k：用**选择时取得的句柄**直接读该记录（不再按 (part,gen) 重新解析，
+// 因此不受 Freeze/换代/回收影响）。tombstone 语义与常规路径一致（空值）。
+ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValuePinned(
+    const ROCKSDB_NAMESPACE::Slice& locator_slice,
+    ROCKSDB_NAMESPACE::RandomAccessFile* pinned, std::string* out) const {
+  if (pinned == nullptr) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument("null pinned handle");
+  }
+  if (locator_slice.size() != sizeof(SlimLocator)) {
+    return ROCKSDB_NAMESPACE::Status::Corruption(
+        "ZeroFlush: bad locator size (pinned read)");
+  }
+  const SlimLocator* loc =
+      reinterpret_cast<const SlimLocator*>(locator_slice.data());
+  WalRecordRef ref;
+  ref.part_id = loc->part_id;
+  ref.gen = loc->gen;
+  ref.offset = loc->wal_offset;
+  std::string buf;
+  ROCKSDB_NAMESPACE::Slice val;
+  rocksdb::Status st = PartitionedWalManager::ReadFromSealed(pinned, ref, &buf,
+                                                             &val);
+  if (!st.ok()) {
+    return st;
+  }
+  out->assign(val.data(), val.size());
+  return ROCKSDB_NAMESPACE::Status::OK();
+}
+
 ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
     const ROCKSDB_NAMESPACE::Slice& locator_slice,
     std::string* out) const {
@@ -1650,7 +2112,37 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
   }
   const std::optional<uint32_t> active_gen = wal_->ActiveGenOpt(ref.part_id);
   if (active_gen.has_value() && ref.gen == *active_gen) {
-    rocksdb::Status st = wal_->ReadRecord(ref, out);
+    NoteActiveWalRead();
+    // step 1k：换代原子化读；若期间发生 Freeze（gen_rotated）→ 旧代文件已
+    // 完整落盘，改按封存文件读（cache 未登记时直接开独立 fd——此时安全）。
+    std::string buf;
+    rocksdb::Slice val;
+    bool gen_rotated = false;
+    rocksdb::Status st = wal_->ReadActiveRecordChecked(ref, &buf, &val, &gen_rotated);
+    if (gen_rotated) {
+      std::shared_ptr<rocksdb::RandomAccessFile> rf;
+      rocksdb::Status gs = sealed_cache_ != nullptr
+                               ? sealed_cache_->Get(ref.part_id, ref.gen, &rf)
+                               : rocksdb::Status::NotFound();
+      if (!gs.ok()) {
+        gs = wal_->OpenGenForRead(ref.part_id, ref.gen, &rf);  // 落盘后不可变
+      }
+      if (!gs.ok()) {
+        return gs;
+      }
+      st = PartitionedWalManager::ReadFromSealed(rf.get(), ref, &buf, &val);
+      if (st.ok()) {
+        out->assign(val.data(), val.size());
+        return rocksdb::Status::OK();
+      }
+      return st;
+    }
+    if (st.ok()) {
+      out->assign(val.data(), val.size());
+      return rocksdb::Status::OK();
+    }
+    // 落到下面的常规路径（含 cache 命中等）——保持原有语义与统计。
+    st = wal_->ReadRecord(ref, out);
     // M3.0 R4：调试输出改用 ROCKS_LOG_DEBUG（仅 use_logger 接线后生效）。
     if (zfo_.use_logger) {
       ROCKS_LOG_DEBUG(wal_->InfoLog(),
@@ -1665,11 +2157,32 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
     }
     return st;
   }
-  // 封存代：SealedFileCache.Get 必须已登记（M2.0 D1 修复后必走此路径）。
+  // 封存代：优先 SealedFileCache 登记句柄；**登记缺失时用独立 fd 兜底**
+  // （step 1p，用户 2026-09-16）：已封存文件一旦换代即不可变（Freeze 先
+  // FlushBuf+Sync 再换代），只要文件还在磁盘上就可安全读——不再因为
+  // "不在任何 epoch 登记"让唯一副本不可读。同时计数：
+  //   · 无登记但文件在 → gen_unregistered_fd_fallback（登记缺口，可读）
+  //   · 两者都不在     → gen_lost_before_install（保留契约破坏，应恒为 0）
   std::shared_ptr<rocksdb::RandomAccessFile> rf;
-  rocksdb::Status s = sealed_cache_->Get(ref.part_id, ref.gen, &rf);
+  rocksdb::Status s = sealed_cache_ != nullptr
+                          ? sealed_cache_->Get(ref.part_id, ref.gen, &rf)
+                          : rocksdb::Status::NotFound();
   if (!s.ok()) {
-    return s;
+    rocksdb::Status fs = wal_->OpenGenForRead(ref.part_id, ref.gen, &rf);
+    if (!fs.ok()) {
+      NoteGenLostBeforeInstall();
+      ROCKS_LOG_WARN(wal_->InfoLog(),
+                     "ZF gen lost before install: part=%u gen=%u (cache=%s "
+                     "fd=%s)",
+                     ref.part_id, ref.gen, s.ToString().c_str(),
+                     fs.ToString().c_str());
+      return s;
+    }
+    NoteGenUnregisteredFdFallback();
+    ROCKS_LOG_WARN(wal_->InfoLog(),
+                   "ZF gen unregistered but file present: part=%u gen=%u "
+                   "(fd fallback; cache=%s)",
+                   ref.part_id, ref.gen, s.ToString().c_str());
   }
   rocksdb::Slice val_slice;
   s = PartitionedWalManager::ReadFromSealed(rf.get(), ref, out, &val_slice);
@@ -1706,12 +2219,35 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
   std::vector<uint32_t> all_parts(part_set.begin(), part_set.end());
   std::sort(all_parts.begin(), all_parts.end());
 
+  // ---- 子提交 2：按 installed_fence 过滤已安装的 generation ----
+  // 用户 2026-09-15 定稿：fence 按 **physical_wal_part** 判断（不能用逻辑索引
+  // 分区或裸 generation 判断）；`gen <= fence` 的代数据已进 SST ⇒ 只保留物理
+  // WAL 文件（审计/引用），**不注册到读索引、不计 pending**。
+  // 依据：WAL 文件仍存在 ≠ WAL 数据仍需作为 L0 参与读取（文件存在只说明未回收）。
+  ROCKSDB_NAMESPACE::ColumnFamilyData* cfd = db->GetDefaultColumnFamily();
+  if (cfd == nullptr) {
+    return ROCKSDB_NAMESPACE::Status::Corruption(
+        "ZeroFlush: default column family missing during recovery");
+  }
+  const auto* vs_fence = cfd->current()->storage_info();
+  auto zf_gen_installed = [&](uint32_t part, uint32_t gen) {
+    ROCKSDB_NAMESPACE::VersionEdit::ZfInstallFence f;
+    return vs_fence->GetZfInstallFence(part, &f) && gen <= f.last_generation;
+  };
+  uint64_t filtered_gens = 0;
+  uint64_t filtered_bytes = 0;
+
   std::vector<std::pair<uint32_t, uint32_t>> orphans;
   uint64_t orphan_bytes = 0;
   for (uint32_t p : all_parts) {
     const uint32_t active = wal_->MaxGen(p, files);
     for (const auto& [pp, gg] : files) {
       if (pp == p && gg < active) {
+        if (zf_gen_installed(pp, gg)) {
+          ++filtered_gens;  // 已安装：不登记 recovery 孤儿、不计 pending
+          filtered_bytes += wal_->GetFileSize(pp, gg, files, env_);
+          continue;
+        }
         orphans.emplace_back(pp, gg);
         orphan_bytes += wal_->GetFileSize(pp, gg, files, env_);
       }
@@ -1724,11 +2260,6 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
     for (const auto& [pp, gg] : orphans) {
       sealed_cache_->RegisterGen(pp, gg, wal_->GetFileSize(pp, gg, files, env_));
     }
-  }
-  ROCKSDB_NAMESPACE::ColumnFamilyData* cfd = db->GetDefaultColumnFamily();
-  if (cfd == nullptr) {
-    return ROCKSDB_NAMESPACE::Status::Corruption(
-        "ZeroFlush: default column family missing during recovery");
   }
   ROCKSDB_NAMESPACE::SequenceNumber max_seq = 0;
   size_t recovered = 0;
@@ -1753,6 +2284,46 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
     }
     sorted.push_back({part, gen, first_seq});
   }
+  // ---- 直接证据插桩（ZF_DBG_GEN_ALLOC=1；用户 2026-09-15）----
+  // 目的：区分"代内复用/追加语义"、"分配器回退"、"恢复资格/索引归属"三类假设。
+  // 只读、无行为改动；拿到证据前不改号段分配。
+  if (getenv("ZF_DBG_GEN_ALLOC") != nullptr) {
+    for (uint32_t p : all_parts) {
+      ROCKSDB_NAMESPACE::VersionEdit::ZfInstallFence fz;
+      const bool has_f = vs_fence->GetZfInstallFence(p, &fz);
+      const uint32_t mx = wal_->MaxGen(p, files);
+      const std::optional<uint32_t> ag = wal_->ActiveGenOpt(p);
+      std::string fl;
+      uint32_t min_file_gen = 0;
+      bool have_min = false;
+      for (const auto& [pp, gg] : files) {
+        if (pp != p) {
+          continue;
+        }
+        if (!have_min || gg < min_file_gen) {
+          min_file_gen = gg;
+          have_min = true;
+        }
+        uint64_t fs = wal_->GetFileSize(pp, gg, files, env_);
+        uint32_t fseq = 0;
+        for (const auto& ent : sorted) {
+          if (ent.part == pp && ent.gen == gg) {
+            fseq = ent.min_seq;
+            break;
+          }
+        }
+        fl += " g" + std::to_string(gg) + "(size=" + std::to_string(fs) +
+              ",first_seq=" + std::to_string(fseq) + ")";
+      }
+      fprintf(stderr,
+              "ZFDBG-genalloc part=%u fence_present=%d fence_last=%u "
+              "max_gen_from_files=%u min_file_gen=%u active=%s files=[%s]\n",
+              p, (int)has_f, has_f ? fz.last_generation : 0u, mx,
+              have_min ? min_file_gen : 0u,
+              ag.has_value() ? std::to_string(*ag).c_str() : "nullopt",
+              fl.empty() ? " none" : fl.c_str());
+    }
+  }
   std::sort(sorted.begin(), sorted.end(),
             [](const FileSortEntry& a, const FileSortEntry& b) {
               return a.min_seq < b.min_seq;
@@ -1771,6 +2342,14 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
     }
   }
   for (const auto& entry : sorted) {
+    // 子提交 2：已安装代（gen <= fence[physical_part]）不参与重放——
+    // 其数据已由 install 成功提交进 SST；重放只会把陈旧版本重新挂进读索引，
+    // 在读路径"命中即返回"下遮蔽同一 key 的更高 sequence 版本。
+    if (zf_gen_installed(entry.part, entry.gen)) {
+      ++filtered_gens;
+      filtered_bytes += wal_->GetFileSize(entry.part, entry.gen, files, env_);
+      continue;
+    }
     const uint32_t part = entry.part;
     const uint32_t gen = entry.gen;
     WalScanner scanner(env_, wal_dir_, part, gen);
@@ -1818,6 +2397,8 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
   }
   // I4：recovered seq 永远 ≥ 旧 LastSequence（物化路径只会更高），但取 max
   // 防止退化（如 SetLastSequence 之前有更晚的写入）。
+  recovery_filtered_gens_ = filtered_gens;
+  recovery_filtered_bytes_ = filtered_bytes;
   db->SetZeroFlushLastSequence(
       std::max(db->GetLatestSequenceNumber(), max_seq));
   return ROCKSDB_NAMESPACE::Status::OK();
@@ -2010,6 +2591,13 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::MergePartitionLocked(
   if (active_bytes > 0) {
     const uint64_t epoch = epoch_counter_.fetch_add(1) + 1;
     const FreezeResult fr = wal_->Freeze(drain_part);
+    // step 1q（用户 2026-09-16 第 2 项）：Freeze 即登记——该代进入唯一
+    // registry（sealed && !installed ⇒ 计入 pending）；此后 epoch 收养只是
+    // 归属迁移。避免已封存但无主的代被 ReleaseGens 当可回收，也避免让位时
+    // 无人接管（组 5 NotFound 的根因）。
+    if (sealed_cache_ != nullptr && fr.sealed_bytes > 0) {
+      sealed_cache_->RegisterGen(drain_part, fr.old_gen, fr.sealed_bytes);
+    }
     index_set_->Freeze(drain_part, fr.old_gen + 1);
     SealedEpoch se;
     se.epoch = epoch;
@@ -2793,6 +3381,7 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   // 终态路径为唯一路径（旧路径移除）。
   ctx->index_set_.reset(
       new PartitionIndexSet(ZfKeyComparator(cfd->internal_comparator())));
+  ctx->SetCfd(cfd);  // step 1h：读路径查 installed fence
   ctx->set_ucmp(ucmp);
   // 创建 PartitionTableSet。
   auto table_set = std::unique_ptr<PartitionTableSet>(new PartitionTableSet());

@@ -38,6 +38,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
+#include "zeroflush/wal_manager.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "table/merging_iterator.h"
@@ -1529,7 +1530,7 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     }
     zf_ctx->SetLastMaterializedEpoch(last_before);
     if (getenv("ZF_DBG_MM") != nullptr) {
-      fprintf(stderr, "ZFDBG-mm-end site=%s job=%%d token=%%llu s=%%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
+      fprintf(stderr, "ZFDBG-mm-end site=plan_fail job=%d token=%llu s=%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
     }
     zf_ctx->EndMaterializeBatch(mm_token);
     zf_mm_token_ = 0;
@@ -1576,7 +1577,7 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     }
     zf_ctx->SetLastMaterializedEpoch(last_before);
     if (getenv("ZF_DBG_MM") != nullptr) {
-      fprintf(stderr, "ZFDBG-mm-end site=%s job=%%d token=%%llu s=%%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
+      fprintf(stderr, "ZFDBG-mm-end site=task_fail job=%d token=%llu s=%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
     }
     zf_ctx->EndMaterializeBatch(mm_token);
     zf_mm_token_ = 0;
@@ -1612,7 +1613,7 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       // （max 单调推进下若他批已推进则 no-op，数据由 imm 重试保全）。
       zf_ctx->SetLastMaterializedEpoch(last_before);
       if (getenv("ZF_DBG_MM") != nullptr) {
-        fprintf(stderr, "ZFDBG-mm-end site=%s job=%%d token=%%llu s=%%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
+        fprintf(stderr, "ZFDBG-mm-end site=finalize_fail job=%d token=%llu s=%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
       }
       zf_ctx->EndMaterializeBatch(mm_token);
       zf_mm_token_ = 0;
@@ -1749,6 +1750,43 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       }
       if (conflict) break;
     }
+    // ---- 同分区 FIFO 的**安装点**不变量检查（用户 2026-09-15）----
+    // 在 AddFile + LogAndApply 之前再验一次：若某输出的 physical_wal_part 上
+    // 仍存在**更老且未安装**的 pending 代，则本次安装会越过 FIFO ⇒ 阻止提交
+    // （走既有让位路径：删产出 + gens 移交 recovery + 回滚），并计 fifo_bypass。
+    // 理想值 0；非 0 说明规划侧 FIFO 有漏（例如 fallback/竞态），此处兜底。
+    if (!conflict && zf_ctx != nullptr && zf_ctx->sealed_cache() != nullptr) {
+      for (const auto& o : zf_batch_outputs_) {
+        if (o.superseded) {
+          continue;
+        }
+        uint32_t oldest_pending = 0;
+        if (zf_ctx->sealed_cache()->OldestPendingGen(o.part_id,
+                                                    &oldest_pending)) {
+          // 输出所属代的下界：本批该分区消费的最小 gen（取自各 job 的候选区间）
+          uint32_t min_out_gen = 0;
+          bool have = false;
+          for (auto& job : jobs) {
+            for (const auto& fr : job->ConsumedRanges()) {
+              if (fr.part == o.part_id && (!have || fr.first_gen < min_out_gen)) {
+                min_out_gen = fr.first_gen;
+                have = true;
+              }
+            }
+          }
+          if (have && oldest_pending < min_out_gen) {
+            zf_ctx->NoteFifoBypass();
+            ROCKS_LOG_WARN(db_options_.info_log,
+                           "[%s] ZeroFlush FIFO bypass blocked at install: "
+                           "part=%u oldest_pending=%u < install_min=%u",
+                           cfd_->GetName().c_str(), o.part_id, oldest_pending,
+                           min_out_gen);
+            conflict = true;
+            break;
+          }
+        }
+      }
+    }
     if (conflict) {
       if (getenv("ZF_DBG_MM") != nullptr) {
         fprintf(stderr, "ZFDBG-mm-yield job=%d outputs=%zu (install conflict)\n",
@@ -1780,7 +1818,7 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       }
       zf_ctx->SetLastMaterializedEpoch(last_before);
       if (getenv("ZF_DBG_MM") != nullptr) {
-        fprintf(stderr, "ZFDBG-mm-end site=%s job=%%d token=%%llu s=%%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
+        fprintf(stderr, "ZFDBG-mm-end site=rollback job=%d token=%llu s=%s\n", job_context_->job_id, (unsigned long long)mm_token, s.ToString().c_str());
       }
       zf_ctx->EndMaterializeBatch(mm_token);
       zf_mm_token_ = 0;
@@ -1805,12 +1843,70 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     meta_ = o.meta;
     break;
   }
+  // ---- step 1o：目标模式的 L0 出口兜底（用户 2026-09-16）----
+  // 覆盖正常路径、fallback 与重试路径：本批只要有输出落到 L0 或被标记为
+  // "不可安全安装"，就**整批让位**——不写 AddFile、不推进 fence/drained、
+  // 保留待物化数据（由既有让位出口删除产出并移交 recovery）。
+  // 累计计数 l0_install_count（任何 L0 安装）/ l0_install_blocked（被拦下）。
+  if (zf_mode_ && zf_ctx != nullptr && zf_ctx->forbid_l0_install()) {
+    bool l0_or_blocked = false;
+    for (const auto& o : zf_batch_outputs_) {
+      if (o.superseded) {
+        continue;
+      }
+      if (o.level <= 0 ||
+          o.level == zeroflush::ZfMaterializeJob::kCannotInstall) {
+        l0_or_blocked = true;
+        zf_ctx->NoteL0InstallBlocked();
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "[%s] ZeroFlush target-mode: output part=%u would land "
+                       "in L0 (level=%d) — yielding batch, L0 installs are "
+                       "forbidden",
+                       cfd_->GetName().c_str(), o.part_id, o.level);
+        break;
+      }
+    }
+    if (l0_or_blocked) {
+      for (auto& job : jobs) {
+        job->FinishPlansLocked();
+        job->DeleteAllOutputFiles();
+        job->HandOffAllGens();
+      }
+      zf_batch_outputs_.clear();
+      zf_ctx->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      const uint64_t zf_pend_before = zf_ctx->PendingMaterializeBytes();
+      zf_ctx->NoteEmptyEdit(zf_pend_before, last_before,
+                            zf_ctx->last_materialized_epoch());
+      zf_ctx->NoteEmptyEditBarrierAdvance();
+      zf_ctx->SetLastMaterializedEpoch(last_before);
+      zf_ctx->EndMaterializeBatch(mm_token);
+      zf_mm_token_ = 0;
+      if (zf_batch_gen0_) {
+        zf_ctx->ReleaseGen0Slot();
+        zf_batch_gen0_ = false;
+      }
+      zf_ctx->ReleaseInstallLock();
+      base_->Unref();
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "[%s] [JOB %d] ZeroFlush target-mode: batch yielded "
+                     "(no AddFile / no fence / no drained; WAL retained)",
+                     cfd_->GetName().c_str(), job_context_->job_id);
+      return Status::OK();  // 持锁返回（WriteLevel0Table 契约）
+    }
+  }
   for (auto& o : zf_batch_outputs_) {
     // M3.3 融合归并：跳过被批内后序输出替代的文件（不安装；其物理
     // 文件由替换者的 Run() 删除）；其余先删除被替换的 base 输入文件
     // （existing，文件号即已提交版本中的 base 文件），再添加输出。
     if (o.superseded) {
       continue;
+    }
+    if (o.level == zeroflush::ZfMaterializeJob::kCannotInstall) {
+      // 兜底（非目标模式不应出现）：视为不可安装，跳过该输出。
+      continue;
+    }
+    if (o.level == 0) {
+      zf_ctx->NoteL0Install();  // 累计计数（目标模式下上面已拦下）
     }
     for (uint64_t num : o.replaced_l0_file_numbers) {
       DeleteFileIfPresent(num, 0);
@@ -1854,25 +1950,94 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   //   * 不同 physical part 各自推进。
   if (zf_mode_ && !jobs.empty()) {
     const auto* vs_fence = cfd_->current()->storage_info();
+    // 越洞判定需要"该 physical part 的实际 WAL 文件集合"：只有空洞区间内
+    // **没有任何 WAL 文件**时才允许越过（文件不存在 ⇒ 那些代从未写过，或
+    // 已物化后 unlink）；否则保留 fence 不变并计 fence_gap（用户 2026-09-15）。
+    std::vector<std::pair<uint32_t, uint32_t>> zf_wal_files;
+    if (zf_ctx->wal() != nullptr) {
+      zf_ctx->wal()->ListFiles(&zf_wal_files);
+    }
+    auto hole_has_wal_file = [&](uint32_t part, uint32_t lo, uint32_t hi) {
+      for (const auto& [pp, gg] : zf_wal_files) {
+        if (pp == part && gg >= lo && gg <= hi) {
+          return true;
+        }
+      }
+      return false;
+    };
     for (auto& job : jobs) {
       for (const auto& fr : job->ConsumedRanges()) {
+        // step 1c-2 调试日志：physical_part / generation / 期望输入
+        // （expected_input_records/bytes）/ 消费输入（consumed_input_*）
+        // / 输出（output_*）/ fence_decision（ZF_DBG_FENCE=1）。
+        const bool dbg_fence = getenv("ZF_DBG_FENCE") != nullptr;
+        if (dbg_fence) {
+          for (const auto& d : fr.detail) {
+            fprintf(stderr,
+                    "ZFDBG-fence epoch=%llu part=%u gen=%u exp_known=%d "
+                    "exp_rec=%llu exp_bytes=%llu cons_rec=%llu cons_bytes=%llu "
+                    "out_rec=%llu out_bytes=%llu complete=%d\n",
+                    (unsigned long long)job->epoch(), d.part, d.gen,
+                    d.expected_known ? 1 : 0,
+                    (unsigned long long)d.expected_records,
+                    (unsigned long long)d.expected_bytes,
+                    (unsigned long long)d.consumed_records,
+                    (unsigned long long)d.consumed_bytes,
+                    (unsigned long long)fr.output_records,
+                    (unsigned long long)fr.output_bytes, d.complete ? 1 : 0);
+          }
+        }
+        // 输入未完整消费（含"期望未知"：无封存登记的恢复孤儿）→ 不推进
+        // fence。本代数据可能仍有部分未进 L1；若声明已安装，恢复期会把它
+        // 的 WAL 当"已物化"过滤掉（用户 2026-09-15 的验收判据）。
+        if (!fr.input_complete) {
+          zf_ctx->NoteFenceInputIncomplete();
+          if (dbg_fence) {
+            fprintf(stderr,
+                    "ZFDBG-fence-decision epoch=%llu part=%u gens=[%u,%u] "
+                    "decision=hold_input_incomplete\n",
+                    (unsigned long long)job->epoch(), fr.part, fr.first_gen,
+                    fr.last_gen);
+          }
+          continue;
+        }
         ROCKSDB_NAMESPACE::VersionEdit::ZfInstallFence prev;
+        // 注意区分 "无 fence"（has_prev=false）与 "有效 fence=[0,0]"：
+        // 前者空洞从 0 起，后者从 prev.last+1 起，两者都不能盲目越过。
         const bool has_prev = vs_fence->GetZfInstallFence(fr.part, &prev);
         const uint32_t expected_first =
             has_prev ? prev.last_generation + 1 : 0;
-        if (fr.first_gen != expected_first) {
-          zf_ctx->NoteFenceGap();  // 与既有 fence 不连续 ⇒ 保守不推进
+        if (fr.first_gen > expected_first) {
+          // 空洞 [expected_first, fr.first_gen-1]：满足"无文件"才可越过
+          if (hole_has_wal_file(fr.part, expected_first, fr.first_gen - 1)) {
+            zf_ctx->NoteFenceGap();  // 空洞中仍有未安装文件 ⇒ 保守不推进
+            continue;
+          }
+          zf_ctx->NoteFenceHoleAdvance();
+        } else if (fr.first_gen < expected_first) {
+          // 候选区间起点早于期望（重复消费/回退视图）⇒ 保守不推进
+          zf_ctx->NoteFenceGap();
           continue;
         }
         ROCKSDB_NAMESPACE::VersionEdit::ZfInstallFence f;
         f.physical_part = fr.part;
         f.first_generation = fr.first_gen;
         f.last_generation = fr.last_gen;
-        f.consumed_record_count = 0;  // TODO(1c-2)：由物化任务累计后再填
-        f.consumed_bytes = fr.bytes;
+        // step 1c-2：真实消费量（输入侧；= 封存期望，已由 input_complete
+        // 判据保证）。输出侧数量不可比（物化会合法过滤旧版本/删除标记）。
+        f.consumed_record_count = fr.consumed_records;
+        f.consumed_bytes = fr.consumed_bytes;
         f.install_sequence = job->epoch();  // 单调（epoch 序）
         edit_->AddZfInstallFence(f);
         zf_ctx->NoteFenceAdvance();
+        if (dbg_fence) {
+          fprintf(stderr,
+                  "ZFDBG-fence-decision epoch=%llu part=%u gens=[%u,%u] "
+                  "decision=advance cons_rec=%llu cons_bytes=%llu\n",
+                  (unsigned long long)job->epoch(), fr.part, fr.first_gen,
+                  fr.last_gen, (unsigned long long)fr.consumed_records,
+                  (unsigned long long)fr.consumed_bytes);
+        }
       }
     }
   }

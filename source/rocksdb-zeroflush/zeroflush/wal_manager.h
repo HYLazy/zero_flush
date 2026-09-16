@@ -37,9 +37,21 @@ struct WalRecordRef {
 
 // Freeze 结果：旧代号、旧代封存字节数、对应文件名。
 struct FreezeResult {
-  uint32_t old_gen;       // 刚被封存的代号
-  uint64_t sealed_bytes;  // 旧代封存时的逻辑大小（=p->total_size 旧值）
+  uint32_t old_gen = 0;       // 刚被封存的代号
+  uint64_t sealed_bytes = 0;  // 旧代封存时的逻辑大小（=p->total_size 旧值）
+  // step 1c-2：旧代封存时的记录数（Append 逐条累计，封存时冻结）。与
+  // sealed_bytes 一起构成 fence 的"输入完整消费"期望侧。
+  uint64_t sealed_records = 0;
   std::string sealed_path;  // 旧代文件路径（绝对 or 相对 env 基址）
+};
+
+// step 1c-2：generation 的封存期望（**必须在封存时刻记录**，不得用物化
+// 输出反推——物化会合法地过滤旧版本/删除标记/合并记录）。
+struct GenSealMeta {
+  uint64_t bytes = 0;          // 封存时文件字节（Freeze=total_size）
+  uint64_t records = 0;        // 封存时记录数（逐条 Append 计数）
+  bool bytes_known = false;    // 是否登记过
+  bool records_known = false;  // records 是否可信（重开收养路径为 false）
 };
 
 // 顺序扫描器：恢复（重放）与 M2 CSD/fallback 归并使用。
@@ -166,7 +178,40 @@ class PartitionedWalManager {
                        const std::vector<std::pair<uint32_t, uint32_t>>& all,
                        rocksdb::Env* env) const;
 
+  // step 1c-2：取 generation 的封存期望（封存时刻记录）。
+  // 返回 false = 无登记（恢复孤儿/未知代）→ 调用方不得据此推进 fence。
+  bool GetSealMeta(uint32_t part, uint32_t gen, GenSealMeta* out) const;
+  // 恢复期收养的既有代：只登记磁盘字节（records_known=false）。
+  void RecordSealBytesFromDisk(uint32_t part, uint32_t gen, uint64_t bytes);
+  // step 1c-2 诊断：同一 (part,gen) 被二次封存（代身份可疑）的次数。
+  uint64_t seal_meta_conflicts() const {
+    return seal_meta_conflicts_.load(std::memory_order_relaxed);
+  }
+
   const std::string& dir() const { return dir_; }
+
+  // step 1k：代文件路径（公开入口）——读路径为活跃代取"独立读句柄"用
+  // （活跃代写句柄会被 Freeze 轮换/关闭，必须另持有 fd 才能跨换代读）。
+  std::string GenFilePath(uint32_t part, uint32_t gen) const {
+    return FileName(part, gen);
+  }
+
+  // step 1k：以只读方式打开某代文件（不依赖写句柄/读句柄状态）。**仅对已
+  // 封存（已刷盘）的代有效**——活跃代的数据可能还在写缓冲里，单独开 fd 会
+  // 读到不完整文件。返回的 fd 独立于回收：即使文件之后被 unlink，fd 仍可读。
+  rocksdb::Status OpenGenForRead(
+      uint32_t part, uint32_t gen,
+      std::shared_ptr<rocksdb::RandomAccessFile>* out) const;
+
+  // step 1k（用户 2026-09-15）：**换代原子化**的活跃代读——在 p->mu 下校验
+  // "ref.gen 仍是当前活跃代"再读。Freeze 持同一把锁完成"刷盘 + 关闭旧句柄
+  // + 换代"，因此本调用要么完整读旧代（含未刷盘缓冲），要么返回
+  // gen_rotated=true（此时旧代文件已完整落盘且不可变，调用方可安全地按
+  // 封存文件读）。避免"先解析活跃代、Freeze 后再按旧代号读新文件"的错读。
+  rocksdb::Status ReadActiveRecordChecked(const WalRecordRef& ref,
+                                          std::string* buf,
+                                          rocksdb::Slice* value,
+                                          bool* gen_rotated) const;
   uint32_t partitions() const { return partitions_; }
 
   // M3.0：接入 DB info log（zeroflush::Open 在 use_logger 时调用；
@@ -205,6 +250,8 @@ class PartitionedWalManager {
     // M4.1a：活跃字节的并发计数（Append 累加 / Freeze 清零），供
     // ShouldSeal 的 O(1) 副触发与 ActiveSize 无锁读取。
     std::atomic<uint64_t> active_bytes{0};
+    // step 1c-2：本代已 Append 的记录数（Freeze 时冻结为期望值后清零）。
+    uint64_t rec_count = 0;
     uint32_t gen = 0;
   };
 
@@ -212,6 +259,9 @@ class PartitionedWalManager {
   rocksdb::Status FlushBuf(Partition* p) const;  // buf → 文件
   rocksdb::Status OpenGen(Partition* p) const;   // 打开 p->gen 代读写句柄（追加模式）
   rocksdb::Status EnsureOpenForWrite(Partition* p) const;  // 延迟打开写句柄
+  // step 1c-2：登记/覆盖一个 generation 的封存期望。
+  void RecordSealMeta(uint32_t part, uint32_t gen, uint64_t bytes,
+                      uint64_t records, bool records_known);
 
   // M3.1：parts_ 从 vector 改为 unordered_map，支持稀疏 part_id 空间
   // （分裂后 part_ids 不再连续[0,P)，见 M3_DESIGN.md §8.2）。
@@ -223,6 +273,11 @@ class PartitionedWalManager {
   std::unordered_map<uint32_t, std::unique_ptr<Partition>> parts_;
   // M3.4：保护 parts_ map 结构（range-del 分区动态创建与并发 Append/遍历）。
   mutable rocksdb::port::Mutex parts_mu_;
+  // step 1c-2：generation 封存期望登记表（part → gen → meta）。
+  // 写：Freeze / InitPartitionsFromFiles / Open；读：物化安装期 fence 判定。
+  std::unordered_map<uint64_t, GenSealMeta> seal_meta_;
+  mutable rocksdb::port::Mutex seal_meta_mu_;
+  std::atomic<uint64_t> seal_meta_conflicts_{0};
   // M4.1a：O(1) 封存判定聚合计数（见 TotalActiveBytes/AnyPartitionOverTarget）。
   std::atomic<uint64_t> total_active_bytes_{0};
   std::atomic<bool> any_over_target_{false};

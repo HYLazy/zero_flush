@@ -277,6 +277,11 @@ rocksdb::Status PartitionedWalManager::Open() {
     // 残留数据在首次写组即触发封存物化（语义正确：遗留 WAL 尽快落地）。
     p->buf.clear();
   }
+  // step 1c-2：磁盘上既有代的期望字节（重开路径，records 不可知）。真实
+  // 封存（Freeze）会用 records+bytes 覆盖同一 (part,gen) 的估计值。
+  for (const auto& [fp, fg] : all) {
+    RecordSealBytesFromDisk(fp, fg, GetFileSize(fp, fg, all, env_));
+  }
   return rocksdb::Status::OK();
 }
 
@@ -461,6 +466,9 @@ rocksdb::Status PartitionedWalManager::Append(uint32_t part,
   const uint64_t offset = p->total_size;
   p->buf.append(zf_append_scratch);
   p->total_size += zf_append_scratch.size();
+  // step 1c-2：本代记录数（封存期望的 records 侧）。buf 未刷盘即计入——
+  // Freeze 会先 FlushBuf 再冻结期望，故二者一致。
+  ++p->rec_count;
   // M4.1a：维护 O(1) 封存判定计数（Append 在 p->mu 内，原子仅供锁外读）。
   const uint64_t active = p->active_bytes.fetch_add(
                               zf_append_scratch.size(),
@@ -539,6 +547,102 @@ uint64_t PartitionedWalManager::ActiveSize(uint32_t part) const {
   return p->total_size;
 }
 
+// step 1k：换代原子化的活跃代读（见头文件说明）。
+rocksdb::Status PartitionedWalManager::ReadActiveRecordChecked(
+    const WalRecordRef& ref, std::string* buf, rocksdb::Slice* value,
+    bool* gen_rotated) const {
+  if (gen_rotated != nullptr) *gen_rotated = false;
+  auto it = parts_.find(ref.part_id);
+  if (it == parts_.end()) {
+    return rocksdb::Status::InvalidArgument(
+        "ZF ReadActiveRecordChecked: unknown partition " +
+        std::to_string(ref.part_id));
+  }
+  Partition* p = it->second.get();
+  rocksdb::MutexLock l(&p->mu);
+  if (ref.gen != p->gen) {
+    // Freeze 已完成换代：旧代文件已 FlushBuf + Sync（完整、不可变）。
+    if (gen_rotated != nullptr) *gen_rotated = true;
+    return rocksdb::Status::TryAgain();
+  }
+  // 当前活跃代：复用带锁的记录读（内部再取同一把锁，port::Mutex 为
+  // 非递归锁 → 这里直接内联等价逻辑）。
+  if (ref.offset >= p->flushed_size) {
+    const uint64_t in_buf = ref.offset - p->flushed_size;
+    if (in_buf + kZfHeaderSize > p->buf.size()) {
+      return rocksdb::Status::Corruption("ZF record offset beyond buffer");
+    }
+    const char* base = p->buf.data() + in_buf;
+    uint32_t key_len = 0, val_len = 0;
+    DecodeKeyValLen(base, &key_len, &val_len);
+    const uint32_t total = ZfRecordLength(key_len, val_len);
+    if (in_buf + total > p->buf.size()) {
+      return rocksdb::Status::Corruption("ZF record truncated in buffer");
+    }
+    ZfRecordHeader h;
+    rocksdb::Slice k, v;
+    rocksdb::Status st = DecodeZfRecord(base, total, &h, &k, &v);
+    if (!st.ok()) return st;
+    if (h.type == rocksdb::kTypeDeletion) {
+      buf->clear();
+      *value = rocksdb::Slice();
+      return rocksdb::Status::OK();
+    }
+    buf->assign(v.data(), v.size());
+    *value = rocksdb::Slice(*buf);
+    return rocksdb::Status::OK();
+  }
+  if (p->rfile == nullptr) {
+    return rocksdb::Status::IOError("ZF active rfile missing");
+  }
+  char scratch[kZfHeaderSize];
+  rocksdb::Slice result;
+  rocksdb::Status st = p->rfile->Read(ref.offset, kZfHeaderSize, &result, scratch);
+  if (!st.ok()) return st;
+  if (result.size() < kZfHeaderSize) {
+    return rocksdb::Status::Corruption("ZF record header truncated");
+  }
+  uint32_t key_len = 0, val_len = 0;
+  DecodeKeyValLen(result.data(), &key_len, &val_len);
+  const uint32_t total = ZfRecordLength(key_len, val_len);
+  std::string rec;
+  rec.resize(total);
+  std::memcpy(&rec[0], result.data(), kZfHeaderSize);
+  rocksdb::Slice rest;
+  st = p->rfile->Read(ref.offset + kZfHeaderSize, total - kZfHeaderSize, &rest,
+                      &rec[0] + kZfHeaderSize);
+  if (!st.ok()) return st;
+  if (rest.size() < total - kZfHeaderSize) {
+    return rocksdb::Status::Corruption("ZF record truncated");
+  }
+  ZfRecordHeader h;
+  rocksdb::Slice k, v;
+  st = DecodeZfRecord(rec.data(), total, &h, &k, &v);
+  if (!st.ok()) return st;
+  if (h.type == rocksdb::kTypeDeletion) {
+    buf->clear();
+    *value = rocksdb::Slice();
+    return rocksdb::Status::OK();
+  }
+  buf->assign(v.data(), v.size());
+  *value = rocksdb::Slice(*buf);
+  return rocksdb::Status::OK();
+}
+
+// step 1k：独立只读句柄（仅供**已封存**代使用）。
+rocksdb::Status PartitionedWalManager::OpenGenForRead(
+    uint32_t part, uint32_t gen,
+    std::shared_ptr<rocksdb::RandomAccessFile>* out) const {
+  rocksdb::EnvOptions opts;
+  std::unique_ptr<rocksdb::RandomAccessFile> f;
+  rocksdb::Status s = env_->NewRandomAccessFile(GenFilePath(part, gen), &f, opts);
+  if (!s.ok()) {
+    return s;
+  }
+  *out = std::shared_ptr<rocksdb::RandomAccessFile>(std::move(f));
+  return rocksdb::Status::OK();
+}
+
 FreezeResult PartitionedWalManager::Freeze(uint32_t part) {
   auto it = parts_.find(part);
   if (it == parts_.end()) {
@@ -566,15 +670,22 @@ FreezeResult PartitionedWalManager::Freeze(uint32_t part) {
   // 释放文件描述符但保留物理文件（与原 M1 行为一致）。
   p->rfile.reset();
   const uint64_t old_sealed_size = p->total_size;
+  const uint64_t old_records = p->rec_count;
   const uint32_t old_gen = p->gen;
   FreezeResult fr;
   fr.old_gen = old_gen;
   fr.sealed_bytes = old_sealed_size;
+  fr.sealed_records = old_records;
   fr.sealed_path = MakeFileName(dir_, part, old_gen);
+  // step 1c-2：**封存时刻**记录期望输入（records+bytes）。fence 的推进判据
+  // 是"物化输入完整消费 = 本期望"，不能用物化输出反推（输出会合法过滤）。
+  RecordSealMeta(part, old_gen, old_sealed_size, old_records,
+                 /*records_known=*/true);
   ++p->gen;
   // 修 D2：新代文件从 0 写起；否则 Append 会用旧代总长作 offset 写错位置。
   p->flushed_size = 0;
   p->total_size = 0;
+  p->rec_count = 0;
   p->buf.clear();
   // M4.1a：维护 O(1) 封存判定计数——旧代活跃字节归还给总计数；
   // 清零分区计数与超限标志（新代从 0 起，超限由后续 Append 重新置位）。
@@ -594,6 +705,74 @@ rocksdb::Status PartitionedWalManager::ReadRecord(const WalRecordRef& ref,
   return ReadRecord(ref, value, &v);
 }
 
+// ---------------------------------------------------------------------------
+// step 1c-2：generation 封存期望（fence 判据的期望侧）
+// ---------------------------------------------------------------------------
+namespace {
+inline uint64_t SealMetaKey(uint32_t part, uint32_t gen) {
+  return (static_cast<uint64_t>(part) << 32) | static_cast<uint64_t>(gen);
+}
+}  // namespace
+
+void PartitionedWalManager::RecordSealMeta(uint32_t part, uint32_t gen,
+                                           uint64_t bytes, uint64_t records,
+                                           bool records_known) {
+  rocksdb::MutexLock l(&seal_meta_mu_);
+  const uint64_t k = SealMetaKey(part, gen);
+  auto it = seal_meta_.find(k);
+  if (it == seal_meta_.end()) {
+    GenSealMeta m;
+    m.bytes = bytes;
+    m.records = records;
+    m.bytes_known = true;
+    m.records_known = records_known;
+    seal_meta_.emplace(k, m);
+    return;
+  }
+  GenSealMeta& m = it->second;
+  if (records_known) {
+    if (!m.records_known) {
+      // 重开时的磁盘估计 → 真实封存值（唯一允许的"放大"覆盖）。
+      m.bytes = bytes;
+      m.records = records;
+      m.bytes_known = true;
+      m.records_known = true;
+      return;
+    }
+    // 同一 (part, gen) 二次封存：代身份可疑（WAL 封存后又被追加/复用）。
+    // 保留**首次（较小）**期望并计数——物化顺序整读会读到更大字节数，
+    // 与期望不等 → fence 不推进（保守）。这正是 debug 代身份守卫信号。
+    if (bytes != m.bytes || records != m.records) {
+      seal_meta_conflicts_.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (bytes < m.bytes) m.bytes = bytes;
+    if (records < m.records) m.records = records;
+    return;
+  }
+  // 仅磁盘字节估计：不覆盖已有的真实封存登记；保留较小值（保守）。
+  if (!m.bytes_known || bytes < m.bytes) {
+    m.bytes = bytes;
+    m.bytes_known = true;
+  }
+}
+
+bool PartitionedWalManager::GetSealMeta(uint32_t part, uint32_t gen,
+                                        GenSealMeta* out) const {
+  rocksdb::MutexLock l(&seal_meta_mu_);
+  auto it = seal_meta_.find(SealMetaKey(part, gen));
+  if (it == seal_meta_.end() || !it->second.bytes_known) {
+    return false;
+  }
+  if (out != nullptr) {
+    *out = it->second;
+  }
+  return true;
+}
+
+void PartitionedWalManager::RecordSealBytesFromDisk(uint32_t part, uint32_t gen,
+                                                    uint64_t bytes) {
+  RecordSealMeta(part, gen, bytes, 0, /*records_known=*/false);
+}
 rocksdb::Status PartitionedWalManager::ReadRecord(const WalRecordRef& ref,
                                                   std::string* buf,
                                                   rocksdb::Slice* value) const {
@@ -720,6 +899,10 @@ ROCKSDB_NAMESPACE::Status PartitionedWalManager::InitPartitionsFromFiles(
   ROCKSDB_NAMESPACE::Status s = ListFiles(&all);
   if (!s.ok()) {
     return s;
+  }
+  // step 1c-2：split 子分区磁盘上既有代的期望字节（同 Open 的登记语义）。
+  for (const auto& [fp, fg] : all) {
+    RecordSealBytesFromDisk(fp, fg, GetFileSize(fp, fg, all, env_));
   }
   for (uint32_t pid : part_ids) {
     if (parts_.count(pid) > 0) {

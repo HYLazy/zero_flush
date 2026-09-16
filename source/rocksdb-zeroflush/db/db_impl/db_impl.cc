@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_impl/db_impl.h"
+#include "zeroflush/get_trace.h"
 
 #include <cstdint>
 #ifdef OS_SOLARIS
@@ -3101,11 +3102,27 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         const ROCKSDB_NAMESPACE::Slice ik = lkey.internal_key();
         const ROCKSDB_NAMESPACE::SequenceNumber snap =
             ROCKSDB_NAMESPACE::DecodeFixed64(ik.data() + ik.size() - 8) >> 8;
-        const bool zf_hit = zf_ctx->GetFromPartitionIndex(
-            user_key, snap, &s,
-            get_impl_options.value ? get_impl_options.value->GetSelf()
-                                   : nullptr,
-            &merge_context, cfd->ioptions().merge_operator.get());
+        // step 1l（用户 2026-09-15）：ZF 层在"索引命中、记录不可读、该代已
+        // 安装"时请求**刷新读视图后重试**（保持 read_sequence）——这样"安装后
+        // 回收"的正常换代仍能返回正确结果。刷新一次后仍不可读 → ZF 层回落
+        // LSM（此时视图已含该安装）；未安装代则保留错误，不静默降级。
+        bool zf_hit = false;
+        for (int zf_try = 0; zf_try < 2; ++zf_try) {
+          bool retry_requested = false;
+          zf_hit = zf_ctx->GetFromPartitionIndex(
+              user_key, snap, &s,
+              get_impl_options.value ? get_impl_options.value->GetSelf()
+                                     : nullptr,
+              &merge_context, cfd->ioptions().merge_operator.get(),
+              &retry_requested, /*read_view_refreshed=*/zf_try > 0);
+          if (!retry_requested) {
+            break;
+          }
+          // 刷新 SuperVersion（释放旧视图并重新获取），读取序列号不变。
+          ReturnAndCleanupSuperVersion(cfd, sv);
+          sv = GetAndRefSuperVersion(cfd);
+          s = ROCKSDB_NAMESPACE::Status::OK();
+        }
         if (zf_hit) {
           done = true;
           maybe_resolve_memtable_value();
@@ -3169,6 +3186,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
+    const bool zf_get_trace = zeroflush::get_trace::Enabled() &&
+                              zeroflush::get_trace::Match(lkey.user_key());
     sv->current->Get(
         read_options, lkey, get_impl_options.value, get_impl_options.columns,
         timestamp, &s, &merge_context, &max_covering_tombstone_seq,
@@ -3183,6 +3202,23 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
           read_options, get_blob_lookup_key(), resolve_direct_write_value,
           sv->current, cfd, get_impl_options.value, get_impl_options.columns,
           &s, &is_blob_index, get_impl_options.value_found);
+    }
+    // 来源记账（A/B 按实际返回来源统计）：索引未命中后由 LSM 服务。
+    zeroflush::get_trace::SetLastSource(
+        s.ok() ? zeroflush::get_trace::GetSource::kLsm
+               : zeroflush::get_trace::GetSource::kLsmNotFound);
+    if (zf_get_trace) {
+      // 最终来源：索引 miss 后由 LSM 服务（或 NotFound）。seq 的权威记录在
+      // ZFDBG-lsm-end（Version::Get 内，同一读视图）。
+      fprintf(stderr,
+              "ZFDBG-get-final source=%s status=%s value_len=%zu\n",
+              zeroflush::get_trace::SourceName(
+                  zeroflush::get_trace::LastSourceTls()),
+              s.ok() ? "OK"
+                     : (s.IsNotFound() ? "NOTFOUND" : s.ToString().c_str()),
+              (s.ok() && get_impl_options.value != nullptr)
+                  ? get_impl_options.value->size()
+                  : 0);
     }
     RecordTick(stats_, MEMTABLE_MISS);
   }
@@ -5235,7 +5271,8 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
       out += "p" + std::to_string(f.physical_part) + "=[" +
              std::to_string(f.first_generation) + "," +
              std::to_string(f.last_generation) + "]b" +
-             std::to_string(f.consumed_bytes) + " ";
+             std::to_string(f.consumed_bytes) + "r" +
+             std::to_string(f.consumed_record_count) + " ";
     }
     *value = out.empty() ? "(none)" : out;
     return true;

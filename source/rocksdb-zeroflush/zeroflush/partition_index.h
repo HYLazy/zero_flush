@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -33,6 +34,7 @@
 #include "table/merging_iterator.h"
 #include "util/coding.h"
 #include "zeroflush/wal_format.h"  // SlimLocator
+#include "zeroflush/get_trace.h"
 
 namespace zeroflush {
 
@@ -81,6 +83,28 @@ class PartitionIndex {
     p += ik_len;
     p = ROCKSDB_NAMESPACE::EncodeVarint32(p, loc_len);
     memcpy(p, locator.data(), loc_len);
+    // step 1e：段内 seq 边界（链内选择按 seq，不按位置——gen 号跨物理
+    // 分区不可比较，位置序会在"活跃段更旧、冻结段更新"时选出旧版本）。
+    //
+    // **顺序要求**：max_seq 是供读路径剪枝用的**上界**，必须在节点对本
+    // 段可见（InsertConcurrently）**之前**抬升；否则并发读可能看到"已有
+    // 新记录但上界仍是旧值"而提前退出，漏掉更高版本（低估 = 不安全）。
+    // 反过来，插入失败（重复条目）会让上界偏大——只多扫段，不影响正确性。
+    {
+      const uint64_t packed = ROCKSDB_NAMESPACE::DecodeFixed64(
+          internal_key.data() + internal_key.size() - 8);
+      const uint64_t seq = packed >> 8;
+      uint64_t cur = max_seq_.load(std::memory_order_relaxed);
+      while (seq > cur &&
+             !max_seq_.compare_exchange_weak(cur, seq,
+                                             std::memory_order_relaxed)) {
+      }
+      cur = min_seq_.load(std::memory_order_relaxed);
+      while (seq < cur &&
+             !min_seq_.compare_exchange_weak(cur, seq,
+                                             std::memory_order_relaxed)) {
+      }
+    }
     // R57：成功后计数（失败时节点未入表，计 total 会虚增 mem_bytes）。
     if (!list_.InsertConcurrently(buf)) {
       return false;
@@ -91,6 +115,10 @@ class PartitionIndex {
     }
     return true;
   }
+
+  // step 1e：段内 seq 边界（0 = 空段；空段不参与链内选择）。
+  uint64_t MaxSeq() const { return max_seq_.load(std::memory_order_relaxed); }
+  uint64_t MinSeq() const { return min_seq_.load(std::memory_order_relaxed); }
 
   // M4.11c：遍历全部条目的 internal key（布隆重建用）。跳表条目格式：
   // varint ik_len + ik + varint loc_len + loc。并发插入下迭代器可能漏
@@ -347,6 +375,10 @@ class PartitionIndex {
   ROCKSDB_NAMESPACE::ConcurrentArena arena_;
   ROCKSDB_NAMESPACE::InlineSkipList<ZfKeyComparator> list_;
   std::atomic<uint64_t> mem_bytes_{0};
+  // step 1e：本段已插入记录的最大/最小 seq（链内选择与提前退出用）。
+  // 初值：max=0（任何插入都更大）、min=UINT64_MAX（任何插入都更小）。
+  std::atomic<uint64_t> max_seq_{0};
+  std::atomic<uint64_t> min_seq_{~static_cast<uint64_t>(0)};
   std::atomic<bool> frozen_{false};
   friend class PartitionIndexIterator;  // M4.3d-3：迭代器访问跳表
 };
@@ -816,37 +848,191 @@ class PartitionIndexSet {
     // frozen 链：新→旧（vector 尾部最旧——push_back 语义）。
     // 需从"最新 frozen"到"最旧 frozen"再到 active 的顺序查——frozen 链
     // 存为 [最旧...最新]？Freeze 用 push_back → 链尾最新。Get 从链尾往前。
-    for (auto c = chain.rbegin(); c != chain.rend(); ++c) {
-      if ((*c)->Get(user_key, snapshot, locator_out, type_out, seq_out)) {
-        return true;
+    const bool zf_trace =
+        zeroflush::get_trace::Enabled() && zeroflush::get_trace::Match(user_key);
+    // step 1e（用户 2026-09-15，C 修复）：链内选择按**序列号**而非位置。
+    // 依据（逐键证据 v=1031）：同一 logical_part 的链里，"活跃段 gen0" 命中
+    // seq=4104，而"冻结段 gen1"持有 seq=44104（物理落在 part0/gen1）——位置序
+    // （active 优先）选出旧版本。gen 号跨物理分区不可比较，唯一可比的是 seq。
+    // 规则：按各段 max_seq 降序访问，命中后若当前最优 seq ≥ 下一段 max_seq
+    // 上界即可提前退出；删除标记同样参与（最高 seq 者胜出，由调用方映射
+    // NotFound）。布隆快路径在其上不变。
+    {
+      std::vector<std::pair<PartitionIndex*, uint64_t>> cands;
+      cands.reserve(chain.size());
+      for (auto& c : chain) {
+        cands.emplace_back(c.get(), c->MaxSeq());
       }
-      // M5 诊断（ZF_DBG_IDX=1，限次）：存在性探针——用 kMaxSequenceNumber
-      // 重试同 key，区分"链中无此 key"与"snapshot 门控挡住"。
-      if (getenv("ZF_DBG_IDX") != nullptr) {
-        static std::atomic<uint64_t> zf_idx_dbg{0};
-        if (zf_idx_dbg.fetch_add(1, std::memory_order_relaxed) < 24) {
-          ROCKSDB_NAMESPACE::Slice pl, pt2;
-          ROCKSDB_NAMESPACE::SequenceNumber ps = 0;
-          ROCKSDB_NAMESPACE::ValueType ptv;
-          const bool probe = (*c)->Get(
-              user_key, ROCKSDB_NAMESPACE::kMaxSequenceNumber, &pl, &ptv, &ps);
+      std::stable_sort(cands.begin(), cands.end(),
+                       [](const std::pair<PartitionIndex*, uint64_t>& a,
+                          const std::pair<PartitionIndex*, uint64_t>& b) {
+                         return a.second > b.second;
+                       });
+      bool have_best = false;
+      // 注意：locator_out 的契约是"指向**跨调用稳定**的内存"（段内跳表
+      // arena，随段对象存活），调用方会在返回后继续使用。因此这里必须直接
+      // 返回段的 Slice，**不得**拷进本函数栈上的缓冲（栈帧返回即失效 →
+      // 实测读出垃圾 locator → bad part_id）。
+      ROCKSDB_NAMESPACE::Slice best_loc;
+      ROCKSDB_NAMESPACE::ValueType best_type =
+          ROCKSDB_NAMESPACE::kTypeValue;
+      ROCKSDB_NAMESPACE::SequenceNumber best_seq = 0;
+      uint32_t zf_visit2 = 0;
+      for (size_t ci = 0; ci < cands.size(); ++ci) {
+        ++zf_visit2;
+        PartitionIndex* seg = cands[ci].first;
+        ROCKSDB_NAMESPACE::Slice l;
+        ROCKSDB_NAMESPACE::ValueType t = ROCKSDB_NAMESPACE::kTypeValue;
+        ROCKSDB_NAMESPACE::SequenceNumber sq = 0;
+        const bool hit = seg->Get(user_key, snapshot, &l, &t, &sq);
+        if (zf_trace) {
           fprintf(stderr,
-                  "ZFDBG-idx part=%u key=%s snap=%llu gen=%u probe=%d "
-                  "probe_seq=%llu chain=%zu\n",
-                  part_id, user_key.ToString(true).c_str(),
-                  (unsigned long long)snapshot, (*c)->gen(), probe ? 1 : 0,
-                  (unsigned long long)ps, chain.size());
+                  "ZFDBG-idx-%s logical_part=%u idx_part=%u idx_gen=%u "
+                  "idx_frozen=%d seg_max_seq=%llu visit=%u/%zu snap=%llu%s%llu"
+                  "%s\n",
+                  hit ? "hit" : "miss", part_id, seg->part_id(), seg->gen(),
+                  (int)seg->frozen(), (unsigned long long)cands[ci].second,
+                  zf_visit2, cands.size(), (unsigned long long)snapshot,
+                  hit ? " hit_seq=" : " hit_seq=-",
+                  (unsigned long long)sq,
+                  hit ? (t == ROCKSDB_NAMESPACE::kTypeDeletion ? " type=DEL"
+                      : t == ROCKSDB_NAMESPACE::kTypeSingleDeletion
+                          ? " type=SINGLE_DEL"
+                          : t == ROCKSDB_NAMESPACE::kTypeRangeDeletion
+                              ? " type=RANGEDEL"
+                              : " type=VAL")
+                      : "");
+        }
+        if (hit && (!have_best || sq > best_seq)) {
+          best_loc = l;  // 段内 arena 内存，跨调用稳定
+          best_type = t;
+          best_seq = sq;
+          have_best = true;
+        }
+        if (have_best && (ci + 1 >= cands.size() ||
+                          cands[ci + 1].second <= best_seq)) {
+          break;  // 后续段 max_seq 上界不超过当前最优 → 不可能被超过
         }
       }
-      // M5 诊断：链遍历未命中（记录链长与 gen 序）。
-      static std::atomic<uint64_t> zf_cmiss_dbg {0};
-      if (zf_cmiss_dbg.fetch_add(1, std::memory_order_relaxed) < 32 && user_key.size() >= 9 &&
-          memcmp(user_key.data(), "k00000035", 9) == 0) {
-        fprintf(stderr, "ZFDBG-cmiss part=%u chain_gen=%u\n", part_id,
-                (*c)->gen());
+      if (have_best) {
+        if (locator_out != nullptr) *locator_out = best_loc;
+        if (type_out != nullptr) *type_out = best_type;
+        if (seq_out != nullptr) *seq_out = best_seq;
+        if (zf_trace) {
+          uint32_t phys_part = 0, phys_gen = 0;
+          uint64_t phys_off = 0;
+          if (best_loc.size() == 16) {
+            const SlimLocator* sl =
+                reinterpret_cast<const SlimLocator*>(best_loc.data());
+            phys_part = sl->part_id;
+            phys_gen = sl->gen;
+            phys_off = sl->wal_offset;
+          }
+          fprintf(stderr,
+                  "ZFDBG-idx-select logical_part=%u best_seq=%llu "
+                  "phys_part=%u phys_gen=%u phys_off=%llu\n",
+                  part_id, (unsigned long long)best_seq, phys_part, phys_gen,
+                  (unsigned long long)phys_off);
+        }
+        return true;
       }
     }
+    if (zf_trace) {
+      std::string gens;
+      for (const auto& ci : chain) {
+        gens += std::to_string(ci->gen());
+        gens += ",";
+      }
+      fprintf(stderr,
+              "ZFDBG-idx-miss-all logical_part=%u chain_len=%zu chain_gens=[%s] "
+              "snap=%llu\n",
+              part_id, chain.size(), gens.c_str(),
+              (unsigned long long)snapshot);
+    }
     return false;
+  }
+
+  // step 1h：列出仍有索引段（活跃或冻结）的分区及其 **seq 上界**（该分区
+  // 全部段的 max_seq 最大值，保守高估）。用途：跨分区候选选择——写入时与
+  // 读时的路由表版本可能不同（每 epoch 重建表），未安装记录的索引登记在
+  // 写入时的分区上；读必须在**所有可能持有该键的候选**间按 seq 取最优，
+  // 上界用于**可靠剪枝**（上界 ≤ 当前最优 ⇒ 该候选不可能更新）。
+  void ChainParts(std::vector<std::pair<uint32_t, uint64_t>>* out) const {
+    out->clear();
+    std::unordered_map<uint32_t, uint64_t> best;
+    {
+      std::shared_lock<std::shared_mutex> l(mu_);
+      for (const auto& [p, segs] : frozen_) {
+        for (const auto& sg : segs) {
+          if (sg == nullptr) continue;
+          uint64_t& b = best[p];
+          if (sg->MaxSeq() > b) b = sg->MaxSeq();
+        }
+      }
+      for (const auto& [p, seg] : active_) {
+        if (seg == nullptr) continue;
+        uint64_t& b = best[p];
+        if (seg->MaxSeq() > b) b = seg->MaxSeq();
+      }
+    }
+    out->reserve(best.size());
+    for (const auto& [p, b] : best) out->emplace_back(p, b);
+    std::sort(out->begin(), out->end());
+  }
+
+  // step 1i：单个分区的 seq 上界（其全部段的 max_seq 最大值，保守高估）。
+  // 剪枝必须对**每一个**候选都用真实上界——用 0 当占位会让该候选被误跳过
+  // （别名/DRAINING 候选尤其如此）。返回 0 表示该分区没有索引段。
+  uint64_t PartMaxSeqUpper(uint32_t part_id) const {
+    uint64_t best = 0;
+    std::shared_lock<std::shared_mutex> l(mu_);
+    auto fit = frozen_.find(part_id);
+    if (fit != frozen_.end()) {
+      for (const auto& sg : fit->second) {
+        if (sg != nullptr && sg->MaxSeq() > best) best = sg->MaxSeq();
+      }
+    }
+    auto ait = active_.find(part_id);
+    if (ait != active_.end() && ait->second != nullptr &&
+        ait->second->MaxSeq() > best) {
+      best = ait->second->MaxSeq();
+    }
+    return best;
+  }
+
+  // step 1f（用户 2026-09-15，C 补充检查 3）：拷贝版 Get——locator 拷进
+  // **调用方提供的缓冲**。Get() 返回的 Slice 指向段内 arena，段一旦被
+  // 释放（物化完成 ReleaseFrozen）即失效：只保证"指针指向 arena"不足以
+  // 保证生命周期。读路径改用本入口，把 locator 的所有权收进调用方栈变量，
+  // 直到 ReadValue 完成；WAL generation 的生命周期由 ReadValue 自身的
+  // 引用（活跃代句柄 / SealedFileCache 登记+LRU 句柄）保证。
+  // pin_fn/pin_ctx：可选回调，在本函数**返回之前**（链的 shared_ptr 仍在
+  // 作用域内）以选中的 (physical_part, generation) 调用一次——调用方在此取
+  // WAL 读句柄，覆盖"选择 → ReadValue"之间的窗口（用户 2026-09-15：先返回
+  // locator 再 pin 会留出安装/回收窗口）。活跃代无法 pin（Freeze 轮换写
+  // 句柄），由调用方按错误协议处理。
+  bool GetCopy(uint32_t part_id, const ROCKSDB_NAMESPACE::Slice& user_key,
+               ROCKSDB_NAMESPACE::SequenceNumber snapshot,
+               std::string* locator_buf,
+               ROCKSDB_NAMESPACE::ValueType* type_out,
+               ROCKSDB_NAMESPACE::SequenceNumber* seq_out,
+               void (*pin_fn)(void*, uint32_t, uint32_t) = nullptr,
+               void* pin_ctx = nullptr) const {
+    ROCKSDB_NAMESPACE::Slice l;
+    ROCKSDB_NAMESPACE::ValueType t = ROCKSDB_NAMESPACE::kTypeValue;
+    ROCKSDB_NAMESPACE::SequenceNumber sq = 0;
+    if (!Get(part_id, user_key, snapshot, &l, &t, &sq)) {
+      return false;
+    }
+    locator_buf->assign(l.data(), l.size());
+    if (type_out != nullptr) *type_out = t;
+    if (seq_out != nullptr) *seq_out = sq;
+    if (pin_fn != nullptr && locator_buf->size() == sizeof(SlimLocator)) {
+      const SlimLocator* sl =
+          reinterpret_cast<const SlimLocator*>(locator_buf->data());
+      pin_fn(pin_ctx, sl->part_id, sl->gen);
+    }
+    return true;
   }
 
   // ZeroFlushV0 P1：该分区是否仍有 frozen 索引对象（merge retire 判定用；

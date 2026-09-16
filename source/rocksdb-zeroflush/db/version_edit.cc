@@ -658,14 +658,14 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
 
       case kZfInstallFence: {
-        ZfInstallFence f;
-        if (GetVarint32(&input, &f.physical_part) &&
-            GetVarint32(&input, &f.first_generation) &&
-            GetVarint32(&input, &f.last_generation) &&
-            GetVarint64(&input, &f.consumed_record_count) &&
-            GetVarint64(&input, &f.consumed_bytes) &&
-            GetVarint64(&input, &f.install_sequence)) {
-          zf_install_fences_.push_back(f);
+        ZfInstallFence zffence;
+        if (GetVarint32(&input, &zffence.physical_part) &&
+            GetVarint32(&input, &zffence.first_generation) &&
+            GetVarint32(&input, &zffence.last_generation) &&
+            GetVarint64(&input, &zffence.consumed_record_count) &&
+            GetVarint64(&input, &zffence.consumed_bytes) &&
+            GetVarint64(&input, &zffence.install_sequence)) {
+          zf_install_fences_.push_back(zffence);
         } else if (!msg) {
           msg = "zf install fence";
         }

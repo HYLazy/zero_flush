@@ -353,7 +353,15 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
       if (mc_.compaction_picker != nullptr &&
           mc_.compaction_picker->RangeOverlapWithCompaction(
               o.meta.smallest.user_key(), o.meta.largest.user_key(), o.level)) {
-        o.level = 0;
+        if (ctx_->zfo_.forbid_l0_install) {
+          // step 1o：目标模式不允许 L0 出口 —— 标记不可安装，交由安装点
+          // 整批让位（不写 AddFile/fence/drained，保留待物化数据）。
+          o.level = ZfMaterializeJob::kCannotInstall;
+          ctx_->NoteL0InstallBlocked();
+        } else {
+          o.level = 0;
+          ctx_->NoteL0Install();
+        }
         o.replaced_inputs.clear();
         o.replaced_file_numbers.clear();
         o.replaced_l0_file_numbers.clear();
@@ -470,6 +478,11 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
         ctx_->install_direct_base_.fetch_add(1, std::memory_order_relaxed);
       } else {
         o.level = PickInstallLevel(o.meta.smallest, o.meta.largest);
+        if (o.level == ZfMaterializeJob::kCannotInstall) {
+          ctx_->NoteL0InstallBlocked();
+        } else if (o.level == 0) {
+          ctx_->NoteL0Install();
+        }
         if (o.level == 0) {
           // 定层冲突（决策后 compaction 启动/批内互斥/齐批切片撞已装
           // L1 文件）。M5P1b 修正（2026-09-07，25/50GB 实测命中 33% 根因）：
@@ -537,11 +550,28 @@ void ZfMaterializeJob::DeleteAllOutputFiles() {
   }
 }
 
+// step 1p（用户 2026-09-16 第 1/2 项）：让位时移交**所有未安装世代**，而不是
+// 只移交本 job 的 se_.gens——目标模式下让位变多后，出现"封存后尚未登记进任何
+// epoch 的代"在让位时被遗漏 ⇒ 读不到（实测 st_fx group1 6/8 失败於此）。
+// 判据：该 (part, gen) 未被 fence 声明安装（gen > fence_last 或无 fence）。
 void ZfMaterializeJob::HandOffAllGens() {
-  if (se_.gens.empty()) return;
+  // step 1q（用户 2026-09-16 第 2 项）：**只移交本任务拥有的代**。
+  // 早期版本在让位时枚举磁盘上全部 `gen > fence` 并收养——那会接管其他在飞
+  // 任务的代、甚至当前活跃代（文件扫描不能替代 generation 的所有权记录）。
+  // 既然 Freeze 已把该代登记进唯一 registry（pending 由 registry 定义），
+  // 让位只需做**归属迁移**：本 epoch 的 gens（含 kSkip 的部分）→ recovery。
+  std::vector<std::pair<uint32_t, uint32_t>> gens = se_.gens;
+  for (const auto& [p, g] : skipped_gens_) {
+    if (std::find(gens.begin(), gens.end(), std::make_pair(p, g)) ==
+        gens.end()) {
+      gens.emplace_back(p, g);
+    }
+  }
+  if (gens.empty()) return;
+  ctx_->NoteGenHandoff();
   // 与 kSkip 同语义：gens 移交 recovery（可读、不回收），epoch 出链时
   // GetSealedEpoch 不再含这些 gens → frozen 索引保留至收养。
-  ctx_->HandOffSkippedToRecovery(epoch_, se_.gens);
+  ctx_->HandOffSkippedToRecovery(epoch_, gens);
 }
 
 void ZfMaterializeJob::DeleteOrphanFiles() {
@@ -575,11 +605,20 @@ void ZfMaterializeJob::HandOffSkipped() {
   }
 }
 
+// step 1c-2：登记一个 (part, gen) 的输入消费量。并发 worker 各自调用；
+// 同一 gen 被多遍扫描（切片重建/重试）时取最大值 = 单遍完整读取量。
+void ZfMaterializeJob::MergeGenInputStats(uint32_t part, uint32_t gen,
+                                          uint64_t records, uint64_t bytes) {
+  rocksdb::MutexLock l(&input_stats_mu_);
+  GenInputStats& st = input_stats_[GenKey(part, gen)];
+  if (records > st.records) st.records = records;
+  if (bytes > st.bytes) st.bytes = bytes;
+}
+
 void ZfMaterializeJob::DrainOutputs(std::vector<MaterializeOutput>* out) {
   rocksdb::MutexLock l(&out_mu_);
   for (auto& o : outputs_) {
-    out->push_back(std::move(o));
-  }
+    out->push_back(std::move(o));  }
   outputs_.clear();
 }
 
@@ -1201,21 +1240,31 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
                 ? static_cast<double>(sealed + l0_bytes) /
                       static_cast<double>(overlap_bytes)
                 : 1.0;
-        if (ratio < ctx_->zfo_.base_merge_min_ratio) {
+        if (ratio < ctx_->zfo_.base_merge_min_ratio &&
+            !ctx_->zfo_.forbid_l0_install) {
           // ratio 不足：回落 L0 累积（compaction 消费——滞留由后续
           // ratio 达标的融合清理；滞留有限且不阻断（越界跳过）。
           plan.decision = MaterializeDecision::kFallback;
           plans_.push_back(std::move(plan));
           continue;
         }
+        // step 1o（用户 2026-09-16）：目标模式下 L0 出口已关闭 ⇒ 稳定的
+        // L0/base 重叠必须**进入融合**（等待不会使重叠消失；ratio 门槛让位
+        // 于正确性与进展）。
         plan.l0_overlap = std::move(l0_overlap);
       } else {
         // 批内有本分区未安装的 L0 输出（替换会丢其数据）：等待下一批
         // （前序安装后 vstorage 可见 → 可融合）。与 skip_batching 解耦
         // ——L0 场景的等待是必要等待（数据留 frozen + WAL 可读），否则
         // fallback→L0 循环（R49 实测）；skip 字节超阈值才强制回落兜底。
+        // step 1o：目标模式下批内未安装输出是**临时占用**——一律等待下一批
+        // （前序安装后 vstorage 可见即可融合），不回落 L0、也不无限攒批
+        // （该输出安装后本分区即可继续推进；若长期不推进，见 flush 侧的
+        // 强制落地计数）。
         const uint64_t shadow_limit =
-            static_cast<uint64_t>(ctx_->zfo_.partition_target_bytes) * 32;
+            ctx_->zfo_.forbid_l0_install
+                ? ~static_cast<uint64_t>(0)
+                : static_cast<uint64_t>(ctx_->zfo_.partition_target_bytes) * 32;
         if (ctx_->skipped_bytes() < shadow_limit) {
           if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
@@ -1359,6 +1408,45 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     //    L1 空 → kDirect 直装）。原判据 2（N<64 且 N<F 的字节化攒批）
     //    删除——其收敛依赖字节账收养链（断裂）且 F 满时攒批无意义
     //    （等下沉让位由判据 2 直接做）。
+    // ---- 同分区 FIFO（physical_wal_part 为序列化域）----
+    // 用户 2026-09-15 定稿：generation g+1 不得在 g 仍 conflict/recovery/
+    // pending 时安装；kSkip/空 edit 只能让当前代保持 pending，不能放行后续代。
+    // 判据：该分区**最老 pending 代**（排除已安装）早于本批将安装的最老代
+    // ⇒ 本批不得安装（让位转 recovery，由后续 epoch 收养后一并落地）。
+    // 跨分区不受影响（不同 physical part 各自独立）。
+    {
+      uint32_t my_min_gen = 0;
+      bool have_my_min = false;
+      for (const auto& [gp, gg] : se_.gens) {
+        if (gp == pid && (!have_my_min || gg < my_min_gen)) {
+          my_min_gen = gg;
+          have_my_min = true;
+        }
+      }
+      uint32_t oldest_pending = 0;
+      const auto* zf_cache = ctx_->sealed_cache();
+      if (have_my_min && zf_cache != nullptr &&
+          zf_cache->OldestPendingGen(pid, &oldest_pending) &&
+          oldest_pending < my_min_gen) {
+        // FIFO 阻止：存在更早且未安装的代（其数据仍在 WAL）⇒ 本批**不安装**。
+        // 必须保持 pending：kSkip 让数据转 recovery、由后续 epoch 收养后与更老
+        // 代一并落地。**禁止**落到 kFallback（那是 L0 安装——仍然完成了安装，
+        // 会绕过 FIFO，用户 2026-09-15 明确禁止）。
+        ctx_->NoteFifoBlocked();
+        if (!skip_ok) {
+          ROCKS_LOG_INFO(mc_.db_options != nullptr ? mc_.db_options->info_log
+                                                   : nullptr,
+                         "ZeroFlush FIFO: skip_ok=false on pid=%u (align_l1) — "
+                         "still not installing (FIFO wins)",
+                         pid);
+        }
+        plan.decision = MaterializeDecision::kSkip;
+        ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+        plans_.push_back(std::move(plan));
+        continue;
+      }
+    }
+
     if (!overlap.empty() && plan.l0_overlap.empty()) {
       const auto it = se_.part_bytes.find(pid);
       const uint64_t pending =
@@ -1553,9 +1641,7 @@ std::vector<ZfMaterializeJob::FenceRange> ZfMaterializeJob::ConsumedRanges()
     const {
   std::vector<FenceRange> out;
   std::unordered_map<uint32_t, std::vector<uint32_t>> per_part;
-  std::unordered_map<uint32_t, uint32_t> per_part_total;
   for (const auto& [part, gen] : se_.gens) {
-    per_part_total[part]++;
     const bool skipped =
         std::find(skipped_gens_.begin(), skipped_gens_.end(),
                   std::make_pair(part, gen)) != skipped_gens_.end();
@@ -1563,28 +1649,89 @@ std::vector<ZfMaterializeJob::FenceRange> ZfMaterializeJob::ConsumedRanges()
       per_part[part].push_back(gen);
     }
   }
+  auto read_stats = [&](uint32_t part, uint32_t gen) {
+    GenInputStats st;
+    rocksdb::MutexLock l(&input_stats_mu_);
+    auto sit = input_stats_.find(GenKey(part, gen));
+    if (sit != input_stats_.end()) {
+      st = sit->second;
+    }
+    return st;
+  };
   for (auto& [part, gens] : per_part) {
     std::sort(gens.begin(), gens.end());
-    bool contiguous = true;
-    for (size_t i = 1; i < gens.size(); ++i) {
-      if (gens[i] != gens[i - 1] + 1) {
-        contiguous = false;
-        break;
+    // step 1c-2：逐代判"输入完整消费 = 消费量 == 封存期望"（两套统计分离：
+    // 期望在封存时刻记录，见 PartitionedWalManager::GetSealMeta）。任何一代
+    // 不完整即**截断**到它之前（保守：宁可少过滤也不误过滤）。
+    std::vector<FenceRange> per_gen;
+    for (size_t i = 0; i < gens.size(); ++i) {
+      const uint32_t gen = gens[i];
+      if (i > 0 && gen != gens[i - 1] + 1) {
+        break;  // 非连续：后续代无法用单区间表达 → 停在缺口前
+      }
+      const GenInputStats st = read_stats(part, gen);
+      GenSealMeta exp;
+      const bool expected_known = ctx_ != nullptr && ctx_->wal() != nullptr &&
+                                  ctx_->wal()->GetSealMeta(part, gen, &exp);
+      FenceRange fr;
+      fr.part = part;
+      fr.first_gen = gen;
+      fr.last_gen = gen;
+      fr.expected_known = expected_known;
+      fr.expected_bytes = expected_known ? exp.bytes : 0;
+      fr.expected_records = expected_known ? exp.records : 0;
+      fr.records_known = expected_known && exp.records_known;
+      fr.consumed_records = st.records;
+      fr.consumed_bytes = st.bytes;
+      fr.output_records = output_records();
+      fr.output_bytes = output_bytes();
+      // 完整消费判据：期望已知 + 字节相等 +（records 可信时）条数相等。
+      fr.input_complete = expected_known && st.bytes == exp.bytes &&
+                          (!exp.records_known || st.records == exp.records);
+      const auto bit = se_.part_bytes.find(part);
+      if (bit != se_.part_bytes.end() && !gens.empty()) {
+        fr.bytes = bit->second / gens.size();  // 诊断量（输出侧摊分）
+      }
+      // 逐代明细（日志用）：记录所有被检查的代，含导致截断的那一代。
+      FenceRange::GenDetail d;
+      d.part = part;
+      d.gen = gen;
+      d.expected_records = fr.expected_records;
+      d.expected_bytes = fr.expected_bytes;
+      d.consumed_records = fr.consumed_records;
+      d.consumed_bytes = fr.consumed_bytes;
+      d.expected_known = fr.expected_known;
+      d.records_known = fr.records_known;
+      d.complete = fr.input_complete;
+      fr.detail.push_back(d);
+      per_gen.push_back(fr);
+      if (!fr.input_complete) {
+        break;  // 本代不完整 → 不推进到它（后续代即使完整也不越过）
       }
     }
-    if (!contiguous) {
-      continue;  // 保守：非连续不推进（由调用方计入 fence_gap）
+    if (per_gen.empty()) {
+      continue;  // 首代即不完整（由调用方计入 fence_input_incomplete）
     }
-    FenceRange fr;
-    fr.part = part;
-    fr.first_gen = gens.front();
-    fr.last_gen = gens.back();
-    const auto bit = se_.part_bytes.find(part);
-    if (bit != se_.part_bytes.end() && per_part_total[part] > 0) {
-      // 该分区本 epoch 封存字节按代等比摊分（fence.bytes 仅诊断用途）
-      fr.bytes = bit->second * gens.size() / per_part_total[part];
+    FenceRange agg = per_gen.front();
+    agg.last_gen = per_gen.back().last_gen;
+    agg.bytes = 0;
+    uint64_t exp_r = 0, exp_b = 0, con_r = 0, con_b = 0;
+    bool all_records_known = true;
+    for (const FenceRange& f : per_gen) {
+      agg.bytes += f.bytes;
+      exp_r += f.expected_records;
+      exp_b += f.expected_bytes;
+      con_r += f.consumed_records;
+      con_b += f.consumed_bytes;
+      all_records_known = all_records_known && f.records_known;
     }
-    out.push_back(fr);
+    agg.expected_records = exp_r;
+    agg.expected_bytes = exp_b;
+    agg.consumed_records = con_r;
+    agg.consumed_bytes = con_b;
+    agg.records_known = all_records_known;
+    agg.input_complete = true;
+    out.push_back(agg);
   }
   std::sort(out.begin(), out.end(),
             [](const FenceRange& a, const FenceRange& b) {
@@ -1639,11 +1786,16 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
                        mc_.db_options->info_log.get());
     ZfRecordHeader h;
     rocksdb::Slice key, value;
+    // step 1c-2：输入消费量（每条读入并处理的记录都计入，即使之后被过滤）。
+    uint64_t in_records = 0;
     while (scanner.Next(&h, &key, &value)) {
       keys.push_back(MakeInternalKey(key, h.seq, h.type));
       values.emplace_back(value.data(), value.size());
       prof_ab += key.size() + value.size();
+      ++in_records;
     }
+    // 顺序整读：offset = 已读记录总字节（与封存期望同口径）。
+    MergeGenInputStats(p, gen, in_records, scanner.offset());
     // M3.2：物化严格要求已封存文件完整（区别于恢复路径的宽容语义）。
     if (!scanner.status().ok()) {
       return ROCKSDB_NAMESPACE::Status::Corruption(
@@ -1784,6 +1936,10 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
     }
     ctx_->prof_output_bytes_.fetch_add(meta.fd.GetFileSize(),
                                        std::memory_order_relaxed);
+    // step 1c-2：输出侧统计（= 最终写入 AddFile 的内容，供 fence 日志对照）。
+    output_bytes_.fetch_add(meta.fd.GetFileSize(), std::memory_order_relaxed);
+    output_records_.fetch_add(table_properties.num_entries,
+                              std::memory_order_relaxed);
     {
       rocksdb::MutexLock l(&out_mu_);
       MaterializeOutput out;
@@ -1899,14 +2055,18 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
                        mc_.db_options->info_log.get());
     ZfRecordHeader h;
     rocksdb::Slice key, value;
+    // step 1c-2：输入消费量（同 MaterializePartition 口径）。
+    uint64_t in_records = 0;
     while (scanner.Next(&h, &key, &value)) {
       keys.push_back(MakeInternalKey(key, h.seq, h.type));
       values.emplace_back(value.data(), value.size());
       prof_ab += key.size() + value.size();
+      ++in_records;
       if (h.seq < min_seq) {
         min_seq = h.seq;
       }
     }
+    MergeGenInputStats(p, gen, in_records, scanner.offset());
     if (!scanner.status().ok()) {
       return ROCKSDB_NAMESPACE::Status::Corruption(
           "ZF sealed WAL scan failed: " + scanner.status().ToString());
@@ -2261,6 +2421,10 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
     }
     if (ss.ok()) {
       cur_meta.fd.file_size = builder->FileSize();
+      // step 1c-2：输出侧统计（含 B 侧归并输入；与 A 侧输入量不可比）。
+      output_bytes_.fetch_add(builder->FileSize(), std::memory_order_relaxed);
+      output_records_.fetch_add(builder->NumEntries(),
+                                std::memory_order_relaxed);
       cur_meta.tail_size = builder->GetTailSize();
       cur_meta.marked_for_compaction = builder->NeedCompact();
       cur_meta.user_defined_timestamps_persisted =
@@ -2384,6 +2548,11 @@ int ZfMaterializeJob::PickInstallLevel(
   if (mc_.compaction_picker != nullptr &&
       mc_.compaction_picker->RangeOverlapWithCompaction(
           u_smallest, u_largest, base)) {
+    // step 1o：目标模式下"运行中 compaction 占用"⇒ 不可安装（让位，
+    // 等占用任务完成后重规划），不再回落 L0。
+    if (ctx_ != nullptr && ctx_->zfo_.forbid_l0_install) {
+      return kCannotInstall;
+    }
     return 0;
   }
   // 可安装 ⟺ L0..base_level 均无文件与 [smallest, largest] 重叠
@@ -2409,7 +2578,12 @@ int ZfMaterializeJob::PickInstallLevel(
           }
         }
       }
-      return 0;  // 回落 L0
+      // step 1o：目标模式下 base 层重叠 ⇒ **不回落 L0**。
+      // 稳定重叠由规划阶段安排融合（PlanLocked 在 forbid_l0_install 时对
+      // 有重叠的分区无条件选 kMergeBase）；此处兜底：若规划仍未覆盖到，
+      // 返回"不可安装"让整批让位（保留 WAL，不产生 L0）。
+      return (ctx_ != nullptr && ctx_->zfo_.forbid_l0_install) ? kCannotInstall
+                                                               : 0;
     }
     // 本批次已放置到该层的文件（跨 epoch ABA 防护：同批文件尚未进
     // vstorage，但安装后会同层）。
@@ -2435,7 +2609,9 @@ int ZfMaterializeJob::PickInstallLevel(
                     p_smallest.ToString(true).c_str(),
                     p_largest.ToString(true).c_str());
           }
-          return 0;
+          return (ctx_ != nullptr && ctx_->zfo_.forbid_l0_install)
+                     ? kCannotInstall
+                     : 0;
         }
       }
     }

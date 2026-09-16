@@ -121,6 +121,31 @@ class SealedFileCache {
   // 已移交 ⇒ pending 不变）。
   void MarkEpochInstalled(uint64_t epoch);
 
+  // step FIFO：该 physical_part 仍 pending 的最老 generation
+  // （epochs_ ∪ skip_gens_ ∪ recovery_gens_；installed 的不算）。
+  // 用途：同分区 FIFO——若最老 pending 代早于本批将安装的最老代，本批不得安装。
+  bool OldestPendingGen(uint32_t part, uint32_t* out) const;
+
+  // step 1q（用户 2026-09-16 第 1 项）：pending 的**权威重算**——按 registry
+  // 定义 `Σ_{sealed && !installed} bytes`。契约：
+  //   pending = registry 中所有 sealed && !installed generation 的字节之和；
+  //   handoff / 收养 / 让位只改变归属，**不改变 pending/drained**；
+  //   只有成功的 AddFile+LogAndApply 才 pending→drained；
+  //   物理回收只增加 reclaimed。
+  // 用途：守恒校验（O(1) 镜像 vs 重算），任何漂移都必须暴露而不是被掩盖。
+  // step 1r（用户 2026-09-16 第 3 项）：单代状态描述——归属集合（epoch/skip/
+  // recovery）、installed、字节、引用计数。用于读失败时按证据分类
+  // （索引撤除 / 读视图交接 / 候选发现），而不是猜测。
+  std::string DescribeGen(uint32_t part, uint32_t gen) const;
+
+  uint64_t PendingBytesRecomputed() const;
+  uint64_t pending_drift_events() const { return pending_drift_events_; }
+  // step 1t：epoch 释放时"引用归零但尚未安装"的代——**不得回收**，改为移交
+  // recovery 并保留 registry 条目（应恒为 0 = 正常路径下 epoch 只在安装后释放）。
+  uint64_t gen_release_before_install() const {
+    return gen_release_before_install_.load(std::memory_order_relaxed);
+  }
+
   uint64_t pending_materialize_bytes() const {
     return pending_bytes_.load(std::memory_order_relaxed);
   }
@@ -257,6 +282,10 @@ class SealedFileCache {
   uint64_t drained_bytes_ = 0;               // 单调：安装（LogAndApply）时增加
   uint64_t reclaimed_bytes_ = 0;             // 单调：引用归零、可物理回收时增加
   uint64_t peak_pending_bytes_ = 0;
+  // pending 守恒校验：镜像与重算不一致的次数（应恒为 0）。
+  mutable uint64_t pending_drift_events_ = 0;
+  std::atomic<uint64_t> gen_release_before_install_{0};
+  mutable uint64_t last_recomputed_pending_ = 0;
   uint64_t installed_epochs_ = 0;
   uint64_t reclaimed_gens_ = 0;
 

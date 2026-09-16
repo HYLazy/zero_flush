@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/version_set.h"
+#include "zeroflush/get_trace.h"
 
 #include <algorithm>
 #include <array>
@@ -2763,7 +2764,57 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                 internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
 
+  // step 1d：LSM 侧真实访问顺序（ZF_DBG_GET）。打印每个被访问文件的
+  // level/文件号/seq 范围/命中 seq、type，用于判断"文件号更大的先被读"
+  // 是否真的发生（不能只凭文件号推断）。
+  const bool zf_trace =
+      zeroflush::get_trace::Enabled() && zeroflush::get_trace::Match(user_key);
+  const ROCKSDB_NAMESPACE::SequenceNumber zf_read_seq =
+      read_options.snapshot != nullptr
+          ? read_options.snapshot->GetSequenceNumber()
+          : (vset_ != nullptr ? vset_->LastSequence() : 0);
+  if (zf_trace) {
+    // L0 的实际排序（版本内顺序 + 排序键 epoch）：直接从 level_files_brief_
+    // 打印，避免从文件号推断读取顺序。
+    fprintf(stderr, "ZFDBG-l0-order files=%zu:",
+            storage_info_.level_files_brief_.empty()
+                ? 0
+                : storage_info_.level_files_brief_[0].num_files);
+    if (!storage_info_.level_files_brief_.empty()) {
+      const auto& l0 = storage_info_.level_files_brief_[0];
+      for (size_t i = 0; i < l0.num_files; ++i) {
+        fprintf(stderr, " [%zu]file=%llu epoch=%llu seq=[%llu,%llu]", i,
+                (unsigned long long)l0.files[i].file_metadata->fd.GetNumber(),
+                (unsigned long long)l0.files[i].file_metadata->epoch_number,
+                (unsigned long long)l0.files[i].file_metadata->fd.smallest_seqno,
+                (unsigned long long)l0.files[i].file_metadata->fd.largest_seqno);
+      }
+    }
+    fprintf(stderr, "\n");
+    fprintf(stderr,
+            "ZFDBG-lsm-begin key_id=%lld read_seq=%llu snap=%s\n",
+            (long long)zeroflush::get_trace::KeyId(user_key),
+            (unsigned long long)zf_read_seq,
+            read_options.snapshot != nullptr ? "yes" : "no");
+  }
+  uint32_t zf_file_visit = 0;
+
   while (f != nullptr) {
+    if (zf_trace) {
+      // 实际排序键：L0 的顺序由 VersionBuilder 的比较器决定——ZF 输出带
+      // epoch_number（安装时 NewEpochNumber()）⇒ 走 NewestFirstByEpochNumber
+      // （epoch 降序，同 epoch 再按 largest_seqno/smallest_seqno 降序）。
+      // 这里把 epoch 与文件号一起打印，避免再从文件号推断读取顺序。
+      fprintf(stderr,
+              "ZFDBG-lsm-visit #%u level=%d file=%llu epoch=%llu "
+              "seq_range=[%llu,%llu] state_before=%d\n",
+              zf_file_visit, fp.GetHitFileLevel(),
+              (unsigned long long)f->file_metadata->fd.GetNumber(),
+              (unsigned long long)f->file_metadata->epoch_number,
+              (unsigned long long)f->file_metadata->fd.smallest_seqno,
+              (unsigned long long)f->file_metadata->fd.largest_seqno,
+              (int)get_context.State());
+    }
     if (*max_covering_tombstone_seq > 0) {
       // The remaining files we look at will only contain covered keys, so we
       // stop here.
@@ -2796,6 +2847,16 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       return;
     }
 
+    ++zf_file_visit;
+    if (zf_trace) {
+      fprintf(stderr,
+              "ZFDBG-lsm-result #%u level=%d file=%llu state_after=%d "
+              "hit_seq=%llu\n",
+              zf_file_visit - 1, fp.GetHitFileLevel(),
+              (unsigned long long)f->file_metadata->fd.GetNumber(),
+              (int)get_context.State(),
+              (unsigned long long)(seq != nullptr ? *seq : 0));
+    }
     // report the counters before returning
     if (get_context.State() != GetContext::kNotFound &&
         get_context.State() != GetContext::kMerge &&
@@ -2880,6 +2941,13 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         return;
     }
     f = fp.GetNextFile();
+  }
+  if (zf_trace) {
+    fprintf(stderr,
+            "ZFDBG-lsm-end files_visited=%u final_state=%d final_seq=%llu "
+            "(0=kNotFound 2=kFound 1=kMerge/Deleted)\n",
+            zf_file_visit, (int)get_context.State(),
+            (unsigned long long)(seq != nullptr ? *seq : 0));
   }
   if (db_statistics_ != nullptr) {
     get_context.ReportCounters();

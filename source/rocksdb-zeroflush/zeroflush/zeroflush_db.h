@@ -168,6 +168,14 @@ struct ZeroFlushOptions {
   uint64_t ledger_stop_bytes = 1ull << 30;             // 1GiB（验证期）
   uint64_t ledger_resume_bytes = 768ull << 20;         // 0.75GiB
   uint64_t backpressure_timeout_micros = 15ull * 1000 * 1000;  // 15s
+  // step 1o：目标模式——禁止任何输出安装到 L0（不可安全安装时整批让位、
+  // 保留 WAL，而不是回落 L0）。稳定重叠由规划阶段安排融合。
+  bool forbid_l0_install = true;
+
+  // step 1h：读候选并集上限——路由分区 miss 后，最多再扫描多少个"仍有索引段"
+  // 的分区（写入时路由版本与读时不同 ⇒ 未安装记录的索引登记在别的分区）。
+  // 0 = 关闭并集（回到"只查路由分区+别名"的旧行为，用于对照实验）。
+  uint32_t read_union_max_parts = 64;
 
   // ---- ZeroFlushV0 M4：动态治理 DG（调度器）----
   // 对应路线图 §2 M4。默认全关（v1 显式启用；既有行为零改动）。
@@ -253,6 +261,126 @@ class ZeroFlushContext {
 
   // ---- 读路径（value 解析）----
   // locator_slice 为 16B SlimLocator；value 写入 out。
+  // step 1h：该 (physical_wal_part, generation) 是否已被 fence 声明安装
+  // （= 其数据已在 LSM）。用途：读路径遇到 WAL 读失败时区分两种情况——
+  // 已安装 ⇒ 回落 LSM 是正确的；未安装 ⇒ 该记录的唯一副本不可读，
+  // **必须传播错误**而不是静默返回 LSM 的旧值/NotFound（后者会把生命周期
+  // 错误伪装成陈旧读）。
+  bool IsGenInstalled(uint32_t phys_part, uint32_t gen) const;
+
+  // step 1i（测试/诊断入口，与读路径共用同一段选择逻辑）：在候选间按 seq
+  // 取最优，返回胜出者的 (logical_part, phys_part, gen, offset, type, seq)。
+  // candidates == nullptr ⇒ 用读路径计算的集合（路由分区+别名+链上其它分区）；
+  // 非空 ⇒ 只用给定候选（第一个视为路由分区）。不读 value、不做 tombstone
+  // 映射——调用方自己解释 type。pin_slot 为可选 ZfPinSlot（内部 void* 传递）。
+  bool SelectBestIndexRecord(const ROCKSDB_NAMESPACE::Slice& user_key,
+                             ROCKSDB_NAMESPACE::SequenceNumber snapshot,
+                             const std::vector<uint32_t>* candidates,
+                             uint32_t* out_logical_part, uint32_t* out_phys_part,
+                             uint32_t* out_gen, uint64_t* out_offset,
+                             ROCKSDB_NAMESPACE::ValueType* out_type,
+                             ROCKSDB_NAMESPACE::SequenceNumber* out_seq,
+                             void* pin_slot) const;
+
+  // step 1h：索引命中但记录读不到 → 传播错误的次数（缺口 2；理想 0）。
+  void NoteReadReadfailPropagated() const {
+    read_readfail_propagated_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t read_readfail_propagated() const {
+    return read_readfail_propagated_.load(std::memory_order_relaxed);
+  }
+  void NoteReadReadfailFellBack() const {
+    read_readfail_fallen_back_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t read_readfail_fallen_back() const {
+    return read_readfail_fallen_back_.load(std::memory_order_relaxed);
+  }
+  // step 1o：L0 安装计数（累计；目标模式要求 l0_install_count=0）。
+  bool forbid_l0_install() const { return zfo_.forbid_l0_install; }
+
+  // step 1p：保留契约诊断（用户 2026-09-16 第 4 项）。
+  //  gen_lost_before_install：未安装世代既无登记、连文件也读不到（应恒为 0）。
+  //  gen_unregistered_fd_fallback：无登记但文件仍在（登记缺口，靠 fd 兜底可读）。
+  void NoteGenLostBeforeInstall() const {
+    gen_lost_before_install_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void NoteGenUnregisteredFdFallback() const {
+    gen_unregistered_fd_fallback_.fetch_add(1, std::memory_order_relaxed);
+  }
+  // step 1t：因"未安装"而**保留** frozen 索引段的次数（读依赖守门）。
+  uint64_t index_kept_uninstalled() const {
+    return index_kept_uninstalled_.load(std::memory_order_relaxed);
+  }
+
+  // step 1s：epoch 释放时发现未安装代 → 移交 recovery 的次数（保留契约守门）。
+  uint64_t handoff_at_release() const {
+    return ctx_stats_handoff_at_release_.load(std::memory_order_relaxed);
+  }
+
+  // step 1p：让位/移交的世代计数（覆盖"未登记世代"补充移交的次数）。
+  void NoteGenHandoff() const {
+    gen_handoff_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t gen_handoff() const {
+    return gen_handoff_.load(std::memory_order_relaxed);
+  }
+  uint64_t gen_lost_before_install() const {
+    return gen_lost_before_install_.load(std::memory_order_relaxed);
+  }
+  uint64_t gen_unregistered_fd_fallback() const {
+    return gen_unregistered_fd_fallback_.load(std::memory_order_relaxed);
+  }
+
+  void NoteL0Install() const {
+    l0_install_count_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void NoteL0InstallBlocked() const {
+    l0_install_blocked_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t l0_install_count() const {
+    return l0_install_count_.load(std::memory_order_relaxed);
+  }
+  uint64_t l0_install_blocked() const {
+    return l0_install_blocked_.load(std::memory_order_relaxed);
+  }
+
+  // step 1n：pin 取得情况（压力用例要求逐轮记录 pin_acquired）。
+  void NotePinAcquired() const {
+    wal_pin_acquired_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void NotePinActiveUnpinnable() const {
+    wal_pin_active_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t wal_pin_acquired() const {
+    return wal_pin_acquired_.load(std::memory_order_relaxed);
+  }
+  uint64_t wal_pin_active_unpinnable() const {
+    return wal_pin_active_.load(std::memory_order_relaxed);
+  }
+  uint64_t read_union_overflow() const {
+    return read_union_overflow_.load(std::memory_order_relaxed);
+  }
+
+  // step 1h：读候选并集扫描的分区数累计（成本可见性）。
+  uint64_t index_parts_scanned() const {
+    return index_parts_scanned_.load(std::memory_order_relaxed);
+  }
+
+  // step 1h：登记默认列族的 cfd（Open 时设置；读路径查 fence 用）。
+  void SetCfd(ROCKSDB_NAMESPACE::ColumnFamilyData* cfd) { cfd_ = cfd; }
+
+  // step 1h：索引命中后、ReadValue 完成前钉住 WAL generation 的读句柄
+  // （sealed 代：SealedFileCache 登记 + LRU 句柄；活跃代：WAL 管理器句柄），
+  // 防止窗口内被回收（unlink）导致读失败。失败返回 false（未登记）。
+  bool PinWalGen(uint32_t phys_part, uint32_t gen,
+                 std::shared_ptr<ROCKSDB_NAMESPACE::RandomAccessFile>* out)
+      const;
+
+  // step 1k：用选择时取得的句柄直接读（跨 Freeze/回收安全）。
+  ROCKSDB_NAMESPACE::Status ReadValuePinned(
+      const ROCKSDB_NAMESPACE::Slice& locator_slice,
+      ROCKSDB_NAMESPACE::RandomAccessFile* pinned, std::string* out) const;
+
   ROCKSDB_NAMESPACE::Status ReadValue(const ROCKSDB_NAMESPACE::Slice& locator_slice,
                                       std::string* out) const;
 
@@ -267,6 +395,7 @@ class ZeroFlushContext {
   ROCKSDB_NAMESPACE::Status PersistZfProps();
 
   PartitionedWalManager* wal() { return wal_.get(); }
+  const PartitionedWalManager* wal() const { return wal_.get(); }
   const ZeroFlushOptions& options() const { return zfo_; }
   const std::string& wal_dir() const { return wal_dir_; }
 
@@ -283,12 +412,18 @@ class ZeroFlushContext {
   void HandOffSkippedToRecovery(
       uint64_t epoch, const std::vector<std::pair<uint32_t, uint32_t>>& gens);
   // M4.3a：Get 查分区索引（替代 mem/imm 链）。命中返回 true（含 tombstone）。
+  // step 1l（用户 2026-09-15）：索引命中但记录不可读且**该代已安装**时，
+  // 通过 retry_requested 请求调用方**刷新读视图后重试**（同一 read_sequence）：
+  // 第一次请求刷新；第二次（视图已包含该安装）允许回落 LSM。这样"安装后回收"
+  // 的正常换代路径仍能返回正确结果，而不是把错误当作换代方案。
   bool GetFromPartitionIndex(
       const ROCKSDB_NAMESPACE::Slice& user_key,
       ROCKSDB_NAMESPACE::SequenceNumber snapshot,
       ROCKSDB_NAMESPACE::Status* s, std::string* value,
       ROCKSDB_NAMESPACE::MergeContext* merge_context,
-      const ROCKSDB_NAMESPACE::MergeOperator* merge_op) const;
+      const ROCKSDB_NAMESPACE::MergeOperator* merge_op,
+      bool* retry_requested = nullptr,
+      bool read_view_refreshed = false) const;
   bool CheckRangeDelCover(const ROCKSDB_NAMESPACE::Slice& user_key,
                           ROCKSDB_NAMESPACE::SequenceNumber snapshot) const;
 
@@ -401,6 +536,15 @@ class ZeroFlushContext {
   uint64_t epochs_reclaimed() const;
   uint64_t live_wal_bytes() const;    // 全部活跃代字节（未封存）
   uint64_t materialize_micros() const;  // 封存→物化完成墙钟耗时累计
+  // step 1f：活跃代 WAL 读计数（assert "WAL 命中"的确定性证据——物化只处理
+  // 已封存代，活跃代读必落 WAL；sealed_read_count 会与后台物化竞争）。
+  void NoteActiveWalRead() const {
+    active_wal_read_count_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t active_wal_read_count() const {
+    return active_wal_read_count_.load(std::memory_order_relaxed);
+  }
+
   uint64_t sealed_read_count() const;
   uint64_t sealed_cache_miss() const;
   size_t recovery_count() const;      // 待收养恢复期孤儿代数
@@ -493,12 +637,45 @@ class ZeroFlushContext {
   void NoteFenceAdvance() {
     fence_advance_count_.fetch_add(1, std::memory_order_relaxed);
   }
+  void NoteFenceHoleAdvance() {
+    fence_hole_advance_count_.fetch_add(1, std::memory_order_relaxed);
+  }
+  // step FIFO：诊断
+  void NoteFifoBlocked() {
+    fifo_blocked_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t fifo_blocked() const {
+    return fifo_blocked_.load(std::memory_order_relaxed);
+  }
+  void NoteFifoBypass() {
+    fifo_bypass_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t fifo_bypass() const {
+    return fifo_bypass_.load(std::memory_order_relaxed);
+  }
+  class SealedFileCache* sealed_cache() const { return sealed_cache_.get(); }
+
+  uint64_t fence_hole_advance_count() const {
+    return fence_hole_advance_count_.load(std::memory_order_relaxed);
+  }
   void NoteFenceGap() {
     fence_gap_count_.fetch_add(1, std::memory_order_relaxed);
+  }
+  // step 1c-2：候选区间的输入**未完整消费**（消费 ≠ 封存期望，或期望未知）
+  // → 保守保留 fence。非 0 表示"有代本可推进但被拦下"（诊断）。
+  void NoteFenceInputIncomplete() {
+    fence_input_incomplete_count_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t fence_input_incomplete_count() const {
+    return fence_input_incomplete_count_.load(std::memory_order_relaxed);
   }
   uint64_t fence_advance_count() const {
     return fence_advance_count_.load(std::memory_order_relaxed);
   }
+  // 子提交 2：恢复期被 fence 过滤掉的 generation（已安装，不入读索引/不计 pending）
+  uint64_t recovery_filtered_gens() const { return recovery_filtered_gens_; }
+  uint64_t recovery_filtered_bytes() const { return recovery_filtered_bytes_; }
+
   uint64_t fence_gap_count() const {
     return fence_gap_count_.load(std::memory_order_relaxed);
   }
@@ -872,6 +1049,8 @@ class ZeroFlushContext {
   }
 
   ZeroFlushOptions zfo_;
+  // step 1h：默认列族（读路径查 installed fence：读失败能否回落 LSM）。
+  ROCKSDB_NAMESPACE::ColumnFamilyData* cfd_ = nullptr;
   std::string wal_dir_;       // wal_dir/zfwal
   ROCKSDB_NAMESPACE::Env* env_;
   std::unique_ptr<PartitionedWalManager> wal_;
@@ -915,6 +1094,28 @@ class ZeroFlushContext {
   std::atomic<uint64_t> backpressure_waits_{0};
   std::atomic<uint64_t> fence_advance_count_{0};
   std::atomic<uint64_t> fence_gap_count_{0};
+  std::atomic<uint64_t> fence_hole_advance_count_{0};
+  std::atomic<uint64_t> fence_input_incomplete_count_{0};
+  mutable std::atomic<uint64_t> active_wal_read_count_{0};
+  mutable std::atomic<uint64_t> index_parts_scanned_{0};
+  mutable std::atomic<uint64_t> read_readfail_propagated_{0};
+  mutable std::atomic<uint64_t> read_readfail_fallen_back_{0};
+  mutable std::atomic<uint64_t> wal_pin_acquired_{0};
+  mutable std::atomic<uint64_t> l0_install_count_{0};
+  mutable std::atomic<uint64_t> gen_lost_before_install_{0};
+  mutable std::atomic<uint64_t> gen_handoff_{0};
+  mutable std::atomic<uint64_t> ctx_stats_handoff_at_release_{0};
+  mutable std::atomic<uint64_t> index_kept_uninstalled_{0};
+  mutable std::atomic<uint64_t> gen_unregistered_fd_fallback_{0};
+  mutable std::atomic<uint64_t> l0_install_blocked_{0};
+  mutable std::atomic<uint64_t> wal_pin_active_{0};
+  // 候选数超过 read_union_max_parts 的次数（超限扫全量，绝不静默截断）。
+  mutable std::atomic<uint64_t> read_union_overflow_{0};
+  std::atomic<uint64_t> fifo_blocked_{0};
+  std::atomic<uint64_t> fifo_bypass_{0};
+  // 仅 Recover 单线程写入；读取在 Open 之后，无需原子。
+  uint64_t recovery_filtered_gens_ = 0;
+  uint64_t recovery_filtered_bytes_ = 0;
   std::atomic<uint64_t> backpressure_timeouts_{0};
 
   // ---- M5P1b 跨批互斥登记状态（mm_*：materialize mutex 缩写）----

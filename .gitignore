@@ -2,7 +2,25 @@
 # 构建产物：zf_valcheck 由本仓库新增目标生成（其余 build_rel 产物已在既有规则内）
 source/rocksdb-zeroflush/build_rel/zf_valcheck
 
+# in-source cmake 构建残留（诊断期临时用；正式构建走 build_rel）
+source/rocksdb-zeroflush/zf_valcheck
+source/rocksdb-zeroflush/db_bench
+source/rocksdb-zeroflush/librocksdb.so*
+source/rocksdb-zeroflush/build_version.cc
+source/rocksdb-zeroflush/tools/Makefile
+source/rocksdb-zeroflush/db_stress_tool/Makefile
+source/rocksdb-zeroflush/third-party/gtest-1.8.1/fused-src/gtest/Makefile
+source/rocksdb-zeroflush/CMakeCache.txt
+source/rocksdb-zeroflush/CMakeFiles/
+source/rocksdb-zeroflush/cmake_install.cmake
+source/rocksdb-zeroflush/CTestTestfile.cmake
+
 # ZF 实验产物：原始日志与实验库不入库，改为在 RUN_MANIFEST.md 记录配置与结果
 output/**/*.LOG
 output/**/fill_*.log
 output/**/db_*/
+# 冻结样本副本（保留证据用；每次追踪用新副本，避免反复重开改变证据）
+output/**/frozen_*/
+# 压力/验收实验目录（每组一个父目录，内含 per-iteration 库）
+output/**/st_*/
+output/**/it_*/

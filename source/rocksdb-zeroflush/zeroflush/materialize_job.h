@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -221,18 +222,59 @@ class ZfMaterializeJob {
 
   uint64_t epoch() const { return epoch_; }
 
+  // step 1o：目标模式禁止 L0 安装时，"无法安全安装"的哨兵返回值（安装点
+  // 据此整批让位：不写 AddFile、不推进 fence/drained、保留待物化数据）。
+  static constexpr int kCannotInstall = -1;
+
   // step 1c：本 epoch 中"完整消费"的 (physical_wal_part, generation) 区间。
   // 语义：se_.gens 去掉阶段 0 决策为 kSkip 的部分（skipped_gens_，Run 尾部
   // 移交 recovery，其数据未被消费，**不得**被 fence 声明为已安装）。
   // 每个分区只返回其连续区间；非连续则整段不返回（保守：宁可少过滤也不误过滤）。
-  // bytes 按 se_.part_bytes[part] 在本分区代间等比摊分（诊断量）。
+  //
+  // step 1c-2（两套统计）：generation 只有在**输入被完整读取**时才可进入区间
+  // ——判据 consumed_records/bytes == 封存期望 sealed_expected_*（期望在 WAL
+  // 封存时刻记录，见 PartitionedWalManager::GetSealMeta）。输出侧 output_*
+  // 与输入不可比：物化会合法地过滤旧版本/删除标记/合并记录。
   struct FenceRange {
     uint32_t part = 0;
     uint32_t first_gen = 0;
     uint32_t last_gen = 0;
-    uint64_t bytes = 0;
+    uint64_t bytes = 0;  // 历史字段：输出侧摊分字节（诊断，保留兼容）
+    // 期望侧（封存时刻记录）
+    uint64_t expected_records = 0;
+    uint64_t expected_bytes = 0;
+    bool records_known = false;   // 期望 records 是否可信
+    bool expected_known = false;  // 有登记 → 否则（恢复孤儿）不得推进
+    // 消费侧（本任务对该 gen 的实际读入；每个 gen 只有一份计数）
+    uint64_t consumed_records = 0;
+    uint64_t consumed_bytes = 0;
+    // 输出侧（任务级：最终写入 AddFile 的内容）
+    uint64_t output_records = 0;
+    uint64_t output_bytes = 0;
+    bool input_complete = false;  // 期望已知且消费 == 期望
+    // step 1c-2：逐代明细（调试日志用；含导致截断的那一代）。
+    struct GenDetail {
+      uint32_t part = 0;
+      uint32_t gen = 0;
+      uint64_t expected_records = 0;
+      uint64_t expected_bytes = 0;
+      uint64_t consumed_records = 0;
+      uint64_t consumed_bytes = 0;
+      bool expected_known = false;
+      bool records_known = false;
+      bool complete = false;
+    };
+    std::vector<GenDetail> detail;
   };
   std::vector<FenceRange> ConsumedRanges() const;
+
+  // step 1c-2：本任务输出侧统计（AddFile 内容；诊断/日志用）。
+  uint64_t output_records() const {
+    return output_records_.load(std::memory_order_relaxed);
+  }
+  uint64_t output_bytes() const {
+    return output_bytes_.load(std::memory_order_relaxed);
+  }
 
   // 阶段 0（须持 DB mutex）：逐分区做融合归并触发判定（§7.2）并构造/
   // 注册 Compaction（§7.3）。决策写入 plans_；冲突（being_compacted/
@@ -270,6 +312,9 @@ class ZfMaterializeJob {
   // (a) 删除本 job 已产出的全部物理文件；(b) 把本 epoch 全部 gens 移交
   // recovery（数据保持可读，下一 epoch 收养后重物化）。
   void DeleteAllOutputFiles();
+  // step 1p：让位时移交**所有未安装世代**（含"封存后尚未登记进任何 epoch"
+  // 的代——它们不在 se_.gens 里，但数据是唯一副本）。原 HandOffAllGens
+  // 只移交 se_.gens，目标模式下让位变多后出现保留缺口（实测 6/8 读失败）。
   void HandOffAllGens();
 
   // M5 诊断（ZF_DBG_MM=1）：打印本 job 的 plan 明细（pid/decision/
@@ -285,6 +330,24 @@ class ZfMaterializeJob {
                     ROCKSDB_NAMESPACE::Slice* hi) const;
   // M4.5b：阶段 0 决策为 kSkip 的分区 gens（Run 尾部移交 recovery 集合）。
   std::vector<std::pair<uint32_t, uint32_t>> skipped_gens_;
+  // step 1c-2：每个 (part, gen) 的**输入消费量**（本任务实际从封存 WAL 读入
+  // 的记录数/字节，含随后被过滤的记录）。worker 并发写 → 自持锁。
+  struct GenInputStats {
+    uint64_t records = 0;
+    uint64_t bytes = 0;
+  };
+  static uint64_t GenKey(uint32_t part, uint32_t gen) {
+    return (static_cast<uint64_t>(part) << 32) | static_cast<uint64_t>(gen);
+  }
+  // 写入语义 = max：同一 gen 可能被多个任务/多遍扫描读到（切片重建、
+  // 重试），累计会重复计数，取最大即"单遍完整读取量"。
+  void MergeGenInputStats(uint32_t part, uint32_t gen, uint64_t records,
+                          uint64_t bytes);
+  mutable ROCKSDB_NAMESPACE::port::Mutex input_stats_mu_;
+  std::unordered_map<uint64_t, GenInputStats> input_stats_;
+  // 输出侧（AddFile 内容）任务级计数。
+  std::atomic<uint64_t> output_records_{0};
+  std::atomic<uint64_t> output_bytes_{0};
   // 阶段 0（持锁）产生的分区决策，供阶段 1 worker 与阶段 2 安装消费。
   struct PartitionPlan {
     uint32_t part_id = 0;

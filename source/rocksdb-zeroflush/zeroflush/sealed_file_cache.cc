@@ -90,6 +90,41 @@ void SealedFileCache::AddEpochWithRecoveryAdoption(const SealedEpoch& e,
   sealed_bytes_ += merged.total_bytes;
 }
 
+bool SealedFileCache::OldestPendingGen(uint32_t part, uint32_t* out) const {
+  rocksdb::MutexLock l(&mu_);
+  bool found = false;
+  uint32_t best = 0;
+  auto consider = [&](uint32_t p, uint32_t g) {
+    if (p != part) {
+      return;
+    }
+    auto git = gens_.find(MakeFileKey(p, g));
+    if (git != gens_.end() && git->second.installed) {
+      return;  // 已安装：不参与 FIFO（其数据已在 SST）
+    }
+    if (!found || g < best) {
+      best = g;
+      found = true;
+    }
+  };
+  for (const auto& [ep, se] : epochs_) {
+    (void)ep;
+    for (const auto& [p, g] : se.gens) {
+      consider(p, g);
+    }
+  }
+  for (ZfFileKey k : skip_gens_) {
+    consider(static_cast<uint32_t>(k >> 32), static_cast<uint32_t>(k));
+  }
+  for (ZfFileKey k : recovery_gens_) {
+    consider(static_cast<uint32_t>(k >> 32), static_cast<uint32_t>(k));
+  }
+  if (found && out != nullptr) {
+    *out = best;
+  }
+  return found;
+}
+
 void SealedFileCache::RegisterGen(uint32_t part, uint32_t gen, uint64_t bytes) {
   if (bytes == 0) {
     return;
@@ -126,6 +161,59 @@ void SealedFileCache::MarkEpochInstalled(uint64_t epoch) {
     drained_bytes_ += freed;
     ++installed_epochs_;
   }
+}
+
+std::string SealedFileCache::DescribeGen(uint32_t part, uint32_t gen) const {
+  rocksdb::MutexLock l(&mu_);
+  const ZfFileKey k = MakeFileKey(part, gen);
+  std::string out;
+  // registry（唯一权威）
+  auto git = gens_.find(k);
+  if (git == gens_.end()) {
+    out += "registry=absent; ";
+  } else {
+    out += "registry=present installed=" +
+           std::string(git->second.installed ? "1" : "0") + " bytes=" +
+           std::to_string(git->second.bytes) + "; ";
+  }
+  // 归属集合
+  std::string owner;
+  for (const auto& [ep, se] : epochs_) {
+    for (const auto& [pp, gg] : se.gens) {
+      if (pp == part && gg == gen) {
+        owner += "epoch=" + std::to_string(ep) + " ";
+      }
+    }
+  }
+  if (skip_gens_.count(k) > 0) owner += "skip ";
+  if (recovery_gens_.count(k) > 0) owner += "recovery ";
+  out += "owner={" + (owner.empty() ? std::string("NONE") : owner) + "}; ";
+  // 引用计数
+  for (const auto& [ep, m] : gen_refs_) {
+    auto it = m.find(k);
+    if (it != m.end()) {
+      out += "refs(epoch=" + std::to_string(ep) + ")=" +
+             std::to_string(it->second) + " ";
+    }
+  }
+  return out;
+}
+
+uint64_t SealedFileCache::PendingBytesRecomputed() const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  uint64_t sum = 0;
+  for (const auto& [k, info] : gens_) {
+    if (!info.installed) {
+      sum += info.bytes;
+    }
+  }
+  last_recomputed_pending_ = sum;
+  const uint64_t mirror = pending_bytes_.load(std::memory_order_relaxed);
+  if (sum != mirror) {
+    ++pending_drift_events_;
+  }
+  return sum;
 }
 
 size_t SealedFileCache::registered_gens() const {
@@ -281,13 +369,33 @@ uint64_t SealedFileCache::ReleaseGens(
         continue;  // 仍有其他 CF 引用，不回收
       }
       grefs.erase(rit);
+      // step 1t（用户 2026-09-16）：**未安装的代不得回收/抹除**。
+      // 实证：group5 失败键所在代已真正封存（sealed_meta=yes, 122 条），却因
+      // epoch 释放走到这里被抹除 registry 条目并失去归属（owner=NONE），
+      // 而文件仍在 ⇒ 读不到。规则：只有 `installed && 引用归零` 才允许
+      // unlink 与移除登记；未安装时把归属移交 recovery（保留 registry 条目与
+      // 可读性），让候选发现仍能看到它。
+      {
+        auto git2 = gens_.find(key);
+        if (git2 != gens_.end() && !git2->second.installed) {
+          recovery_gens_.emplace(key);
+          gen_release_before_install_.fetch_add(1, std::memory_order_relaxed);
+          if (eit != epochs_.end()) {
+            auto& egens = eit->second.gens;
+            egens.erase(std::remove(egens.begin(), egens.end(),
+                                    std::make_pair(part, gen)),
+                        egens.end());
+          }
+          continue;  // 不 unlink、不 erase registry 条目
+        }
+      }
       // step 0b-3：引用归零 = 物理可回收（与"数据已安装"是两件事，分别记账）。
       {
-        auto git = gens_.find(key);
-        if (git != gens_.end()) {
-          reclaimed_bytes_ += git->second.bytes;
+        auto git2 = gens_.find(key);
+        if (git2 != gens_.end()) {
+          reclaimed_bytes_ += git2->second.bytes;
           ++reclaimed_gens_;
-          gens_.erase(git);
+          gens_.erase(git2);
         }
       }
       if (reclaim_enabled_) {
