@@ -633,6 +633,14 @@ class ZeroFlushContext {
   void NoteInstallGensWithheld() const {
     install_gens_withheld_.fetch_add(1, std::memory_order_relaxed);
   }
+  // 发布当场断言失败次数（输出文件号未出现在当前 Version；理论恒 0，
+  // 仅作断言，不影响销账判据）。
+  void NoteInstallAssertFileMissing() const {
+    install_assert_file_missing_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t install_assert_file_missing() const {
+    return install_assert_file_missing_.load(std::memory_order_relaxed);
+  }
   uint64_t install_gens_withheld() const {
     return install_gens_withheld_.load(std::memory_order_relaxed);
   }
@@ -1151,6 +1159,7 @@ class ZeroFlushContext {
   mutable std::atomic<uint64_t> ctx_stats_handoff_at_release_{0};
   mutable std::atomic<uint64_t> fence_no_committed_output_{0};
   mutable std::atomic<uint64_t> install_gens_withheld_{0};
+  mutable std::atomic<uint64_t> install_assert_file_missing_{0};
   mutable std::atomic<uint64_t> forced_yield_batches_{0};
   mutable std::atomic<uint64_t> forced_yield_drained_flat_{0};
   mutable std::atomic<uint64_t> forced_yield_pending_flat_{0};

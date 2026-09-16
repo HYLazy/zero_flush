@@ -77,6 +77,19 @@ bool ExpectLatest(uint64_t v, uint64_t half, std::string* out) {
   return true;
 }
 
+uint64_t Prop(rocksdb::DB* db, const char* name) {
+  std::string v;
+  if (!db->GetProperty(std::string("rocksdb.zeroflush.") + name, &v)) {
+    return 0;
+  }
+  return strtoull(v.c_str(), nullptr, 10);
+}
+
+void DiagKeyState(rocksdb::DB* db,
+                  const std::shared_ptr<zeroflush::ZeroFlushContext>& ctx,
+                  const std::string& dbdir, uint64_t key_v, int key_size,
+                  int val_size);
+
 void CheckRange(rocksdb::DB* db, const rocksdb::Snapshot* snap, uint64_t lo,
                 uint64_t hi, uint64_t half, Stats* st) {
   rocksdb::ReadOptions ro;
@@ -91,6 +104,22 @@ void CheckRange(rocksdb::DB* db, const rocksdb::Snapshot* snap, uint64_t lo,
       // ---- 最新视图 ----
       if (expect_ok) {
         if (!s.ok()) {
+          // step 1z（用户 2026-09-16 第 2 步）：**期望存在却 NotFound** 的键
+          // 必须当场取证，不能只记"排空停滞"——未安装数据应继续可读。
+          static std::atomic<int> zf_miss_diag{0};
+          if (zf_miss_diag.fetch_add(1) < 3) {
+            auto* impl = static_cast<rocksdb::DBImpl*>(db);
+            auto ctx = impl->GetZeroFlushContext();
+            if (ctx != nullptr) {
+              fprintf(stderr,
+                      "ZFDBG-missdiag v=%llu read_seq=%llu expect=seed%d "
+                      "status=%s\n",
+                      (unsigned long long)v,
+                      (unsigned long long)db->GetLatestSequenceNumber(),
+                      v < half ? 2 : 1, s.ToString().c_str());
+              DiagKeyState(db, ctx, impl->GetName(), v, kKeySize, kValueSize);
+            }
+          }
           st->miss.fetch_add(1);
         } else if (got != expect) {
           st->mismatch.fetch_add(1);
@@ -108,6 +137,22 @@ void CheckRange(rocksdb::DB* db, const rocksdb::Snapshot* snap, uint64_t lo,
       } else {
         const std::string want = zf_keygen::ValueFor(v, 1, kValueSize);
         if (!s.ok()) {
+          // 快照视图期望 seed1 却 NotFound：当场取证（排除删除键，见上方分支）。
+          static std::atomic<int> zf_snapmiss_diag{0};
+          if (s.IsNotFound() && zf_snapmiss_diag.fetch_add(1) < 3) {
+            auto* impl = static_cast<rocksdb::DBImpl*>(db);
+            auto ctx = impl->GetZeroFlushContext();
+            if (ctx != nullptr) {
+              fprintf(stderr,
+                      "ZFDBG-snapmissdiag v=%llu snap_seq=%llu latest=%llu\n",
+                      (unsigned long long)v,
+                      (unsigned long long)(snap != nullptr
+                                               ? snap->GetSequenceNumber()
+                                               : 0),
+                      (unsigned long long)db->GetLatestSequenceNumber());
+              DiagKeyState(db, ctx, impl->GetName(), v, kKeySize, kValueSize);
+            }
+          }
           st->miss.fetch_add(1);
         } else if (got != want) {
           st->mismatch.fetch_add(1);
@@ -241,6 +286,71 @@ SeedClass ClassifyValue(const std::string& v, uint64_t key_v, int value_size) {
   return kOther;
 }
 
+// step 1z：失败键的**同一时点状态**（用户 2026-09-16 第 2 步）。
+// 用于区分"未安装数据的读依赖被撤掉"与"已安装数据不在当前读视图"。
+void DiagKeyState(rocksdb::DB* db,
+                  const std::shared_ptr<zeroflush::ZeroFlushContext>& ctx,
+                  const std::string& dbdir, uint64_t key_v, int key_size,
+                  int val_size) {
+  const std::string key = zf_keygen::KeyFromInt(key_v, key_size);
+  const rocksdb::Slice uk(key);
+  std::string fx;
+  db->GetProperty("rocksdb.zeroflush.installed_fences", &fx);
+  fprintf(stderr, "  DIAG routed_part=%u fences=%s\n", ctx->RoutePartId(uk),
+          fx.empty() ? "(none)" : fx.c_str());
+  std::vector<std::pair<uint32_t, uint64_t>> allp;
+  ctx->index_set()->ChainParts(&allp);
+  for (const auto& [p, ub] : allp) {
+    std::string o;
+    ctx->index_set()->DumpKeyChain(p, uk, &o);
+    if (o.find("seq=") != std::string::npos) {
+      fprintf(stderr, "  DIAG index logical_part=%u upper=%llu\n%s", p,
+              (unsigned long long)ub, o.c_str());
+    }
+  }
+  const std::string wdir = dbdir + "/zfwal";
+  std::vector<std::pair<uint32_t, uint32_t>> wfs;
+  if (DIR* d = opendir(wdir.c_str())) {
+    while (struct dirent* e = readdir(d)) {
+      uint32_t pp = 0, gg = 0;
+      if (ParseZfWalName(e->d_name, &pp, &gg)) wfs.emplace_back(pp, gg);
+    }
+    closedir(d);
+  }
+  std::sort(wfs.begin(), wfs.end());
+  for (const auto& [pp, gg] : wfs) {
+    std::ifstream in(ZfWalPath(wdir, pp, gg), std::ios::binary);
+    if (!in.good()) continue;
+    const std::string buf((std::istreambuf_iterator<char>(in)),
+                          std::istreambuf_iterator<char>());
+    size_t off = 0;
+    while (off + zeroflush::kZfHeaderSize <= buf.size()) {
+      const uint32_t klen =
+          *reinterpret_cast<const uint32_t*>(buf.data() + off + 8);
+      const uint32_t vlen =
+          *reinterpret_cast<const uint32_t*>(buf.data() + off + 12);
+      const uint32_t tl = zeroflush::ZfRecordLength(klen, vlen);
+      if (off + tl > buf.size()) break;
+      zeroflush::ZfRecordHeader h;
+      rocksdb::Slice k, val;
+      if (zeroflush::DecodeZfRecord(buf.data() + off, tl, &h, &k, &val).ok() &&
+          klen == key.size() && memcmp(k.data(), key.data(), key.size()) == 0) {
+        const SeedClass cls = ClassifyValue(val.ToString(), key_v, val_size);
+        std::string d;
+        db->GetProperty("rocksdb.zeroflush.describe_gen:" +
+                            std::to_string(pp) + ":" + std::to_string(gg),
+                        &d);
+        fprintf(stderr, "  DIAG wal part=%u gen=%u off=%zu seq=%llu cls=%s | %s\n",
+                pp, gg, off, (unsigned long long)h.seq,
+                cls == kSeed2 ? "seed2" : (cls == kSeed1 ? "seed1" : "other"),
+                d.c_str());
+      }
+      off += tl;
+    }
+  }
+}
+
+
 // 文件元信息声明的 [smallest, largest] 是否覆盖 user key（兼容 internal key：
 // 尾 8B 为 PackSequenceAndType，去掉后按 user key 比较）。
 static bool ZfKeyRangeCovers(const std::string& smallest,
@@ -318,122 +428,12 @@ void ScanSstsFor(rocksdb::DB* db, uint64_t key_v, int value_size,
   }
 }
 
-uint64_t Prop(rocksdb::DB* db, const char* name) {
-  std::string v;
-  if (!db->GetProperty(std::string("rocksdb.zeroflush.") + name, &v)) {
-    return 0;
-  }
-  return strtoull(v.c_str(), nullptr, 10);
-}
-
 }  // namespace
 
 // step 1r（用户 2026-09-16 第 3 项）：失败键的**同一时点完整状态**——写入 seq、
 // registry（归属/installed/引用）、索引（哪些链里有该键）、WAL 文件与该记录是否
 // 可解码、当前 fence 与读序列。用于按证据分类（索引撤除 / 读视图交接 / 候选发现），
 // 不做事后猜测。
-void DiagKeyState(rocksdb::DB* db, const std::shared_ptr<zeroflush::ZeroFlushContext>& ctx,
-                  const std::string& dbdir, uint64_t key_v, int kKeySize,
-                  int kValueSize) {
-  const std::string key = zf_keygen::KeyFromInt(key_v, kKeySize);
-  const rocksdb::Slice uk(key);
-  printf("DIAG key_v=%llu read_seq=%llu\n", (unsigned long long)key_v,
-         (unsigned long long)db->GetLatestSequenceNumber());
-  std::string fx;
-  db->GetProperty("rocksdb.zeroflush.installed_fences", &fx);
-  printf("DIAG fences=%s\n", fx.empty() ? "(none)" : fx.c_str());
-  printf("DIAG index_insert_dropped=%llu\n",
-         (unsigned long long)Prop(db, "index_insert_dropped"));
-  // 全链摘要（哪些 part 有段、gen/frozen/mem_bytes）——判定"条目在不在候选里"
-  {
-    std::vector<std::pair<uint32_t, uint64_t>> allp;
-    ctx->index_set()->ChainParts(&allp);
-    printf("DIAG chains=%zu:", allp.size());
-    for (const auto& [p, ub] : allp) {
-      printf(" p%u(upper=%llu)", p, (unsigned long long)ub);
-    }
-    printf("\n");
-  }
-  // 该键的路由分区（读路由）
-  printf("DIAG routed_part=%u\n",
-         ctx->RoutePartId(rocksdb::Slice(key)));
-  // 索引：逐个逻辑分区链里是否有该键
-  std::vector<std::pair<uint32_t, uint64_t>> cp;
-  ctx->index_set()->ChainParts(&cp);
-  for (const auto& [p, ub] : cp) {
-    std::string o;
-    ctx->index_set()->DumpKeyChain(p, uk, &o);
-    if (o.find("seq=") != std::string::npos) {
-      printf("DIAG index_has_key logical_part=%u upper=%llu\n%s", p,
-             (unsigned long long)ub, o.c_str());
-    }
-  }
-  // WAL：该键的记录在哪个文件、是否可解码；以及该代的 registry 状态
-  const std::string wdir = dbdir + "/zfwal";
-  std::vector<std::pair<uint32_t, uint32_t>> wfs;
-  if (DIR* d = opendir(wdir.c_str())) {
-    while (struct dirent* e = readdir(d)) {
-      uint32_t pp = 0, gg = 0;
-      if (ParseZfWalName(e->d_name, &pp, &gg)) wfs.emplace_back(pp, gg);
-    }
-    closedir(d);
-  }
-  std::sort(wfs.begin(), wfs.end());
-  for (const auto& [pp, gg] : wfs) {
-    std::ifstream in(ZfWalPath(wdir, pp, gg), std::ios::binary);
-    if (!in.good()) continue;
-    const std::string buf((std::istreambuf_iterator<char>(in)),
-                          std::istreambuf_iterator<char>());
-    size_t off = 0;
-    bool any = false;
-    while (off + zeroflush::kZfHeaderSize <= buf.size()) {
-      const uint32_t klen =
-          *reinterpret_cast<const uint32_t*>(buf.data() + off + 8);
-      const uint32_t vlen =
-          *reinterpret_cast<const uint32_t*>(buf.data() + off + 12);
-      const uint32_t tl = zeroflush::ZfRecordLength(klen, vlen);
-      if (off + tl > buf.size()) break;
-      zeroflush::ZfRecordHeader h;
-      rocksdb::Slice k, val;
-      const bool dec =
-          zeroflush::DecodeZfRecord(buf.data() + off, tl, &h, &k, &val).ok();
-      if (dec && klen == key.size() &&
-          memcmp(k.data(), key.data(), key.size()) == 0) {
-        const SeedClass cls = ClassifyValue(val.ToString(), key_v, kValueSize);
-        printf("DIAG wal_rec phys_part=%u gen=%u off=%zu seq=%llu cls=%s "
-               "decodable=1\n",
-               pp, gg, off, (unsigned long long)h.seq,
-               cls == kSeed2 ? "seed2" : (cls == kSeed1 ? "seed1" : "other"));
-        any = true;
-      }
-      off += tl;
-    }
-    if (any) {
-      std::string d;
-      db->GetProperty("rocksdb.zeroflush.describe_gen:" + std::to_string(pp) +
-                          ":" + std::to_string(gg),
-                      &d);
-      // 关键问题：该代到底有没有真正封存？（用户 2026-09-16）
-      //   ActiveGenOpt(pp)：该分区当前活跃代——若等于 gg ⇒ 该代**仍是 active**，
-      //   则"无 sealed registry 条目"本身正常，问题在活跃索引的可达性；
-      //   若 > gg ⇒ 已换代（封存过），需要追 RegisterGen/收养/释放的事件顺序。
-      const std::optional<uint32_t> ag = ctx->wal()->ActiveGenOpt(pp);
-      const std::string act =
-          ag.has_value() ? std::to_string(*ag) : std::string("nullopt");
-      zeroflush::GenSealMeta meta;
-      const bool has_meta = ctx->wal()->GetSealMeta(pp, gg, &meta);
-      printf("DIAG gen_state phys_part=%u gen=%u %s file_exists=1 "
-             "active_gen=%s sealed_meta=%s\n",
-             pp, gg, d.c_str(), act.c_str(),
-             has_meta ? ("yes bytes=" + std::to_string(meta.bytes) +
-                         " records=" + std::to_string(meta.records) +
-                         " records_known=" +
-                         std::to_string(meta.records_known ? 1 : 0))
-                            .c_str()
-                      : "no");
-    }
-  }
-}
 
 int main(int argc, char** argv) {
   if (argc < 4) {

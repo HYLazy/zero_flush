@@ -640,6 +640,8 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
                                 : 0);
   } else if (prop == "rocksdb.zeroflush.handoff_at_release") {
     *value = std::to_string(handoff_at_release());
+  } else if (prop == "rocksdb.zeroflush.install_assert_file_missing") {
+    *value = std::to_string(install_assert_file_missing());
   } else if (prop == "rocksdb.zeroflush.install_gens_withheld") {
     *value = std::to_string(install_gens_withheld());
   } else if (prop == "rocksdb.zeroflush.gen_handoff") {

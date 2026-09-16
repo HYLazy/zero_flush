@@ -407,8 +407,13 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
                          ? cfd_->current()->storage_info()
                          : nullptr;
     for (const auto& pi : zf_planned_installs_) {
-      bool published = (pi.outputs.size() == pi.outs_committed) &&
-                       !pi.outputs.empty();
+      // **判据 = 本次 edit 已成功提交并发布**（用户 2026-09-16 修正）：
+      //   · 本批确有已提交输出（outs_committed > 0）⇒ edit 含 AddFile；
+      //   · TryInstallMemtableFlushResults 返回 OK ⇒ 该 edit 已 LogAndApply。
+      // 不用"文件仍在当前 Version"作判据——输出随后可能被压实替换，那样会误判
+      // 未安装并造成 pending 永久滞留。文件成员检查**保留为当场断言**（同一把
+      // DB mutex 之下、紧随发布，理论必中；未中即计 install_assert_file_missing）。
+      bool published = (pi.outs_committed > 0) && (pi.outputs.size() == pi.outs_committed);
       if (published && vstorage != nullptr) {
         for (const auto& [num, lvl] : pi.outputs) {
           bool found = false;
@@ -421,13 +426,10 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
               }
             }
           }
-          if (!found) {
-            published = false;
-            break;
+          if (!found && zc != nullptr) {
+            zc->NoteInstallAssertFileMissing();
           }
         }
-      } else {
-        published = false;
       }
       if (getenv("ZF_DBG_PUBLISH") != nullptr) {
         fprintf(stderr,
@@ -1902,6 +1904,67 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     }
     meta_ = o.meta;
     break;
+  }
+  // ---- step 1z 负例钩子（用户 2026-09-16 第 1 步）：**整单元撤销** ----
+  // ZF_TEST_DROP_OUTPUT=<n>：第 n 个待安装批次被整体撤销（保守首版：多 job 共享
+  // 输入时难以按输出拆分，故撤销整个物化批次）：删除全部产出的物理文件，走既有
+  // 让位出口 ⇒ **不提交输入删除、不提交 AddFile、不写 fence**，registry/索引/WAL
+  // 全部保持可读。用于验证"取消安装也不丢可读性"。
+  // 位置要求：必须在**装配 edit_ 与写 fence 之前**返回，否则会出现"内存不销账、
+  // fence 却已进 MANIFEST"（重启后按 fence 过滤掉尚未安全安装的数据）。
+  if (zf_mode_ && zf_ctx != nullptr) {
+    static std::atomic<int> zf_drop_left{0};
+    const char* de = getenv("ZF_TEST_DROP_OUTPUT");
+    const int d_raw = de != nullptr ? atoi(de) : 0;
+    if (d_raw < 0) {
+      zf_drop_left.store(-d_raw);  // 负值 = 重新装载为 |n| 次
+    } else if (d_raw == 0) {
+      zf_drop_left.store(0);
+    }
+    if (zf_drop_left.load() > 0) {
+      zf_drop_left.fetch_sub(1);
+      size_t dropped_files = 0, dropped_gens = 0;
+      for (auto& o : zf_batch_outputs_) {
+        if (o.superseded) continue;
+        const std::string fn = ROCKSDB_NAMESPACE::TableFileName(
+            cfd_->ioptions().cf_paths, o.meta.fd.GetNumber(), 0);
+        db_options_.env->DeleteFile(fn).PermitUncheckedError();
+        ++dropped_files;
+        dropped_gens += o.covered_gens.size();
+        o.level = zeroflush::ZfMaterializeJob::kCannotInstall;
+        o.superseded = true;
+      }
+      fprintf(stderr,
+              "ZFTEST whole-unit revocation: outputs=%zu gens=%zu "
+              "(no DeleteFile/AddFile/fence; WAL+registry+index kept)\n",
+              dropped_files, dropped_gens);
+      for (auto& job : jobs) {
+        job->FinishPlansLocked();
+        job->DeleteAllOutputFiles();
+        job->HandOffAllGens();
+      }
+      zf_batch_outputs_.clear();
+      zf_planned_installs_.clear();  // 不留待销账
+      zf_ctx->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      const uint64_t zf_pend_before = zf_ctx->PendingMaterializeBytes();
+      zf_ctx->NoteEmptyEdit(zf_pend_before, last_before,
+                            zf_ctx->last_materialized_epoch());
+      zf_ctx->NoteEmptyEditBarrierAdvance();
+      zf_ctx->SetLastMaterializedEpoch(last_before);
+      zf_ctx->EndMaterializeBatch(mm_token);
+      zf_mm_token_ = 0;
+      if (zf_batch_gen0_) {
+        zf_ctx->ReleaseGen0Slot();
+        zf_batch_gen0_ = false;
+      }
+      zf_ctx->ReleaseInstallLock();
+      base_->Unref();
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "[%s] [JOB %d] ZeroFlush WHOLE-UNIT revocation (test hook): "
+                     "empty edit only; data stays readable/pending",
+                     cfd_->GetName().c_str(), job_context_->job_id);
+      return Status::OK();  // 持锁返回
+    }
   }
   // ---- step 1o：目标模式的 L0 出口兜底（用户 2026-09-16）----
   // 覆盖正常路径、fallback 与重试路径：本批只要有输出落到 L0 或被标记为

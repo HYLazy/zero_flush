@@ -1086,3 +1086,39 @@ scan=0 / triage=0(B1=B2=B3=0)
 - 第 4 步：单 job 跑通后再扩大验收（含安装失败注入 + 完整 baccept + 压力组）。
 - 另记一条观察：`all` 模式在本提交下出现 `mismatch=1953 miss=1518`（数据未落地时经索引/WAL
   读取的路径），需在 A/排空相关工作中一并定位——不作为已完成项。
+
+### D-19. step 1z（用户四步之第 1/2 步）：销账判据修正、整单元撤销钩子、`all` 缺失定位 — 见提交
+
+**1. 销账判据修正（采纳你的意见）**
+"输出仍在当前 Version"不作为判据——输出随后可能被压实替换，会误判未安装并造成 pending 永久滞留。
+改为：**判据 = 本次 edit 已成功提交发布**（`outs_committed > 0` ⇒ edit 含 AddFile；
+`TryInstallMemtableFlushResults` 返回 OK ⇒ 已 LogAndApply），在**同一把 DB mutex 之下、
+紧随发布**执行幂等 `MarkGensInstalled`。文件成员检查**降级为当场断言**
+（新增 `install_assert_file_missing`，理论恒 0）。
+
+**2. 整单元撤销（首版保守做法）**
+`ZF_TEST_DROP_OUTPUT=<n>`（负值=中途重新装载）：第 n 个待安装批次**整体撤销**——
+删除全部产出物理文件，走既有让位出口 ⇒ **不提交输入删除、不提交 AddFile、不写 fence**，
+`ZfPlannedInstall` 清空（不留待销账），WAL/registry/索引全部保持可读。
+位置在**装配 edit_ 与写 fence 之前**（本函数上方即 return 出口），避免"内存不销账、
+fence 已进 MANIFEST"。
+
+**3. `all` 模式缺失的定位结论（真实读错误，不是排空停滞）**
+期望存在却失败的首批三例状态一致：
+```
+ZFDBG-missdiag v=5001 read_seq=30000 expect=seed2
+  status=IO error: ZF: index hit but WAL record unreadable
+        (phys_part=5 gen=2 pinned=0 active=1 installed=0):
+        Corruption: ZF sealed record header truncated
+ZFDBG-missdiag v=794/804 ... (phys_part=4 gen=0 pinned=1 active=0 installed=0):
+        Corruption: ZF sealed record truncated
+```
+且 `DiagKeyState` 的 WAL 扫描**在任何磁盘文件里都找不到该键的记录** ⇒ 该记录只存在于
+"已换代/已封存"的代的**未刷盘尾部**（或其文件被读成不完整）。这是读依赖指向
+"数据不在磁盘"的代的缺陷，与"排空停滞"是两码事（`scan/triage=0` 的另一组结果不能抵消它）。
+
+**判定口径（用户第 2 步要求）**：本例属于"**未安装数据的读依赖被撤掉/指向不可读尾部**"，
+不是"已安装数据不在当前读视图"（fence 无该分区条目、installed=0）。
+
+**当前状态**：提前销账路径已调整（D-18/668d3c1）；安装成功证明与撤销原子性**仍在验证中**；
+新增读失败已定位到成因类别（未刷盘尾部/被读成截断），待修。
