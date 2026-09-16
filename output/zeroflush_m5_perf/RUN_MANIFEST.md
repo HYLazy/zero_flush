@@ -1620,3 +1620,38 @@ semtest cases1-7: PASS (fails=0 setup_incomplete=0)   [case6=N/A(前提失效) �
 **压力组回归（短读重试关闭，引用机制已改动必须重跑）**；整单元撤销与提交失败注入；
 `level=-1` 融合/排空阻塞（若 case5 的 INSTALL_PROGRESS_FAILURE 再现则优先追）；
 合法路径 A；固定路由。
+
+### D-34. step 1as：retiring 两个小用例（当前红，根因已定位）+ 压力组 1（未完成）— 见提交
+
+**1. 两个 retiring 小用例已写入（`semtest` case8a/8b），当前 FAIL：**
+```
+case8b retiring-gate: FAIL (retiring=0 new_ref_rejected=0 rejected_count=0->0
+                            deferred_by_reader=1 file_while_held=1068)
+case8a retiring-reject-no-downgrade: FAIL (sel_returned=1 retiring_rejected=0
+                                           read_status=NotFound read_is_new=0 read_is_old=0)
+```
+根因（本轮定位）：
+- **`ReleaseGenReadRef` 的 retiring 标记依赖 `gens_` 条目与 `installed`**：epoch 释放路径可能已
+  擦除该条目 ⇒ 最后一个引用释放时 `git == end()` ⇒ **未标记 retiring**（`retiring=0`）⇒
+  进而 8a 的"新引用被拒"根本没触发（级联）。修法：改为按"**回收在 refs>0 时被请求过**"
+  的 `reclaim_pending_` 集合判定（入队条件已由触发方判定，不再二次依赖 registry/installed）。
+- 8b 的"延迟"部分**已经工作**：`deferred_by_reader=1`、引用持有期间文件仍在（1068B）✓。
+- 8a 的 `read_status=NotFound` 需一并查清（fixture 键只存在于 parts 4/5 的 WAL，
+  读端候选并集为何没命中）。
+
+**2. 压力组 1（关闭短读重试）两次前台尝试，均按"未完成"记录：**
+- 第一次漏了 `ZF_VC_PARTITION_TARGET_KB=128` ⇒ `rotations=0`（未换代）⇒ 该次不计通过。
+- 第二次用正确阈值：已完成轮次**全部 PASS**（`status=OK rotated=1 … PASS`），
+  但被**外部 timeout（exit=124）在 44 轮处终止** ⇒ 按用户口径记**未完成**，
+  不能当已通过（且单轮耗时明显上升，需先查是引用协议还是封存/安装路径变慢）。
+- 验收要求仍未满足：`acquire_rejected_retiring / reclaim_deferred_by_reader / reclaimed`
+  也需纳入每组汇总。
+
+**后续顺序（用户 1–5）**：① 修 retiring 标记的判定并让 8a/8b 通过；② 压力组 1/5 → 五组全量
+（关闭短读重试，记录 failures/silent_stale/notfound/corruption/acquire_rejected_retiring/
+reclaim_deferred_by_reader/reclaimed，外部终止记未完成）；③ 整单元撤销与提交失败负例
+（DeleteFile=0/AddFile=0/fence 不推进/installed+drained 不变/pending 保留/重启后可读，
+LogAndApply 前后失败注入；若再现 `level=-1` 循环则追单个 job 的规划/融合输入/拒绝原因）；
+④ 合法路径 A 的结论（case6 保持 N/A；新增合法写入/覆盖/删除/snapshot/安装交接用例，
+多次固定运行均为零则记"当前协议下不可达"）；⑤ 固定路由落地（持久化边界 + 协议版本、
+写读恢复共用映射、epoch 更替不重建、历史库走显式慢路径、新库额外候选查询为零）。

@@ -1494,6 +1494,130 @@ int main(int argc, char** argv) {
              read_ok5 ? 1 : 0, src5);
       if (installed5 && rotated5 && !pass5) ++fails;
     }
+    // ---- 用例 8（用户 2026-09-17）：**retiring 的两个确定性小用例** ----
+    // 8a：最新代已安装并进入 retiring、旧代仍在索引 ⇒ 新代取引用被拒 ⇒
+    //     整次读必须 TryAgain/刷新重试，**不得返回旧值**（重试后返回新值）。
+    // 8b：retiring 标记完成后新引用必须被拒；已有引用完成前不得 unlink；
+    //     引用释放后才允许回收。
+    {
+      const uint64_t v8 = total + 6000;    // 目标键（本 fixture 专用，从未写过）
+      const std::string k8 = zf_keygen::KeyFromInt(v8, kKeySize);
+      const std::string val_o = zf_keygen::ValueFor(v8, 1, kValueSize);
+      const std::string val_n = zf_keygen::ValueFor(v8, 2, kValueSize);
+      rocksdb::DBImpl* impl8 = static_cast<rocksdb::DBImpl*>(db.get());
+      std::shared_ptr<zeroflush::ZeroFlushContext> ctx8 =
+          impl8->GetZeroFlushContext();
+      const uint32_t P8A = 4, P8B = 5;     // 新代在 4、旧代在 5（互不相同）
+      zeroflush::WalRecordRef ro{}, rn{};
+      const bool ap_ok =
+          ctx8->wal()
+              ->Append(P8B, rocksdb::Slice(k8), rocksdb::Slice(val_o),
+                       static_cast<uint8_t>(rocksdb::kTypeValue), 100, &ro)
+              .ok() &&
+          ctx8->wal()
+              ->Append(P8A, rocksdb::Slice(k8), rocksdb::Slice(val_n),
+                       static_cast<uint8_t>(rocksdb::kTypeValue), 200, &rn)
+              .ok();
+      ctx8->wal()->Sync(P8A).PermitUncheckedError();
+      ctx8->wal()->Sync(P8B).PermitUncheckedError();
+      ctx8->index_set()->Active(P8A);
+      ctx8->index_set()->Active(P8B);
+      const uint32_t gA8 = ctx8->wal()->ActiveGenOpt(P8A).value_or(0);
+      const uint32_t gB8 = ctx8->wal()->ActiveGenOpt(P8B).value_or(0);
+      auto loc8 = [](const zeroflush::WalRecordRef& r) {
+        zeroflush::SlimLocator sl{};
+        sl.part_id = r.part_id;
+        sl.gen = r.gen;
+        sl.wal_offset = r.offset;
+        return std::string(reinterpret_cast<const char*>(&sl), sizeof(sl));
+      };
+      const uint64_t ii1 =
+          ctx8->index_set()->Insert(P8A, gA8, ik(v8, 1, 200), loc8(rn));
+      const uint64_t ii2 =
+          ctx8->index_set()->Insert(P8B, gB8, ik(v8, 1, 100), loc8(ro));
+      // 把新代标记为 installed（组件级：注册字节 + MarkGensInstalled），
+      // 再经**正常回收入口**使它进入 retiring。
+      ctx8->sealed_cache()->RegisterGen(P8A, rn.gen, 1068);
+      {
+        std::vector<std::pair<uint32_t, uint32_t>> g{{P8A, rn.gen}};
+        ctx8->MarkGensInstalled(g);
+      }
+      // 8b 前置：先持有一个读引用（模拟"已有引用"）
+      const bool ref_before = ctx8->sealed_cache()->TryAcquireGenReadRef(P8A, rn.gen);
+      const uint64_t deferred_before8 =
+          Prop2(db.get(), "rocksdb.zeroflush.reclaim_deferred_by_reader");
+      // 触发正常回收（reclaim 开启时：引用存在 ⇒ 延迟，不得 unlink）
+      zeroflush::SealedEpoch se8;
+      se8.epoch = 900088;
+      se8.total_bytes = 1068;
+      se8.gens.emplace_back(P8A, rn.gen);
+      se8.part_bytes[P8A] = 1068;
+      ctx8->sealed_cache()->AddEpochWithRecoveryAdoption(se8);
+      ctx8->sealed_cache()->ReleaseEpoch(900088);
+      const bool deferred_after8 =
+          Prop2(db.get(), "rocksdb.zeroflush.reclaim_deferred_by_reader") >
+          deferred_before8;
+      const std::string p8a = ctx8->wal()->GenFilePath(P8A, rn.gen);
+      uint64_t fsz_ref_held = 0;
+      rocksdb::Env::Default()->GetFileSize(p8a, &fsz_ref_held).PermitUncheckedError();
+      // 释放"已有引用" ⇒ 此刻才允许入队回收 ⇒ 标记 retiring
+      if (ref_before) {
+        ctx8->sealed_cache()->ReleaseGenReadRef(P8A, rn.gen);
+      }
+      env_sleep_ms(50);
+      const bool now_retiring = ctx8->sealed_cache()->GenRetiring(P8A, rn.gen);
+      // 8b 断言（一）：retiring 后**新引用必须被拒**
+      const uint64_t rej_before8 =
+          Prop2(db.get(), "rocksdb.zeroflush.acquire_rejected_retiring");
+      const bool new_ref =
+          ctx8->sealed_cache()->TryAcquireGenReadRef(P8A, rn.gen);
+      const uint64_t rej_after8 =
+          Prop2(db.get(), "rocksdb.zeroflush.acquire_rejected_retiring");
+      const bool reject_ok = !new_ref && rej_after8 > rej_before8;
+      if (new_ref) {
+        ctx8->sealed_cache()->ReleaseGenReadRef(P8A, rn.gen);  // 清理
+      }
+      const bool hold_ok = deferred_after8 || fsz_ref_held > 0;
+      printf("case8b retiring-gate: %s (retiring=%d new_ref_rejected=%d "
+             "rejected_count=%llu->%llu deferred_by_reader=%d file_while_held=%llu)\n",
+             (now_retiring && reject_ok && hold_ok) ? "PASS" : "FAIL",
+             now_retiring ? 1 : 0, reject_ok ? 1 : 0,
+             (unsigned long long)rej_before8, (unsigned long long)rej_after8,
+             deferred_after8 ? 1 : 0, (unsigned long long)fsz_ref_held);
+      if (!(ap_ok && ii1 > 0 && ii2 > 0)) {
+        ++setup_incomplete;
+      } else if (!(now_retiring && reject_ok && hold_ok)) {
+        ++fails;
+      }
+      // 8a：新代已 installed+retiring、旧代（seq=100）仍在索引 ⇒ 读必须"重试/报错"，
+      // **不得**返回旧值。selection 层：胜出代取引用被拒 ⇒ 整次作废（无降级）。
+      {
+        zeroflush::get_trace::SetRetiringRejected(false);
+        std::vector<uint32_t> cands8{P8A, P8B};
+        uint32_t sp = 0, sph = 0, sg = 0;
+        uint64_t so = 0, ss = 0;
+        rocksdb::ValueType stp = rocksdb::kTypeValue;
+        zeroflush::ZeroFlushContext::ZfPinSlot slot8;
+        slot8.ctx = ctx8.get();
+        const bool sel8 = ctx8->SelectBestIndexRecord(
+            rocksdb::Slice(k8), 99999999ULL, &cands8, &sp, &sph, &sg, &so,
+            &stp, &ss, &slot8);
+        const bool rejected =
+            zeroflush::get_trace::ConsumeRetiringRejected();
+        const bool no_downgrade = !sel8;  // 整次作废（未返回旧候选）
+        std::string got8;
+        const rocksdb::Status st8 = db->Get(rocksdb::ReadOptions(), k8, &got8);
+        const bool not_old = !(st8.ok() && got8 == val_o);
+        const bool pass8a = rejected && no_downgrade && not_old;
+        printf("case8a retiring-reject-no-downgrade: %s (sel_returned=%d "
+               "retiring_rejected=%d read_status=%s read_is_new=%d read_is_old=%d)\n",
+               pass8a ? "PASS" : "FAIL", sel8 ? 1 : 0, rejected ? 1 : 0,
+               st8.ok() ? "OK" : st8.ToString().c_str(),
+               (st8.ok() && got8 == val_n) ? 1 : 0,
+               (st8.ok() && got8 == val_o) ? 1 : 0);
+        if (!pass8a) ++fails;
+      }
+    }
     // ---- 用例 7（用户 2026-09-17 指令：**组件级隔离 fixture**）----
     // 不依赖路由/后台物化/大量写入：直接用 WAL 管理器的 Append 接口在**两个显式
     // physical part** 上写受控记录（返回真实 locator），再把它们插入**各自的索引段**
