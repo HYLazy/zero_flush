@@ -141,13 +141,16 @@ void SealedFileCache::RegisterGen(uint32_t part, uint32_t gen, uint64_t bytes) {
   }
 }
 
+namespace {
+}  // namespace
+
 bool SealedFileCache::TryAcquireGenReadRef(uint32_t part, uint32_t gen) {
   rocksdb::MutexLock l(&mu_);
   const ZfFileKey key = MakeFileKey(part, gen);
   // retiring 中（回收已入队）⇒ 拒绝新引用：调用方必须重新选择。
   if (retiring_gens_.count(key) > 0) {
     acquire_rejected_retiring_.fetch_add(1, std::memory_order_relaxed);
-    return false;
+    return false;  // 断言 retiring => no_new_ref
   }
   ++gen_read_refs_[key];
   gen_read_ref_total_.fetch_add(1, std::memory_order_relaxed);
@@ -173,10 +176,22 @@ void SealedFileCache::ReleaseGenReadRef(uint32_t part, uint32_t gen) {
       gen_read_ref_total_.fetch_sub(1, std::memory_order_relaxed);
       // 最后一个读引用释放：若该代已安装（数据在 LSM）且回收开启 ⇒ **标记 retiring**
       // 并此刻入队 unlink（此后新引用被拒）。
-      auto git = gens_.find(MakeFileKey(part, gen));
-      if (git != gens_.end() && git->second.installed && reclaim_enabled_) {
-        retiring_gens_.insert(MakeFileKey(part, gen));
+      const ZfFileKey key = MakeFileKey(part, gen);
+      auto pit = reclaim_pending_.find(key);
+      const bool had_pending = (pit != reclaim_pending_.end());
+      const bool pend_enabled = had_pending ? pit->second.reclaim_enabled : reclaim_enabled_;
+      auto git = gens_.find(key);
+      const bool inst = (git != gens_.end() && git->second.installed) ||
+                        (had_pending && pit->second.installed);
+      if (inst && pend_enabled) {
+        retiring_gens_.insert(key);
         to_unlink.push_back(FileName(part, gen));
+        if (had_pending) {
+          reclaim_pending_.erase(pit);  // 已处理，仅限该 (part,gen)
+        }
+      } else if (had_pending) {
+        // 回收失败/条件不足：**保留 pending 状态**（不丢记录），下次释放或再次请求时处理。
+        reclaim_pending_[key].installed = inst;
       }
     } else {
       gen_read_ref_total_.fetch_sub(1, std::memory_order_relaxed);
@@ -188,6 +203,12 @@ void SealedFileCache::ReleaseGenReadRef(uint32_t part, uint32_t gen) {
       pending_unlink_.push_back(std::move(name));
     }
   }
+}
+
+uint64_t SealedFileCache::reclaim_pending_count() const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  return reclaim_pending_.size();
 }
 
 uint64_t SealedFileCache::GenReadRefs(uint32_t part, uint32_t gen) const {
@@ -477,6 +498,16 @@ uint64_t SealedFileCache::ReleaseGens(
       // 读引用释放为止），并计数以便验收"回收不提前"。
       if (gen_read_refs_.find(key) != gen_read_refs_.end()) {
         reclaim_deferred_by_reader_.fetch_add(1, std::memory_order_relaxed);
+        // 记录完整身份（幂等）：最后一个引用释放时据此处理本 (part,gen)。
+        auto& rp = reclaim_pending_[key];
+        rp.part = part;
+        rp.gen = gen;
+        {
+          auto git3 = gens_.find(key);
+          rp.installed = (git3 != gens_.end() && git3->second.installed);
+        }
+        rp.reclaim_enabled = reclaim_enabled_;
+        rp.request_epoch = epoch;
       } else if (reclaim_enabled_) {
         retiring_gens_.insert(key);  // 与取得引用同锁互斥：入队后不再接受新引用
         to_unlink.push_back(FileName(part, gen));

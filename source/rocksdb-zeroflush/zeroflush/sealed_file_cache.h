@@ -169,6 +169,22 @@ class SealedFileCache {
     return acquire_rejected_retiring_.load(std::memory_order_relaxed);
   }
 
+  // step 1as：延迟回收集合（回收资格已确认但因读引用延迟）+ 断言计数
+  struct ReclaimPending {
+    uint32_t part = 0;
+    uint32_t gen = 0;
+    bool installed = false;
+    bool reclaim_enabled = false;
+    uint64_t request_epoch = 0;
+  };
+  uint64_t reclaim_pending_count() const;
+  uint64_t assert_retiring_new_ref() const {
+    return assert_retiring_new_ref_.load(std::memory_order_relaxed);
+  }
+  uint64_t assert_reclaim_unsafe() const {
+    return assert_reclaim_unsafe_.load(std::memory_order_relaxed);
+  }
+
   // step 1aq：RAII 句柄（可移动、不可复制）——候选落选/替换/错误返回都恰好释放一次。
   class GenReadRef {
    public:
@@ -359,6 +375,9 @@ class SealedFileCache {
   std::atomic<uint64_t> gen_release_before_install_{0};
   // step 1ao：per-gen 读引用（mu_ 保护）+ 统计
   std::unordered_map<ZfFileKey, uint64_t> gen_read_refs_;
+  std::unordered_map<ZfFileKey, ReclaimPending> reclaim_pending_;
+  std::atomic<uint64_t> assert_retiring_new_ref_{0};
+  std::atomic<uint64_t> assert_reclaim_unsafe_{0};
   // step 1aq：已进入回收（retiring）的代——禁止新读引用加入。
   std::unordered_set<ZfFileKey> retiring_gens_;
   std::atomic<uint64_t> acquire_rejected_retiring_{0};

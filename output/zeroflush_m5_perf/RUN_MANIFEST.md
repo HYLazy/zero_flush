@@ -1655,3 +1655,33 @@ LogAndApply 前后失败注入；若再现 `level=-1` 循环则追单个 job 的
 ④ 合法路径 A 的结论（case6 保持 N/A；新增合法写入/覆盖/删除/snapshot/安装交接用例，
 多次固定运行均为零则记"当前协议下不可达"）；⑤ 固定路由落地（持久化边界 + 协议版本、
 写读恢复共用映射、epoch 更替不重建、历史库走显式慢路径、新库额外候选查询为零）。
+
+### D-35. step 1as：`reclaim_pending_` 状态已加，case8b 仍红（同一签名，下一步需在该决策点插桩）
+
+**本轮实现（按用户第 1 条）**
+- `SealedFileCache` 新增 **`reclaim_pending_`**（完整身份：`part/gen/installed/reclaim_enabled/
+  request_epoch`）+ 断言计数 `assert_retiring_new_ref` / `assert_reclaim_unsafe` + `reclaim_pending_count()`。
+- 回收资格确认但因 `refs>0` 延迟时：**记录完整身份**（幂等）。
+- 最后一个引用释放时：**只处理该 `(part,gen)` 的 pending reclaim** —— 标记 retiring → 入队
+  unlink（若 `reclaim_enabled`）→ 删除该 pending 条目；条件不足/回收失败时**保留 pending
+  状态**（不丢记录）。
+- 断言保留：`TryAcquire` 在 retiring 时拒绝（计数 `acquire_rejected_retiring`）。
+
+**结果（仍 FAIL，签名未变）**
+```
+case8b retiring-gate: FAIL (retiring=0 new_ref_rejected=0 rejected_count=0->0
+                            deferred_by_reader=1 file_while_held=1068)
+case8a retiring-reject-no-downgrade: FAIL (sel_returned=1 retiring_rejected=0
+                                           read_status=NotFound read_is_new=0 read_is_old=0)
+```
+已排除的环节：**延迟本身成立**（`deferred_by_reader=1`、引用持有期间文件仍在 ⇒ 说明
+`TryAcquire` 成功、`ReleaseGens` 命中延迟分支并记录了 pending）；读引用释放路径也确实执行
+（测试在持有后释放）。⇒ 失败点在 `ReleaseGenReadRef` 的**决策**（`inst` 或 `pend_enabled`
+判定），下一步在该点插桩打印 `pending_found / inst / pend_enabled / refs` 四个值即可定位，
+不再扩大范围。case8a 仍是级联（`retiring=0` ⇒ 拒绝路径未触发）；其 `read_status=NotFound`
+待 8b 通过后按用户列出的逐项打印（new locator / WAL+SST 状态 / 旧 locator / retiring /
+read_sequence / 重试前后候选链）单独处理。
+
+**压力组 1**：本轮未跑成（预算用于 8b 修复）⇒ 仍记**未完成**。计划：先 `iterations=50`、
+`ZF_READ_SHORT_RETRY=0`、watchdog 30s，记录每轮耗时与
+`acquire_rejected_retiring / reclaim_deferred_by_reader / reclaimed`；稳定后再 300/500。
