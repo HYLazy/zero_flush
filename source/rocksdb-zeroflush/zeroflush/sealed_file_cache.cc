@@ -164,7 +164,7 @@ bool SealedFileCache::GenRetiring(uint32_t part, uint32_t gen) const {
 }
 
 void SealedFileCache::ReleaseGenReadRef(uint32_t part, uint32_t gen) {
-  std::vector<std::string> to_unlink;
+  std::vector<UnlinkRequest> to_unlink;
   {
     rocksdb::MutexLock l(&mu_);
     auto it = gen_read_refs_.find(MakeFileKey(part, gen));
@@ -175,7 +175,7 @@ void SealedFileCache::ReleaseGenReadRef(uint32_t part, uint32_t gen) {
       gen_read_refs_.erase(it);
       gen_read_ref_total_.fetch_sub(1, std::memory_order_relaxed);
       // 最后一个读引用释放：若该代已安装（数据在 LSM）且回收开启 ⇒ **标记 retiring**
-      // 并此刻入队 unlink（此后新引用被拒）。
+      // 并此刻入队 unlink（此后新引用被拒）。只处理本 (part,gen) 的 pending。
       const ZfFileKey key = MakeFileKey(part, gen);
       auto pit = reclaim_pending_.find(key);
       const bool had_pending = (pit != reclaim_pending_.end());
@@ -184,8 +184,7 @@ void SealedFileCache::ReleaseGenReadRef(uint32_t part, uint32_t gen) {
       const bool inst = (git != gens_.end() && git->second.installed) ||
                         (had_pending && pit->second.installed);
       if (inst && pend_enabled) {
-        retiring_gens_.insert(key);
-        to_unlink.push_back(FileName(part, gen));
+        EnqueueUnlinkLocked(part, gen, &to_unlink);
         if (had_pending) {
           reclaim_pending_.erase(pit);  // 已处理，仅限该 (part,gen)
         }
@@ -199,8 +198,8 @@ void SealedFileCache::ReleaseGenReadRef(uint32_t part, uint32_t gen) {
   }
   if (!to_unlink.empty()) {
     rocksdb::MutexLock l(&mu_);
-    for (auto& name : to_unlink) {
-      pending_unlink_.push_back(std::move(name));
+    for (auto& req : to_unlink) {
+      pending_unlink_.push_back(std::move(req));
     }
   }
 }
@@ -209,6 +208,29 @@ uint64_t SealedFileCache::reclaim_pending_count() const {
   rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
   rocksdb::MutexLock l(m);
   return reclaim_pending_.size();
+}
+
+size_t SealedFileCache::retiring_count() const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  return retiring_gens_.size();
+}
+
+std::string SealedFileCache::DescribeReclaimPending() const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  std::string out;
+  for (const auto& [key, rp] : reclaim_pending_) {
+    out += std::to_string(rp.part) + ":" + std::to_string(rp.gen) + "(inst=" +
+           (rp.installed ? "1" : "0") + ",en=" +
+           (rp.reclaim_enabled ? "1" : "0") + ",ep=" +
+           std::to_string(rp.request_epoch) + " refs=" +
+           std::to_string(gen_read_refs_.count(key) > 0
+                              ? gen_read_refs_.at(key)
+                              : 0) +
+           (retiring_gens_.count(key) ? ",retiring=1" : "") + ") ";
+  }
+  return out;
 }
 
 uint64_t SealedFileCache::GenReadRefs(uint32_t part, uint32_t gen) const {
@@ -446,7 +468,7 @@ uint64_t SealedFileCache::ReleaseGens(
     return 0;
   }
   uint64_t released_bytes = 0;
-  std::vector<std::string> to_unlink;
+  std::vector<UnlinkRequest> to_unlink;
   {
     rocksdb::MutexLock l(&mu_);
     auto git = gen_refs_.find(epoch);
@@ -485,17 +507,12 @@ uint64_t SealedFileCache::ReleaseGens(
           continue;  // 不 unlink、不 erase registry 条目
         }
       }
-      // step 0b-3：引用归零 = 物理可回收（与"数据已安装"是两件事，分别记账）。
-      {
-        auto git2 = gens_.find(key);
-        if (git2 != gens_.end()) {
-          reclaimed_bytes_ += git2->second.bytes;
-          ++reclaimed_gens_;
-          gens_.erase(git2);
-        }
-      }
-      // step 1ao：仍有读引用 ⇒ **延迟回收**（不 unlink；登记条目保留到最后一个
-      // 读引用释放为止），并计数以便验收"回收不提前"。
+      // step 1as（用户 2026-09-16）：**先判延迟，再做任何销账**。原顺序在
+      // 延迟分支之前就 `gens_.erase()` + 计 reclaimed ⇒ 记进 pending 的
+      // `installed` 恒为 false，最后一个引用释放时 `inst && …` 判假、retiring
+      // 永不标记（case8b: deferred=1 但 retiring=0），且文件仍在却已计 reclaimed。
+      // 现在：注册表条目与 reclaimed 记账都推迟到**真实 unlink 成功之后**
+      // （PurgePending），延迟期间条目保留、可读、可再取引用。
       if (gen_read_refs_.find(key) != gen_read_refs_.end()) {
         reclaim_deferred_by_reader_.fetch_add(1, std::memory_order_relaxed);
         // 记录完整身份（幂等）：最后一个引用释放时据此处理本 (part,gen)。
@@ -509,9 +526,10 @@ uint64_t SealedFileCache::ReleaseGens(
         rp.reclaim_enabled = reclaim_enabled_;
         rp.request_epoch = epoch;
       } else if (reclaim_enabled_) {
-        retiring_gens_.insert(key);  // 与取得引用同锁互斥：入队后不再接受新引用
-        to_unlink.push_back(FileName(part, gen));
+        EnqueueUnlinkLocked(part, gen, &to_unlink);
       }
+      // 回收关闭（reclaim_sealed_files=false）或延迟中：**保留 registry 条目**
+      // （数据在 LSM 已可读，但文件未删 ⇒ 不得算 reclaimed、不得抹除身份）。
       // 从 epoch 登记中移除该 gen（Get 校验随之失效——文件已入
       // pending_unlink_）。part_bytes/total_bytes 保持（epoch 完全回收
       // 时统一扣减；中间态仅影响统计口径，不影响 Get 校验与物化决策
@@ -543,11 +561,23 @@ uint64_t SealedFileCache::ReleaseGens(
   // 锁外追加到 pending_unlink_（避免持锁做 IO）。
   if (!to_unlink.empty()) {
     rocksdb::MutexLock l(&mu_);
-    for (auto& name : to_unlink) {
-      pending_unlink_.push_back(std::move(name));
+    for (auto& req : to_unlink) {
+      pending_unlink_.push_back(std::move(req));
     }
   }
   return released_bytes;
+}
+
+void SealedFileCache::EnqueueUnlinkLocked(uint32_t part, uint32_t gen,
+                                          std::vector<UnlinkRequest>* out) {
+  const ZfFileKey key = MakeFileKey(part, gen);
+  // 与取得引用同锁互斥：入队后不再接受新引用（retiring => no_new_ref 断言）。
+  if (gen_read_refs_.find(key) != gen_read_refs_.end()) {
+    assert_retiring_new_ref_.fetch_add(1, std::memory_order_relaxed);
+    return;  // 仍有读引用：绝不入队（由延迟路径接管）
+  }
+  retiring_gens_.insert(key);
+  out->push_back(UnlinkRequest{FileName(part, gen), key});
 }
 
 rocksdb::Status SealedFileCache::Get(
@@ -632,7 +662,7 @@ bool SealedFileCache::GetEpoch(uint64_t epoch, SealedEpoch* out) const {
 }
 
 size_t SealedFileCache::PurgePending() {
-  std::vector<std::string> to_unlink;
+  std::vector<UnlinkRequest> to_unlink;
   {
     rocksdb::MutexLock l(&mu_);
     to_unlink.swap(pending_unlink_);
@@ -641,10 +671,30 @@ size_t SealedFileCache::PurgePending() {
     reclaimed_epochs_ += pending_epochs_;
     pending_epochs_ = 0;
   }
-  for (const auto& name : to_unlink) {
-    env_->DeleteFile(name).PermitUncheckedError();
+  const size_t before = to_unlink.size();
+  for (auto& req : to_unlink) {
+    const rocksdb::Status s = env_->DeleteFile(req.name);
+    if (s.ok() || s.IsNotFound()) {
+      // step 1as：**unlink 完成后才计 reclaimed**，并在此刻移除 registry 条目
+      // （延迟回收期间条目必须保留，否则身份与可读性一起丢失）。
+      rocksdb::MutexLock l(&mu_);
+      // 断言 `reclaimed => installed && refs == 0`。
+      auto rit = gen_read_refs_.find(req.key);
+      if (rit != gen_read_refs_.end() && rit->second > 0) {
+        assert_reclaim_unsafe_.fetch_add(1, std::memory_order_relaxed);
+      }
+      auto git = gens_.find(req.key);
+      if (git != gens_.end()) {
+        if (!git->second.installed) {
+          assert_reclaim_unsafe_.fetch_add(1, std::memory_order_relaxed);
+        }
+        reclaimed_bytes_ += git->second.bytes;
+        ++reclaimed_gens_;
+        gens_.erase(git);
+      }
+    }
   }
-  return to_unlink.size();
+  return before;
 }
 
 uint64_t SealedFileCache::sealed_bytes() const {

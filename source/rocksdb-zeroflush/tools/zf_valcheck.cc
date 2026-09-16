@@ -1443,6 +1443,10 @@ int main(int argc, char** argv) {
       rocksdb::Env::Default()
           ->GetFileSize(path5, &fsize_during)
           .PermitUncheckedError();
+      const bool keep_wal = getenv("ZF_VC_KEEP_WAL") != nullptr;
+      // step 1as：`reclaimed` 只在**真实 unlink 之后**计账（用户 2026-09-16 规则）。
+      // 因此释放引用前先取基线，且"记账推进 ⇒ 文件必须已消失"。
+      const uint64_t rec_pre5 = Prop2(db.get(), "rocksdb.zeroflush.reclaimed_bytes");
       {
         FILE* f = fopen(sentinel5.c_str(), "w");
         if (f != nullptr) fclose(f);
@@ -1454,20 +1458,46 @@ int main(int argc, char** argv) {
       uint64_t fsize_after = 0;
       const rocksdb::Status gs5 =
           rocksdb::Env::Default()->GetFileSize(path5, &fsize_after);
+      const uint64_t rec_post5 = Prop2(db.get(), "rocksdb.zeroflush.reclaimed_bytes");
+      const bool acct_ok5 = !(rec_post5 > rec_pre5) || fsize_after == 0;
+      {
+        // 逐项状态（定位"回收为何没发生"）：注册表身份 + 三个待处理集合。
+        char dgp[64];
+        snprintf(dgp, sizeof(dgp), "rocksdb.zeroflush.describe_gen:%u:%u",
+                 sel_part5, sel_gen5);
+        std::string dg, dpl;
+        db->GetProperty(dgp, &dg);
+        db->GetProperty("rocksdb.zeroflush.reclaim_pending_list", &dpl);
+        printf("case5 dbg: desire=[%s] pending_reclaim={%s} registered=%llu "
+               "reclaim_pending=%llu retiring=%llu unlink_pending=%llu "
+               "pending_bytes=%llu\n",
+               dg.c_str(), dpl.c_str(),
+               (unsigned long long)Prop2(db.get(), "rocksdb.zeroflush.registered_gens"),
+               (unsigned long long)Prop2(db.get(), "rocksdb.zeroflush.reclaim_pending_count"),
+               (unsigned long long)Prop2(db.get(), "rocksdb.zeroflush.retiring_count"),
+               (unsigned long long)Prop2(db.get(), "rocksdb.zeroflush.pending_unlink_count"),
+               (unsigned long long)Prop2(db.get(), "rocksdb.zeroflush.pending_materialize_bytes"));
+      }
+      // 真实 unlink 由生产入口 PurgeSealedFiles()（DBImpl::PurgeObsoleteFiles 调用）
+      // 完成；本用例显式触发一次，验收"释放 → 入队 → 删除 → 计 reclaimed"。
+      const size_t purged5 = keep_wal ? 0 : ctx5->PurgeSealedFiles();
+      uint64_t fsize_final = 0;
+      rocksdb::Env::Default()
+          ->GetFileSize(path5, &fsize_final)
+          .PermitUncheckedError();
       const uint64_t reclaimed5 = Prop2(db.get(), "rocksdb.zeroflush.reclaimed_bytes");
-      const bool keep_wal = getenv("ZF_VC_KEEP_WAL") != nullptr;
       const bool ref_ok = refs5 > 0;
       // 回收不提前：读引用存在期间未被回收（deferred 计数或文件仍在，未安装时天然不回收）
       const bool delayed_ok = deferred5 > 0 || !installed5 || fsize_during > 0;
-      // 不永久推迟：回收开启时最终应消失（或已记入 reclaimed）
+      // 不永久推迟：回收开启且确已安装 ⇒ 触发 purge 后文件消失且 reclaimed 推进。
       // 最终回收只在"该代确已安装"时才有意义（未安装的代本就不可回收）。
       const bool final_reclaim_ok =
-          keep_wal || !installed5 ? true
-                                  : (fsize_after == 0 || !gs5.ok() || reclaimed5 > 0);
+          (keep_wal || !installed5) ? true
+                                    : (fsize_final == 0 && reclaimed5 > rec_pre5);
       // **真实回收验收的前提是该代确已安装**；未安装时不能说"回收被延迟/最终回收"，
       // 只能报 INCOMPLETE（避免"未安装 ⇒ 不适用"被当成通过）。
       const bool pass5 = installed5 && rotated5 && ref_ok && read_ok5 &&
-                         delayed_ok && final_reclaim_ok;
+                         delayed_ok && acct_ok5 && final_reclaim_ok;
       if (rotated5 && !installed5) {
         // 封存成功但安装迟迟不完成 ⇒ **安装进展失败**（用户要求：不得再归为
         // fixture 未建成、也不得手工标记 installed）。这指向尚未解决的
@@ -1482,14 +1512,17 @@ int main(int argc, char** argv) {
       }
       printf("case5 real-reclaim: %s (refs_during=%llu installed=%d(gen=%u "
              "fence_last=%llu) deferred_by_reader=%llu file_during=%llu "
-             "file_after=%llu reclaimed=%llu reclaim=%s | read status=%s "
+             "file_after_release=%llu purged=%llu file_final=%llu "
+             "reclaimed=%llu(基线=%llu acct_ok=%d) reclaim=%s | read status=%s "
              "correct=%d src=%s)\n",
              (installed5 && rotated5) ? (pass5 ? "PASS" : "FAIL")
                         : "INCOMPLETE(该代未安装 ⇒ 回收验收不适用)",
              (unsigned long long)refs5,
              installed5 ? 1 : 0, sel_gen5, (unsigned long long)fence_last5,
              (unsigned long long)deferred5, (unsigned long long)fsize_during,
-             (unsigned long long)fsize_after, (unsigned long long)reclaimed5,
+             (unsigned long long)fsize_after, (unsigned long long)purged5,
+             (unsigned long long)fsize_final, (unsigned long long)reclaimed5,
+             (unsigned long long)rec_pre5, acct_ok5 ? 1 : 0,
              keep_wal ? "off" : "on", st5.ok() ? "OK" : st5.ToString().c_str(),
              read_ok5 ? 1 : 0, src5);
       if (installed5 && rotated5 && !pass5) ++fails;
@@ -1589,9 +1622,21 @@ int main(int argc, char** argv) {
       } else if (!(now_retiring && reject_ok && hold_ok)) {
         ++fails;
       }
-      // 8a：新代已 installed+retiring、旧代（seq=100）仍在索引 ⇒ 读必须"重试/报错"，
-      // **不得**返回旧值。selection 层：胜出代取引用被拒 ⇒ 整次作废（无降级）。
+      // 8a（用户 2026-09-17 收紧）：新代已 installed+retiring、旧代（seq=100）仍在
+      // 索引 ⇒ 读取必须走 **retiring → 新引用被拒 → 整次读取作废（TryAgain）→
+      // 保持 read_sequence 重取视图 → 返回新值**。若视图重取后仍无法安全完成，
+      // 必须**明确报错**。⇒ NotFound 不合格（=静默降级/丢失），旧值不合格。
+      //
+      // 前提：DB 层 Get 的读序列必须能看见索引里 seq=100/200 的合成条目
+      // （否则会在索引层直接被 seq 过滤掉、落 LSM ⇒ NotFound，与协议无关）。
+      // 因此先用真实写入把最新序列推过 200。
       {
+        for (uint64_t d = 0; d < 260; ++d) {
+          const std::string kd =
+              zf_keygen::KeyFromInt(total + 7000 + d, kKeySize);
+          db->Put(rocksdb::WriteOptions(), kd, zf_keygen::ValueFor(total + 7000 + d, 1, 64));
+        }
+        const uint64_t seq_now8 = db->GetLatestSequenceNumber();
         zeroflush::get_trace::SetRetiringRejected(false);
         std::vector<uint32_t> cands8{P8A, P8B};
         uint32_t sp = 0, sph = 0, sg = 0;
@@ -1605,16 +1650,78 @@ int main(int argc, char** argv) {
         const bool rejected =
             zeroflush::get_trace::ConsumeRetiringRejected();
         const bool no_downgrade = !sel8;  // 整次作废（未返回旧候选）
+        // 逐项状态（用户指定）：新/旧 locator、新代 WAL+SST 状态、retiring、
+        // read_sequence / snapshot_sequence、重试前后候选链。
+        {
+          uint64_t sz_new = 0;
+          rocksdb::Env::Default()
+              ->GetFileSize(ctx8->wal()->GenFilePath(P8A, rn.gen), &sz_new)
+              .PermitUncheckedError();
+          uint64_t sz_old = 0;
+          rocksdb::Env::Default()
+              ->GetFileSize(ctx8->wal()->GenFilePath(P8B, ro.gen), &sz_old)
+              .PermitUncheckedError();
+          char dgp[64];
+          snprintf(dgp, sizeof(dgp), "rocksdb.zeroflush.describe_gen:%u:%u", P8A,
+                   rn.gen);
+          std::string dg;
+          db->GetProperty(dgp, &dg);
+          printf("case8a dbg: new_loc=(p=%u gen=%u off=%llu) wal_file=%llu "
+                 "sealed=[%s] retiring=%d | old_loc=(p=%u gen=%u off=%llu) "
+                 "wal_file=%llu | read_seq=%llu latest=%llu\n",
+                 rn.part_id, rn.gen, (unsigned long long)rn.offset,
+                 (unsigned long long)sz_new, dg.c_str(),
+                 ctx8->sealed_cache()->GenRetiring(P8A, rn.gen) ? 1 : 0,
+                 ro.part_id, ro.gen, (unsigned long long)ro.offset,
+                 (unsigned long long)sz_old, (unsigned long long)seq_now8,
+                 (unsigned long long)db->GetLatestSequenceNumber());
+          printf("case8a dbg: 选择层候选链（访问顺序 = 上界降序）:");
+          for (const auto& v : zeroflush::get_trace::CandidateVisits()) {
+            printf(" [%u hit=%d seq=%llu]", v.part, v.hit ? 1 : 0,
+                   (unsigned long long)v.seq);
+          }
+          printf("\n");
+        }
         std::string got8;
+        zeroflush::get_trace::ClearCandidateVisits();
+        const uint64_t rej8_before =
+            Prop2(db.get(), "rocksdb.zeroflush.acquire_rejected_retiring");
+        const uint64_t retry8_before =
+            Prop2(db.get(), "rocksdb.zeroflush.retry_read_view_needed");
         const rocksdb::Status st8 = db->Get(rocksdb::ReadOptions(), k8, &got8);
-        const bool not_old = !(st8.ok() && got8 == val_o);
-        const bool pass8a = rejected && no_downgrade && not_old;
+        const uint64_t rej8_after =
+            Prop2(db.get(), "rocksdb.zeroflush.acquire_rejected_retiring");
+        const uint64_t retry8_after =
+            Prop2(db.get(), "rocksdb.zeroflush.retry_read_view_needed");
+        const bool db_retired_gate =
+            rej8_after > rej8_before && retry8_after > retry8_before;
+        printf("case8a dbg: DB Get 候选链(重取视图后):");
+        for (const auto& v : zeroflush::get_trace::CandidateVisits()) {
+          printf(" [%u hit=%d seq=%llu]", v.part, v.hit ? 1 : 0,
+                 (unsigned long long)v.seq);
+        }
+        printf(" | >=200 可见=%d rejected=%llu->%llu retry_view=%llu->%llu "
+               "src=%s\n",
+               seq_now8 > 200 ? 1 : 0, (unsigned long long)rej8_before,
+               (unsigned long long)rej8_after, (unsigned long long)retry8_before,
+               (unsigned long long)retry8_after,
+               zeroflush::get_trace::SourceName(
+                   zeroflush::get_trace::LastSourceTls()));
+        const bool read_is_new = st8.ok() && got8 == val_n;
+        const bool read_is_old = st8.ok() && got8 == val_o;
+        // 合格：新值（协议完整走通）或**明确错误**（TryAgain/IOError/...）。
+        // 不合格：NotFound（静默丢失）、旧值（降级）。
+        const bool read_not_found = st8.IsNotFound();
+        const bool pass8a =
+            rejected && no_downgrade && db_retired_gate &&
+            (read_is_new || (!st8.ok() && !read_not_found));
         printf("case8a retiring-reject-no-downgrade: %s (sel_returned=%d "
-               "retiring_rejected=%d read_status=%s read_is_new=%d read_is_old=%d)\n",
+               "retiring_rejected=%d db_gate=%d read_status=%s read_is_new=%d "
+               "read_is_old=%d read_is_notfound=%d)\n",
                pass8a ? "PASS" : "FAIL", sel8 ? 1 : 0, rejected ? 1 : 0,
-               st8.ok() ? "OK" : st8.ToString().c_str(),
-               (st8.ok() && got8 == val_n) ? 1 : 0,
-               (st8.ok() && got8 == val_o) ? 1 : 0);
+               db_retired_gate ? 1 : 0,
+               st8.ok() ? "OK" : st8.ToString().c_str(), read_is_new ? 1 : 0,
+               read_is_old ? 1 : 0, read_not_found ? 1 : 0);
         if (!pass8a) ++fails;
       }
     }

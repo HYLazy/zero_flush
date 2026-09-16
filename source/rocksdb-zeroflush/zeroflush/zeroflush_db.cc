@@ -650,6 +650,38 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(
         sealed_cache_ != nullptr ? sealed_cache_->reclaim_deferred_by_reader()
                                  : 0);
+  } else if (prop == "rocksdb.zeroflush.acquire_rejected_retiring") {
+    // step 1as：`retiring => no_new_ref` 的可观测证据（case8b 断言）。
+    *value = std::to_string(sealed_cache_ != nullptr
+                                ? sealed_cache_->acquire_rejected_retiring()
+                                : 0);
+  } else if (prop == "rocksdb.zeroflush.reclaim_pending_count") {
+    *value = std::to_string(sealed_cache_ != nullptr
+                                ? sealed_cache_->reclaim_pending_count()
+                                : 0);
+  } else if (prop == "rocksdb.zeroflush.assert_retiring_new_ref") {
+    *value = std::to_string(sealed_cache_ != nullptr
+                                ? sealed_cache_->assert_retiring_new_ref()
+                                : 0);
+  } else if (prop == "rocksdb.zeroflush.assert_reclaim_unsafe") {
+    // 断言 `reclaimed => installed && refs == 0` 的反例计数（应恒为 0）。
+    *value = std::to_string(
+        sealed_cache_ != nullptr ? sealed_cache_->assert_reclaim_unsafe() : 0);
+  } else if (prop == "rocksdb.zeroflush.retiring_count") {
+    *value = std::to_string(sealed_cache_ != nullptr
+                                ? sealed_cache_->retiring_count()
+                                : 0);
+  } else if (prop == "rocksdb.zeroflush.retry_read_view_needed") {
+    // 因胜出代 retiring 而被拒 ⇒ 要求"刷新读视图后整次重试"的次数（step 1ar）。
+    *value = std::to_string(
+        zeroflush::get_trace::RetryReadViewNeeded().load(std::memory_order_relaxed));
+  } else if (prop == "rocksdb.zeroflush.pending_unlink_count") {
+    *value = std::to_string(sealed_cache_ != nullptr
+                                ? sealed_cache_->pending_count()
+                                : 0);
+  } else if (prop == "rocksdb.zeroflush.reclaim_pending_list") {
+    *value = sealed_cache_ != nullptr ? sealed_cache_->DescribeReclaimPending()
+                                      : std::string();
   } else if (prop.starts_with("rocksdb.zeroflush.gen_read_refs:") &&
              sealed_cache_ != nullptr) {
     unsigned p = 0, g = 0;
@@ -1687,6 +1719,14 @@ bool ZeroFlushContext::SelectBestIndexRecord(
           }
           *out_slot = std::move(cand_pin);  // 胜出候选：locator + 读引用整体替换
           out_slot->ctx = this;
+          // step 1as 修正：上一步 TryAcquire 取得的引用必须**交给胜出槽**持有
+          // （RAII：槽析构/被替换时释放）。此前该引用被丢弃 ⇒ 每次命中都泄漏
+          // 一个 generation 读引用 ⇒ 该代永远"有读者"、回收被无限期延迟
+          // （case5: file_after 恒为 1068、reclaim_pending 永不清空）。
+          if (sealed_cache_ != nullptr) {
+            out_slot->read_ref = SealedFileCache::GenReadRef(
+                sealed_cache_.get(), best_phys, best_gen);
+          }
           auto& pi = zeroflush::get_trace::LastPinIdentity();
           pi.set = true;
           pi.part = out_slot->part;

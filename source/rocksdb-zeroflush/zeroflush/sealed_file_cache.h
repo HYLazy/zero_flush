@@ -178,6 +178,10 @@ class SealedFileCache {
     uint64_t request_epoch = 0;
   };
   uint64_t reclaim_pending_count() const;
+  // 诊断：pending reclaim 的完整身份列表（"part:gen(inst,en,epoch)"，空格分隔）。
+  std::string DescribeReclaimPending() const;
+  // retiring 集合规模（诊断：清理完成应归零，长期不为零 = 回收被引用卡住）。
+  size_t retiring_count() const;
   uint64_t assert_retiring_new_ref() const {
     return assert_retiring_new_ref_.load(std::memory_order_relaxed);
   }
@@ -338,8 +342,18 @@ class SealedFileCache {
   // LRU 列表（front = 最新，back = 最久未用）
   std::list<ZfFileKey> lru_order_;
 
-  // 待 unlink 的文件名（ReleaseEpoch 收集，PurgePending 真正删除）
-  std::vector<std::string> pending_unlink_;
+  // 待 unlink 的请求（ReleaseEpoch/ReleaseGens/引用释放收集，PurgePending 真正
+  // 删除）。**reclaimed 记账只在真实删除成功后进行**（用户 2026-09-16 规则：
+  // "unlink 完成后才计 reclaimed"）——因此这里必须带 (part, gen) 身份。
+  struct UnlinkRequest {
+    std::string name;
+    ZfFileKey key;
+  };
+  std::vector<UnlinkRequest> pending_unlink_;
+
+  // 锁内：标记 retiring 并把 (part, gen) 入队（list 为本次调用收集的批）。
+  void EnqueueUnlinkLocked(uint32_t part, uint32_t gen,
+                           std::vector<UnlinkRequest>* out);
 
   // M3.0 R1：恢复期孤儿代集合（可读、不可回收、不占 refcount）。
   // 由 Recover() 登记，由 AddEpochWithRecoveryAdoption 收养（并入 epoch）。
