@@ -1779,3 +1779,30 @@ all   : checked=30064 mismatch=0 miss=0 unexpected_found=0 errors=0  VALCHECK PA
 `压力组1 短跑(50×2) 通过`、`压力组2 短跑(50) 通过`；**完整组 300/500 进行中**
 （300 轮已在后台启动，日志 `/tmp/g1_300.log`）。整单元撤销与提交失败注入、合法路径 A、
 固定路由仍按用户顺序**未开始**。
+
+### D-37. baccept phase3/4 在**修复前后同数失败** ⇒ 归因：既有的安装/排空滞后，非本轮改动
+
+本机 A/B（同一目录、同一命令、同一参数；只改**两处生产行为**：① 选择层读引用是否交给胜出槽；
+② reclaimed/registry 销账是否推迟到真实 unlink 之后）：
+
+| build | phase1 baseline | phase3 install-after-release | phase4 reclaim |
+|---|---|---|---|
+| **旧行为**（临时恢复：引用丢弃 + 延迟前销账） | pending=7361724 drained=4336080 | pending=37612824 drained=4336080 → **FAIL** | registered_gens=18 reclaimed=4336080 → **FAIL** |
+| **本轮修复** | pending=7361724 drained=4336080 | pending=37612824 drained=4336080 → **FAIL** | registered_gens=22 reclaimed=0 → **FAIL** |
+
+⇒ `pending=37612824`（37.6MB 已封存未安装）在**两版都不排空**，phase3 失败与我的改动**无关**；
+phase4 的数字差异正是修复的语义变化（`reclaimed` 只在真实 unlink 后计账 ⇒ 未安装 ⇒ 不计），
+两者都因"未安装"而 FAIL。
+
+**同源现象（本轮多路独立复现，指向同一个既有问题）**
+- 压力组 1/2 每轮 ~10.1s = **10s 安装等待期限整段耗尽**（`pending_materialize_bytes != 0`）；
+- 新库 `all` 结束仍 `pending=43.1MB gens=31 reclaimed=0`（读路径正确：WAL-only 数据可读）；
+- baccept phase1 基线即 `pending=7361724`（记录在案的早期运行是 `pending=0`）。
+
+**结论（状态口径）**：`B（安全安装）门禁**仍未通过**` —— 冲突解除后安装未在窗口内完成、
+pending 未归零；这是**既有**的安装/物化滞后（与 level=-1 融合/排空同源），需下一步单独定位，
+不得因"修复前后一致"而记为通过。归因方法：临时恢复旧行为 → 同数失败 → 恢复修复（`git checkout
+HEAD -- zeroflush/...` + 重建），旧行为版本未提交。
+
+**运行可复现性说明**：300 轮压力运行的二进制是 `9ba3d07` 的构建；该文件随后被 A/B 重建覆盖，
+**二进制哈希未留存**（以提交号为准）。后续应改为"先算哈希再跑"。
