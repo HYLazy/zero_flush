@@ -1848,6 +1848,67 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   // "不可安全安装"，就**整批让位**——不写 AddFile、不推进 fence/drained、
   // 保留待物化数据（由既有让位出口删除产出并移交 recovery）。
   // 累计计数 l0_install_count（任何 L0 安装）/ l0_install_blocked（被拦下）。
+  // step 1v（测试钩子，用户 2026-09-16 第 3 步）：强制一次安装冲突——让目标
+  // 模式的安装点把这些输出判为"不可安全安装"，走整批让位（空 edit）。用于
+  // 确定性验证"让位保留待物化数据、不写 AddFile、不推进 fence/drained"。
+  // ZF_TEST_FORCE_INSTALL_CONFLICT=<n>：前 n 次安装尝试被强制冲突。
+  {
+    // 每次重读环境变量（惰性初始化只读一次 → 测试中途设置/清除不生效，
+    // 实测导致"注入不生效、安装照常完成"）。
+    static std::atomic<int> zf_force_conflict{0};
+    const char* fc_env = getenv("ZF_TEST_FORCE_INSTALL_CONFLICT");
+    const int fc_raw = fc_env != nullptr ? atoi(fc_env) : 0;
+    // 约定：正数 = 剩余注入次数；**负数 = 重新装载为 |n| 次**（测试中途注入）。
+    if (fc_raw < 0) {
+      zf_force_conflict.store(-fc_raw);
+    } else if (fc_raw == 0) {
+      zf_force_conflict.store(0);
+    }
+    if (zf_force_conflict.load() > 0 && zf_mode_ && zf_ctx != nullptr) {
+      const int rem = zf_force_conflict.fetch_sub(1) - 1;
+      // 逐批断言（引擎侧，免受后台其他批次干扰）：让位出口必须满足
+      //   AddFile=0（提交空 VersionEdit）、fence 不变、drained 不变、
+      //   待物化数据保留（pending 不减）。
+      const uint64_t pend_b = zf_ctx->PendingMaterializeBytes();
+      const uint64_t drained_b = zf_ctx->DrainedMaterializeBytes();
+      const size_t batch_outputs = zf_batch_outputs_.size();
+      fprintf(stderr,
+              "ZFTEST forced-install-conflict fired (remaining=%d "
+              "batch_outputs=%zu)\n",
+              rem, batch_outputs);
+      for (auto& job : jobs) {
+        job->FinishPlansLocked();
+        job->DeleteAllOutputFiles();
+        job->HandOffAllGens();
+      }
+      zf_batch_outputs_.clear();
+      zf_ctx->skip_count_.fetch_add(1, std::memory_order_relaxed);
+      const uint64_t zf_pend_before = zf_ctx->PendingMaterializeBytes();
+      zf_ctx->NoteEmptyEdit(zf_pend_before, last_before,
+                            zf_ctx->last_materialized_epoch());
+      zf_ctx->NoteEmptyEditBarrierAdvance();
+      zf_ctx->SetLastMaterializedEpoch(last_before);
+      zf_ctx->EndMaterializeBatch(mm_token);
+      zf_mm_token_ = 0;
+      if (zf_batch_gen0_) {
+        zf_ctx->ReleaseGen0Slot();
+        zf_batch_gen0_ = false;
+      }
+      zf_ctx->ReleaseInstallLock();
+      base_->Unref();
+      // 让位后校验：drained 不增、pending 不减（数据仍待物化）、本批 AddFile=0
+      // （空 edit 路径），并计入断言计数。
+      const uint64_t drained_a = zf_ctx->DrainedMaterializeBytes();
+      const uint64_t pend_a = zf_ctx->PendingMaterializeBytes();
+      zf_ctx->NoteForcedYieldBatch(batch_outputs, drained_a == drained_b,
+                                   pend_a == pend_b);
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "[%s] [JOB %d] ZeroFlush FORCED install conflict (test "
+                     "hook): batch yielded, no AddFile / no fence / no drained",
+                     cfd_->GetName().c_str(), job_context_->job_id);
+      return Status::OK();  // 持锁返回
+    }
+  }
   if (zf_mode_ && zf_ctx != nullptr && zf_ctx->forbid_l0_install()) {
     bool l0_or_blocked = false;
     for (const auto& o : zf_batch_outputs_) {
@@ -2000,6 +2061,36 @@ Status FlushJob::ZfMaterializeAllEpochs() {
                     fr.last_gen);
           }
           continue;
+        }
+        // step 1u（用户 2026-09-16 第 2 步）：**消费证明必须绑定本次 attempt 的
+        // 最终提交输出**。判据：
+        //   · 本次 attempt 的该 physical_part 必须有**已提交**（本批最终 batch
+        //     中非 superseded）的输出；被撤销/废弃/不可安装/让位的输出不能
+        //     为证明背书。
+        //   · 与既有规则叠加：输入完整消费（fr.input_complete）+ 同一
+        //     VersionEdit（fence 与 AddFile 同 edit，必要条件）。
+        // 不满足 → 保守不推进（计 fence_no_committed_output）。
+        {
+          bool part_committed = false;
+          for (const auto& o : zf_batch_outputs_) {
+            if (o.superseded) continue;
+            if (o.part_id == fr.part &&
+                o.level != zeroflush::ZfMaterializeJob::kCannotInstall) {
+              part_committed = true;
+              break;
+            }
+          }
+          if (!part_committed) {
+            zf_ctx->NoteFenceNoCommittedOutput();
+            if (getenv("ZF_DBG_FENCE") != nullptr) {
+              fprintf(stderr,
+                      "ZFDBG-fence-decision epoch=%llu part=%u gens=[%u,%u] "
+                      "decision=hold_no_committed_output\n",
+                      (unsigned long long)job->epoch(), fr.part, fr.first_gen,
+                      fr.last_gen);
+            }
+            continue;
+          }
         }
         ROCKSDB_NAMESPACE::VersionEdit::ZfInstallFence prev;
         // 注意区分 "无 fence"（has_prev=false）与 "有效 fence=[0,0]"：

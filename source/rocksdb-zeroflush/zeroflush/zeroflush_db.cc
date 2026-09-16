@@ -618,6 +618,13 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
   } else if (prop == "rocksdb.zeroflush.pending_drift_events") {
     *value = std::to_string(
         sealed_cache_ != nullptr ? sealed_cache_->pending_drift_events() : 0);
+  } else if (prop == "rocksdb.zeroflush.forced_yield_batches") {
+    *value = std::to_string(forced_yield_batches()) + "/" +
+             std::to_string(forced_yield_drained_flat()) + "/" +
+             std::to_string(forced_yield_pending_flat()) + " outputs=" +
+             std::to_string(forced_yield_outputs());
+  } else if (prop == "rocksdb.zeroflush.fence_no_committed_output") {
+    *value = std::to_string(fence_no_committed_output());
   } else if (prop == "rocksdb.zeroflush.index_kept_uninstalled") {
     *value = std::to_string(index_kept_uninstalled());
   } else if (prop == "rocksdb.zeroflush.gen_release_before_install") {

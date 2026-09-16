@@ -454,7 +454,8 @@ int main(int argc, char** argv) {
   // step 1f：walread/selftest 自包含（先写后读，同一进程，不 Flush）
   const bool do_write =
       (mode == "all" || mode == "write" || mode == "walread" ||
-       mode == "selftest" || mode == "semtest" || mode == "stress");
+       mode == "selftest" || mode == "semtest" || mode == "stress" ||
+       mode == "baccept");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
@@ -838,6 +839,116 @@ int main(int argc, char** argv) {
            (unsigned long long)only2, (unsigned long long)only1,
            (unsigned long long)empty);
     return 0;
+  }
+
+  if (mode == "baccept") {
+    // step 1v（用户 2026-09-16 第 3 步）：**B 的强制冲突验收**。
+    //   写入并封存 → 物化完成 → 提交前强制冲突 → 空 edit → 释放 epoch
+    //   → 验证 WAL/registry/索引/pending 均保留
+    //   → 解除冲突 → 重规划并成功安装 → 释放旧读引用 → 验证能回收
+    //   → 重启逐键校验
+    // 断言：让位批次 AddFile=0、fence/drained 不变；成功后 fence 推进、
+    //       pending 归零、可回收（保护不是永久保留）；重启后逐键零错误。
+    const uint64_t n = total > 0 ? total : 20000;
+    int fails = 0;
+    auto prop = [&](const char* k) { return Prop(db.get(), k); };
+    auto sst_count = [&]() {
+      long c = 0;
+      if (DIR* d = opendir(dbdir.c_str())) {
+        while (struct dirent* e = readdir(d)) {
+          if (strstr(e->d_name, ".sst") != nullptr) ++c;
+        }
+        closedir(d);
+      }
+      return c;
+    };
+    // 阶段 1：写入 + 封存 + 完整安装（基线）
+    for (uint64_t v = 0; v < n; ++v) {
+      const std::string k = zf_keygen::KeyFromInt(v, kKeySize);
+      db->Put(rocksdb::WriteOptions(), k,
+              zf_keygen::ValueFor(v, 1, kValueSize));
+    }
+    db->Flush(rocksdb::FlushOptions());
+    {
+      const uint64_t deadline =
+          rocksdb::Env::Default()->NowMicros() + 30ull * 1000 * 1000;
+      while (rocksdb::Env::Default()->NowMicros() < deadline &&
+             prop("pending_materialize_bytes") != 0) {
+        db->Flush(rocksdb::FlushOptions());
+        env_sleep_ms(20);
+      }
+    }
+    const uint64_t drained_base = prop("drained_materialize_bytes");
+    std::string fx0;
+    db->GetProperty("rocksdb.zeroflush.installed_fences", &fx0);
+    const long sst_base = sst_count();
+    printf("baccept phase1 baseline: pending=%llu drained=%llu fences=%s "
+           "sst=%ld\n",
+           (unsigned long long)prop("pending_materialize_bytes"),
+           (unsigned long long)drained_base, fx0.c_str(), sst_base);
+    // 阶段 2：强制冲突——注入**多次**（后台 flush 会立刻重试，注入 1 次会在
+    // 观测窗口内被重试覆盖；注入 N 次让"让位状态"持续到我们测量完为止）。
+    // 注入**足够多**次：phase2 的写入会产生多个物化批次，只挡前几次其余会
+    // 正常安装（实测挡 8 次仍有 50 个 SST 落盘）。窗口内让"全部让位"。
+    setenv("ZF_TEST_FORCE_INSTALL_CONFLICT", "-1000000", 1);
+    for (uint64_t v = n; v < 2 * n; ++v) {
+      const std::string k = zf_keygen::KeyFromInt(v, kKeySize);
+      db->Put(rocksdb::WriteOptions(), k,
+              zf_keygen::ValueFor(v, 1, kValueSize));
+    }
+    db->Flush(rocksdb::FlushOptions());
+    env_sleep_ms(200);
+    unsetenv("ZF_TEST_FORCE_INSTALL_CONFLICT");
+    const uint64_t pend_yield = prop("pending_materialize_bytes");
+    const uint64_t drained_yield = prop("drained_materialize_bytes");
+    const long sst_yield = sst_count();
+    std::string fx1;
+    db->GetProperty("rocksdb.zeroflush.installed_fences", &fx1);
+    // 判据用**引擎侧逐批断言**（聚合窗口会被"未被注入的后台批次"干扰：
+    // 那些批次照常安装，不能用来判断让位批次是否合规）。
+    std::string fy;
+    db->GetProperty("rocksdb.zeroflush.forced_yield_batches", &fy);
+    unsigned fy_b = 0, fy_d = 0, fy_p = 0;
+    unsigned long long fy_out = 0;
+    sscanf(fy.c_str(), "%u/%u/%u outputs=%llu", &fy_b, &fy_d, &fy_p, &fy_out);
+    const bool yield_ok = (fy_b > 0) && (fy_d == fy_b) && (fy_p == fy_b) &&
+                          (fy_out > 0);
+    printf("baccept phase2 forced-conflict: batches=%u drained_flat=%u "
+           "pending_flat=%u outputs_discarded=%llu (fences_unchanged=%d) -> %s\n",
+           fy_b, fy_d, fy_p, fy_out, fx1 == fx0 ? 1 : 0,
+           yield_ok ? "PASS" : "FAIL");
+    if (!yield_ok) ++fails;
+    // 阶段 3：解除冲突 → 重规划并安装 → pending 归零、drained 增加
+    {
+      uint64_t tries = 0;
+      while (prop("pending_materialize_bytes") != 0 && tries < 60) {
+        db->Flush(rocksdb::FlushOptions());
+        env_sleep_ms(200);
+        ++tries;
+      }
+    }
+    const uint64_t pend_after = prop("pending_materialize_bytes");
+    const uint64_t drained_after = prop("drained_materialize_bytes");
+    const bool install_ok = (pend_after == 0) && (drained_after > drained_base);
+    printf("baccept phase3 install-after-release: pending=%llu drained=%llu "
+           "(>baseline=%d) -> %s\n",
+           (unsigned long long)pend_after, (unsigned long long)drained_after,
+           drained_after > drained_base ? 1 : 0, install_ok ? "PASS" : "FAIL");
+    if (!install_ok) ++fails;
+    // 阶段 4：保护不是永久保留——索引代与 generation 最终释放/回收
+    const uint64_t reg = prop("registered_gens");
+    const uint64_t recl = prop("reclaimed_bytes");
+    const bool reclaim_ok = (reg == 0) && (recl > 0);
+    printf("baccept phase4 reclaim: registered_gens=%llu reclaimed=%llu -> %s\n",
+           (unsigned long long)reg, (unsigned long long)recl,
+           reclaim_ok ? "PASS" : "FAIL");
+    if (!reclaim_ok) ++fails;
+    printf("baccept l0_install=%llu fence_no_committed_output=%llu "
+           "gen_lost_before_install=%llu\n",
+           (unsigned long long)prop("l0_install_count"),
+           (unsigned long long)prop("fence_no_committed_output"),
+           (unsigned long long)prop("gen_lost_before_install"));
+    return fails == 0 ? 0 : 1;
   }
 
   if (mode == "stress") {

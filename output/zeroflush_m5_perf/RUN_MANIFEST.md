@@ -953,3 +953,51 @@ all   : checked=30064 mismatch=0 miss=0 errors=0
 e9f0ddfe9909707a461a049bdeacca9a503e733b518036c9a898e215c298fc50  source/rocksdb-zeroflush/zf_valcheck
 8743c1832891140da87a1545e1cce544a10208408ffa503220c2da7693b4cf3b  source/rocksdb-zeroflush/librocksdb.so.11.2.0
 ```
+
+### D-16. step 1u/1v：消费证明绑定安装结果 + 强制冲突验收（用户 2026-09-16 第 2/3 步）— 见提交
+
+**第 2 步：消费证明 ↔ 安装结果绑定**
+
+- fence 候选新增判据（`flush_job.cc`，与既有规则叠加）：
+  `输入完整消费`（step 1c-2）+ `同一 VersionEdit`（必要条件）+ **本次 attempt 的该
+  physical_part 必须有已提交输出**（本批最终 batch 中非 superseded、且不是
+  `kCannotInstall`）。被撤销/废弃/不可安装/让位的输出**不能为证明背书**
+  → 计 `fence_no_committed_output`，保守不推进。
+- `drained` 只在 `MarkEpochInstalled`（LogAndApply 成功点）增加 ✓；让位出口在其之前
+  返回，不触碰 drained/fence ✓（现由逐批断言验证，见下）。
+- `ReleaseFrozenIndexes` 复核：判据用的是记录的真实 `(physical_part, gen)`（遍历
+  `se.gen.sgens` 的 pair），**逐代**判断 `IsGenInstalled(part, gen)`；混合来源的段
+  不会因其中一个代已安装而整段撤除（未安装的代其段保留）。
+
+**第 3 步：强制冲突验收（`zf_valcheck <db> baccept <n> [threads]`）**
+
+测试钩子 `ZF_TEST_FORCE_INSTALL_CONFLICT=<n>`（负值 = 测试中途重新装载计数）在目标模式
+安装点把整批判为不可安全安装 → 走空 edit 让位路径。**断言放在引擎侧逐批执行**（聚合窗口
+会被"未被注入的后台批次"干扰，不能用作判据）：
+
+```
+baccept phase1 baseline: pending=0 drained=11697804 fences=p2=[0,0]b1081884r1013 sst=32
+baccept phase2 forced-conflict: batches=5 drained_flat=5 pending_flat=5
+                                outputs_discarded=50 (fences_unchanged=1) -> PASS
+baccept phase3 install-after-release: pending=0 drained=41948904 (>baseline=1) -> PASS
+baccept phase4 reclaim: registered_gens=0 reclaimed=41948904 -> PASS
+baccept l0_install=0 fence_no_committed_output=3 gen_lost_before_install=0
+exit=0
+```
+- phase2 = 5 个让位批次，**每批**都满足 `drained 不变 / pending 不减 / 丢弃了产出`
+  （50 个输出未提交 ⇒ 确有产出却未 AddFile；空 edit 由该出口结构保证）；
+- phase3 = 解除冲突后有限时间内安装完成、`pending=0`、`drained` 超过基线；
+- phase4 = **保护不是永久保留**：安装后 `registered_gens=0`、`reclaimed=41.9MB`
+  （索引段与 generation 最终释放并回收）。
+
+**第 4 步：门禁回归（本轮）**
+```
+目标模式新库：scan=0 / triage=0(B1=B2=B3=0) / l0_install=0 / drift=0 /
+              gen_lost_before_install=0 / pending 守恒（15041128 == recomputed）
+压力：组 1/2/3/4 各 300 轮、组 5 400 轮 → failures/silent_stale/notfound/corruption 全 0
+      守门计数 index_kept_uninstalled=13629 handoff_at_release=3715 gen_lost=0
+```
+
+**仍未完成**：最小确定性单元用例（当前由引擎侧逐批断言 + 400 轮压力承担）；
+A 类（`case6` 为人工注入的防御性红灯；自然路径是否产生 A 尚无结论——不因此给每次 Get
+加 LSM 查询）；V0.6 固定路由落地。

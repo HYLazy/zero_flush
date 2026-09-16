@@ -666,6 +666,40 @@ class ZeroFlushContext {
   void NoteFenceInputIncomplete() {
     fence_input_incomplete_count_.fetch_add(1, std::memory_order_relaxed);
   }
+  // step 1v：强制冲突让位批次的**逐批断言**（测试钩子专用）：
+  //   forced_yield_batches       : 让位批次数
+  //   forced_yield_drained_flat  : 其中 drained 未变的批次数（应等于批次数）
+  //   forced_yield_pending_flat  : 其中 pending 未减的批次数（应等于批次数）
+  //   forced_yield_outputs_total : 被丢弃的输出总数（>0 证明"确有产出却未提交"）
+  void NoteForcedYieldBatch(size_t outputs, bool drained_flat,
+                            bool pending_flat) const {
+    forced_yield_batches_.fetch_add(1, std::memory_order_relaxed);
+    forced_yield_outputs_.fetch_add(outputs, std::memory_order_relaxed);
+    if (drained_flat) forced_yield_drained_flat_.fetch_add(1);
+    if (pending_flat) forced_yield_pending_flat_.fetch_add(1);
+  }
+  uint64_t forced_yield_batches() const {
+    return forced_yield_batches_.load(std::memory_order_relaxed);
+  }
+  uint64_t forced_yield_drained_flat() const {
+    return forced_yield_drained_flat_.load(std::memory_order_relaxed);
+  }
+  uint64_t forced_yield_pending_flat() const {
+    return forced_yield_pending_flat_.load(std::memory_order_relaxed);
+  }
+  uint64_t forced_yield_outputs() const {
+    return forced_yield_outputs_.load(std::memory_order_relaxed);
+  }
+
+  // step 1u：该代在本次 attempt 中没有已提交输出（被撤销/不可安装/让位）
+  // ⇒ 消费证明不成立、fence 不推进。理想 0；非 0 是保守拦截的诊断量。
+  void NoteFenceNoCommittedOutput() const {
+    fence_no_committed_output_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t fence_no_committed_output() const {
+    return fence_no_committed_output_.load(std::memory_order_relaxed);
+  }
+
   uint64_t fence_input_incomplete_count() const {
     return fence_input_incomplete_count_.load(std::memory_order_relaxed);
   }
@@ -1105,6 +1139,11 @@ class ZeroFlushContext {
   mutable std::atomic<uint64_t> gen_lost_before_install_{0};
   mutable std::atomic<uint64_t> gen_handoff_{0};
   mutable std::atomic<uint64_t> ctx_stats_handoff_at_release_{0};
+  mutable std::atomic<uint64_t> fence_no_committed_output_{0};
+  mutable std::atomic<uint64_t> forced_yield_batches_{0};
+  mutable std::atomic<uint64_t> forced_yield_drained_flat_{0};
+  mutable std::atomic<uint64_t> forced_yield_pending_flat_{0};
+  mutable std::atomic<uint64_t> forced_yield_outputs_{0};
   mutable std::atomic<uint64_t> index_kept_uninstalled_{0};
   mutable std::atomic<uint64_t> gen_unregistered_fd_fallback_{0};
   mutable std::atomic<uint64_t> l0_install_blocked_{0};
