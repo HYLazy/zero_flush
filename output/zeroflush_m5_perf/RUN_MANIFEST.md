@@ -1396,3 +1396,26 @@ case5 active_gen_survives_freeze: FAIL
 
 **4. 压力回归**
 仍未完成（前次后台运行被终止）。验收要求：短读重试关闭、五组零错误。
+
+### D-27. step 1al：case7 执行记录断言（构造仍未打通）＋ case5 合法回收改写未做 — 见提交
+
+**本轮做的**
+- 新增**候选访问执行记录**（`CandidateVisits`：part/order/hit/seq，`SelectBestIndexRecord` 内
+  按访问顺序写入）——用于"上界关系只说明应被访问，执行记录才证明覆盖"。
+- case7 断言扩展为 `visited_A & visited_B & B_hit & B_lost`（执行记录）+ `upper_order_ok`。
+
+**仍未打通（两个已定位原因）**
+1. **`LocatorDiagEnabled()` 在首次调用时缓存 env**（`static const bool on = getenv(...)`），
+   而 case7 是**测试中途**才 `setenv("ZF_DBG_LOCATOR","1")` ⇒ 访问记录始终为空
+   （`visited_A=0 visited_B=0`）。应改为每次读取 env，或让调用方显式传开关。
+2. case7 的合成条目仍未进入读路径（`status=NotFound`）。已排除"用 WAL 文件的 gen 插入"
+   （改为插入时刻的活跃代），仍 NotFound ⇒ 需按"Insert 是否被丢弃（`insert_dropped`）"
+   与"候选集合是否包含这两个 part"两条继续核对。**case7 当前不是有效回归**（既没覆盖、
+   也不红灯），不能作为修复的证据；`all` 两次全零 + 代码审查（D-25）仍是该修复的依据。
+
+**case5 合法回收改写（用户第 3 步）未做**：应改为"选中活跃记录 → 换代 → 安装 → **走正常
+回收**（因读引用存在而延迟）→ 恢复读取正确 → 释放引用后回收成功"，并断言"读期间不提前
+回收""读完后不永久保留"。当前 case5 仍是**手工 unlink**（且未先校验 `installed` 与引用数）
+⇒ 它此前的通过/失败都不能作为正常生命周期验收，需按上述改写。
+
+**压力回归**：仍未完成（需在短读重试关闭下跑，分批记录退出码/轮数/汇总）。

@@ -262,6 +262,23 @@ inline bool LookupAppendSite(uint32_t part, uint32_t gen, uint64_t offset,
   if (out != nullptr) *out = it->second;
   return true;
 }
+// step 1al：候选访问执行记录（每个 attempt 清空）。
+struct CandidateVisit {
+  uint32_t part = 0;
+  uint32_t order = 0;   // 访问序号（0 = 首个访问）
+  bool hit = false;     // 该候选是否命中
+  uint64_t seq = 0;     // 命中时的 seq
+};
+inline std::vector<CandidateVisit>& CandidateVisits() {
+  static thread_local std::vector<CandidateVisit> v;
+  return v;
+}
+inline void ClearCandidateVisits() { CandidateVisits().clear(); }
+inline void NoteCandidateVisit(uint32_t part, uint32_t order, bool hit,
+                               uint64_t seq) {
+  CandidateVisits().push_back(CandidateVisit{part, order, hit, seq});
+}
+
 // B/C 不一致计数（索引插入 / 选择胜出，与 A 表对照）
 inline std::atomic<uint64_t>& LocatorBMismatch() {
   static std::atomic<uint64_t> n{0};

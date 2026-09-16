@@ -1349,20 +1349,30 @@ int main(int argc, char** argv) {
     // 断言：selected_seq=200、locator 属于 A、**最终 pin 也属于 A**，
     //       且解码出的 key/seq/value 与 A 一致。
     {
-      const uint64_t v7 = total + 5;
-      const uint64_t v7b = total + 6;   // 用于把 B 段 max_seq 抬高
+      const uint64_t v7 = total + 5;    // 目标键：**不写入**（制造"索引里只有合成条目"）
+      const uint64_t v7k1 = total + 6;  // A 的 locator 指向它的真实记录
+      const uint64_t v7k2 = total + 9;  // B 的 locator 指向它的真实记录
+      const uint64_t v7fill = total + 7;  // A 段填充（抬高 upper(A)）
+      const uint64_t v7fill2 = total + 8;  // B 段填充（抬高 upper(B)）
       const std::string k7 = zf_keygen::KeyFromInt(v7, kKeySize);
-      const std::string k7b = zf_keygen::KeyFromInt(v7b, kKeySize);
+      const std::string k7k1 = zf_keygen::KeyFromInt(v7k1, kKeySize);
+      const std::string k7k2 = zf_keygen::KeyFromInt(v7k2, kKeySize);
       rocksdb::DBImpl* impl7 = static_cast<rocksdb::DBImpl*>(db.get());
       std::shared_ptr<zeroflush::ZeroFlushContext> ctx7 =
           impl7->GetZeroFlushContext();
-      // 真实写入两条记录（保证 locator 可读）：k7 供 A 用、k7b 抬 B 段上界
-      db->Put(rocksdb::WriteOptions(), k7, zf_keygen::ValueFor(v7, 1, kValueSize));
-      db->Put(rocksdb::WriteOptions(), k7b,
-              zf_keygen::ValueFor(v7b, 1, kValueSize));
+      // 访问记录依赖 LocatorDiagEnabled（诊断开关）：测试内显式开启并按 attempt 清空
+      setenv("ZF_DBG_LOCATOR", "1", 1);
+      zeroflush::get_trace::ClearCandidateVisits();
+      // 真实写入两条记录（只为拿到**可读的 locator**）：k7k1 → A，k7k2 → B。
+      // 目标键 k7 不写入 ⇒ 索引里只有下面的合成条目（否则真实条目会先胜出、
+      // 合成候选被剪枝，覆盖不到缺陷形态——case6 的同类前提问题）。
+      db->Put(rocksdb::WriteOptions(), k7k1,
+              zf_keygen::ValueFor(v7k1, 1, kValueSize));
+      db->Put(rocksdb::WriteOptions(), k7k2,
+              zf_keygen::ValueFor(v7k2, 1, kValueSize));
       // 两条记录都刷盘（各自路由分区），否则 locator 找不到。
-      ctx7->wal()->Sync(ctx7->RoutePartId(rocksdb::Slice(k7))).PermitUncheckedError();
-      ctx7->wal()->Sync(ctx7->RoutePartId(rocksdb::Slice(k7b))).PermitUncheckedError();
+      ctx7->wal()->Sync(ctx7->RoutePartId(rocksdb::Slice(k7k1))).PermitUncheckedError();
+      ctx7->wal()->Sync(ctx7->RoutePartId(rocksdb::Slice(k7k2))).PermitUncheckedError();
       // 扫 WAL 取两条记录的真实 locator
       auto find_loc = [&](const std::string& key, uint32_t* pp, uint32_t* gg,
                           uint64_t* off) {
@@ -1403,27 +1413,30 @@ int main(int argc, char** argv) {
       };
       uint32_t pa7 = 0, ga7 = 0, pb7 = 0, gb7 = 0;
       uint64_t oa7 = 0, ob7 = 0;
-      const bool fa = find_loc(k7, &pa7, &ga7, &oa7);
-      const bool fb = find_loc(k7b, &pb7, &gb7, &ob7);
+      const bool fa = find_loc(k7k1, &pa7, &ga7, &oa7);
+      const bool fb = find_loc(k7k2, &pb7, &gb7, &ob7);
       bool pass7 = false;
       if (!fa || !fb) {
         printf("case7 locator-pin-same-candidate: SKIP (locator 未找到)\n");
       } else {
         // 造索引：A = (pa,ga) seq=200 指向 k7 的记录；B = (pb,gb) seq=100 指向 k7b 的记录
         const uint32_t cand_a = pa7, cand_b = pb7;
-        ctx7->index_set()->Insert(cand_a, ga7, ik(v7, 1, 200),
+        // 注意：Insert 只写入**已存在**的该代段——必须用插入时刻的活跃代
+        // （用 WAL 文件里的 gen 会因换代被丢弃，条目静默消失 → NotFound）。
+        const uint32_t gA = ctx7->wal()->ActiveGenOpt(cand_a).value_or(0);
+        const uint32_t gB = ctx7->wal()->ActiveGenOpt(cand_b).value_or(0);
+        ctx7->index_set()->Insert(cand_a, gA, ik(v7, 1, 200),
                                   loc_of(pa7, ga7, oa7));
-        ctx7->index_set()->Insert(cand_b, gb7, ik(v7, 1, 100),
+        ctx7->index_set()->Insert(cand_b, gB, ik(v7, 1, 100),
                                   loc_of(pb7, gb7, ob7));
         // 按用户不等式构造：**A.upper > B.upper > A.seq(200) > B.seq(100)**
         // · A 段插入填充键 seq=100000 ⇒ upper(A)=100000（A 先访问）
         // · B 段插入填充键 seq=300   ⇒ upper(B)=300（B 随后访问且不被剪枝：
         //   300 > best_seq(200)），但 B 对目标键只命中 seq=100 ⇒ 落选。
         // 这两个填充键与被测键不同，只用于抬高段上界。
-        const uint64_t v7fill_a = total + 7, v7fill_b = total + 8;
-        ctx7->index_set()->Insert(cand_a, ga7, ik(v7fill_a, 1, 100000),
+        ctx7->index_set()->Insert(cand_a, gA, ik(v7fill, 1, 100000),
                                   loc_of(pa7, ga7, oa7));
-        ctx7->index_set()->Insert(cand_b, gb7, ik(v7fill_b, 1, 300),
+        ctx7->index_set()->Insert(cand_b, gB, ik(v7fill2, 1, 300),
                                   loc_of(pb7, gb7, ob7));
         std::vector<uint32_t> cands{cand_a, cand_b};
         // (1) 覆盖性断言：候选按**段上界降序**访问 ⇒ 必须满足
@@ -1434,10 +1447,39 @@ int main(int argc, char** argv) {
         // 通过读路径验证：Get 必须返回 k7 的值（seed1 for v7）
         std::string got7;
         const rocksdb::Status st7 = db->Get(rocksdb::ReadOptions(), k7, &got7);
-        const std::string want7 = zf_keygen::ValueFor(v7, 1, kValueSize);
+        // 期望值 = **A 指向的 k7k1 的值**（A 胜出 ⇒ locator+pin 都应是 A）。
+        // 若 pin 被 B 覆盖（缺陷形态），读会解码到 k7k2 的记录 ⇒ 值不匹配。
+        const std::string want7 = zf_keygen::ValueFor(v7k1, 1, kValueSize);
         pass7 = st7.ok() && got7 == want7;
         const bool cover_ok = (up_a > up_b) && (up_b > 200) && (200 > 100);
-        pass7 = pass7 && cover_ok;
+        // (4) 用**执行记录**断言 B 确实被访问、命中且落选（上界关系只是必要条件）。
+        bool visited_a = false, visited_b = false, b_hit = false, b_lost = false;
+        {
+          const auto& vs = zeroflush::get_trace::CandidateVisits();
+          uint64_t best_seen = 0;
+          bool have_best = false;
+          for (const auto& v : vs) {
+            if (v.part == cand_a) visited_a = true;
+            if (v.part == cand_b) {
+              visited_b = true;
+              if (v.hit) {
+                b_hit = true;
+                if (!have_best || v.seq > best_seen) best_seen = v.seq;
+                // B 命中但不胜出：本次尝试里 A 的 seq 更高
+                b_lost = (v.seq < 200);
+              }
+            }
+            if (v.hit && (!have_best || v.seq > best_seen)) {
+              best_seen = v.seq;
+              have_best = true;
+            }
+          }
+        }
+        const bool exec_ok = visited_a && visited_b && b_hit && b_lost;
+        pass7 = pass7 && cover_ok && exec_ok;
+        printf("case7 exec: visited_A=%d visited_B=%d B_hit=%d B_lost=%d "
+               "exec_ok=%d\n", visited_a ? 1 : 0, visited_b ? 1 : 0,
+               b_hit ? 1 : 0, b_lost ? 1 : 0, exec_ok ? 1 : 0);
         printf("case7 locator-pin-same-candidate: %s (A=(part=%u gen=%u seq=200 "
                "upper=%llu) B=(part=%u gen=%u seq=100 upper=%llu) "
                "upper_order_ok=%d => 访问顺序 A→B、B 命中但落选；status=%s "

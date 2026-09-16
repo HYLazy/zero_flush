@@ -1643,10 +1643,16 @@ bool ZeroFlushContext::SelectBestIndexRecord(
     // 每个候选用**自己的** pin 槽：读引用在索引保护释放前取得（同一 GetCopy 调用内）。
     ZfPinSlot cand_pin;
     cand_pin.ctx = this;
-    if (index_set_->GetCopy(cands[ci].part, user_key, snapshot, &cand_loc,
-                            &cand_type, &cand_seq,
-                            out_slot != nullptr ? &ZfPinThunk : nullptr,
-                            &cand_pin)) {
+    const bool cand_hit = index_set_->GetCopy(
+        cands[ci].part, user_key, snapshot, &cand_loc, &cand_type, &cand_seq,
+        out_slot != nullptr ? &ZfPinThunk : nullptr, &cand_pin);
+    // step 1al（用户 2026-09-17）：**候选访问/命中/落选的执行记录**——上界关系
+    // 只能说明"应被访问"，只有执行记录才证明缺陷路径真的被覆盖（case7 断言用）。
+    if (zeroflush::get_trace::LocatorDiagEnabled()) {
+      zeroflush::get_trace::NoteCandidateVisit(cands[ci].part, ci, cand_hit,
+                                               cand_seq);
+    }
+    if (cand_hit) {
       if (!have_any || cand_seq > best_seq) {
         have_any = true;
         best_type = cand_type;
