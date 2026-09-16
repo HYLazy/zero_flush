@@ -1918,3 +1918,35 @@ semtest cases1-7: PASS (fails=0 setup_incomplete=0)   exit=0
 **后续（顺序启动，互不并发）**：压力组 2/3/4/5 各 300 轮已排队后台执行
 （`ZF_READ_SHORT_RETRY=0`、`ZF_VC_PARTITION_TARGET_KB=128`、watchdog=30s），
 日志 `/tmp/g{2,3,4,5}_300.log`；外部终止一律记未完成。
+
+### D-42. 压力组 5（sealed-at-selection）暴露"拒绝即报错"过严 ⇒ 已按 fence 分流修复
+
+**组 2/3/4 各 300 轮全部通过**（旧 build）：
+```
+组2: rounds=300 failures=0 silent_stale=0 notfound=0 corruption=0 rotations=300
+     ms_avg=10144  reclaim: reclaimed_gens=132 reclaimed_bytes=1616952（断言全 0 → OK）
+组3: rounds=300 failures=0 ... rotations=300 ms_avg=10143  reclaimed_gens=48/580408 → OK
+组4: rounds=300 failures=0 ... rotations=300 ms_avg=208（不等安装，读未安装 sealed 代）→ OK
+```
+**组 5 FAIL（旧 build）**：`rounds=35 failures=6 corruption=6`，6 次失败**同一签名**：
+```
+status=IO error: ZF: generation retiring; read view refresh could not complete safely
+        (no downgrade)   pin_ok=24 pin_active=0 acquire_rejected_retiring=12
+reclaimed_gens=78 reclaimed_bytes=7482408
+```
+**判读（自我纠正）**：这条报错来自我在 case8a 落地的"拒绝即不得降级"规则，但它对
+**已安装**的代过严：该代数据已在 LSM（fence 覆盖），回落原生查找取到的是**同一 seq
+版本**（fence 不变量），不是降级。把"被拒"一个布尔量同时用于两种语义是错的。
+
+**修复（按 Version fence 分流）**：
+- 选择层在被拒时记录**被拒身份** `(part,gen)`（`get_trace::NoteRejectedGen`）；
+- 重取视图后仍被拒时：`IsGenInstalled(part,gen)`（**Version fence**，真实安装证据）为真
+  ⇒ **返回未命中，回落 LSM**（同 seq 版本已在 LSM）；为假 ⇒ 维持明确 IOError
+  （WAL 是唯一副本且正在回收，绝不降级/NotFound）。
+- 关键点：判据用 **Version fence** 而不是 cache 内的 `installed` 标记 —— case8a 的
+  合成代只标了 cache 级 installed、真实 Version 不覆盖 ⇒ 它仍走明确报错（semtest 复验
+  `case8a PASS` 不变），而真实场景（组 5）走 LSM 回落取值。
+
+**build 哈希**：见 `/tmp/build_hash_fall.txt`（本轮修复后的 `zf_valcheck` / `librocksdb.so.11`）。
+五组已按**该 build** 重新排队（组 5 → 1 → 2 → 3 → 4，各 300 轮，顺序执行，互不并发），
+日志 `/tmp/v2_g{5,1,2,3,4}_300.log`；外部终止记未完成。

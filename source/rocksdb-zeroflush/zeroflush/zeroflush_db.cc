@@ -1714,6 +1714,7 @@ bool ZeroFlushContext::SelectBestIndexRecord(
             zeroflush::get_trace::RetryReadViewNeeded().fetch_add(
                 1, std::memory_order_relaxed);
             zeroflush::get_trace::SetRetiringRejected(true);
+            zeroflush::get_trace::NoteRejectedGen(best_phys, best_gen);
             have_any = false;
             if (out_slot != nullptr) {
               *out_slot = ZfPinSlot();
@@ -1876,6 +1877,24 @@ bool ZeroFlushContext::GetFromPartitionIndex(
         *s = ROCKSDB_NAMESPACE::Status::TryAgain();
       }
       return true;
+    }
+    // step 1as 修正（压力组 5 实证）：重取视图后仍被拒时，按**该代是否已安装**
+    // 分流——同一个 true 结论不能既代表"数据已在 LSM（可回落取值）"又代表
+    // "唯一副本正在消失（必须报错）"：
+    //   · 已安装（Version fence 覆盖该代）⇒ 该代记录的同 seq 版本已在 LSM，
+    //     回落原生查找即取到**同一版本**（fence 不变量；不是降级）；
+    //   · 未安装 ⇒ WAL 是唯一副本正在被回收 ⇒ 明确报错（不降级、不 NotFound）。
+    {
+      const auto& rej = zeroflush::get_trace::LastRejectedGenTls();
+      if (rej.set && IsGenInstalled(rej.part, rej.gen)) {
+        if (zeroflush::get_trace::LocatorDiagEnabled()) {
+          fprintf(stderr,
+                  "ZFDBG-get-final source=LSM_AFTER_RETIRE(installed part=%u "
+                  "gen=%u) → 回落原生查找（同 seq 版本已在 LSM）\n",
+                  rej.part, rej.gen);
+        }
+        return false;  // 未命中索引层：交给调用方走 LSM（非降级）
+      }
     }
     if (s != nullptr) {
       *s = ROCKSDB_NAMESPACE::Status::IOError(

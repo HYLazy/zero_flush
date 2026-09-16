@@ -292,6 +292,26 @@ inline std::atomic<uint64_t>& RetryReadViewNeeded() {
   static std::atomic<uint64_t> n{0};
   return n;
 }
+// step 1as 修正（压力组 5）：被拒候选的**身份**。只有"是否被拒"不足以决定后续行为：
+//   · 该代**已安装**（Version fence 覆盖）⇒ LSM 就是同一 seq 数据的正确来源，
+//     读取应回落 LSM 取值（不是降级；这是 fence 不变量的直接结论）；
+//   · 该代**未安装** ⇒ WAL 是唯一副本且正在被回收，只能明确报错，
+//     绝不能静默降级或 NotFound。
+struct RejectedGenIdentity {
+  bool set = false;
+  uint32_t part = 0;
+  uint32_t gen = 0;
+};
+inline RejectedGenIdentity& LastRejectedGenTls() {
+  static thread_local RejectedGenIdentity r;
+  return r;
+}
+inline void NoteRejectedGen(uint32_t part, uint32_t gen) {
+  auto& r = LastRejectedGenTls();
+  r.set = true;
+  r.part = part;
+  r.gen = gen;
+}
 // 供测试主线程读取读者线程选中的 (part, gen)（TLS 不可跨线程 ⇒ 另存全局）。
 struct PinIdentityGlobal {
   std::atomic<uint32_t> part{0};
