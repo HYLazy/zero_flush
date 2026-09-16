@@ -1001,3 +1001,47 @@ exit=0
 **仍未完成**：最小确定性单元用例（当前由引擎侧逐批断言 + 400 轮压力承担）；
 A 类（`case6` 为人工注入的防御性红灯；自然路径是否产生 A 尚无结论——不因此给每次 Get
 加 LSM 查询）；V0.6 固定路由落地。
+
+### D-17. step 1w/1x：安装集合判据收紧（尝试未通过，已回退为补丁）— 见 WIP_install_set.patch
+
+**用户指出的实质缺口（成立）**：此前"同一 physical_part 有已提交输出"不足以证明该代
+已安装——同分区可含多个 generation，部分输出撤销时"分区有输出"仍成立。更严重的是
+**登记点本身的位置错了**：`MarkEpochInstalled/MarkGensInstalled` 原本在
+`ZfMaterializeAllEpochs` **构建 edit_ 时**调用，而让位/空 edit/LogAndApply 失败都在其后
+⇒ 出现"fence 保守不推进、账目与回收资格却已认定安装完成"（诊断实证：目标模式下
+5 个批次 `outs=0/16`（全部 level=-1 不可安装）仍走到了登记点）。
+
+**本轮实现（已写、已构建、未通过验收）**
+1. 输出携带 `covered_gens`（该输出所属 job 消费的 gens，去掉 kSkip 部分）与 `src_epoch`；
+2. 登记点从"构建 edit 时"**移到 LogAndApply 成功之后**（Run 的 success 路径），消费
+   `zf_planned_installs_`（每 epoch：covered gens + 输出提交比）；要求
+   **该 job 的全部输出都已提交**才 `MarkGensInstalled`，否则计 `install_gens_withheld`
+   并保持 pending（`SealedFileCache::MarkGensInstalled` 为唯一权威入口）；
+3. 新增负例钩子 `ZF_TEST_DROP_OUTPUT`（撤销一个输出且无替代，删除其物理文件）+
+   baccept phase5 断言"未覆盖的代仍 pending、仍可读、不可回收"；
+4. 新增"让位必须带来进展"：安装点让位的分区登记为 `force_merge_parts_`，下一轮规划对其
+   强制 `kMergeBase`（否则 kDirect→让位 空转）。
+
+**验收结果（红）**
+```
+phase1 baseline  PASS
+phase2 forced-conflict PASS (batches=5 drained_flat=5 pending_flat=5 outputs_discarded=48)
+phase3 install-after-release FAIL  (pending=38.4MB 不降、drained 停在 4.3MB)
+phase4 reclaim FAIL (registered_gens=19)
+phase5 partial-revocation FAIL (readable=0)
+phase5b FAIL
+```
+诊断：整个验收里只有 **1 个批次**走通安装（`ZFDBG-installset2 epoch=.. outs=16/16
+covered=4`），其余批次全部在安装点不可安装（`level=-1`）而让位；加了强制融合后仍未
+改变 ⇒ 冲突的进展路径（kMergeBase 的实际生效条件）比"一个 flag"更深，需要按
+"安装点冲突 → 重新规划并真的融合成功"端到端打通。
+
+**处置**：工作树已**回退到上一个已验证提交**（`dfa8644`，其源码状态 = `6fbc63d` 的
+已验证版本），本次尝试完整保存为
+`output/zeroflush_m5_perf/WIP_install_set.patch`（15336 行 diff，可直接续做），
+避免留下"排空停滞"的破损状态。回退后重建并复验：目标模式新库仍然
+`l0_install=0 / drift=0 / gen_lost_before_install=0 / scan=0 / triage=0(B1=B2=B3=0)`。
+
+**下一步（按用户顺序的第 1 项收尾）**：在补丁基础上把"安装点冲突 → 强制融合"打通
+（确认 kMergeBase 在目标模式下的生效条件：overlap 扫描/Compaction 注册/输出定层），
+使 phase3/4/5b 转绿；再进入合法路径 A 的结论与固定路由落地。
