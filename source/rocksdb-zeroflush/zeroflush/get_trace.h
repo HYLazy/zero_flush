@@ -16,6 +16,10 @@
 #pragma once
 
 #include <cstdio>
+#include <functional>
+#include <thread>
+#include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -101,6 +105,75 @@ inline long long KeyId(const ROCKSDB_NAMESPACE::Slice& user_key) {
     }
   }
   return -1;
+}
+
+// step 1ae（用户 2026-09-17）：**整次 Get 的关联标识 + 错误站点**。
+// 顶层 Get 入口生成 get_id；每次内部重试（SuperVersion 刷新）递增 attempt_id；
+// 每个 attempt 开始**清空**诊断状态（避免把上一次成功读取的线程局部日志当成
+// 本次失败证据）；未经过的路径标 NOT_VISITED。
+struct ReadErrorRecord {
+  bool set = false;        // 本 attempt 是否记录过错误
+  uint64_t get_id = 0;
+  uint64_t attempt_id = 0;
+  uint64_t thread_hash = 0;
+  int site = -1;           // 唯一 error_site 编号（见各产生点）
+  uint32_t part = 0;
+  uint32_t gen = 0;
+  uint64_t offset = 0;
+  uint64_t want = 0;
+  uint64_t got = 0;
+  uint64_t parsed_total = 0;
+  int cond = -1;           // 触发该判定的条件编号（0=读失败 1=长度不足 2=解析失败…）
+  const char* status = "";
+};
+
+inline uint64_t& CurGetId() {
+  static thread_local uint64_t v = 0;
+  return v;
+}
+inline uint64_t& CurAttemptId() {
+  static thread_local uint64_t v = 0;
+  return v;
+}
+inline ReadErrorRecord& LastReadError() {
+  static thread_local ReadErrorRecord r;
+  return r;
+}
+inline uint64_t NextGetId() {
+  static std::atomic<uint64_t> n{0};
+  return n.fetch_add(1) + 1;
+}
+inline void BeginGet() {
+  CurGetId() = NextGetId();
+  CurAttemptId() = 0;
+  LastReadError() = ReadErrorRecord();
+}
+inline void BeginAttempt() {
+  ++CurAttemptId();
+  LastReadError() = ReadErrorRecord();  // 每 attempt 清空（防跨次残留）
+}
+inline void NoteReadErrorSite(int site, uint32_t part, uint32_t gen,
+                              uint64_t offset, uint64_t want, uint64_t got,
+                              uint64_t parsed_total, int cond,
+                              const char* status) {
+  ReadErrorRecord& r = LastReadError();
+  if (r.set) {
+    return;  // 只记**首个**产生点（错误向上传播的源头）
+  }
+  r.set = true;
+  r.get_id = CurGetId();
+  r.attempt_id = CurAttemptId();
+  r.thread_hash = static_cast<uint64_t>(
+      std::hash<std::thread::id>{}(std::this_thread::get_id()));
+  r.site = site;
+  r.part = part;
+  r.gen = gen;
+  r.offset = offset;
+  r.want = want;
+  r.got = got;
+  r.parsed_total = parsed_total;
+  r.cond = cond;
+  r.status = status;
 }
 
 // 读**实际返回来源**（用户 2026-09-15：A/B 必须按来源统计，不能按新值的

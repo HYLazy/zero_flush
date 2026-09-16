@@ -1203,3 +1203,42 @@ scanner 107/125），并带上 thread_hash 与 read_id，直接看是哪一处�
 `WritableFile::Sync`（`use_fsync=false` 时走 `fdatasync`/`fsync` 路径，取决于 Env 实现）
 ⇒ 我先前"只加可见性检查、不引入 fsync"的说法**不严谨**：该调用本身可能触发 fdatasync；
 D-20 的守卫并未新增调用，只是**校验其成功与长度**。
+
+### D-22. step 1ae/1af：错误产生点 ↔ Get 返回的关联链（已通）— 见提交
+
+**实现**
+- `get_id`（每次顶层 Get 分配）/`attempt_id`（每次内部重试递增）/`thread_hash` 关联标识；
+  **每个 attempt 开始时清空**诊断状态（防"上一次成功读取的线程局部残留"被当成本次证据）；
+  未经过的路径在打印时标 `NOT_VISITED`。
+- 四处 truncated 产生点分配唯一 `error_site`：`ReadFromSealed` header=1 / body=2，
+  scanner=21/22，`ReadRecord`=11–14（含缓冲与文件两条）。失败返回点打印
+  `get_id/attempt/thr/site/part/gen/off/want/got/parsed_total/cond/status => FINAL IOError`。
+
+**实测（`all 20000 4`，短读重试关闭）**
+```
+ZFDBG-errchain get_id=2 attempt=7 thr=… site=15 part=4 gen=1 off=13928
+      want=4120 got=4120 parsed_total=3384520122 cond=2
+      status=bad record magic => FINAL IOError
+site 分布: site=15(bad magic)=473  site=1(header 短读)=16  NOT_VISITED=0
+```
+**结论（按你的判定表）**
+- **97% 的失败是 `bad record magic`**：`want=4120 got=4120`（读取本身完全成功），
+  但 locator 指向的字节**不是 ZF 记录头**；解析出的"长度"是垃圾（`parsed_total`
+  可达 3.4GB）。⇒ 属你表里第三类："**offset 处是其他 key/seq，或句柄身份不符**"，
+  即**陈旧/错位的 locator**，与"短读""封存发布窗口"都无关。
+- 其余 16 例是 header 短读（返回 < 24B）：与"locator 偏移落在文件末尾之外"一致，
+  同属陈旧 locator，而非封存时序。
+- 关联链完整：**全部失败都有对应产生点（NOT_VISITED=0）**。
+
+**已据此加的守卫**：`ReadFromSealed` 在信任长度前校验 `kZfMagic`，不匹配即返回
+`ZF sealed record: bad magic at locator`（并登记 site=15）——把"垃圾长度导致的 truncated"
+变成可分类的明确错误，且不再把它误判为短读。
+
+**撤回**：D-20/D-21 关于"封存发布过早/短读窗口"的方向（D-20 的封存可见性守卫与 D-21 的
+短读重试都不是本问题的修复；重试已默认关闭）。
+
+**下一步（本轮未做）**：① 追**陈旧 locator 的产生点**——为什么索引里的 `(part, gen, offset)`
+与文件内容不再对应（候选：代号复用/同代号文件被后续追加、`InsertCreate` 把记录归到错的代、
+或索引条目在代回收后未清理）；② 读路径对"magic 不符/键不符"的处置（按你之前的协议：
+刷新读视图后回落 LSM，或明确报错，不能静默返回旧值）；③ 之后才是确定性复现、最小修复、
+关闭重试后的 `all` 零错误、整单元撤销断言。

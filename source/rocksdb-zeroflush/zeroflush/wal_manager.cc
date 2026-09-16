@@ -3,6 +3,8 @@
 
 #include "zeroflush/wal_manager.h"
 
+#include "zeroflush/get_trace.h"
+
 #include <thread>
 #include <functional>
 
@@ -103,6 +105,9 @@ bool WalScanner::Next(ZfRecordHeader* h, rocksdb::Slice* key,
       // size == 0：干净 EOF（正好落在记录边界）；0 < size < header：
       // 头部被截断——对已封存文件意味着数据丢失，标记 Corruption。
       if (buf_.size() > 0) {
+        zeroflush::get_trace::NoteReadErrorSite(
+            21 /*scanner.header*/, 0, 0, offset_, kZfHeaderSize, buf_.size(), 0, 1,
+            "truncated record header in sealed WAL");
         status_ = rocksdb::Status::Corruption(
             "ZeroFlush: truncated record header in sealed WAL");
       }
@@ -121,6 +126,9 @@ bool WalScanner::Next(ZfRecordHeader* h, rocksdb::Slice* key,
     }
     if (buf_pos_ + total > buf_.size()) {
       // 尾部记录不完整：对已封存文件意味着数据丢失（封存时已完整刷盘）。
+      zeroflush::get_trace::NoteReadErrorSite(
+          22 /*scanner.body*/, 0, 0, offset_, total, buf_.size() - buf_pos_, 0, 1,
+          "truncated record in sealed WAL");
       status_ = rocksdb::Status::Corruption(
           "ZeroFlush: truncated record in sealed WAL");
       return false;
@@ -377,11 +385,30 @@ rocksdb::Status PartitionedWalManager::ReadFromSealed(
     return s;
   }
   if (result.size() < kZfHeaderSize) {
+    zeroflush::get_trace::NoteReadErrorSite(
+        1 /*ReadFromSealed.header*/, ref.part_id, ref.gen, ref.offset,
+        kZfHeaderSize, result.size(), 0, 1, "ZF sealed record header truncated");
     return rocksdb::Status::Corruption("ZF sealed record header truncated");
   }
   uint32_t key_len = 0, val_len = 0;
   DecodeKeyValLen(result.data(), &key_len, &val_len);
   uint32_t total = ZfRecordLength(key_len, val_len);
+  // step 1af（用户 2026-09-17）：**magic 校验**——若该处不是 ZF 记录头，
+  // 说明 locator 指向的字节不是记录起始（陈旧 locator / 句柄身份不符 /
+  // 偏移被后续写入覆盖），而不是"文件短读"。关联链证据显示 parsed_total 可达
+  // ~942MB（垃圾长度）⇒ 必须先确认 magic 再谈 truncated。
+  {
+    uint32_t magic = 0;
+    if (result.size() >= 4) {
+      std::memcpy(&magic, result.data(), 4);
+    }
+    if (magic != zeroflush::kZfMagic) {
+      zeroflush::get_trace::NoteReadErrorSite(
+          15 /*ReadFromSealed.bad_magic*/, ref.part_id, ref.gen, ref.offset,
+          result.size(), result.size(), total, 2, "bad record magic");
+      return rocksdb::Status::Corruption("ZF sealed record: bad magic at locator");
+    }
+  }
   g_zf_read_ev.result_size = result.size();
   g_zf_read_ev.parsed_key_len = key_len;
   g_zf_read_ev.parsed_val_len = val_len;
@@ -408,6 +435,10 @@ rocksdb::Status PartitionedWalManager::ReadFromSealed(
       return s;
     }
     if (rest.size() < want2) {
+      zeroflush::get_trace::NoteReadErrorSite(
+          2 /*ReadFromSealed.body*/, ref.part_id, ref.gen,
+          ref.offset + result.size(), want2, rest.size(), total, 1,
+          "ZF sealed record truncated");
       return rocksdb::Status::Corruption("ZF sealed record truncated");
     }
   }
@@ -611,6 +642,9 @@ rocksdb::Status PartitionedWalManager::ReadActiveRecordChecked(
   if (ref.offset >= p->flushed_size) {
     const uint64_t in_buf = ref.offset - p->flushed_size;
     if (in_buf + kZfHeaderSize > p->buf.size()) {
+      zeroflush::get_trace::NoteReadErrorSite(
+          11 /*ReadRecord.buf_offset*/, ref.part_id, ref.gen, ref.offset,
+          kZfHeaderSize, 0, 0, 1, "record offset beyond buffer");
       return rocksdb::Status::Corruption("ZF record offset beyond buffer");
     }
     const char* base = p->buf.data() + in_buf;
@@ -618,7 +652,10 @@ rocksdb::Status PartitionedWalManager::ReadActiveRecordChecked(
     DecodeKeyValLen(base, &key_len, &val_len);
     const uint32_t total = ZfRecordLength(key_len, val_len);
     if (in_buf + total > p->buf.size()) {
-      return rocksdb::Status::Corruption("ZF record truncated in buffer");
+      zeroflush::get_trace::NoteReadErrorSite(
+        12 /*ReadRecord.buf_body*/, ref.part_id, ref.gen, ref.offset, total, 0, 0,
+        1, "record truncated in buffer");
+    return rocksdb::Status::Corruption("ZF record truncated in buffer");
     }
     ZfRecordHeader h;
     rocksdb::Slice k, v;
@@ -641,6 +678,9 @@ rocksdb::Status PartitionedWalManager::ReadActiveRecordChecked(
   rocksdb::Status st = p->rfile->Read(ref.offset, kZfHeaderSize, &result, scratch);
   if (!st.ok()) return st;
   if (result.size() < kZfHeaderSize) {
+    zeroflush::get_trace::NoteReadErrorSite(
+        13 /*ReadRecord.file_header*/, ref.part_id, ref.gen, ref.offset,
+        kZfHeaderSize, result.size(), 0, 1, "record header truncated");
     return rocksdb::Status::Corruption("ZF record header truncated");
   }
   uint32_t key_len = 0, val_len = 0;
@@ -654,6 +694,10 @@ rocksdb::Status PartitionedWalManager::ReadActiveRecordChecked(
                       &rec[0] + kZfHeaderSize);
   if (!st.ok()) return st;
   if (rest.size() < total - kZfHeaderSize) {
+    zeroflush::get_trace::NoteReadErrorSite(
+        14 /*ReadRecord.file_body*/, ref.part_id, ref.gen,
+        ref.offset + kZfHeaderSize, total - kZfHeaderSize, rest.size(), total, 1,
+        "record truncated");
     return rocksdb::Status::Corruption("ZF record truncated");
   }
   ZfRecordHeader h;

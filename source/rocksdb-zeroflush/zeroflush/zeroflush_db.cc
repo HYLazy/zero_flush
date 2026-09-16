@@ -1667,6 +1667,18 @@ bool ZeroFlushContext::GetFromPartitionIndex(
     ROCKSDB_NAMESPACE::MergeContext* merge_context,
     const ROCKSDB_NAMESPACE::MergeOperator* merge_op,
     bool* retry_requested, bool read_view_refreshed) const {
+  // step 1ae：整次 Get 的关联标识。首次进入（attempt 0）生成 get_id；
+  // SuperVersion 刷新后的重试递增 attempt_id。每个 attempt 开始时**清空**诊断
+  // 状态，避免把上一次（可能成功）读取的线程局部残留当成本次失败证据。
+  {
+    using zeroflush::get_trace::BeginAttempt;
+    using zeroflush::get_trace::BeginGet;
+    using zeroflush::get_trace::CurAttemptId;
+    if (CurAttemptId() == 0 && !read_view_refreshed) {
+      BeginGet();  // 新的 Get：分配 get_id
+    }
+    BeginAttempt();  // 新 attempt：清空诊断状态
+  }
   const uint32_t part = RoutePartId(user_key);
   // ZeroFlushV0 P1b/M1a：DRAINING 别名回查。merge 切路由后，被合并分区
   // 的 E_D 冻结索引在排空完成前仍持有其原区间内 key 的（最新）版本；该
@@ -1819,6 +1831,37 @@ bool ZeroFlushContext::GetFromPartitionIndex(
         }
         read_readfail_propagated_.fetch_add(1, std::memory_order_relaxed);
         {
+          // step 1ae：**关联链证据**（产生点 → 传播 → 最终返回）。
+          // 若产生点未登记（NOT_VISITED），说明错误来自本函数未覆盖的路径，
+          // 先修诊断覆盖/核对二进制，而不是解释竞态。
+          {
+            using zeroflush::get_trace::CurAttemptId;
+            using zeroflush::get_trace::CurGetId;
+            using zeroflush::get_trace::LastReadError;
+            const auto& r = LastReadError();
+            if (r.set) {
+              fprintf(stderr,
+                      "ZFDBG-errchain get_id=%llu attempt=%llu thr=%llu "
+                      "site=%d part=%u gen=%u off=%llu want=%llu got=%llu "
+                      "parsed_total=%llu cond=%d status=%s => FINAL IOError\n",
+                      (unsigned long long)r.get_id,
+                      (unsigned long long)r.attempt_id,
+                      (unsigned long long)r.thread_hash, r.site, r.part, r.gen,
+                      (unsigned long long)r.offset,
+                      (unsigned long long)r.want, (unsigned long long)r.got,
+                      (unsigned long long)r.parsed_total, r.cond, r.status);
+            } else {
+              fprintf(stderr,
+                      "ZFDBG-errchain get_id=%llu attempt=%llu thr=%llu "
+                      "site=NOT_VISITED => FINAL IOError "
+                      "(错误产生点未被诊断覆盖)\n",
+                      (unsigned long long)CurGetId(),
+                      (unsigned long long)CurAttemptId(),
+                      (unsigned long long)static_cast<uint64_t>(
+                          std::hash<std::thread::id>{}(
+                              std::this_thread::get_id())));
+            }
+          }
           *s = ROCKSDB_NAMESPACE::Status::IOError(
               "ZF: index hit but WAL record unreadable (phys_part=" +
               std::to_string(best_pin.part) + " gen=" +
