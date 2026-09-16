@@ -1806,3 +1806,37 @@ HEAD -- zeroflush/...` + 重建），旧行为版本未提交。
 
 **运行可复现性说明**：300 轮压力运行的二进制是 `9ba3d07` 的构建；该文件随后被 A/B 重建覆盖，
 **二进制哈希未留存**（以提交号为准）。后续应改为"先算哈希再跑"。
+
+### D-38. baccept phase3/4 的根因收窄：安装点在"无新写入"时推进不了（引擎自述 empty-edit 空转）
+
+**实验 1（只用 `Flush()` 等待，当前提交行为）**
+```
+baccept phase1 baseline:  pending=7361724  drained=4336080  sst=32
+baccept phase2 forced-conflict: PASS（5 批让位，drained/pending 均不变，fences 不变）
+baccept phase3 install-after-release: pending=37612824 drained=4336080 → FAIL
+      （12s 内 drained **一动未动** ⇒ 零安装）
+baccept phase4 reclaim: registered_gens=22 reclaimed=0 → FAIL
+```
+- 与记录在案的早先运行差异：早先 `phase1 pending=0`，现在 `pending=7.3MB`，而
+  **fence 内容与 SST 数完全一致**（`p2=[0,0]b1081884r1013`、sst=32）。
+  ⇒ 安装量相同，差的只是**注册表里仍有未安装代**。早先的 `pending=0` 正是本轮修掉的
+  "延迟前销账/抹除登记"造成的**假归零**；现在这个 7.3MB 是**诚实的未安装量**，
+  必须由后续 epoch 的收养来安装——而 phase3 **不写新数据**，故永远等不到。
+
+**实验 2（把等待改成生产排空入口 `ZfDrainNow()` 循环；仅实验，已回退）**
+```
+baccept phase1: pending=17023920 drained=4336080 sst=3328   ← SST 从 32 涨到 3328
+baccept phase3: pending=38383920 drained=4336080 → FAIL（drained 仍纹丝不动）
+引擎 LOG: "ZeroFlush close-flush: no real install progress (pending=16.2MB,
+           empty_edit=2..N) — stop draining"   出现 **267 次**
+```
+⇒ `ZfDrainNow()` 循环能让引擎**反复封存/物化并写出大量 lvl=1 SST**（3328 个文件），
+但 **`drained` 不前进、pending 反而上涨**，且引擎自己的"空 edit 无实质进展"探测器
+每次都判定应停止排空。两点推论（下一步的定位入口）：
+1. 空 edit 路径被**反复**走到 ⇒ 安装点在有规划、有产出的情况下仍然不提交输出；
+2. 已被标记 installed 的代被**重复物化**（新 SST 不断产生）⇒ drained 不涨（只对
+   registry 中未安装代销账），而真正未安装的（handoff/回收集合）始终没被安装。
+
+**状态**：`B（安全安装）门禁：仍红`——phase3（冲突解除后继续安装并排空）与
+phase4（保护非永久保留）在修复前后**同数失败**（见 D-37 的 A/B），根因已从
+"本轮改动"排除，收窄到"安装点在无新写入/空 edit 反复出现时不再推进"。
