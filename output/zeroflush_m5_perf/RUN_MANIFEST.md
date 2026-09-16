@@ -1283,3 +1283,40 @@ ZFDBG-readfail D: rf=0x79b9680009d0
 ② 追**pin 句柄为何失效**——文件被替换/重建的路径（unlink+recreate / 代号复用）与
 `SealedFileCache` LRU 句柄的生命周期；③ 之后才是确定性复现、最小修复、关闭重试后的
 `all` 零错误、整单元撤销断言。
+
+### D-24. step 1ah/1ai：严格配对的原始头 vs 兜底头（结论：同一 locator 两种内容）— 见提交
+
+**实现**
+- `ReadFromSealed` 在**失败那次 Read 返回后立即复制**头 24 字节进证据（`original_header`，
+  不做任何重读），并做一次**无 I/O 的独立解码**（`parse_rc`：1=magic 2=长度 3=短读）；
+  记录 `result`/`scratch` 地址与长度。**兜底头**单独打印（同一 offset、按路径新开句柄）。
+- 错误站点改为**环形 8 条**（每条自带 `get_id/attempt_id`），不再依赖"最新一条"，
+  避免后续成功读覆盖失败现场；打印时按 `get_id` 过滤。**pin 路径也打印原始头**
+  （此前只有 fd 兜底分支打印，导致"配对"其实来自两个不同失败点 ✗）。
+- 撤回的推断：`rf` 指针不同 ≠ 文件不同（两个对象可打开同一文件）；POSIX unlink 不会
+  让旧 fd 读到别的文件的字节 ⇒ 先前"pin 句柄失效"的说法**未获证据支持，已撤回**。
+
+**实测（同一 locator、两条路径）**
+```
+① pin 路径（严格配对：该次失败的原始头）
+ZFDBG-hdrcmp pinned path=PINNED part=4 gen=1 off=79076 want=4120 got=4120
+  header=[84 8b 92 99 a0 a7 ae b5 bc c3 ca d1 d8 df e6 ed f4 fb 02 09 10 17 1e 25]
+  decode: magic=0x99928b84 klen=3519726524 vlen=3991330776
+  parse_rc=2 error_site=16  status=implausible length at locator
+  注：字节呈 +7 等差数列 ⇒ **落在记录 payload 内部**（不是记录起始）。
+② 兜底路径（同一 offset、按路径新开句柄）
+ZFDBG-hdrcmp fallback_header=[55 46 30 31 00 00 01 00 10 00 00 00 00 04 00 00 41 …]
+  magic=0x31304655 klen=16 vlen=1024 seq=65（与 A 表 **seq/需求一致**）
+```
+**因此**：同一 `(part, gen, offset)` 经**两条路径读到不同内容**——pin 路径读到 payload 中部，
+兜底路径读到合法记录头。属判定表第 3 行变体"**原始头错误、兜底头正确**"⇒ 不一致点定位在
+**读取所用的文件对象**（句柄缓存键 / 打开路径 / generation 绑定）。
+
+**仍未确定（不得写成"根因已确认"）**：为什么 pin 路径会指向另一个文件对象。按你的要求，
+下一步用**句柄身份（device/inode，经 fstat/fstatat）**而非路径 stat 证明两个句柄指向不同文件，
+再查 `SealedFileCache` 的缓存键、打开路径与 generation 绑定。当前结论口径：
+**"错误产生点已关联；locator／文件内容不一致已证；不一致的产生机制待定位。"**
+
+**其他保留项（按你要求）**：magic 校验与长度护栏保留（64MB 已标注为**诊断阈值**，
+非格式上界）；64MB 只作非法输入护栏；记录身份校验（key/seq/type 对所选索引条目）仍待落地；
+`bad_magic` 不凭 fence 回落 LSM。

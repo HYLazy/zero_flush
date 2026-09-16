@@ -215,6 +215,16 @@ class PartitionedWalManager {
     uint32_t parsed_key_len = 0;
     uint32_t parsed_val_len = 0;
     uint32_t parsed_total = 0;
+    // step 1ah（用户 2026-09-17）：**失败那次 Read 返回的原始头副本**（不是重读）。
+    // 立即复制，避免 scratch/缓冲被后续读取覆盖；并记录指针与解析字段，
+    // 供"原始头 vs 兜底头"的严格对照与两次独立解码。
+    uint8_t original_header[24] = {0};
+    size_t original_header_len = 0;
+    const void* result_data_addr = nullptr;   // 该次 Read 返回 Slice 的地址
+    const void* scratch_addr = nullptr;       // 承载缓冲地址
+    uint32_t orig_magic = 0, orig_klen = 0, orig_vlen = 0;
+    uint64_t orig_seq = 0;
+    int orig_parse_rc = -1;  // 0=合法 1=magic 不符 2=长度不合法 3=头短读
   };
   static const ReadEvidence& LastReadEvidence();
   static void ResetReadEvidence();

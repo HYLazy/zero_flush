@@ -155,6 +155,16 @@ inline void BeginAttempt() {
   ++CurAttemptId();
   LastReadError() = ReadErrorRecord();  // 每 attempt 清空（防跨次残留）
 }
+// step 1ai（用户 2026-09-17）：**错误站点环形记录**（8 条）——不再依赖"最新一条"，
+// 避免后续成功读把失败现场覆盖掉。每条自带 get_id/attempt_id，可按 get_id 过滤打印。
+inline ReadErrorRecord* ErrorSiteRing() {
+  static thread_local ReadErrorRecord ring[8];
+  return ring;
+}
+inline uint32_t& ErrorSiteRingPos() {
+  static thread_local uint32_t p = 0;
+  return p;
+}
 inline void NoteReadErrorSite(int site, uint32_t part, uint32_t gen,
                               uint64_t offset, uint64_t want, uint64_t got,
                               uint64_t parsed_total, int cond,
@@ -177,6 +187,10 @@ inline void NoteReadErrorSite(int site, uint32_t part, uint32_t gen,
   r.parsed_total = parsed_total;
   r.cond = cond;
   r.status = status;
+  ReadErrorRecord* ring = ErrorSiteRing();
+  uint32_t& pos = ErrorSiteRingPos();
+  ring[pos % 8] = r;
+  ++pos;
 }
 
 // step 1ag（用户 2026-09-17）：locator 的 A→B→C→D 四段对照。

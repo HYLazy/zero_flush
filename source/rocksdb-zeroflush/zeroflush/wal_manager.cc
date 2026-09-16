@@ -381,10 +381,27 @@ rocksdb::Status PartitionedWalManager::ReadFromSealed(
   rocksdb::Status s = rf->Read(ref.offset, kInlineRead, &result, scratch);
   g_zf_read_ev.returned = result.size();
   g_zf_read_ev.ok = s.ok();
+  g_zf_read_ev.result_data_addr = result.data();
+  g_zf_read_ev.scratch_addr = scratch;
+  // step 1ah（用户 2026-09-17）：**立即复制失败那次 Read 返回的原始头**（不做
+  // 任何重读），并做一次**无 I/O 的独立解码**；后续兜底读取不得覆盖这份副本。
+  {
+    const size_t n = std::min<size_t>(result.size(), 24);
+    std::memcpy(g_zf_read_ev.original_header, result.data(), n);
+    g_zf_read_ev.original_header_len = n;
+    if (n >= 24) {
+      std::memcpy(&g_zf_read_ev.orig_magic, result.data(), 4);
+      std::memcpy(&g_zf_read_ev.orig_klen, result.data() + 8, 4);
+      std::memcpy(&g_zf_read_ev.orig_vlen, result.data() + 12, 4);
+      std::memcpy(&g_zf_read_ev.orig_seq, result.data() + 16, 8);
+    }
+  }
   if (!s.ok()) {
+    g_zf_read_ev.orig_parse_rc = 3;
     return s;
   }
   if (result.size() < kZfHeaderSize) {
+    g_zf_read_ev.orig_parse_rc = 3;
     zeroflush::get_trace::NoteReadErrorSite(
         1 /*ReadFromSealed.header*/, ref.part_id, ref.gen, ref.offset,
         kZfHeaderSize, result.size(), 0, 1, "ZF sealed record header truncated");
@@ -394,10 +411,13 @@ rocksdb::Status PartitionedWalManager::ReadFromSealed(
   DecodeKeyValLen(result.data(), &key_len, &val_len);
   // step 1ag（用户 2026-09-17）：**长度合法性约束**——溢出或超出合理上界即拒绝，
   // 避免垃圾长度触发巨额分配（实测出现 parsed_total≈3.4GB 的样本）。
-  constexpr uint32_t kMaxZfRecord = 1u << 26;  // 64MB 上界（远大于任何合法记录）
+  // 注意：这是**诊断护栏**，不是格式定义的上界——若将来支持 >64MB 合法记录
+  // 必须同步放宽，否则会把合法记录判为损坏。
+  constexpr uint32_t kMaxZfRecord = 1u << 26;  // 64MB（诊断阈值）
   if (key_len > kMaxZfRecord || val_len > kMaxZfRecord ||
       kZfHeaderSize + static_cast<uint64_t>(key_len) + val_len + 4 >
           static_cast<uint64_t>(kMaxZfRecord)) {
+    g_zf_read_ev.orig_parse_rc = 2;
     zeroflush::get_trace::NoteReadErrorSite(
         16 /*ReadFromSealed.bad_len*/, ref.part_id, ref.gen, ref.offset,
         result.size(), result.size(), 0, 3, "implausible record length");
@@ -415,6 +435,7 @@ rocksdb::Status PartitionedWalManager::ReadFromSealed(
       std::memcpy(&magic, result.data(), 4);
     }
     if (magic != zeroflush::kZfMagic) {
+      g_zf_read_ev.orig_parse_rc = 1;
       zeroflush::get_trace::NoteReadErrorSite(
           15 /*ReadFromSealed.bad_magic*/, ref.part_id, ref.gen, ref.offset,
           result.size(), result.size(), total, 2, "bad record magic");

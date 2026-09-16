@@ -1821,6 +1821,39 @@ bool ZeroFlushContext::GetFromPartitionIndex(
       if (!rs.ok()) {
         zeroflush::get_trace::SetLastSource(
             zeroflush::get_trace::GetSource::kIndexReadFailed);
+        // step 1ai（用户 2026-09-17）：**pin 路径也要打印原始头副本**——此前只有
+        // fd 兜底分支打印，导致"原始头 vs 兜底头"的对照其实来自两个不同失败点
+        // （非严格配对）。此处与兜底分支使用同一份 `LastReadEvidence()`（在
+        // ReadFromSealed 内**立即复制**的原始头），因此是同一个 read 的现场。
+        if (zeroflush::get_trace::LocatorDiagEnabled()) {
+          const auto& ev = PartitionedWalManager::LastReadEvidence();
+          char oh[3 * 24 + 1] = {0};
+          size_t o = 0;
+          for (size_t i = 0; i < ev.original_header_len && i < 24; ++i) {
+            o += snprintf(oh + o, 4, "%02x ",
+                          static_cast<unsigned>(ev.original_header[i]));
+          }
+          uint32_t k_magic = 0, k_klen = 0, k_vlen = 0;
+          if (ev.original_header_len >= 24) {
+            std::memcpy(&k_magic, ev.original_header, 4);
+            std::memcpy(&k_klen, ev.original_header + 8, 4);
+            std::memcpy(&k_vlen, ev.original_header + 12, 4);
+          }
+          const auto& site = zeroflush::get_trace::LastReadError();
+          fprintf(stderr,
+                  "ZFDBG-hdrcmp pinned get_id=%llu attempt=%llu read_id=%llu "
+                  "path=%s part=%u gen=%u off=%llu want=%llu got=%llu "
+                  "header=[%s] decode: magic=0x%08x klen=%u vlen=%u "
+                  "parse_rc=%d error_site=%d status=%s\n",
+                  (unsigned long long)zeroflush::get_trace::CurGetId(),
+                  (unsigned long long)zeroflush::get_trace::CurAttemptId(),
+                  (unsigned long long)ev.read_id,
+                  best_pin.handle != nullptr ? "PINNED" : "FD_FALLBACK",
+                  site.part, site.gen, (unsigned long long)site.offset,
+                  (unsigned long long)site.want, (unsigned long long)site.got,
+                  oh, k_magic, k_klen, k_vlen, ev.orig_parse_rc, site.site,
+                  rs.ToString().c_str());
+        }
         // 判据（用户 2026-09-15 缺口 2 / step 1l）：**不能凭 fence 直接降级**
         // ——fence 只证明安装已提交，不证明本次 Get 的 SuperVersion 包含那次
         // 安装。协议：
@@ -1853,19 +1886,34 @@ bool ZeroFlushContext::GetFromPartitionIndex(
             using zeroflush::get_trace::CurAttemptId;
             using zeroflush::get_trace::CurGetId;
             using zeroflush::get_trace::LastReadError;
-            const auto& r = LastReadError();
-            if (r.set) {
-              fprintf(stderr,
-                      "ZFDBG-errchain get_id=%llu attempt=%llu thr=%llu "
-                      "site=%d part=%u gen=%u off=%llu want=%llu got=%llu "
-                      "parsed_total=%llu cond=%d status=%s => FINAL IOError\n",
-                      (unsigned long long)r.get_id,
-                      (unsigned long long)r.attempt_id,
-                      (unsigned long long)r.thread_hash, r.site, r.part, r.gen,
-                      (unsigned long long)r.offset,
-                      (unsigned long long)r.want, (unsigned long long)r.got,
-                      (unsigned long long)r.parsed_total, r.cond, r.status);
-            } else {
+            // 打印**环形里所有属于本次 get_id 的**站点（不再只看"最新一条"）。
+            bool any = false;
+            {
+              using zeroflush::get_trace::CurGetId;
+              using zeroflush::get_trace::ErrorSiteRing;
+              using zeroflush::get_trace::ErrorSiteRingPos;
+              const auto* ring = ErrorSiteRing();
+              const uint32_t pos = ErrorSiteRingPos();
+              for (uint32_t i = 0; i < 8; ++i) {
+                const auto& rr = ring[i];
+                if (!rr.set || rr.get_id != CurGetId()) {
+                  continue;
+                }
+                any = true;
+                fprintf(stderr,
+                        "ZFDBG-errchain get_id=%llu attempt=%llu thr=%llu "
+                        "site=%d part=%u gen=%u off=%llu want=%llu got=%llu "
+                        "parsed_total=%llu cond=%d status=%s => FINAL IOError\n",
+                        (unsigned long long)rr.get_id,
+                        (unsigned long long)rr.attempt_id,
+                        (unsigned long long)rr.thread_hash, rr.site, rr.part,
+                        rr.gen, (unsigned long long)rr.offset,
+                        (unsigned long long)rr.want, (unsigned long long)rr.got,
+                        (unsigned long long)rr.parsed_total, rr.cond, rr.status);
+              }
+              (void)pos;
+            }
+            if (!any) {
               fprintf(stderr,
                       "ZFDBG-errchain get_id=%llu attempt=%llu thr=%llu "
                       "site=NOT_VISITED => FINAL IOError "
@@ -2268,6 +2316,34 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
                 gfs.ok() ? "ok" : gfs.ToString().c_str());
         const std::string desc = wal_->DescribePartition(ref.part_id, ref.gen);
         fprintf(stderr, "ZFDBG-readfail state: %s\n", desc.c_str());
+        // ①₀ step 1ah（用户 2026-09-17）：**原始头副本 vs 兜底头**的严格对照。
+        // 原始头 = 失败那次 Read 返回的缓冲（在 ReadFromSealed 内立即复制，未重读）；
+        // 兜底头 = 此处按路径新开的句柄。两者分别做**无 I/O 的独立解码**。
+        if (zeroflush::get_trace::LocatorDiagEnabled()) {
+          const auto& ev = PartitionedWalManager::LastReadEvidence();
+          char oh[3 * 24 + 1] = {0};
+          size_t o = 0;
+          for (size_t i = 0; i < ev.original_header_len && i < 24; ++i) {
+            o += snprintf(oh + o, 4, "%02x ",
+                          static_cast<unsigned>(ev.original_header[i]));
+          }
+          uint32_t ok_klen = 0, ok_vlen = 0, ok_magic = 0;
+          if (ev.original_header_len >= 24) {
+            std::memcpy(&ok_magic, ev.original_header, 4);
+            std::memcpy(&ok_klen, ev.original_header + 8, 4);
+            std::memcpy(&ok_vlen, ev.original_header + 12, 4);
+          }
+          fprintf(stderr,
+                  "ZFDBG-hdrcmp original get_id=%llu attempt=%llu read_id=%llu "
+                  "result_addr=%p scratch=%p result_len=%zu header=[%s] "
+                  "decode: magic=0x%08x klen=%u vlen=%u parse_rc=%d error_site=%d\n",
+                  (unsigned long long)zeroflush::get_trace::CurGetId(),
+                  (unsigned long long)zeroflush::get_trace::CurAttemptId(),
+                  (unsigned long long)ev.read_id, ev.result_data_addr,
+                  ev.scratch_addr, ev.result_size, oh, ok_magic, ok_klen,
+                  ok_vlen, ev.orig_parse_rc,
+                  zeroflush::get_trace::LastReadError().site);
+        }
         // ①a step 1ag（D 段）：A 表对照——该 (part,gen,offset) 在 Append 时
         // 登记的是哪个 key/seq，与当前读取位置的内容是否一致。
         if (zeroflush::get_trace::LocatorDiagEnabled()) {
@@ -2356,6 +2432,16 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
                       has_ap ? "found" : "MISSING",
                       has_ap ? (unsigned long long)ap.seq : 0ULL,
                       has_ap ? (unsigned long long)ap.key_hash : 0ULL);
+            }
+            {
+              char fh[3 * 24 + 1] = {0};
+              for (int i = 0; i < 24 && i < static_cast<int>(hdr.size()); ++i) {
+                snprintf(fh + i * 3, 4, "%02x ",
+                         static_cast<unsigned char>(hdr.data()[i]));
+              }
+              fprintf(stderr,
+                      "ZFDBG-hdrcmp fallback_header=[%s] (同一 offset、按路径"
+                      "新开句柄)\n", fh);
             }
             fprintf(stderr,
                     "ZFDBG-readfail hdr: want=24 got=%zu st=%s | total=%u "
