@@ -982,6 +982,13 @@ int main(int argc, char** argv) {
     // 保留契约守门的触发次数（证明目标路径被走到，而不是"没触发所以没失败"）
     uint64_t kept_total = 0, rel_before_install_total = 0, lost_total = 0,
              ho_release_total = 0;
+    // step 1as：引用/回收侧累计（用户指定要纳入每组验收的字段）。
+    uint64_t rej_retiring_total = 0, deferred_reader_total = 0,
+             reclaimed_bytes_total = 0, reclaimed_gens_total = 0,
+             assert_newref_total = 0, assert_unsafe_total = 0,
+             ref_leak_total = 0;
+    // 每轮耗时（用户指定：短跑要记每轮耗时，用于判断变慢是否来自引用/封存路径）。
+    uint64_t iter_ms_total = 0, iter_ms_max = 0;
     std::atomic<int> wd_stage{0};
     std::atomic<uint64_t> wd_iter{0};
     std::atomic<bool> wd_abort{false};
@@ -1009,6 +1016,7 @@ int main(int argc, char** argv) {
     });
     for (uint64_t it = 0; it < iters; ++it) {
       wd_iter.store(it);
+      const uint64_t iter_t0 = rocksdb::Env::Default()->NowMicros();
       wd_stage.store(1);
       const uint64_t base = 1000000 + it * 1000;
       const uint64_t kv = base + 7;
@@ -1132,6 +1140,7 @@ int main(int argc, char** argv) {
         }
       }
       bool unlink_done = false;
+      bool engine_reclaim_due = false;
       // 组 4 不 unlink：组 4 读的是**未安装**的 sealed 代，删掉就是删唯一副本
       // （实测引擎会正确传播 IO error —— 那是"未安装代不可读"的预期行为，
       // 不是本组要测的路径）。"安装后回收"由组 2 覆盖。
@@ -1160,10 +1169,15 @@ int main(int argc, char** argv) {
         // 判据只看 **fence 覆盖该代**（= 已安装）。注意不能用 pending==0 代替：
         // 让位/移交会把代移出 pending 记账（recovery 集合不计入），pending=0
         // 并不代表数据已在 LSM——那样 unlink 等于删唯一副本（实测 group2 6/8）。
+        // step 1as（用户 2026-09-16）：**不再用裸 `std::remove` 删文件**——
+        // 那是绕过引用计数协议的直接删除，会让"引擎自己的回收协议"永远不被覆盖
+        // （实测 group2：`gen_lost_before_install=5` 全部来自这种带外删除，而非
+        // 引擎契约破坏）。改为：等待引擎自身的"安装后回收"发生（epoch 释放在
+        // 安装完成时触发；若此时读者仍持引用 ⇒ 延迟 ⇒ 读者释放后才入队），
+        // 然后在读线程结束后调用**生产入口** `PurgeSealedFiles()`（真实 unlink +
+        // 记账），并断言该代文件确已消失。
         if (gen_installed) {
-          const std::string path = ictx->wal()->GenFilePath(part, gen_before);
-          std::remove(path.c_str());
-          unlink_done = true;
+          engine_reclaim_due = true;
         }
       }
       wd_stage.store(5);
@@ -1173,6 +1187,17 @@ int main(int argc, char** argv) {
       }
       reader.join();
       unsetenv("ZF_TEST_PAUSE_AFTER_SELECT");
+      // 读线程结束（引用已释放）⇒ 延迟的回收此刻才被放行；显式经生产入口落盘。
+      const std::string gen_path_after = ictx->wal()->GenFilePath(part, gen_before);
+      if (engine_reclaim_due) {
+        wd_stage.store(6);
+        ictx->PurgeSealedFiles();
+        env_sleep_ms(20);
+        uint64_t fsz = 0;
+        const rocksdb::Status fss =
+            rocksdb::Env::Default()->GetFileSize(gen_path_after, &fsz);
+        unlink_done = !fss.ok() || fsz == 0;  // 该代文件最终被引擎回收
+      }
       // 期望值：variant1=NotFound；variant2=快照下的 seed1；否则 seed1
       const uint64_t propagated =
           Prop(idb.get(), "read_readfail_propagated");
@@ -1184,6 +1209,14 @@ int main(int argc, char** argv) {
       rel_before_install_total += Prop(idb.get(), "gen_release_before_install");
       lost_total += Prop(idb.get(), "gen_lost_before_install");
       ho_release_total += Prop(idb.get(), "handoff_at_release");
+      // step 1as：引用/回收侧计数（每轮累计；在本轮库关闭前读取）。
+      rej_retiring_total += Prop(idb.get(), "acquire_rejected_retiring");
+      deferred_reader_total += Prop(idb.get(), "reclaim_deferred_by_reader");
+      reclaimed_bytes_total += Prop(idb.get(), "reclaimed_bytes");
+      reclaimed_gens_total += Prop(idb.get(), "reclaimed_gens");
+      assert_newref_total += Prop(idb.get(), "assert_retiring_new_ref");
+      assert_unsafe_total += Prop(idb.get(), "assert_reclaim_unsafe");
+      ref_leak_total += Prop(idb.get(), "gen_read_ref_total");
       const char* src = src_tls;
       const bool exp_nf = (variant == 1);
       const std::string exp_val =
@@ -1210,6 +1243,11 @@ int main(int argc, char** argv) {
       } else if (!sts.ok()) {
         fail = true;
         why = "status!=OK";
+      } else if (engine_reclaim_due && !unlink_done) {
+        // "安装后回收"必须完成：读引用释放后（本轮已 join），该代文件应被引擎
+        // 真实回收。未回收 = 回收被引用永久推迟（step 1as 修复的正是这一类）。
+        fail = true;
+        why = "installed but not reclaimed after ref release";
       } else if (got != exp_val) {
         fail = true;
         ++silent_stale;
@@ -1221,10 +1259,14 @@ int main(int argc, char** argv) {
         DiagKeyState(idb.get(), ictx, iter_dir, kv, kKeySize, kValueSize);
       }
       // 逐轮记录（用户指定字段）
+      const uint64_t iter_ms =
+          (rocksdb::Env::Default()->NowMicros() - iter_t0) / 1000;
+      iter_ms_total += iter_ms;
+      if (iter_ms > iter_ms_max) iter_ms_max = iter_ms;
       printf("stress group=%d iter=%llu variant=%d gen_before=%u gen_after=%u "
              "rotated=%d rseq=%llu snap=%d src=%s status=%s got_len=%zu "
              "exp=%s pin_ok=%llu pin_active=%llu propagated=%llu fellback=%llu "
-             "unlink=%d %s\n",
+             "reclaim_due=%d unlink=%d ms=%llu %s\n",
              group, (unsigned long long)it, variant, gen_before, gen_after,
              rotated ? 1 : 0, (unsigned long long)rseq, snap3 != nullptr ? 1 : 0,
              src, sts.ok() ? "OK" : (sts.IsNotFound() ? "NOTFOUND"
@@ -1234,7 +1276,8 @@ int main(int argc, char** argv) {
              (unsigned long long)Prop(idb.get(), "wal_pin_active_unpinnable"),
              (unsigned long long)propagated,
              (unsigned long long)Prop(idb.get(), "read_readfail_fallen_back"),
-             unlink_done ? 1 : 0,
+             engine_reclaim_due ? 1 : 0, unlink_done ? 1 : 0,
+             (unsigned long long)iter_ms,
              fail ? (std::string("FAIL(") + why + ")").c_str() : "PASS");
       if (snap3 != nullptr) idb->ReleaseSnapshot(snap3);
       ++rounds;
@@ -1244,22 +1287,40 @@ int main(int argc, char** argv) {
     wd_abort.store(true);
     wd.join();
     const bool pass = (failures == 0 && silent_stale == 0 && notfound == 0 &&
-                       corruption == 0 && rotations > 0);
+                       corruption == 0 && rotations > 0 && assert_newref_total == 0 &&
+                       assert_unsafe_total == 0 && ref_leak_total == 0);
     printf("stress gate: index_kept_uninstalled=%llu "
            "gen_release_before_install=%llu handoff_at_release=%llu "
            "gen_lost_before_install=%llu\n",
            (unsigned long long)kept_total,
            (unsigned long long)rel_before_install_total,
            (unsigned long long)ho_release_total, (unsigned long long)lost_total);
+    // step 1as（用户指定）：引用/回收侧计数纳入每组验收（每轮库内累计）。
+    const bool acct_ok = (assert_newref_total == 0 &&
+                          assert_unsafe_total == 0 && ref_leak_total == 0);
+    printf("stress reclaim: acquire_rejected_retiring=%llu "
+           "reclaim_deferred_by_reader=%llu reclaimed_bytes=%llu "
+           "reclaimed_gens=%llu | 断言 retiring=>no_new_ref=%llu(应0) "
+           "reclaimed=>installed&&refs==0=%llu(应0) 读引用未释放=%llu(应0) -> %s\n",
+           (unsigned long long)rej_retiring_total,
+           (unsigned long long)deferred_reader_total,
+           (unsigned long long)reclaimed_bytes_total,
+           (unsigned long long)reclaimed_gens_total,
+           (unsigned long long)assert_newref_total,
+           (unsigned long long)assert_unsafe_total,
+           (unsigned long long)ref_leak_total, acct_ok ? "OK" : "VIOLATION");
     printf("stress group=%d rounds=%llu failures=%llu silent_stale=%llu "
            "notfound=%llu corruption=%llu rotations=%llu propagated=%llu "
-           "fellback=%llu pin_ok=%llu pin_active=%llu -> %s\n",
+           "fellback=%llu pin_ok=%llu pin_active=%llu ms_avg=%llu ms_max=%llu "
+           "-> %s\n",
            group, (unsigned long long)rounds, (unsigned long long)failures,
            (unsigned long long)silent_stale, (unsigned long long)notfound,
            (unsigned long long)corruption, (unsigned long long)rotations,
            (unsigned long long)propagated_total,
            (unsigned long long)fellback_total, (unsigned long long)pin_ok_total,
-           (unsigned long long)pin_active_total, pass ? "PASS" : "FAIL");
+           (unsigned long long)pin_active_total,
+           (unsigned long long)(rounds > 0 ? iter_ms_total / rounds : 0),
+           (unsigned long long)iter_ms_max, pass ? "PASS" : "FAIL");
     return pass ? 0 : 1;
   }
 

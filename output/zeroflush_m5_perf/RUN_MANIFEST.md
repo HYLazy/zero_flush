@@ -1685,3 +1685,97 @@ read_sequence / 重试前后候选链）单独处理。
 **压力组 1**：本轮未跑成（预算用于 8b 修复）⇒ 仍记**未完成**。计划：先 `iterations=50`、
 `ZF_READ_SHORT_RETRY=0`、watchdog 30s，记录每轮耗时与
 `acquire_rejected_retiring / reclaim_deferred_by_reader / reclaimed`；稳定后再 300/500。
+
+### D-36. step 1as 收口：读引用泄漏 + reclaimed 记账顺序 —— semtest 全绿，压力组 1/2 短跑通过
+
+**1. 两个根因（互相掩盖，本轮同时定位）**
+
+- **读引用泄漏（生产缺陷）**：`SelectBestIndexRecord` 胜出时调用
+  `TryAcquireGenReadRef(best_phys, best_gen)`，但返回值被丢弃、没有交给胜出槽
+  `out_slot->read_ref` ⇒ **每次索引命中泄漏一个 generation 读引用** ⇒ 该代永远"有读者"、
+  回收无限期延迟。实证：case5 打印 `pending_reclaim={11:0(inst=1,en=1,ep=1 refs=1)}`
+  在**读取已返回之后** refs 仍为 1、文件 1068B 永不删除、`purged=0`。
+  修复：把引用存入 `out_slot->read_ref`（RAII，槽析构/被替换时恰好释放一次）。
+- **记账顺序**：`ReleaseGens` 在延迟分支**之前**就 `gens_.erase()` + 计 reclaimed ⇒
+  ① 记入 `reclaim_pending_` 的 `installed` 恒为 false、`retiring` 永不标记（case8b
+  `retiring=0` 的直接原因）；② 文件仍在却已计 reclaimed。修复：注册表条目与 reclaimed
+  记账统一推迟到 **`PurgePending` 真实 `DeleteFile` 成功之后**（新增
+  `UnlinkRequest{name,key}`）；延迟期间条目保留、可读、可再取引用；失败保留 pending 不丢记录。
+- **测试接线错误（第三处）**：`rocksdb.zeroflush.acquire_rejected_retiring` **未注册为属性**，
+  读恒为 0 ⇒ case8b 的"新引用被拒"被误判为未发生。已补 `acquire_rejected_retiring` /
+  `reclaim_pending_list` / `retiring_count` / `pending_unlink_count` / `retry_read_view_needed` /
+  `assert_retiring_new_ref` / `assert_reclaim_unsafe` 属性。
+
+**2. semtest（确定性用例）—— 全绿**
+```
+case1/2/3 PASS
+case5 real-reclaim PASS
+   pending_reclaim={} retiring=1 unlink_pending=2 → purge: file_final=0
+   reclaimed=1068(基线=0 acct_ok=1) | read status=OK correct=1 src=INDEX
+case8b retiring-gate PASS (retiring=1 new_ref_rejected=1 rejected_count=0->1
+                           deferred_by_reader=1 file_while_held=1068)
+case8a retiring-reject-no-downgrade PASS (sel_returned=0 retiring_rejected=1 db_gate=1
+   read_status=IO error: "ZF: generation retiring; read view refresh could not complete
+   safely (no downgrade)" read_is_new=0 read_is_old=0 read_is_notfound=0)
+case7 fixture PASS (sel/pin 同候选：exec[A=1 B=1 B_hit=1 B_lost=1] legacy=off)
+case7 sealed PASS (sealed=1 pinned=1 pin_read_A=1)
+semtest cases1-7: PASS (fails=0 setup_incomplete=0)  exit=0
+```
+case8a 的逐项证据（用户指定打印）：
+```
+new_loc=(p=4 gen=0 off=0) wal_file=1068 registry=[present installed=1 bytes=1068]
+                         retiring=1
+old_loc=(p=5 gen=0 off=0) wal_file=1068            read_seq=261 latest=261
+选择层候选链: [1001 hit=1 seq=200] [1001 hit=1 seq=400] [1001 hit=1 seq=600] [4 hit=1 seq=200]
+DB Get 候选链(重取视图后): [1001 hit=0][1000 hit=0][4 hit=1 seq=200] ‖ 第二 attempt 同上
+      rejected=2->4 retry_view=1->3
+```
+⇒ 协议完整走通：胜出代 retiring → 取引用被拒 → 整次读取作废（TryAgain）→ **保持
+read_sequence 重取视图**（第二 attempt 命中同一 retiring 代）→ 仍无法安全完成 ⇒
+**明确报错**（不返回旧值、不 NotFound、不静默降级）。
+
+**3. case8a 验收口径收紧（本轮修正）**：`NotFound` **不合格**（原口径把 `not_old`
+当作通过，会把"静默丢失"放过去）。现要求：新值，或 `!ok && !NotFound` 的明确错误。
+另外 fixture 必须先做真实写入把 `latest` 推过 200（合成条目 seq=100/200 否则会被读序列
+直接过滤掉、落 LSM ⇒ 与协议无关的 NotFound）——本轮已在用例内加入该前置。
+
+**4. 压力组短跑（`ZF_READ_SHORT_RETRY=0`、watchdog=30s、`ZF_VC_PARTITION_TARGET_KB=128`）**
+
+| 组 | 轮数 | failures | silent_stale | notfound | corruption | rotations | ms_avg/ms_max | 结论 |
+|---|---|---|---|---|---|---|---|---|
+| 1 基础跨 Freeze | 50 | 0 | 0 | 0 | 0 | 50 | 10142/10154 | PASS |
+| 2 安装后回收 | 50 | 0 | 0 | 0 | 0 | 50 | 10144/10169 | PASS |
+
+回收侧计数（本轮新增打印）：
+```
+组1: acquire_rejected_retiring=0 deferred_by_reader=0 reclaimed_bytes=0 gens=0
+     断言 retiring=>no_new_ref=0(应0) reclaimed=>installed&&refs==0=0(应0)
+          读引用未释放=0(应0) -> OK
+组2: acquire_rejected_retiring=0 deferred_by_reader=0
+     reclaimed_bytes=348168 reclaimed_gens=28
+     reclaim_due=6 轮 / unlink 完成=6 轮  -> OK
+```
+- 组 1/2 的读都发生在**活跃代**（`pin_active=50`）⇒ 不触发 sealed 代引用/回收路径，
+  三个计数为 0 是**预期**；确定性覆盖由 case5/case8a/8b 承担。
+- `gen_lost_before_install`：组 1 = 0；组 2 首跑 = **5**，已定位为**测试带外删除**
+  （原压力轮用裸 `std::remove` 删 sealed 文件，绕过引用计数协议）⇒ 改为经生产入口
+  `PurgeSealedFiles()` 回收后，重跑 = **0**（同时 `reclaimed_gens=28` 证明引擎确实回收）。
+- 每轮耗时 ~10.1s 的构成：**10s 安装等待期限**（`pending_materialize_bytes != 0`）+
+  ~140ms 工作。⇒ 安装/物化在大部分轮次内**未在 10s 内完成**（与既有 level=-1 融合/排空
+  滞后同源，属**已存在**问题，非本轮引入）；数据仍全部可读（50/50 正确、零 NotFound）。
+
+**5. 新库门禁复验（本轮 build）**
+```
+write : gen_lost_before_install=0 unregistered_fd_fallback=0 l0_install=0 forbid_l0=1
+scan  : mismatch=0 (lost_overwrite=0 unexpected_overwrite=0 other=0) / total=20000
+triage: B1=0 B2=0 B3=0 + ACCEPTANCE PASS(no over-advanced fence on WAL-only data)
+all   : checked=30064 mismatch=0 miss=0 unexpected_found=0 errors=0  VALCHECK PASS
+        (wal_read_delta=21861 sealed_miss_delta=18)
+```
+注：`all` 结束时仍有 `gens=31 pending=43.1MB`（sealed 未安装的保留数据）⇒ 与"安装滞后"
+一致，读路径正确（WAL-only 数据可读）。
+
+**6. 状态**：`case7 通过` / `case5 通过` / `case8a 通过` / `case8b 通过` /
+`压力组1 短跑(50×2) 通过`、`压力组2 短跑(50) 通过`；**完整组 300/500 进行中**
+（300 轮已在后台启动，日志 `/tmp/g1_300.log`）。整单元撤销与提交失败注入、合法路径 A、
+固定路由仍按用户顺序**未开始**。
