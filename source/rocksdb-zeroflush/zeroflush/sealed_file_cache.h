@@ -143,6 +143,21 @@ class SealedFileCache {
   // （索引撤除 / 读视图交接 / 候选发现），而不是猜测。
   std::string DescribeGen(uint32_t part, uint32_t gen) const;
 
+  // step 1ao（用户 2026-09-17）：**generation 读引用**——绑定真实 (physical_part, gen)，
+  // 在选择保护释放前取得、随胜出候选整体转移；回收必须尊重它（不依赖 LRU 偶然持有
+  // 句柄）。活跃代同样要取引用（其数据可能尚在写缓冲，换代后由本引用保证文件不被回收）。
+  // 注意：读引用**不计入 pending 字节**（pending 只由 registry 的 sealed && !installed 定义）。
+  void AcquireGenReadRef(uint32_t part, uint32_t gen);
+  void ReleaseGenReadRef(uint32_t part, uint32_t gen);
+  uint64_t GenReadRefs(uint32_t part, uint32_t gen) const;
+  uint64_t gen_read_ref_total() const {
+    return gen_read_ref_total_.load(std::memory_order_relaxed);
+  }
+  // 因读引用存在而**延迟回收**的次数（应 >0 才能证明"回收不提前"）。
+  uint64_t reclaim_deferred_by_reader() const {
+    return reclaim_deferred_by_reader_.load(std::memory_order_relaxed);
+  }
+
   uint64_t PendingBytesRecomputed() const;
   uint64_t pending_drift_events() const { return pending_drift_events_; }
   // step 1t：epoch 释放时"引用归零但尚未安装"的代——**不得回收**，改为移交
@@ -290,6 +305,10 @@ class SealedFileCache {
   // pending 守恒校验：镜像与重算不一致的次数（应恒为 0）。
   mutable uint64_t pending_drift_events_ = 0;
   std::atomic<uint64_t> gen_release_before_install_{0};
+  // step 1ao：per-gen 读引用（mu_ 保护）+ 统计
+  std::unordered_map<ZfFileKey, uint64_t> gen_read_refs_;
+  std::atomic<uint64_t> gen_read_ref_total_{0};
+  std::atomic<uint64_t> reclaim_deferred_by_reader_{0};
   mutable uint64_t last_recomputed_pending_ = 0;
   uint64_t installed_epochs_ = 0;
   uint64_t reclaimed_gens_ = 0;

@@ -141,6 +141,48 @@ void SealedFileCache::RegisterGen(uint32_t part, uint32_t gen, uint64_t bytes) {
   }
 }
 
+void SealedFileCache::AcquireGenReadRef(uint32_t part, uint32_t gen) {
+  rocksdb::MutexLock l(&mu_);
+  ++gen_read_refs_[MakeFileKey(part, gen)];
+  gen_read_ref_total_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void SealedFileCache::ReleaseGenReadRef(uint32_t part, uint32_t gen) {
+  std::vector<std::string> to_unlink;
+  {
+    rocksdb::MutexLock l(&mu_);
+    auto it = gen_read_refs_.find(MakeFileKey(part, gen));
+    if (it == gen_read_refs_.end() || it->second == 0) {
+      return;
+    }
+    if (--(it->second) == 0) {
+      gen_read_refs_.erase(it);
+      gen_read_ref_total_.fetch_sub(1, std::memory_order_relaxed);
+      // 最后一个读引用释放：若该代已安装（数据在 LSM）且回收开启，则此刻入队 unlink
+      // （即"回收最终完成"）；未安装的由既有的未安装守护拦住。
+      auto git = gens_.find(MakeFileKey(part, gen));
+      if (git != gens_.end() && git->second.installed && reclaim_enabled_) {
+        to_unlink.push_back(FileName(part, gen));
+      }
+    } else {
+      gen_read_ref_total_.fetch_sub(1, std::memory_order_relaxed);
+    }
+  }
+  if (!to_unlink.empty()) {
+    rocksdb::MutexLock l(&mu_);
+    for (auto& name : to_unlink) {
+      pending_unlink_.push_back(std::move(name));
+    }
+  }
+}
+
+uint64_t SealedFileCache::GenReadRefs(uint32_t part, uint32_t gen) const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  auto it = gen_read_refs_.find(MakeFileKey(part, gen));
+  return it == gen_read_refs_.end() ? 0 : it->second;
+}
+
 void SealedFileCache::MarkGensInstalled(
     const std::vector<std::pair<uint32_t, uint32_t>>& gens) {
   rocksdb::MutexLock l(&mu_);
@@ -417,7 +459,11 @@ uint64_t SealedFileCache::ReleaseGens(
           gens_.erase(git2);
         }
       }
-      if (reclaim_enabled_) {
+      // step 1ao：仍有读引用 ⇒ **延迟回收**（不 unlink；登记条目保留到最后一个
+      // 读引用释放为止），并计数以便验收"回收不提前"。
+      if (gen_read_refs_.find(key) != gen_read_refs_.end()) {
+        reclaim_deferred_by_reader_.fetch_add(1, std::memory_order_relaxed);
+      } else if (reclaim_enabled_) {
         to_unlink.push_back(FileName(part, gen));
       }
       // 从 epoch 登记中移除该 gen（Get 校验随之失效——文件已入

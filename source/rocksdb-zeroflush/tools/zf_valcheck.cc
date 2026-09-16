@@ -77,6 +77,15 @@ bool ExpectLatest(uint64_t v, uint64_t half, std::string* out) {
   return true;
 }
 
+// 按**完整属性名**取数（用于 zeroflush 前缀之外的名字，如 gen_read_refs:p:g）。
+uint64_t Prop2(rocksdb::DB* db, const char* full_name) {
+  std::string v;
+  if (!db->GetProperty(full_name, &v)) {
+    return 0;
+  }
+  return strtoull(v.c_str(), nullptr, 10);
+}
+
 uint64_t Prop(rocksdb::DB* db, const char* name) {
   std::string v;
   if (!db->GetProperty(std::string("rocksdb.zeroflush.") + name, &v)) {
@@ -1344,6 +1353,132 @@ int main(int argc, char** argv) {
              pass ? "PASS" : "FAIL", lp, (unsigned long long)sq, (int)t, pb);
       if (!pass) ++fails;
     }
+    // ---- 用例 5（用户 2026-09-17 重写）：**真实回收验收** ----
+    // 选中活跃记录（选择时已取 generation 读引用）→ 暂停 → 换代 + 安装该代
+    // → 调用正常回收：读引用存在 ⇒ 回收被延迟 → 放行读取（值/read_sequence 正确、无错误）
+    // → 释放引用 ⇒ 正常回收最终完成。不做手工 unlink；不以 pending==0 代替；
+    // 直接看安装状态（fence）与引用计数、文件长度、deferred 计数。
+    {
+      const uint64_t v5 = total + 2;
+      const std::string k5 = zf_keygen::KeyFromInt(v5, kKeySize);
+      const std::string want5 = zf_keygen::ValueFor(v5, 1, kValueSize);
+      rocksdb::DBImpl* impl5 = static_cast<rocksdb::DBImpl*>(db.get());
+      std::shared_ptr<zeroflush::ZeroFlushContext> ctx5 =
+          impl5->GetZeroFlushContext();
+      const uint32_t part5 = ctx5->RoutePartId(rocksdb::Slice(k5));
+      db->Put(rocksdb::WriteOptions(), k5, want5);
+      ctx5->wal()->Sync(part5).PermitUncheckedError();
+      const uint32_t gen5 = ctx5->wal()->ActiveGenOpt(part5).value_or(0);
+      const std::string path5 = ctx5->wal()->GenFilePath(part5, gen5);
+      const std::string sentinel5 = dbdir + "/ZF_PAUSE5";
+      std::remove(sentinel5.c_str());
+      setenv("ZF_TEST_PAUSE_AFTER_SELECT", sentinel5.c_str(), 1);
+      std::string got5;
+      rocksdb::Status st5 = rocksdb::Status::OK();
+      const char* src5 = "NONE";
+      std::thread reader5([&]() {
+        st5 = db->Get(rocksdb::ReadOptions(), k5, &got5);
+        src5 = zeroflush::get_trace::SourceName(
+            zeroflush::get_trace::LastSourceTls());
+      });
+      env_sleep_ms(300);  // 等读线程进入"已选择（已取读引用）、未读"窗口
+      char refprop[96];
+      snprintf(refprop, sizeof(refprop), "rocksdb.zeroflush.gen_read_refs:%u:%u",
+               part5, gen5);
+      const uint64_t refs5 = Prop2(db.get(), refprop);
+      // 换代 + 安装该代（写足量数据 + 显式排空）
+      // 定向把 **part5** 写到换代（否则该代不封存、不可安装；随机铺开不保证命中）。
+      {
+        uint64_t w = 0;
+        for (uint64_t round = 0; round < 12; ++round) {
+          if (ctx5->wal()->ActiveGenOpt(part5).value_or(0) != gen5) break;
+          for (int i = 0; i < 400; ++i, ++w) {
+            const uint64_t vv = total + 20000 + w;
+            const std::string wk = zf_keygen::KeyFromInt(vv, kKeySize);
+            db->Put(rocksdb::WriteOptions(), wk,
+                    zf_keygen::ValueFor(vv, 1, kValueSize));
+          }
+          env_sleep_ms(5);
+        }
+      }
+      {
+        rocksdb::DBImpl* bimpl5 = static_cast<rocksdb::DBImpl*>(db.get());
+        uint64_t tries = 0;
+        while (Prop2(db.get(), "rocksdb.zeroflush.pending_materialize_bytes") != 0 &&
+               tries < 20) {
+          bimpl5->ZfDrainNow();
+          db->Flush(rocksdb::FlushOptions());
+          env_sleep_ms(150);
+          ++tries;
+        }
+      }
+      std::string fx5;
+      db->GetProperty("rocksdb.zeroflush.installed_fences", &fx5);
+      uint64_t fence_last5 = 0;
+      bool has_fence5 = false;
+      {
+        size_t pos = 0;
+        while (pos < fx5.size()) {
+          unsigned fp = 0, lo = 0, hi = 0;
+          if (fx5[pos] == 'p' &&
+              sscanf(fx5.c_str() + pos, "p%u=[%u,%u]", &fp, &lo, &hi) == 3) {
+            if (fp == part5) {
+              fence_last5 = hi;
+              has_fence5 = true;  // 必须区分"无条目"与"条目=[0,0]"
+            }
+          }
+          ++pos;
+        }
+      }
+      const bool installed5 = has_fence5 && fence_last5 >= gen5;
+      const uint64_t deferred5 =
+          Prop2(db.get(), "rocksdb.zeroflush.reclaim_deferred_by_reader");
+      uint64_t fsize_during = 0;
+      rocksdb::Env::Default()
+          ->GetFileSize(path5, &fsize_during)
+          .PermitUncheckedError();
+      {
+        FILE* f = fopen(sentinel5.c_str(), "w");
+        if (f != nullptr) fclose(f);
+      }
+      reader5.join();
+      unsetenv("ZF_TEST_PAUSE_AFTER_SELECT");
+      const bool read_ok5 = st5.ok() && got5 == want5;
+      env_sleep_ms(200);
+      uint64_t fsize_after = 0;
+      const rocksdb::Status gs5 =
+          rocksdb::Env::Default()->GetFileSize(path5, &fsize_after);
+      const uint64_t reclaimed5 = Prop2(db.get(), "rocksdb.zeroflush.reclaimed_bytes");
+      const bool keep_wal = getenv("ZF_VC_KEEP_WAL") != nullptr;
+      const bool ref_ok = refs5 > 0;
+      // 回收不提前：读引用存在期间未被回收（deferred 计数或文件仍在，未安装时天然不回收）
+      const bool delayed_ok = deferred5 > 0 || !installed5 || fsize_during > 0;
+      // 不永久推迟：回收开启时最终应消失（或已记入 reclaimed）
+      // 最终回收只在"该代确已安装"时才有意义（未安装的代本就不可回收）。
+      const bool final_reclaim_ok =
+          keep_wal || !installed5 ? true
+                                  : (fsize_after == 0 || !gs5.ok() || reclaimed5 > 0);
+      // **真实回收验收的前提是该代确已安装**；未安装时不能说"回收被延迟/最终回收"，
+      // 只能报 INCOMPLETE（避免"未安装 ⇒ 不适用"被当成通过）。
+      const bool pass5 = installed5 && ref_ok && read_ok5 && delayed_ok &&
+                         final_reclaim_ok;
+      if (!installed5) {
+        ++setup_incomplete;
+      }
+      printf("case5 real-reclaim: %s (refs_during=%llu installed=%d(gen=%u "
+             "fence_last=%llu) deferred_by_reader=%llu file_during=%llu "
+             "file_after=%llu reclaimed=%llu reclaim=%s | read status=%s "
+             "correct=%d src=%s)\n",
+             installed5 ? (pass5 ? "PASS" : "FAIL")
+                        : "INCOMPLETE(该代未安装 ⇒ 回收验收不适用)",
+             (unsigned long long)refs5,
+             installed5 ? 1 : 0, gen5, (unsigned long long)fence_last5,
+             (unsigned long long)deferred5, (unsigned long long)fsize_during,
+             (unsigned long long)fsize_after, (unsigned long long)reclaimed5,
+             keep_wal ? "off" : "on", st5.ok() ? "OK" : st5.ToString().c_str(),
+             read_ok5 ? 1 : 0, src5);
+      if (installed5 && !pass5) ++fails;
+    }
     // ---- 用例 7（用户 2026-09-17 指令：**组件级隔离 fixture**）----
     // 不依赖路由/后台物化/大量写入：直接用 WAL 管理器的 Append 接口在**两个显式
     // physical part** 上写受控记录（返回真实 locator），再把它们插入**各自的索引段**
@@ -1482,6 +1617,13 @@ int main(int argc, char** argv) {
         }
       }
     }
+    printf("semtest per-case: case1/2/3=%s  case5=%s  case6=N/A(前提失效)  "
+           "case7=%s\n",
+           (fails == 0) ? "见上（各自 PASS/FAIL）" : "见上",
+           setup_incomplete > 0 ? "INCOMPLETE(未完成)" : "见上",
+           getenv("ZF_TEST_LEGACY_PIN_SLOT") != nullptr
+               ? "legacy-check 见上"
+               : "见上");
     printf("semtest cases1-7: %s (fails=%d setup_incomplete=%d)\n",
            (fails == 0 && setup_incomplete == 0)
                ? "PASS"

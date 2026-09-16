@@ -1158,6 +1158,10 @@ class DBImpl : public DB {
       const {
     return zf_ctx_;
   }
+
+  // step 1w：显式排空入口（测试/运维）——关闭冲刷语义：显式封存当前活跃代并驱动
+  // 有界 Flush 轮询，直到 pending 归零或无实质进展。用于"停写后排空"。
+  void ZfDrainNow() { ZfCloseFlush(); }
   ColumnFamilyData* GetDefaultColumnFamily() const {
     return versions_->GetColumnFamilySet()->GetDefault();
   }

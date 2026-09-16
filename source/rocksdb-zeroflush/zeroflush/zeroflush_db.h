@@ -283,6 +283,8 @@ class ZeroFlushContext {
     uint32_t gen = 0;
     bool pinned = false;
     bool is_active = false;
+    // step 1ao：本槽是否已为 (part, gen) 取得 generation 读引用（读后释放）。
+    bool read_ref_taken = false;
   };
 
   bool SelectBestIndexRecord(const ROCKSDB_NAMESPACE::Slice& user_key,

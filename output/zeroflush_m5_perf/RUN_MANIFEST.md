@@ -1484,3 +1484,40 @@ case7 legacy-check: PASS（legacy 模式：用例按预期失败 ⇒ 用例有�
 **仍未做**：case5 的真实回收验收（读引用存在时延迟回收 → 读正确 → 释放引用后最终回收；
 需先实现跨 active→sealed 的 generation 读引用，不能靠跳过 unlink）；压力组回归
 （短读重试关闭下分批）；整单元撤销与提交失败注入；`level=-1` 融合进展；合法路径 A；固定路由。
+
+### D-30. step 1ao：generation 读引用（已实现）+ case5 真实回收验收（INCOMPLETE）+ 汇总拆开 — 见提交
+
+**已实现（case5 的机制前提）**
+- `SealedFileCache` 新增 **per-(physical_part, gen) 读引用**：`AcquireGenReadRef/ReleaseGenReadRef/
+  GenReadRefs/gen_read_ref_total/reclaim_deferred_by_reader`；引用**不计入 pending**
+  （pending 仍只由 registry 的 sealed && !installed 定义）。
+- 回收路径尊重读引用：`ReleaseGens` 在引用存在时**不 unlink、保留登记条目**，计
+  `reclaim_deferred_by_reader`；最后一个引用释放时，若该代**已安装且回收开启**，此刻入队 unlink。
+- 引用**在选择保护释放前取得、随胜出候选整体转移**（`ZfPinSlot.read_ref_taken`），
+  **活跃代也取**（活跃代数据可能仍在写缓冲，换代后由该引用保证不被回收）；
+  读完成后（成功或失败）释放。
+- 复跑证据：`refs_during=1`（读取期间确实持有引用）、`read status=OK correct=1`。
+
+**case5（真实回收验收）当前状态：INCOMPLETE**
+```
+case5 real-reclaim: INCOMPLETE(该代未安装 ⇒ 回收验收不适用)
+   refs_during=1 installed=0(gen=0 fence_last=0) deferred_by_reader=0
+   file_during=308652 file_after=308652 reclaimed=0 reclaim=on | read=OK correct=1
+```
+未安装的原因：测试写入（定向 12×400 键）未能把 part5 推到换代（`fence` 无该分区条目）。
+按用户要求**不把"未安装 ⇒ 不适用"显示为通过**：新增前提判定 ⇒ 报 `INCOMPLETE`，
+`setup_incomplete` 计数 +1，`semtest` 返回 **3**、汇总标 `SEMTEST_INCOMPLETE`。
+（同时修掉两处测试逻辑错误：无 fence 条目被当成 `fence_last=0` 误判 installed；
+未安装时不该要求"最终回收"。）
+
+**汇总拆开（用户要求）**
+```
+semtest per-case: case1/2/3=见上（各自 PASS/FAIL）  case5=INCOMPLETE(未完成)
+                  case6=N/A(前提失效)  case7=见上
+semtest cases1-7: SEMTEST_INCOMPLETE (fails=0 setup_incomplete=1)   exit=3
+```
+即 case5（未完成）与 case6（不适用）**不再被总 PASS 掩盖**。
+
+**未做**：让 case5 真正做到"该代安装成功 → 回收延迟 → 读正确 → 释放后最终回收"
+（需要把目标分区确定性推到换代并完成安装）；case7 的 sealed 变体（封存+登记后断言
+`pinned=1` 并经由 pin 读取 A）；压力组回归；整单元撤销与提交失败注入；融合进展；A；固定路由。
