@@ -542,6 +542,25 @@ class PartitionIndexSet {
     // 计数器虚增 ~11B/op → 350M ops 时虚增 4GB 触发 index_mem_budget
     // 背压 → 封存正反馈爆发（R57）。实际内存始终有界（Dump 实测
     // 计数器 800MB vs 实际 109MB）。
+    // step 1ag（B 段）：索引插入时**解码收到的 locator 原始字节**，并与 A 表
+    // （该次 Append 实际返回值）对照：键哈希、seq、(part,gen,offset) 任一不符即
+    // 计 B 不一致。用于判定"索引保存环节是否已发生变化"。
+    if (zeroflush::get_trace::LocatorDiagEnabled() &&
+        locator.size() == sizeof(SlimLocator)) {
+      const SlimLocator* sl = reinterpret_cast<const SlimLocator*>(locator.data());
+      zeroflush::get_trace::AppendSite a;
+      const uint64_t kh =
+          zeroflush::get_trace::KeyHash(ROCKSDB_NAMESPACE::ExtractUserKey(internal_key));
+      const uint64_t packed = ROCKSDB_NAMESPACE::DecodeFixed64(
+          internal_key.data() + internal_key.size() - 8);
+      const uint64_t seq = packed >> 8;
+      const bool found = zeroflush::get_trace::LookupAppendSite(
+          sl->part_id, sl->gen, sl->wal_offset, &a);
+      if (!found || a.key_hash != kh || a.seq != seq) {
+        zeroflush::get_trace::LocatorBMismatch().fetch_add(
+            1, std::memory_order_relaxed);
+      }
+    }
     uint64_t added = 0;
     if (!idx->Insert(internal_key, locator, &added)) {
       return 0;

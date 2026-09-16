@@ -16,6 +16,9 @@
 #pragma once
 
 #include <cstdio>
+#include <string_view>
+#include <mutex>
+#include <unordered_map>
 #include <functional>
 #include <thread>
 #include <atomic>
@@ -174,6 +177,85 @@ inline void NoteReadErrorSite(int site, uint32_t part, uint32_t gen,
   r.parsed_total = parsed_total;
   r.cond = cond;
   r.status = status;
+}
+
+// step 1ag（用户 2026-09-17）：locator 的 A→B→C→D 四段对照。
+//   A = Append 返回的 (part,gen,offset) + key/seq/type（append_id 关联）
+//   B = 索引插入时收到的 locator 原始字节解码结果
+//   C = 索引选择胜出后、调用方保存的 locator 字节解码结果
+//   D = 实际读取使用的 (part,gen,offset) + 原始头字节 + 文件身份
+// 仅诊断（ZF_DBG_LOCATOR=1 时启用），A 表有容量上限。
+struct AppendSite {
+  uint64_t append_id = 0;
+  uint32_t part = 0;
+  uint32_t gen = 0;
+  uint64_t offset = 0;
+  uint64_t seq = 0;
+  int type = 0;
+  uint64_t key_hash = 0;
+};
+
+inline bool LocatorDiagEnabled() {
+  static const bool on = getenv("ZF_DBG_LOCATOR") != nullptr;
+  return on;
+}
+inline std::unordered_map<uint64_t, AppendSite>& AppendSites() {
+  static std::unordered_map<uint64_t, AppendSite> m;
+  return m;
+}
+inline std::mutex& AppendSitesMu() {
+  static std::mutex m;
+  return m;
+}
+inline uint64_t& AppendIdSeq() {
+  static std::atomic<uint64_t> n{0};
+  return *reinterpret_cast<uint64_t*>(&n);  // 占位，下面用 NextAppendId
+}
+inline uint64_t NextAppendId() {
+  static std::atomic<uint64_t> n{0};
+  return n.fetch_add(1) + 1;
+}
+inline uint64_t KeyHash(const ROCKSDB_NAMESPACE::Slice& k) {
+  return static_cast<uint64_t>(std::hash<std::string_view>{}(
+      std::string_view(k.data(), k.size())));
+}
+inline uint64_t LocatorKey(uint32_t part, uint32_t gen, uint64_t off) {
+  return (static_cast<uint64_t>(part) << 48) ^ (static_cast<uint64_t>(gen) << 32) ^
+         off;
+}
+inline void NoteAppendSite(uint32_t part, uint32_t gen, uint64_t offset,
+                           uint64_t seq, int type,
+                           const ROCKSDB_NAMESPACE::Slice& key) {
+  if (!LocatorDiagEnabled()) return;
+  std::lock_guard<std::mutex> l(AppendSitesMu());
+  auto& m = AppendSites();
+  if (m.size() > 400000) return;  // 有界
+  AppendSite a;
+  a.append_id = NextAppendId();
+  a.part = part;
+  a.gen = gen;
+  a.offset = offset;
+  a.seq = seq;
+  a.type = type;
+  a.key_hash = KeyHash(key);
+  m[LocatorKey(part, gen, offset)] = a;
+}
+inline bool LookupAppendSite(uint32_t part, uint32_t gen, uint64_t offset,
+                             AppendSite* out) {
+  std::lock_guard<std::mutex> l(AppendSitesMu());
+  auto it = AppendSites().find(LocatorKey(part, gen, offset));
+  if (it == AppendSites().end()) return false;
+  if (out != nullptr) *out = it->second;
+  return true;
+}
+// B/C 不一致计数（索引插入 / 选择胜出，与 A 表对照）
+inline std::atomic<uint64_t>& LocatorBMismatch() {
+  static std::atomic<uint64_t> n{0};
+  return n;
+}
+inline std::atomic<uint64_t>& LocatorCMismatch() {
+  static std::atomic<uint64_t> n{0};
+  return n;
 }
 
 // 读**实际返回来源**（用户 2026-09-15：A/B 必须按来源统计，不能按新值的

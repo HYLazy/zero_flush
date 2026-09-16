@@ -1651,6 +1651,21 @@ bool ZeroFlushContext::SelectBestIndexRecord(
   if (!have_any) {
     return false;
   }
+  // step 1ag（C 段）：选择胜出后，记录/对照胜出 locator 的解码结果与 A 表。
+  if (zeroflush::get_trace::LocatorDiagEnabled() &&
+      out_phys_part != nullptr && out_gen != nullptr && out_offset != nullptr) {
+    zeroflush::get_trace::AppendSite a;
+    const bool found = zeroflush::get_trace::LookupAppendSite(
+        *out_phys_part, *out_gen, *out_offset, &a);
+    if (found) {
+      const uint64_t kh = zeroflush::get_trace::KeyHash(user_key);
+      if (a.key_hash != kh ||
+          (out_seq != nullptr && a.seq != *out_seq)) {
+        zeroflush::get_trace::LocatorCMismatch().fetch_add(
+            1, std::memory_order_relaxed);
+      }
+    }
+  }
   if (out_logical_part != nullptr) *out_logical_part = best_part;
   if (out_phys_part != nullptr) *out_phys_part = best_phys;
   if (out_gen != nullptr) *out_gen = best_gen;
@@ -2253,6 +2268,27 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
                 gfs.ok() ? "ok" : gfs.ToString().c_str());
         const std::string desc = wal_->DescribePartition(ref.part_id, ref.gen);
         fprintf(stderr, "ZFDBG-readfail state: %s\n", desc.c_str());
+        // ①a step 1ag（D 段）：A 表对照——该 (part,gen,offset) 在 Append 时
+        // 登记的是哪个 key/seq，与当前读取位置的内容是否一致。
+        if (zeroflush::get_trace::LocatorDiagEnabled()) {
+          zeroflush::get_trace::AppendSite a;
+          const bool found = zeroflush::get_trace::LookupAppendSite(
+              ref.part_id, ref.gen, ref.offset, &a);
+          if (found) {
+            fprintf(stderr,
+                    "ZFDBG-loccmp D: part=%u gen=%u off=%llu append_id=%llu "
+                    "append(key_hash=%llu seq=%llu type=%d)\n",
+                    ref.part_id, ref.gen, (unsigned long long)ref.offset,
+                    (unsigned long long)a.append_id,
+                    (unsigned long long)a.key_hash,
+                    (unsigned long long)a.seq, a.type);
+          } else {
+            fprintf(stderr,
+                    "ZFDBG-loccmp D: part=%u gen=%u off=%llu NO_APPEND_RECORD "
+                    "(locator 不来自本进程 Append 出口或超出诊断容量)\n",
+                    ref.part_id, ref.gen, (unsigned long long)ref.offset);
+          }
+        }
         // ① **先打印失败那次底层 Read 的原始证据**（不依赖任何重读）。
         {
           const auto& ev = PartitionedWalManager::LastReadEvidence();
@@ -2290,6 +2326,37 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::ReadValue(
                 rs2.ok() && rest.size() == total - 24
                     ? DecodeZfRecord(rec.data(), total, &h, &k, &v)
                     : rocksdb::Status::Corruption("short read in diag");
+            // D 段补充（用户 2026-09-17）：**原始头字节 hex** + 字段值 +
+            // 与 A 段（Append 时登记）的 seq 对照——直接判定"该 offset 处的
+            // 内容是否还是写入时的那条记录"。
+            {
+              char hex[3 * 24 + 1];
+              for (int i = 0; i < 24 && i < static_cast<int>(hdr.size()); ++i) {
+                snprintf(hex + i * 3, 4, "%02x ", static_cast<unsigned char>(hdr.data()[i]));
+              }
+              uint32_t mg = 0, kl = 0, vl = 0;
+              uint64_t sq = 0;
+              if (hdr.size() >= 24) {
+                std::memcpy(&mg, hdr.data(), 4);
+                std::memcpy(&kl, hdr.data() + 8, 4);
+                std::memcpy(&vl, hdr.data() + 12, 4);
+                const uint64_t packed = 0;  // seq 在偏移 16..24
+                (void)packed;
+                std::memcpy(&sq, hdr.data() + 16, 8);
+              }
+              zeroflush::get_trace::AppendSite ap;
+              const bool has_ap = zeroflush::get_trace::LookupAppendSite(
+                  ref.part_id, ref.gen, ref.offset, &ap);
+              fprintf(stderr,
+                      "ZFDBG-readfail D: rf=%p hex=[%s] magic=0x%08x klen=%u "
+                      "vlen=%u hdr_seq=%llu | A(append): %s seq=%llu "
+                      "key_hash=%llu\n",
+                      static_cast<const void*>(rf.get()), hex, mg, kl, vl,
+                      (unsigned long long)sq,
+                      has_ap ? "found" : "MISSING",
+                      has_ap ? (unsigned long long)ap.seq : 0ULL,
+                      has_ap ? (unsigned long long)ap.key_hash : 0ULL);
+            }
             fprintf(stderr,
                     "ZFDBG-readfail hdr: want=24 got=%zu st=%s | total=%u "
                     "want2=%u got2=%zu st2=%s | decode=%s key=%s seq=%llu\n",

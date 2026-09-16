@@ -1242,3 +1242,44 @@ site 分布: site=15(bad magic)=473  site=1(header 短读)=16  NOT_VISITED=0
 或索引条目在代回收后未清理）；② 读路径对"magic 不符/键不符"的处置（按你之前的协议：
 刷新读视图后回落 LSM，或明确报错，不能静默返回旧值）；③ 之后才是确定性复现、最小修复、
 关闭重试后的 `all` 零错误、整单元撤销断言。
+
+### D-23. step 1ag：locator 的 A→B→C→D 四段对照（结论：locator 与文件内容一致，问题在句柄身份）— 见提交
+
+**实现**（`ZF_DBG_LOCATOR=1` 启用；A 表有界 40 万条，append_id 关联）
+- A：`Append` 出口登记 `(part,gen,offset)+key_hash/seq/type`；
+- B：索引插入时解码收到的 locator 并与 A 对照（键哈希/seq/(part,gen,offset)），计 `LocatorBMismatch`；
+- C：选择胜出后解码胜出 locator 并与 A 对照，计 `LocatorCMismatch`；
+- D：读取现场打印 locator 的 A 表记录 + **原始头 24 字节 hex** + 字段（magic/klen/vlen/seq）+ 句柄指针。
+- 另加：长度合法性约束（site=16 `implausible length`，上界 64MB，避免垃圾长度触发巨额分配）；
+  magic 校验保留（site=15）。
+
+**实测（`all 20000 4`）**
+```
+ZFDBG-readfail D: rf=0x79b9680009d0
+   hex=[55 46 30 31 00 00 01 00 10 00 00 00 00 04 00 00 41 00 00 00 00 00 00 00]
+   magic=0x31304655('ZF01') klen=16 vlen=1024 hdr_seq=65
+   | A(append): found seq=65 key_hash=16449318014064423359        ← **完全一致**
+（其余三例同形：seq 196/68/203 与 A 表逐一相等）
+```
+**因此**：
+- locator 的 `(part,gen,offset)` **确实来自真实 Append（A 命中，且 seq/key_hash 一致）**；
+- 在**同一 offset** 上，用 fd 兜底句柄读到的 24 字节是**合法记录头**（magic/klen/vlen/seq 全对）
+  ⇒ **locator 有效、文件内容正确**；
+- 但**失败的那次读**（errchain 里 `parsed_total` 达 GB 级、site=16/1）解析出的是垃圾
+  ⇒ 两次读**不是同一个文件对象**：D 段打印的句柄指针每例不同（`0x…09d0` / `0x…3760` / …），
+  失败走的是**选择时 pin 下来的句柄**，兜底/诊断走的是**按路径新开的句柄**。
+
+**归属（按你的判定表）**：第 3 行——"**C 正确，D 使用了别的文件或偏移 ⇒ 句柄绑定、换代检查**"。
+即 **pin 下来的句柄在其文件被替换/重建后仍然被使用**（POSIX 下旧 inode 仍可读 ⇒ 读到异内容），
+而不是 locator 错、也不是短读/封存窗口。
+
+**保留与收敛（你第 3 条要求）**
+- magic 校验、长度合法性约束均保留；解码成功后**仍需核对 key/seq/type 与所选索引记录一致**
+  （已具备 A 表可对照，下一步落地到读路径）；
+- `bad_magic` **不**凭 fence 回落 LSM（保持原始错误）。
+
+**下一步（本轮未做）**：① 读路径在解码成功后核对记录身份（key/seq/type 对所选索引条目），
+不一致即判定"句柄与 locator 不匹配"并按明确协议处理（重新解析句柄或报错）；
+② 追**pin 句柄为何失效**——文件被替换/重建的路径（unlink+recreate / 代号复用）与
+`SealedFileCache` LRU 句柄的生命周期；③ 之后才是确定性复现、最小修复、关闭重试后的
+`all` 零错误、整单元撤销断言。

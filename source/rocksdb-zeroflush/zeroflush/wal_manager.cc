@@ -392,6 +392,18 @@ rocksdb::Status PartitionedWalManager::ReadFromSealed(
   }
   uint32_t key_len = 0, val_len = 0;
   DecodeKeyValLen(result.data(), &key_len, &val_len);
+  // step 1ag（用户 2026-09-17）：**长度合法性约束**——溢出或超出合理上界即拒绝，
+  // 避免垃圾长度触发巨额分配（实测出现 parsed_total≈3.4GB 的样本）。
+  constexpr uint32_t kMaxZfRecord = 1u << 26;  // 64MB 上界（远大于任何合法记录）
+  if (key_len > kMaxZfRecord || val_len > kMaxZfRecord ||
+      kZfHeaderSize + static_cast<uint64_t>(key_len) + val_len + 4 >
+          static_cast<uint64_t>(kMaxZfRecord)) {
+    zeroflush::get_trace::NoteReadErrorSite(
+        16 /*ReadFromSealed.bad_len*/, ref.part_id, ref.gen, ref.offset,
+        result.size(), result.size(), 0, 3, "implausible record length");
+    return rocksdb::Status::Corruption(
+        "ZF sealed record: implausible length at locator");
+  }
   uint32_t total = ZfRecordLength(key_len, val_len);
   // step 1af（用户 2026-09-17）：**magic 校验**——若该处不是 ZF 记录头，
   // 说明 locator 指向的字节不是记录起始（陈旧 locator / 句柄身份不符 /
@@ -563,6 +575,10 @@ rocksdb::Status PartitionedWalManager::Append(uint32_t part,
     out->part_id = part;
     out->gen = p->gen;
     out->offset = offset;
+    // step 1ag（A 段）：登记 Append 实际返回的 (part,gen,offset)+key/seq/type，
+    // append_id 关联后续 B/C/D 对照（仅 ZF_DBG_LOCATOR=1）。
+    zeroflush::get_trace::NoteAppendSite(part, p->gen, offset, seq,
+                                         static_cast<int>(type), key);
   }
   return rocksdb::Status::OK();
 }
