@@ -2335,6 +2335,45 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  if (mode == "drainprobe") {
+    // D-38 诊断：不追加用户写，观察"安装点为何不推进"。打印 pending 的身份/归属 +
+    // 空 edit 记账，再调**生产排空入口** ZfDrainNow() 若干次对比前后状态。
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    auto p = [&](const char* k) { return Prop(db.get(), k); };
+    auto show = [&](const char* tag) {
+      std::string pg;
+      db->GetProperty("rocksdb.zeroflush.pending_gens", &pg);
+      printf("%s: pending=%llu drained=%llu registered=%llu installed_epochs=%llu "
+             "empty_edit=%llu barrier=%llu pend_unchanged=%llu lm_before=%llu "
+             "lm_after=%llu fence_no_commit=%llu l0_install=%llu l0_blocked=%llu "
+             "skip=%llu forced_yield=%llu\n",
+             tag, (unsigned long long)p("pending_materialize_bytes"),
+             (unsigned long long)p("drained_materialize_bytes"),
+             (unsigned long long)p("registered_gens"),
+             (unsigned long long)p("installed_epochs"),
+             (unsigned long long)p("empty_edit_count"),
+             (unsigned long long)p("empty_edit_barrier_advance"),
+             (unsigned long long)p("empty_edit_pending_unchanged"),
+             (unsigned long long)p("empty_edit_lm_before"),
+             (unsigned long long)p("empty_edit_lm_after"),
+             (unsigned long long)p("fence_no_committed_output"),
+             (unsigned long long)p("l0_install_count"),
+             (unsigned long long)p("l0_install_blocked"),
+             (unsigned long long)p("skip_count"),
+             (unsigned long long)p("forced_yield_batches"));
+      printf("%s: pending_gens %s\n", tag, pg.c_str());
+    };
+    show("before");
+    const int rounds = threads > 0 ? threads : 3;
+    for (int i = 0; i < rounds; ++i) {
+      impl->ZfDrainNow();
+      char t[32];
+      snprintf(t, sizeof(t), "after_drain_%d", i + 1);
+      show(t);
+    }
+    return 0;
+  }
+
   const rocksdb::Snapshot* snap = nullptr;
   if (do_write) {
     std::vector<std::thread> ts;

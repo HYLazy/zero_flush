@@ -682,6 +682,10 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
   } else if (prop == "rocksdb.zeroflush.reclaim_pending_list") {
     *value = sealed_cache_ != nullptr ? sealed_cache_->DescribeReclaimPending()
                                       : std::string();
+  } else if (prop == "rocksdb.zeroflush.pending_gens") {
+    // D-38 诊断：未安装的已注册代及其归属（回答"pending 为何不为 0"）。
+    *value = sealed_cache_ != nullptr ? sealed_cache_->DescribeUninstalledGens()
+                                      : std::string();
   } else if (prop.starts_with("rocksdb.zeroflush.gen_read_refs:") &&
              sealed_cache_ != nullptr) {
     unsigned p = 0, g = 0;

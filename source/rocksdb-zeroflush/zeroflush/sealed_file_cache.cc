@@ -216,6 +216,50 @@ size_t SealedFileCache::retiring_count() const {
   return retiring_gens_.size();
 }
 
+// D-38 诊断：列出**已注册但未安装**的代及其归属（epoch / recovery / skip），
+// 用于回答"pending 为何不为 0"：哪些 (part,gen) 卡住、字节多少、归谁管。
+std::string SealedFileCache::DescribeUninstalledGens() const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  std::string out;
+  uint64_t bytes = 0;
+  size_t n = 0;
+  for (const auto& [key, info] : gens_) {
+    if (info.installed) {
+      continue;
+    }
+    ++n;
+    bytes += info.bytes;
+    const uint32_t kp = static_cast<uint32_t>(key >> 32);
+    const uint32_t kg = static_cast<uint32_t>(key);
+    std::string owner = "NONE";
+    for (const auto& [ep, se] : epochs_) {
+      for (const auto& [pp, gg] : se.gens) {
+        if (pp == kp && gg == kg) {
+          owner = "epoch=" + std::to_string(ep);
+        }
+      }
+    }
+    if (recovery_gens_.count(key) > 0) {
+      owner += "+recovery";
+    }
+    if (skip_gens_.count(key) > 0) {
+      owner += "+skip";
+    }
+    if (gen_read_refs_.count(key) > 0) {
+      owner += "+readrefs=" + std::to_string(gen_read_refs_.at(key));
+    }
+    out += std::to_string(kp) + ":" + std::to_string(kg) + "(" +
+           std::to_string(info.bytes) + "B," + owner + ") ";
+    if (n >= 24) {
+      out += "...";
+      break;
+    }
+  }
+  return "n=" + std::to_string(n) + " bytes=" + std::to_string(bytes) + " [" +
+         out + "]";
+}
+
 std::string SealedFileCache::DescribeReclaimPending() const {
   rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
   rocksdb::MutexLock l(m);

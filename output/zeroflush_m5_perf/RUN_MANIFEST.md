@@ -1862,3 +1862,33 @@ stress reclaim: acquire_rejected_retiring=0 reclaim_deferred_by_reader=0
 
 **运行信息**：`ZF_READ_SHORT_RETRY=0`、`ZF_VC_PARTITION_TARGET_KB=128`、watchdog=30s、
 独立进程前台后台各一次；无外部终止（exit=0）。500 轮已启动（`/tmp/g1_500.log`）。
+
+### D-40. 安装停滞定位到**层判定**：目标模式禁 L0 + 规划的 L0 输出 ⇒ 空 edit 空转（可复现、逐代可见）
+
+新增诊断：属性 `rocksdb.zeroflush.pending_gens`（未安装代的 part:gen/字节/归属：epoch / recovery /
+skip / 读引用）+ 模式 `zf_valcheck <db> drainprobe <n> [rounds]`（不追加用户写，打印前后状态并调生产
+排空入口 `ZfDrainNow()`）。对 D-38 的现场库（`ledger/ba_drain_010931`，关闭后重开）实测：
+
+```
+before:        pending=38383920 drained=0 registered=20 installed_epochs=0
+               empty_edit=0 l0_install=0 l0_blocked=0 skip=0
+   pending_gens n=20 bytes=38383920 [ 15:212(4195104B,NONE+recovery) 15:209(...recovery)
+                15:208(...) 15:2(386616B) 0:0(1016736B) 13:0 15:211 1:0 14:0 3:0 4:0 7:0 8:0 ... ]
+after_drain_1: pending=38383920 drained=0 empty_edit=1 barrier=1 pend_unchanged=1
+               l0_blocked=**2** skip=1      ← 归属从 recovery 变为 **skip**（攒批等待集合）
+after_drain_2: pending=38383920 drained=0 empty_edit=2 barrier=2 pend_unchanged=2
+               l0_blocked=**4** skip=2
+```
+**判读**：20 个代（38.4MB）全部 `NONE`（无 epoch 归属）+ recovery/skip；每次排空都走到
+"安装输出被判为 L0 ⇒ 目标模式禁装 L0 ⇒ 让位（空 edit）"，并把代推进 **skip 攒批等待集合**，
+`pending/drained` 完全不动。即：
+
+> **目标模式"禁止 L0 安装"与规划出的 L0 输出互锁**：规划认为该分区的输出层是 L0
+> （无 base 层重叠可沉），而安装点禁止 L0 ⇒ 数据只能反复让位、等一个**永远不会出现的
+> L0 重叠**。skip 攒批等待集合的语义是"等 L0 遮蔽解决"，但在禁装 L0 的库里没有解决路径。
+
+这解释了 D-37/D-38 的全部现象（phase1 基线 pending≠0、phase3 无新写入时 drained 恒定、
+压力轮每轮白等满 10s、`all` 结束仍 pending=43.1MB），也解释了读一直正确（数据在 WAL，
+保留契约生效）。**下一步（引擎侧）**：层判定必须与目标模式一致 —— 规划输出层为 L0 时，
+要么按 `merge_into_base_level` 下沉到 base 层，要么让 skip 等待集合有可终结的出口；
+在此之前 `B（安全安装）门禁保持红`。

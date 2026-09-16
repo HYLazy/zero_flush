@@ -180,6 +180,8 @@ class SealedFileCache {
   uint64_t reclaim_pending_count() const;
   // 诊断：pending reclaim 的完整身份列表（"part:gen(inst,en,epoch)"，空格分隔）。
   std::string DescribeReclaimPending() const;
+  // 诊断（D-38）：**未安装**的已注册代及其字节/归属列表——回答"pending 为何不为 0"。
+  std::string DescribeUninstalledGens() const;
   // retiring 集合规模（诊断：清理完成应归零，长期不为零 = 回收被引用卡住）。
   size_t retiring_count() const;
   uint64_t assert_retiring_new_ref() const {
