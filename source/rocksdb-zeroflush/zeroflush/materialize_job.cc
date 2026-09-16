@@ -500,6 +500,17 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
         ctx_->install_direct_base_.fetch_add(1, std::memory_order_relaxed);
       }
     }
+    // step 1y：标注候选集合（必须在搬进 batch 之前填）。
+    o.src_epoch = epoch_;
+    o.covered_gens.clear();
+    for (const auto& [gp, gg] : se_.gens) {
+      const bool skipped =
+          std::find(skipped_gens_.begin(), skipped_gens_.end(),
+                    std::make_pair(gp, gg)) != skipped_gens_.end();
+      if (!skipped) {
+        o.covered_gens.emplace_back(gp, gg);
+      }
+    }
     if (batch_outputs_ != nullptr) {
       batch_outputs_->push_back(o);
     }

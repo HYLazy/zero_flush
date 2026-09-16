@@ -121,6 +121,11 @@ class SealedFileCache {
   // 已移交 ⇒ pending 不变）。
   void MarkEpochInstalled(uint64_t epoch);
 
+  // step 1y（用户 2026-09-16 第 1 步）：按**实际安装成功后的候选集合**逐代标记
+  // installed（幂等）：pending→drained，且仅此一处是"销账"入口。调用方必须在
+  // 版本已发布（输出文件出现在当前 Version）之后调用。
+  void MarkGensInstalled(const std::vector<std::pair<uint32_t, uint32_t>>& gens);
+
   // step FIFO：该 physical_part 仍 pending 的最老 generation
   // （epochs_ ∪ skip_gens_ ∪ recovery_gens_；installed 的不算）。
   // 用途：同分区 FIFO——若最老 pending 代早于本批将安装的最老代，本批不得安装。

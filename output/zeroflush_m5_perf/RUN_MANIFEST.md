@@ -1045,3 +1045,44 @@ covered=4`），其余批次全部在安装点不可安装（`level=-1`）而让
 **下一步（按用户顺序的第 1 项收尾）**：在补丁基础上把"安装点冲突 → 强制融合"打通
 （确认 kMergeBase 在目标模式下的生效条件：overlap 扫描/Compaction 注册/输出定层），
 使 phase3/4/5b 转绿；再进入合法路径 A 的结论与固定路由落地。
+
+### D-18. step 1y（用户 2026-09-16 四步的第 1 步）：提交成功后才认定安装 — 见提交
+
+**只提取"安装时点"这一项**（未整包恢复 D-17 的 15336 行补丁；补丁里 11845 行是 Makefile）。
+改动面：`sealed_file_cache.{h,cc}`（唯一销账入口 `MarkGensInstalled`）、
+`zeroflush_db.{h,cc}`（转发 + `install_gens_withheld` 计数）、
+`materialize_job.{h,cc}`（输出携带**安装候选集合** `covered_gens`/`src_epoch`）、
+`db/flush_job.{h,cc}`（计划集合 + 发布校验）。
+
+**关键点（针对你的三点要求）**
+
+1. **候选集合**：每个输出携带"本次 attempt 该 job 消费的 gens"（= `se_.gens` 去掉 kSkip），
+   在搬进 batch 前填好，安装点据此构造销账集合。
+2. **最终 VersionEdit 与候选的对应**：装配 `edit_` 后记录 `ZfPlannedInstall`
+   （epoch / 候选 gens / 输出文件号+层）。**让位、空 edit、构建失败都在此之前 return
+   ⇒ 集合为空 ⇒ 不可能提前销账**。
+3. **"实际安装成功"不凭返回值判断**：空 edit 也会让 `Run()` 返回 OK。销账前逐文件确认
+   **该输出的文件号出现在当前 Version**（`cfd_->current()->storage_info()` 各层查找），
+   全部出现才 `MarkGensInstalled`（幂等，pending→drained）；任一缺失 → 不销账并计
+   `install_gens_withheld`（相关代保持 pending、可读、不可回收）。
+
+**验证（封存确实发生的负载）**
+```
+ZFDBG-publish epoch=1 committed=16 outs=16 published=1 first_file=9 lvl=1
+write-only pending=13496844 pending_recomputed=13496844 drift_events=0
+write-only gen_lost_before_install=0 / l0_install=0 / forbid_l0=1
+drained=4.2MB（该批次销账）  pending=12.9MB（其余保持 pending，不再"提前归零"）
+scan=0 / triage=0(B1=B2=B3=0)
+```
+即：**排空因此停住**（进展问题，符合预期），而不是靠提前标记 installed 让它归零。
+
+**尚未完成（用户四步的第 2/3/4 步）**
+- 第 2 步：撤销输出时**整个安装单元**撤销（不提交输入删除/输出新增/fence）+ 负例断言
+  "撤销 → 空安装 → 释放 epoch ⇒ 数据仍可读、pending 不减、fence/drained 不推进"。
+  当前的 `ZF_TEST_DROP_OUTPUT` 钩子只丢一个输出（**部分提交**）✗ 需改为整单元撤销。
+- 第 3 步：只追踪一个反复 `level=-1` 的 job（attempt→规划原因→融合输入→输出范围→
+  edit 的 DeleteFile/AddFile→拒绝的文件与原因），首要验证假设"**本次已融合、计划删除的
+  输入文件被当成输出安装的重叠冲突**"。当前 `force_merge` 开关已暂停（本提交未含）。
+- 第 4 步：单 job 跑通后再扩大验收（含安装失败注入 + 完整 baccept + 压力组）。
+- 另记一条观察：`all` 模式在本提交下出现 `mismatch=1953 miss=1518`（数据未落地时经索引/WAL
+  读取的路径），需在 A/排空相关工作中一并定位——不作为已完成项。

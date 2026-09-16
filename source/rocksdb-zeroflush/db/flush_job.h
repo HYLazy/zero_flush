@@ -286,6 +286,19 @@ class FlushJob {
   // 本批次全部 epoch 的定层输出（跨 epoch 共享，定层防同层重叠，§6.2）；
   // 成功后由调用方单次写入 edit_，失败时统一清理。
   std::vector<zeroflush::MaterializeOutput> zf_batch_outputs_;
+
+  // step 1y：本次 attempt 的安装候选与"待校验输出"。装配 edit_ 时填充；
+  // **只有在 LogAndApply 真正发布了版本（输出文件出现在当前 Version）之后**
+  // 才据此销账——空 edit 也可能让 Run() 返回成功，不能凭返回值判断。
+  struct ZfPlannedInstall {
+    uint64_t epoch = 0;
+    size_t outs_total = 0;
+    size_t outs_committed = 0;
+    std::vector<std::pair<uint32_t, uint32_t>> covered;
+    // (file_number, level) —— 安装后逐文件确认出现在当前 Version 中
+    std::vector<std::pair<uint64_t, int>> outputs;
+  };
+  std::vector<ZfPlannedInstall> zf_planned_installs_;
   // M5P1b（多 flush 并行）：本批次的跨批互斥登记 token。登记在
   // ZfMaterializeAllEpochs 计划期（注册产出分区）；**成功路径不在
   // ZfMaterializeAllEpochs 内释放**——安装（TryInstallMemtableFlushResults/

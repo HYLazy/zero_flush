@@ -626,6 +626,16 @@ class ZeroFlushContext {
   uint64_t HandoffInstalledFiltered() const;
   // 安装完成（LogAndApply 之后）——由 flush_job 调用。
   void MarkEpochInstalled(uint64_t epoch);
+  // step 1y：唯一销账入口（见 SealedFileCache::MarkGensInstalled）。
+  void MarkGensInstalled(
+      const std::vector<std::pair<uint32_t, uint32_t>>& gens);
+  // 因"输出未发布/不完整"而拒绝销账的次数（非 0 = 保守拦截，数据保持 pending）。
+  void NoteInstallGensWithheld() const {
+    install_gens_withheld_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t install_gens_withheld() const {
+    return install_gens_withheld_.load(std::memory_order_relaxed);
+  }
 
   // ---- step 0b-3 第二阶段：空 VersionEdit（推进 barrier 而不安装数据）----
   // 契约：不调用 MarkEpochInstalled（gens 已由 HandOffAllGens 移出 epoch），
@@ -1140,6 +1150,7 @@ class ZeroFlushContext {
   mutable std::atomic<uint64_t> gen_handoff_{0};
   mutable std::atomic<uint64_t> ctx_stats_handoff_at_release_{0};
   mutable std::atomic<uint64_t> fence_no_committed_output_{0};
+  mutable std::atomic<uint64_t> install_gens_withheld_{0};
   mutable std::atomic<uint64_t> forced_yield_batches_{0};
   mutable std::atomic<uint64_t> forced_yield_drained_flat_{0};
   mutable std::atomic<uint64_t> forced_yield_pending_flat_{0};

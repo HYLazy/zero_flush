@@ -492,6 +492,13 @@ uint64_t ZeroFlushContext::ReclaimedGens() const {
 size_t ZeroFlushContext::RegisteredGens() const {
   return sealed_cache_ != nullptr ? sealed_cache_->registered_gens() : 0;
 }
+void ZeroFlushContext::MarkGensInstalled(
+    const std::vector<std::pair<uint32_t, uint32_t>>& gens) {
+  if (sealed_cache_ != nullptr) {
+    sealed_cache_->MarkGensInstalled(gens);
+  }
+}
+
 void ZeroFlushContext::MarkEpochInstalled(uint64_t epoch) {
   if (sealed_cache_ != nullptr) {
     sealed_cache_->MarkEpochInstalled(epoch);
@@ -633,6 +640,8 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
                                 : 0);
   } else if (prop == "rocksdb.zeroflush.handoff_at_release") {
     *value = std::to_string(handoff_at_release());
+  } else if (prop == "rocksdb.zeroflush.install_gens_withheld") {
+    *value = std::to_string(install_gens_withheld());
   } else if (prop == "rocksdb.zeroflush.gen_handoff") {
     *value = std::to_string(gen_handoff());
   } else if (prop == "rocksdb.zeroflush.gen_lost_before_install") {

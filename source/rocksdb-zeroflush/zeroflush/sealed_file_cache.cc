@@ -141,6 +141,25 @@ void SealedFileCache::RegisterGen(uint32_t part, uint32_t gen, uint64_t bytes) {
   }
 }
 
+void SealedFileCache::MarkGensInstalled(
+    const std::vector<std::pair<uint32_t, uint32_t>>& gens) {
+  rocksdb::MutexLock l(&mu_);
+  uint64_t freed = 0;
+  for (const auto& [part, gen] : gens) {
+    auto it = gens_.find(MakeFileKey(part, gen));
+    if (it == gens_.end() || it->second.installed) {
+      continue;  // 幂等：未登记或已安装
+    }
+    it->second.installed = true;
+    freed += it->second.bytes;
+  }
+  if (freed > 0) {
+    pending_bytes_.fetch_sub(freed, std::memory_order_relaxed);
+    drained_bytes_ += freed;
+    ++installed_epochs_;
+  }
+}
+
 void SealedFileCache::MarkEpochInstalled(uint64_t epoch) {
   rocksdb::MutexLock l(&mu_);
   auto eit = epochs_.find(epoch);

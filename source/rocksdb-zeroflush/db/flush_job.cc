@@ -396,6 +396,63 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   // 成功路径的 End 从 ZfMaterializeAllEpochs 尾部挪到这里：LogAndApply
   // 中途释放 DB mutex，提前释放会让并发批在过期 base_ 上规划出与
   // 本批输出重叠的替换（BulkLoadZeroL0 实测 L1 重叠）。
+  // ---- step 1y：**唯一销账点**（用户 2026-09-16 第 1 步）----
+  // 判据不是 Run() 的返回值（空 edit 也会成功），而是"本次候选的输出文件
+  // **真的出现在当前 Version**"。全部出现 ⇒ 版本已发布 ⇒ 幂等销账；
+  // 任一缺失（撤销/未提交/不可安装）⇒ 整个 job 的安装单元视为撤销：
+  // 不销账（相关代保持 pending、可读、不可回收），并计 install_gens_withheld。
+  if (zf_mode_ && s.ok() && !zf_planned_installs_.empty()) {
+    const auto& zc = cfd_->GetZfCtx();
+    auto* vstorage = cfd_->current() != nullptr
+                         ? cfd_->current()->storage_info()
+                         : nullptr;
+    for (const auto& pi : zf_planned_installs_) {
+      bool published = (pi.outputs.size() == pi.outs_committed) &&
+                       !pi.outputs.empty();
+      if (published && vstorage != nullptr) {
+        for (const auto& [num, lvl] : pi.outputs) {
+          bool found = false;
+          for (int l = 0; l <= lvl && l < vstorage->num_levels() && !found;
+               ++l) {
+            for (auto* f : vstorage->LevelFiles(l)) {
+              if (f->fd.GetNumber() == num) {
+                found = true;
+                break;
+              }
+            }
+          }
+          if (!found) {
+            published = false;
+            break;
+          }
+        }
+      } else {
+        published = false;
+      }
+      if (getenv("ZF_DBG_PUBLISH") != nullptr) {
+        fprintf(stderr,
+                "ZFDBG-publish epoch=%llu committed=%zu outs=%zu published=%d "
+                "first_file=%llu lvl=%d\n",
+                (unsigned long long)pi.epoch, pi.outs_committed, pi.outputs.size(),
+                published ? 1 : 0,
+                pi.outputs.empty() ? 0ULL : pi.outputs[0].first,
+                pi.outputs.empty() ? -1 : pi.outputs[0].second);
+      }
+      if (published && zc != nullptr) {
+        zc->MarkGensInstalled(pi.covered);
+      } else if (zc != nullptr) {
+        zc->NoteInstallGensWithheld();
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "[%s] [JOB %d] ZeroFlush install-not-published: "
+                       "%zu/%zu outputs, %zu gens stay pending (readable, "
+                       "not reclaimable)",
+                       cfd_->GetName().c_str(), job_context_->job_id,
+                       pi.outputs.size(), pi.outs_committed,
+                       pi.covered.size());
+      }
+    }
+  }
+  zf_planned_installs_.clear();  // 无论成败都清（失败/让位不得留待销账）
   if (getenv("ZF_DBG_MM") != nullptr) {
     fprintf(stderr, "ZFDBG-mm-installed job=%d ok=%d\n",
             job_context_->job_id, s.ok() ? 1 : 0);
@@ -1634,7 +1691,10 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     // 并计入 drained_materialize_bytes。不能用 imm 析构作安装点（依赖
     // SuperVersion 换代，关闭前可能永不发生）；已移交的 gens 不在本 epoch
     // 名下，故空 VersionEdit 批次天然不减少 pending。
-    zf_ctx->MarkEpochInstalled(job->epoch());
+    // 注意（step 1y）：**销账不在此处**。这里是"构建 edit_"，让位/空 edit/
+    // LogAndApply 失败都在其后；早期在此调用 MarkEpochInstalled 会造成
+    // "fence 保守不推进、账目与回收资格却已认定安装完成"（提前销账）。
+    // 销账改到 Run() 中"确认版本已发布"之后（见下方 zf_planned_installs_ 消费）。
   }
   // 收尾（持锁）：删除批内被替换输出的物理文件；kSkip 分区的封存 WAL
   // 移交 recovery 集合（必须在 imm 出链/ReleaseEpoch 之前完成——否则
@@ -2128,6 +2188,34 @@ Status FlushJob::ZfMaterializeAllEpochs() {
                   (unsigned long long)job->epoch(), fr.part, fr.first_gen,
                   fr.last_gen, (unsigned long long)fr.consumed_records,
                   (unsigned long long)fr.consumed_bytes);
+        }
+      }
+    }
+  }
+  // step 1y：记录本次 attempt 的安装候选 + 待校验输出（此时 edit_ 已装配，
+  // 但**尚未提交**；让位/失败路径在此之前 return ⇒ 集合为空 ⇒ 不会提前销账）。
+  {
+    zf_planned_installs_.clear();
+    for (const auto& o : zf_batch_outputs_) {
+      auto it = std::find_if(
+          zf_planned_installs_.begin(), zf_planned_installs_.end(),
+          [&](const ZfPlannedInstall& p) { return p.epoch == o.src_epoch; });
+      if (it == zf_planned_installs_.end()) {
+        ZfPlannedInstall p;
+        p.epoch = o.src_epoch;
+        zf_planned_installs_.push_back(std::move(p));
+        it = std::prev(zf_planned_installs_.end());
+      }
+      ++it->outs_total;
+      if (!o.superseded &&
+          o.level != zeroflush::ZfMaterializeJob::kCannotInstall) {
+        ++it->outs_committed;
+        it->outputs.emplace_back(o.meta.fd.GetNumber(), o.level);
+      }
+      for (const auto& g : o.covered_gens) {
+        if (std::find(it->covered.begin(), it->covered.end(), g) ==
+            it->covered.end()) {
+          it->covered.push_back(g);
         }
       }
     }

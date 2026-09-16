@@ -84,6 +84,11 @@ struct MaterializeOutput {
   // 批内链式替换：本输出已被同批次后序融合输出替代（不安装其文件，
   // 物理文件由替换者 Run() 返回前删除；M3.3 §7.4 批次内多 epoch 互斥）。
   bool superseded = false;
+  // step 1y：本次 attempt 的**安装候选集合**——该输出所属 job 消费的 gens
+  // （= se_.gens 去掉 kSkip）。安装点用它构造"实际安装成功后的候选集合"，
+  // 并据此销账（installed / pending→drained）。
+  std::vector<std::pair<uint32_t, uint32_t>> covered_gens;
+  uint64_t src_epoch = 0;  // 产出该输出的 attempt（epoch）
   // M5（zeroflush0.98）：本融合输出 B 侧吸收的批内前序输出文件号
   // （PartitionPlan::batch_meta_copies——last_batch 链）。吸收 = 前序
   // 数据包含在本输出中 → 前序（含 kDirect）可被安全 superseded（R23
