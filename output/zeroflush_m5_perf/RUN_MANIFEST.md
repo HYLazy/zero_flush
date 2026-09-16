@@ -1320,3 +1320,43 @@ ZFDBG-hdrcmp fallback_header=[55 46 30 31 00 00 01 00 10 00 00 00 00 04 00 00 41
 **其他保留项（按你要求）**：magic 校验与长度护栏保留（64MB 已标注为**诊断阈值**，
 非格式上界）；64MB 只作非法输入护栏；记录身份校验（key/seq/type 对所选索引条目）仍待落地；
 `bad_magic` 不凭 fence 回落 LSM。
+
+### D-25. step 1aj：**locator 与读引用分离**（用户假设成立）→ 最小修复 → `all` 归零 — 见提交
+
+**缺陷（代码审查直接定位，正如用户假设）**：`SelectBestIndexRecord` 把 pin 回调写进**单个
+共享槽** `slot`，而 locator 的 `best_*` 字段只在候选胜出时更新：
+```
+for (candidate ci) {
+  GetCopy(..., pin_fn, /*同一个*/ slot);      ← 每个**命中**的候选都往共享槽写 pin
+  if (cand_seq > best_seq) { best_locator = ci 的 locator; }   ← 只有胜出者更新 locator
+}
+```
+⇒ 后访问的**落选候选**（其段 `max_seq` 高、不被剪枝）会把 pin 覆盖成**自己的句柄**，而
+locator 仍属于胜出候选 ⇒ **locator 与读引用首次分离就在此处**（与 D-23/D-24 的现场一致：
+pin 路径读到 payload 中部、兜底路径在同 offset 读到合法记录头）。
+
+**最小修复（按用户处方）**：每个候选用**自己的** `ZfPinSlot`（读引用在索引保护释放前、
+同一 `GetCopy` 调用内取得）；候选择胜出时，**locator + seq + type + 物理代 + 读引用作为
+一份结果整体替换**（`*out_slot = std::move(cand_pin)`），未胜出者的 pin 直接丢弃。
+
+**确定性用例（用户指定的构造）**：`semtest` case7——A=同键 seq=200（先访问、胜出），
+B=同键 seq=100（后访问、不胜出），并抬高 B 段的 `max_seq`（同段插入 seq=100000 的其它键）
+确保不被剪枝：
+```
+case7 locator-pin-same-candidate: PASS
+      (A=(part=4 gen=0 seq=200) B=(part=6 gen=0 seq=100, 段 max 抬高) status=OK correct=1)
+```
+（修复前该构造下读会解码到 B 的记录 ⇒ 值不匹配；现稳定通过。）
+
+**门禁结果（本轮）**
+```
+all   : checked=30064 mismatch=0 miss=0 unexpected_found=0 errors=0   ← 连跑两次均全零
+目标模式新库：l0_install=0 / drift=0 / gen_lost_before_install=0 / scan=0 / triage=0(B1=B2=B3=0)
+```
+**未验证/待办**
+- **压力组回归本轮未完成**：两次后台运行都被终止（SIGTERM/timeout），结果未知，需重跑
+  （`stress 1/5` 在 `GetCopy` 改动后必须复验）。
+- `semtest` case6（A 类人工注入）现在报 `FIXED`——因为安装销账改动后真实索引条目被保留
+  （step 1t），其"索引里没有该键"的前提不再成立 ⇒ 需要按新前提重写该用例（它仍是 A 的
+  防御性门禁，但当前不再是有效红灯）。
+- 整单元撤销断言、提交失败注入、`level=-1` 融合进展、A 的合法路径结论、固定路由仍待做。

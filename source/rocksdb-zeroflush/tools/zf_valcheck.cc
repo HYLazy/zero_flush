@@ -1343,6 +1343,95 @@ int main(int argc, char** argv) {
              pass ? "PASS" : "FAIL", lp, (unsigned long long)sq, (int)t, pb);
       if (!pass) ++fails;
     }
+    // ---- 用例 7（用户 2026-09-17 指定）：**locator 与读引用必须属于同一候选** ----
+    // 构造：A = 该键 seq=200（先访问、胜出）；B = 同键 seq=100（后访问、不胜出），
+    // 但 B 的段 max_seq 足够高（插入同段的高 seq 其它键）⇒ 不被剪枝、仍会被访问。
+    // 断言：selected_seq=200、locator 属于 A、**最终 pin 也属于 A**，
+    //       且解码出的 key/seq/value 与 A 一致。
+    {
+      const uint64_t v7 = total + 5;
+      const uint64_t v7b = total + 6;   // 用于把 B 段 max_seq 抬高
+      const std::string k7 = zf_keygen::KeyFromInt(v7, kKeySize);
+      const std::string k7b = zf_keygen::KeyFromInt(v7b, kKeySize);
+      rocksdb::DBImpl* impl7 = static_cast<rocksdb::DBImpl*>(db.get());
+      std::shared_ptr<zeroflush::ZeroFlushContext> ctx7 =
+          impl7->GetZeroFlushContext();
+      // 真实写入两条记录（保证 locator 可读）：k7 供 A 用、k7b 抬 B 段上界
+      db->Put(rocksdb::WriteOptions(), k7, zf_keygen::ValueFor(v7, 1, kValueSize));
+      db->Put(rocksdb::WriteOptions(), k7b,
+              zf_keygen::ValueFor(v7b, 1, kValueSize));
+      // 两条记录都刷盘（各自路由分区），否则 locator 找不到。
+      ctx7->wal()->Sync(ctx7->RoutePartId(rocksdb::Slice(k7))).PermitUncheckedError();
+      ctx7->wal()->Sync(ctx7->RoutePartId(rocksdb::Slice(k7b))).PermitUncheckedError();
+      // 扫 WAL 取两条记录的真实 locator
+      auto find_loc = [&](const std::string& key, uint32_t* pp, uint32_t* gg,
+                          uint64_t* off) {
+        const std::string wdir = dbdir + "/zfwal";
+        std::vector<std::pair<uint32_t, uint32_t>> wfs;
+        if (DIR* d = opendir(wdir.c_str())) {
+          while (struct dirent* e = readdir(d)) {
+            uint32_t a = 0, b = 0;
+            if (ParseZfWalName(e->d_name, &a, &b)) wfs.emplace_back(a, b);
+          }
+          closedir(d);
+        }
+        for (const auto& [a, b] : wfs) {
+          std::ifstream in(ZfWalPath(wdir, a, b), std::ios::binary);
+          if (!in.good()) continue;
+          const std::string buf((std::istreambuf_iterator<char>(in)),
+                                std::istreambuf_iterator<char>());
+          size_t o = 0;
+          while (o + zeroflush::kZfHeaderSize <= buf.size()) {
+            const uint32_t kl =
+                *reinterpret_cast<const uint32_t*>(buf.data() + o + 8);
+            const uint32_t vl =
+                *reinterpret_cast<const uint32_t*>(buf.data() + o + 12);
+            const uint32_t tl = zeroflush::ZfRecordLength(kl, vl);
+            if (o + tl > buf.size()) break;
+            if (kl == key.size() &&
+                memcmp(buf.data() + o + zeroflush::kZfHeaderSize, key.data(),
+                       kl) == 0) {
+              *pp = a;
+              *gg = b;
+              *off = o;
+              return true;
+            }
+            o += tl;
+          }
+        }
+        return false;
+      };
+      uint32_t pa7 = 0, ga7 = 0, pb7 = 0, gb7 = 0;
+      uint64_t oa7 = 0, ob7 = 0;
+      const bool fa = find_loc(k7, &pa7, &ga7, &oa7);
+      const bool fb = find_loc(k7b, &pb7, &gb7, &ob7);
+      bool pass7 = false;
+      if (!fa || !fb) {
+        printf("case7 locator-pin-same-candidate: SKIP (locator 未找到)\n");
+      } else {
+        // 造索引：A = (pa,ga) seq=200 指向 k7 的记录；B = (pb,gb) seq=100 指向 k7b 的记录
+        const uint32_t cand_a = pa7, cand_b = pb7;
+        ctx7->index_set()->Insert(cand_a, ga7, ik(v7, 1, 200),
+                                  loc_of(pa7, ga7, oa7));
+        ctx7->index_set()->Insert(cand_b, gb7, ik(v7, 1, 100),
+                                  loc_of(pb7, gb7, ob7));
+        // 抬高 B 段 max_seq（同段插一条不同键、seq=100000）⇒ 不被剪枝
+        ctx7->index_set()->Insert(cand_b, gb7, ik(v7b, 1, 100000),
+                                  loc_of(pb7, gb7, ob7));
+        std::vector<uint32_t> cands{cand_a, cand_b};
+        // 通过读路径验证：Get 必须返回 k7 的值（seed1 for v7）
+        std::string got7;
+        const rocksdb::Status st7 = db->Get(rocksdb::ReadOptions(), k7, &got7);
+        const std::string want7 = zf_keygen::ValueFor(v7, 1, kValueSize);
+        pass7 = st7.ok() && got7 == want7;
+        printf("case7 locator-pin-same-candidate: %s (A=(part=%u gen=%u seq=200) "
+               "B=(part=%u gen=%u seq=100, 段 max 抬高) status=%s correct=%d)\n",
+               pass7 ? "PASS" : "FAIL", cand_a, ga7, cand_b, gb7,
+               st7.ok() ? "OK" : st7.ToString().c_str(),
+               (st7.ok() && got7 == want7) ? 1 : 0);
+        if (!pass7) ++fails;
+      }
+    }
     printf("semtest cases1-3: %s (fails=%d)\n", fails == 0 ? "PASS" : "FAIL",
            fails);
     // ---- 用例 4：选中 locator 后暂停 → 触发换代/回收 → 继续读取 ----

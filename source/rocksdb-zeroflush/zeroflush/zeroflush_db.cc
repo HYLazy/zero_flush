@@ -1624,15 +1624,29 @@ bool ZeroFlushContext::SelectBestIndexRecord(
   ROCKSDB_NAMESPACE::SequenceNumber best_seq = 0;
   uint32_t best_part = 0, best_phys = 0, best_gen = 0;
   uint64_t best_off = 0;
-  auto* slot = static_cast<ZfPinSlot*>(pin_slot);
+  // step 1aj（用户 2026-09-17，已证实的缺陷）：**locator 与读引用必须作为一份
+  // 候选结果整体保存，只在候选胜出时整体替换**。
+  // 旧实现把 pin 回调写进**单个共享槽**：每个命中的候选都会更新它，而 locator
+  // 只在胜出时更新 ⇒ 后访问的落选候选（其段 max_seq 高、不被剪枝）会把 pin
+  // 覆盖成自己的句柄，而 locator 仍属于胜出候选 ⇒ **locator 与读引用分离**
+  // （实测：pin 路径读到 payload 中部，兜底路径在同 offset 读到合法记录头）。
+  auto* out_slot = static_cast<ZfPinSlot*>(pin_slot);
+  if (out_slot != nullptr) {
+    *out_slot = ZfPinSlot();
+    out_slot->ctx = this;
+  }
   for (size_t ci = 0; ci < cands.size(); ++ci) {
     if (have_any && cands[ci].upper <= best_seq) break;  // 可靠剪枝
     std::string cand_loc;
     ROCKSDB_NAMESPACE::ValueType cand_type = ROCKSDB_NAMESPACE::kTypeValue;
     ROCKSDB_NAMESPACE::SequenceNumber cand_seq = 0;
+    // 每个候选用**自己的** pin 槽：读引用在索引保护释放前取得（同一 GetCopy 调用内）。
+    ZfPinSlot cand_pin;
+    cand_pin.ctx = this;
     if (index_set_->GetCopy(cands[ci].part, user_key, snapshot, &cand_loc,
                             &cand_type, &cand_seq,
-                            slot != nullptr ? &ZfPinThunk : nullptr, slot)) {
+                            out_slot != nullptr ? &ZfPinThunk : nullptr,
+                            &cand_pin)) {
       if (!have_any || cand_seq > best_seq) {
         have_any = true;
         best_type = cand_type;
@@ -1644,6 +1658,10 @@ bool ZeroFlushContext::SelectBestIndexRecord(
           best_phys = sl->part_id;
           best_gen = sl->gen;
           best_off = sl->wal_offset;
+        }
+        if (out_slot != nullptr) {
+          *out_slot = std::move(cand_pin);  // 胜出候选：locator + 读引用整体替换
+          out_slot->ctx = this;
         }
       }
     }
