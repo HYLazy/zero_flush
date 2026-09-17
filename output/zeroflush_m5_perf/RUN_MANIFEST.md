@@ -2846,3 +2846,39 @@ installtest scen 2 / 4      : PASS
 规划/安装，但不依赖 imm）；② 或让空尾封存也产生可规划任务（例如强制非空 flush 或显式
 投递）。要求：走正常 overlap/compaction 注册与安装；冲突时退回可重试集合并退避；
 不改变 pending/installed/drained/fence。完成后再跑两个用例 + 全生命周期写放大。
+
+## 实验分支 A10：**收养的 skip 代已真正提交安装**（case 2 达成核心交付）
+
+### D-89. 最小完整改动（三处）
+
+1. **强制为空尾产生真实批次**：新增 `DBImpl::ZfDrainForceFlushEmptyEpoch()`——置
+   `zf_force_flush_empty_` 后调 `FlushMemTable`，越过两处"空 memtable 不排批次"的门槛
+   （只封存 + 让 flush 批次按**既有**规划/冲突检查/提交安装流程处理该 epoch 的 gens）。
+   教训：**不能**在封存后再 `SwitchMemtable`（会多出一个没有 epoch 的 imm ⇒ ZF flush 报
+   `immutable memtable without epoch in zf flush`，实测）。
+2. **收养语义修正（不造合成 epoch）**：此前把 gens 从 skip 集合"偷"进自建 epoch ⇒ 正常封存的
+   采纳机制看不到它们、自建 epoch 又没有批次可调度 ⇒ **永久 pending**（实测 `epoch=3`）。
+   现在 `AdoptSkippedGensForDrainLocked()` 只做两件事：① 找出"已采纳进 epoch 但 gens 仍未
+   安装"的**卡住 epoch**，把其 gens 归属**退回**可采纳集合（`RequeueStuckEpochsForDrain`，
+   满足"每个已收养未安装 epoch 必须有明确重试条件"）；② 报告是否还有待采纳 gens ⇒ 调用方
+   随即强制封存，由 `AddEpochWithRecoveryAdoption` 原子采纳进**真实 epoch**。
+3. 只绕过"收益不足"的等待，安全冲突检查照常（避让/退避不变）。
+
+### D-90. case 2（持续冲突→解除）实测：**真实提交成功**
+```
+前置:        观察到 skip 归属=1  pending=6408000  drained=0
+注入期 30s:   读 bad=0/6000（可读）| drained 变化=0（该批不销账）| 收养尝试=75（有界）
+解除冲突后:   **pending 6408000 → 0，drained 0 → 6408000**（无新写入、无手工排空、不关闭）
+终态:        pending_gens=n=0（已安装）、读 6000/6000 正确、单任务归属一致=1
+```
+⇒ 用户本轮要求的**"停写后的 skip 代真正提交安装"**已达成 ✓（drainwork 日志：
+`flush-empty-epoch status=OK pending=0 drained=6408000`）。
+
+**仍差的两点（下一轮）**
+- **最终回收未在窗口内发生**：`registered=5`、`reclaimed=0`（120s 窗口）——安装已完成，
+  但 unlink/PurgePending 未被触发（或触发更晚）。需查该路径下 purge 的触发条件（是等下一次
+  flush/compaction 完成，还是需要排空路径显式调用生产回收入口）。
+- **case 1 本轮挂住（exit=124）**：两轮封存 + 强制排空的组合下耗时超过 400s；日志停在
+  第二轮封存后的等待。怀疑 `fo.wait=true` 的强制 flush 在排空任务线程上等待自身（或与
+  drain 的批次互斥）——需用 `ZF_DBG_DRAINWORK`/ZFTD 阶段日志定位，并考虑 `wait=false` +
+  由排空循环轮询。

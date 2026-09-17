@@ -3409,9 +3409,9 @@ int main(int argc, char** argv) {
       for (int t = 0; t < 40 && p("pending_materialize_bytes") != 0; ++t) {
         env_sleep_ms(50);
       }
-      // 第二轮**小批量**（约为 base 的 1/12）⇒ 每分区 ratio ≈ 0.08 < 0.25
-      // ⇒ 触发 skip 攒批（本用例的前置状态）。
-      for (int i = 0; i < n / 8; ++i) {
+      // 第二轮**极小批量**（约为 base 的 1/64）⇒ 每分区 ratio ≪ 0.25
+      // ⇒ 规划点按"收益不足"进入 skip（本用例的前置状态，用 skip_merge_benefit 计数断言）。
+      for (int i = 0; i < n / 64; ++i) {
         const uint64_t kk = static_cast<uint64_t>(i) * 19 + 7;
         const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
         db->Put(rocksdb::WriteOptions(), k, zf_keygen::ValueFor(kk, 1, kValueSize));
@@ -3437,7 +3437,9 @@ int main(int argc, char** argv) {
            cse, saw_skip ? 1 : 0, (unsigned long long)pend0,
            (unsigned long long)dr0, sp("rocksdb.zeroflush.adopt_stats").c_str());
     if (!saw_skip) {
-      printf("skipdrain case=%d: SETUP_INVALID (未观察到 skip 归属)\n", cse);
+      printf("skipdrain case=%d: SETUP_INVALID (未观察到 skip 归属；"
+             "收益不足判据 skip_merge_benefit=%llu)\n",
+             cse, (unsigned long long)p("skip_merge_benefit"));
       return 3;
     }
     // ---- 等待阶段：**不新写、不 Flush/DrainNow、不关闭** ----
@@ -3476,12 +3478,13 @@ int main(int argc, char** argv) {
     if (cse == 2) {
       unsetenv("ZF_TEST_FORCE_INSTALL_CONFLICT");  // 解除冲突（唯一的外部“操作”）
     }
-    // 解除后等待自行排空（仍不新写、不手工排空、不关闭）
+    // 解除后等待自行排空 + **最终回收**（仍不新写、不手工排空、不关闭）
     const uint64_t t1 = rocksdb::Env::Default()->NowMicros();
+    const uint64_t recl0b = p("reclaimed_bytes");
     while (rocksdb::Env::Default()->NowMicros() - t1 < 90ull * 1000 * 1000) {
       env_sleep_ms(200);
       pend = p("pending_materialize_bytes");
-      if (pend == 0) break;
+      if (pend == 0 && p("reclaimed_bytes") > recl0b) break;
     }
     const std::string pg_end = sp("rocksdb.zeroflush.pending_gens");
     const uint64_t reg_end = p("registered_gens");

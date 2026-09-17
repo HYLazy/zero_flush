@@ -291,6 +291,15 @@ class SealedFileCache {
   void RestoreSkippedGens(
       const std::vector<std::pair<uint32_t, uint32_t>>& gens,
       const std::unordered_map<uint32_t, uint64_t>& part_bytes);
+  // step V0.6-A10（用户不变量："每个已收养、未安装 epoch 必须处于 待执行/执行中/
+  // 有明确重试条件"）：把**已登记但无任务推进**的 epoch 的 gens 退回可采纳集合
+  // （skip 集合）⇒ 下一次封存按既有机制采纳它们（不留下孤儿 epoch）。
+  // 返回退出的 gens 数。
+  size_t RequeueStuckEpochsForDrain(const std::vector<uint64_t>& stuck_epochs);
+  // 遍历已登记 epoch 及其 gens（排空时查找"已采纳但未安装"的 epoch）。
+  void ForEachEpoch(
+      const std::function<void(
+          uint64_t, const std::vector<std::pair<uint32_t, uint32_t>>&)>& fn) const;
   // 诊断：收养/退回的一致性计数（同一代不得同时属于两个在飞任务）。
   uint64_t adopt_gen_not_in_skip() const {
     return adopt_gen_not_in_skip_.load(std::memory_order_relaxed);

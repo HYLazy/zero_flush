@@ -482,30 +482,45 @@ uint64_t ZeroFlushContext::ReleaseEpoch(uint64_t epoch) {
   return 0;
 }
 
-// step V0.6-A9：**skip 代的合法排空出口**——一次完整的所有权交接。
+// step V0.6-A10（用户口径修正）：skip 代的排空出口**不造合成 epoch**。
+// 此前把 gens 从 skip 集合"偷"进一个自建 epoch ⇒ 正常封存的采纳机制再也看不到它们，
+// 而自建 epoch 没有 imm/批次可调度 ⇒ **卡死**（实测：epoch=3 永久 pending）。
+// 现在：① 若存在"已登记但无人推进"的 epoch（其 gens 未安装），把它们的归属**退回**
+// 可采纳集合（skip）；② 返回是否还有待采纳的 gens ⇒ 调用方（排空任务）随即**强制封存**
+// （ZfDrainForceFlushEmptyEpoch），由既有 `AddEpochWithRecoveryAdoption` 原子采纳进
+// **真实 epoch**，再走正常规划/冲突检查/提交安装。
+// 不变量：本函数只动归属集合，**不改变 pending / installed / drained / fence**。
 int ZeroFlushContext::AdoptSkippedGensForDrainLocked() {
   if (sealed_cache_ == nullptr) return 1;
   adopt_calls_.fetch_add(1, std::memory_order_relaxed);
-  std::unordered_map<uint32_t, uint64_t> part_bytes;
-  std::vector<std::pair<uint32_t, uint32_t>> gens =
-      sealed_cache_->TakeSkippedGensForDrain(&part_bytes);  // 锁内原子取走
-  if (gens.empty()) return 1;                              // 无 skip 代可收养
-  // 索引/生命周期依赖：这些 gen 的 frozen 索引本就保留（未安装代不撤段），
-  // 记录读引用由物化扫描按既有协议自行持有 ⇒ 此处不改索引。
-  SealedEpoch se;
-  se.epoch = epoch_counter_.fetch_add(1) + 1;  // 真实可规划的 drain work item
-  se.table_version = tables_ != nullptr ? tables_->current_version() : 0;
-  se.gens = gens;
-  se.part_bytes = part_bytes;
-  for (const auto& [p, b] : part_bytes) se.total_bytes += b;
-  se.has_adopted_skips = true;  // seq 连续（未崩溃）⇒ 可正常融合
-  // 原子完成归属转移：注册进 epoch（物化 planner 的输入）。
-  RegisterSealedEpoch(se);
-  if (sealed_cache_->GenRegistered(se.gens[0].first, se.gens[0].second) == false &&
-      false) {
-    // 防御（当前 RegisterSealedEpoch 恒成功）：退回归属并保留积压年龄。
+  // ① 找回"卡住的 epoch"（已采纳进 epoch 但 gens 仍未安装）：退回可采纳集合，
+  //    让下一次封存重新采纳它们（满足"每个已收养未安装 epoch 必须有明确重试条件"）。
+  std::vector<uint64_t> stuck;
+  if (sealed_cache_ != nullptr) {
+    sealed_cache_->ForEachEpoch([&](uint64_t ep,
+                                    const std::vector<std::pair<uint32_t, uint32_t>>& gens) {
+      for (const auto& [p, g] : gens) {
+        if (!sealed_cache_->GenInstalledPublished(p, g) && !IsGenInstalled(p, g)) {
+          stuck.push_back(ep);
+          return;
+        }
+      }
+    });
   }
-  return 0;
+  size_t moved = 0;
+  if (!stuck.empty()) {
+    moved = sealed_cache_->RequeueStuckEpochsForDrain(stuck);
+    if (moved > 0) {
+      adopt_rolled_back_.fetch_add(1, std::memory_order_relaxed);
+      ROCKS_LOG_WARN(wal_ != nullptr ? wal_->InfoLog() : nullptr,
+                     "ZF drain: requeued %zu gens from %zu stuck epoch(s) for "
+                     "re-adoption",
+                     moved, stuck.size());
+    }
+  }
+  // ② 是否有待采纳的 gens（skip 集合非空）⇒ 让调用方强制封存。
+  const bool have_skippable = sealed_cache_->skipped_bytes() > 0;
+  return have_skippable ? 0 : 1;
 }
 
 // step V0.6-P1（积压驱动驱动）：是否存在"已封存未安装且已达阈值/超龄"的分区。
@@ -877,6 +892,8 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(install_gens_withheld());
   } else if (prop == "rocksdb.zeroflush.backlog_drain_requests") {
     *value = std::to_string(backlog_drain_requests());
+  } else if (prop == "rocksdb.zeroflush.skip_merge_benefit") {
+    *value = std::to_string(skip_merge_benefit_.load(std::memory_order_relaxed));
   } else if (prop == "rocksdb.zeroflush.adopt_stats") {
     *value = "calls=" + std::to_string(adopt_calls()) +
              " rolled_back=" + std::to_string(adopt_rolled_back()) +

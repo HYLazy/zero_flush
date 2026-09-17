@@ -1854,6 +1854,10 @@ class DBImpl : public DB {
   // 关闭契约：STOPPING → 停并 join 定时器 → UnSchedule(tag) 取消 queued →
   // **无锁等待** queued/running 引用归零（沿用 bg_flush_scheduled_ 的既有等待式样）。
   void StopZfDrainForClose();
+  // step V0.6-A10（用户口径）：为"**已收养但无 memtable** 的 epoch"建立可执行物化任务——
+  // 强制切一次 imm 并调度 flush（空 memtable 也照做），使 flush 批次按既有流程
+  // 规划/冲突检查/提交安装该 epoch 的 gens。**不绕过安全冲突检查**（放弃由规划器照常让位）。
+  void ZfDrainForceFlushEmptyEpoch();
 
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
@@ -3484,6 +3488,8 @@ class DBImpl : public DB {
   std::atomic<uint64_t> zf_coalesced_requests_{0};
   std::atomic<uint64_t> zf_no_progress_backoffs_{0};
   std::atomic<uint64_t> zf_tasks_cancelled_{0};
+  // 强制 flush（空 memtable 也切 imm/排批次）——仅由 ZF 排空路径短暂置位。
+  bool zf_force_flush_empty_ = false;
   std::atomic<bool> zf_drain_timer_stop_{false};
   std::atomic<bool> zf_drain_timer_started_{false};
   std::unique_ptr<port::Thread> zf_drain_timer_thread_;

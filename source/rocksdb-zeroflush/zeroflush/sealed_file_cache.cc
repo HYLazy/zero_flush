@@ -425,6 +425,41 @@ size_t SealedFileCache::registered_gens() const {
   return gens_.size();
 }
 
+// step V0.6-A10：把卡住的 epoch 的 gens 退回可采纳集合（skip），并从 epoch 登记中移除
+// 该 epoch ⇒ 下一次封存会按既有机制采纳（不改变 pending/installed/drained）。
+void SealedFileCache::ForEachEpoch(
+    const std::function<void(
+        uint64_t, const std::vector<std::pair<uint32_t, uint32_t>>&)>& fn) const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  for (const auto& [ep, se] : epochs_) {
+    fn(ep, se.gens);
+  }
+}
+
+size_t SealedFileCache::RequeueStuckEpochsForDrain(
+    const std::vector<uint64_t>& stuck_epochs) {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  size_t moved = 0;
+  for (uint64_t ep : stuck_epochs) {
+    auto eit = epochs_.find(ep);
+    if (eit == epochs_.end()) continue;
+    for (const auto& [part, gen] : eit->second.gens) {
+      const ZfFileKey key = MakeFileKey(part, gen);
+      auto git = gens_.find(key);
+      if (git == gens_.end() || git->second.installed) continue;  // 已安装/未登记 ⇒ 不动
+      if (skip_gens_.insert(key).second) {
+        skip_bytes_ += git->second.bytes;
+        skip_part_bytes_[part] += git->second.bytes;
+        ++moved;
+      }
+    }
+    eit->second.gens.clear();  // 归属已退回可采纳集合（epoch 不再持有 gens）
+  }
+  return moved;
+}
+
 // step V0.6-A9：**一次完整的所有权交接**（锁内原子完成；不改变 pending/installed/drained）。
 std::vector<std::pair<uint32_t, uint32_t>>
 SealedFileCache::TakeSkippedGensForDrain(

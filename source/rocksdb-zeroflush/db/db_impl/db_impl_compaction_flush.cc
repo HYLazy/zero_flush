@@ -2586,14 +2586,21 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     WaitForPendingWrites();
 
-    if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load() ||
-        IsRecoveryFlush(flush_reason)) {
+    if (!cfd->mem()->IsEmpty() || zf_force_flush_empty_ ||
+        !cached_recoverable_state_empty_.load() || IsRecoveryFlush(flush_reason)) {
       // ZeroFlush M2.1 补充（M3.3-27 修复）：手动 flush（CompactRange /
       // Flush）若直接把活跃 memtable 切 imm 而不封存 WAL 活跃代，已物化
       // 记录的 WAL 残留会在下次封存时被卷进新 epoch（A 侧混入旧 seq →
       // 融合归并 §7.4 的 seq 断言失败）。ZF 模式且 mem 非空时先走封存
       // （Freeze WAL + 切表 + epoch 关联），FlushJob 再按 ZF 路径物化。
       if (zf_ctx_ != nullptr && !cfd->mem()->IsEmpty()) {
+        s = zf_ctx_->SealEpochAndSwitch(this, cfd);
+      } else if (zf_ctx_ != nullptr && zf_force_flush_empty_) {
+        // step V0.6-A10：ZF 排空要求为"已收养但无 memtable"的 epoch 产生**真实批次**。
+        // **只封存**：`SealEpochAndSwitch` 自身已经切换 memtable 并把新 epoch 关联到
+        // imm（这正是 flush 批次识别 epoch 的依据）；若在此再 `SwitchMemtable`，会多出
+        // 一个**没有 epoch** 的 imm ⇒ ZF flush 直接报
+        // "immutable memtable without epoch in zf flush"（实测）。
         s = zf_ctx_->SealEpochAndSwitch(this, cfd);
       } else {
         s = SwitchMemtable(cfd, &context);
@@ -2602,6 +2609,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     const uint64_t flush_memtable_id = std::numeric_limits<uint64_t>::max();
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+          zf_force_flush_empty_ ||
           !cached_recoverable_state_empty_.load() ||
           IsRecoveryFlush(flush_reason)) {
         FlushRequest req{
@@ -4165,6 +4173,29 @@ void DBImpl::BGWorkZfDrain(void* arg) {
   static_cast_with_check<DBImpl>(arg)->BackgroundCallZfDrain();
 }
 
+void DBImpl::ZfDrainForceFlushEmptyEpoch() {
+  if (default_cf_handle_ == nullptr) return;
+  ColumnFamilyData* cfd = default_cf_handle_->cfd();
+  if (cfd == nullptr) return;
+  FlushOptions fo;
+  fo.wait = true;
+  fo.allow_write_stall = true;
+  zf_force_flush_empty_ = true;
+  const Status s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction);
+  zf_force_flush_empty_ = false;
+  if (getenv("ZF_DBG_DRAINWORK") != nullptr) {
+    fprintf(stderr,
+            "ZFDBG-drainwork flush-empty-epoch status=%s pending=%llu drained=%llu\n",
+            s.ToString().c_str(),
+            (unsigned long long)(zf_ctx_ != nullptr
+                                     ? zf_ctx_->PendingMaterializeBytes()
+                                     : 0),
+            (unsigned long long)(zf_ctx_ != nullptr
+                                     ? zf_ctx_->DrainedMaterializeBytes()
+                                     : 0));
+  }
+}
+
 void DBImpl::BackgroundCallZfDrain() {
   // step V0.6-A8（用户契约）：**释放引用必须是回调的最后一步 DB 访问**——
   // 引用归零之后不得再改计数/状态/重排/打印依赖 DB 的日志（Close 可能已开始析构）。
@@ -4212,6 +4243,10 @@ void DBImpl::BackgroundCallZfDrain() {
       // 再走正常排空（seal→规划→冲突检查→安装）。无 skip 代时返回 1，正常排空照做。
       zf_ctx_->AdoptSkippedGensForDrainLocked();
     }
+    // 用户口径：**只绕过"收益不足"的等待**（由 closing_flush/drain 模式在规划器里实现），
+    // 安全冲突检查照常（文件占用/输入未就绪/安装冲突 ⇒ 让位 + 退避）。
+    // 强制为空尾产生真实批次，使收养出的 epoch 进入正常规划/安装。
+    ZfDrainForceFlushEmptyEpoch();
     ZfDrainNow();
     if (zf_ctx_ != nullptr) {
       zf_ctx_->SetBacklogDrainActive(false);
