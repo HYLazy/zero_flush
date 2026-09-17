@@ -527,7 +527,7 @@ int main(int argc, char** argv) {
        mode == "baccept" || mode == "installtest" || mode == "routingneg" ||
        mode == "failaccept" || mode == "aprobe" || mode == "mini" ||
        mode == "snapmini" || mode == "migrate" || mode == "closestress" ||
-       mode == "autodrain" || mode == "drainlife");
+       mode == "autodrain" || mode == "drainlife" || mode == "skipdrain");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
@@ -3193,7 +3193,16 @@ int main(int argc, char** argv) {
       const bool released_ok = ev.released.load() == ev.enqueued.load();
       printf("drainlife win=%d 不变量: 唯一路径=%d 引用归零=%d 释放次数匹配=%d\n",
              win, exactly_one_path ? 1 : 0, refs_ok ? 1 : 0, released_ok ? 1 : 0);
-      printf("drainlife win=%d 窗口终态: %s\n", win, win_ok ? "符合契约" : "不符合");
+      printf("drainlife win=%d 窗口终态: %s | 硬屏障超时=%llu（必须 0）\n", win,
+             win_ok ? "符合契约" : "不符合",
+             (unsigned long long)zeroflush::get_trace::ZfDrainEventsGlobal()
+                 .hard_gate_timeouts.load());
+      if (zeroflush::get_trace::ZfDrainEventsGlobal().hard_gate_timeouts.load() !=
+          0) {
+        printf("drainlife win=%d: FAIL (硬屏障达到 120s 上限 ⇒ 不得视为控制线程放行)\n",
+               win);
+        return 1;
+      }
       if (!(exactly_one_path && refs_ok && released_ok && win_ok)) {
         printf("drainlife win=%d: FAIL (生命周期不变量不成立)\n", win);
         return 1;
@@ -3357,6 +3366,151 @@ int main(int argc, char** argv) {
     printf("drainlife case=%d 重开逐键: bad=%zu/%d -> %s\n", cse, bad, n,
            bad == 0 ? "PASS" : "FAIL");
     return bad == 0 ? 0 : 1;
+  }
+
+  if (mode == "skipdrain") {
+    // step V0.6-A9 验收（用户指定的两个确定性用例；**不新写、不手工排空、不关闭**）：
+    //   case 1：停写后只剩 skip 代 ⇒ 后台自行安装 + 回收
+    //   case 2：持续冲突注入期间可读、不销账、调度有界；解除后自行排空
+    // 两者都检查：同一代不会同时属于两个在飞任务（一致性计数必须为 0）。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    auto p = [&](const char* k) { return Prop(db.get(), k); };
+    auto sp = [&](const char* k) {
+      std::string v;
+      db->GetProperty(k, &v);
+      return v;
+    };
+    const int cse = threads > 0 ? threads : 1;
+    const int n = 6000;
+    std::vector<std::string> keys;
+    for (int i = 0; i < n; ++i) {
+      const uint64_t kk = static_cast<uint64_t>(i) * 19;
+      const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+      db->Put(rocksdb::WriteOptions(), k, zf_keygen::ValueFor(kk, 1, kValueSize));
+      keys.push_back(k);
+    }
+    auto ctx = impl->GetZeroFlushContext();
+    auto seal_all = [&] {
+      for (uint32_t q = 0; q < 4; ++q) {
+        ctx->wal()->Sync(q).PermitUncheckedError();
+        uint32_t sg = 0;
+        ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(), q,
+                              ctx->wal()->ActiveGenOpt(q).value_or(0), &sg);
+      }
+    };
+    if (cse == 2) {
+      setenv("ZF_TEST_FORCE_INSTALL_CONFLICT", "-1000000", 1);  // 持续冲突
+      seal_all();
+    } else {
+      // case 1：分两轮——第一轮建立 base（ratio=1.0 ⇒ 直接融合安装），
+      // 第二轮才有较大 base ⇒ 收益不足 ⇒ 触发 **skip 攒批**（本用例的前置）。
+      seal_all();
+      for (int t = 0; t < 40 && p("pending_materialize_bytes") != 0; ++t) {
+        env_sleep_ms(50);
+      }
+      // 第二轮**小批量**（约为 base 的 1/12）⇒ 每分区 ratio ≈ 0.08 < 0.25
+      // ⇒ 触发 skip 攒批（本用例的前置状态）。
+      for (int i = 0; i < n / 8; ++i) {
+        const uint64_t kk = static_cast<uint64_t>(i) * 19 + 7;
+        const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+        db->Put(rocksdb::WriteOptions(), k, zf_keygen::ValueFor(kk, 1, kValueSize));
+        keys.push_back(k);
+      }
+      seal_all();
+    }
+    // 前置：确认确实存在 **skip 归属** 的未安装代（否则本用例前提不成立）。
+    bool saw_skip = false;
+    const uint64_t t_pre = rocksdb::Env::Default()->NowMicros();
+    while (rocksdb::Env::Default()->NowMicros() - t_pre < 30ull * 1000 * 1000) {
+      const std::string pg = sp("rocksdb.zeroflush.pending_gens");
+      if (pg.find("+skip") != std::string::npos) {
+        saw_skip = true;
+        break;
+      }
+      env_sleep_ms(50);
+    }
+    const uint64_t pend0 = p("pending_materialize_bytes");
+    const uint64_t dr0 = p("drained_materialize_bytes");
+    printf("skipdrain case=%d 前置: 观察到 skip 归属=%d pending=%llu drained=%llu "
+           "adopt=[%s]\n",
+           cse, saw_skip ? 1 : 0, (unsigned long long)pend0,
+           (unsigned long long)dr0, sp("rocksdb.zeroflush.adopt_stats").c_str());
+    if (!saw_skip) {
+      printf("skipdrain case=%d: SETUP_INVALID (未观察到 skip 归属)\n", cse);
+      return 3;
+    }
+    // ---- 等待阶段：**不新写、不 Flush/DrainNow、不关闭** ----
+    const uint64_t t0 = rocksdb::Env::Default()->NowMicros();
+    uint64_t pend = pend0;
+    while (rocksdb::Env::Default()->NowMicros() - t0 < (cse == 2 ? 30ull : 90ull) *
+                                                           1000 * 1000) {
+      env_sleep_ms(200);
+      pend = p("pending_materialize_bytes");
+      if (cse == 1 && pend == 0) break;
+      if (cse == 2 && pend == 0) break;
+    }
+    const uint64_t wait_ms = (rocksdb::Env::Default()->NowMicros() - t0) / 1000;
+    if (cse == 2) {
+      // 注入期间断言：可读、不销账、调度有界。
+      size_t bad = 0;
+      for (int i = 0; i < n; ++i) {
+        const uint64_t kk = static_cast<uint64_t>(i) * 19;
+        std::string got;
+        const rocksdb::Status sdst = db->Get(rocksdb::ReadOptions(), keys[i], &got);
+        if (!sdst.ok() || got != zf_keygen::ValueFor(kk, 1, kValueSize)) ++bad;
+      }
+      const uint64_t dr1 = p("drained_materialize_bytes");
+      printf("skipdrain case=2 注入期: 读 bad=%zu/%d | drained 变化=%lld（应 0=不销账）"
+             " tasks_queued=%llu timer_wakeups=%llu no_progress_backoffs=%llu\n",
+             bad, n, (long long)(dr1 - dr0),
+             (unsigned long long)p("zf_drain_counters"), 0ULL, 0ULL);
+      if (bad != 0) {
+        printf("skipdrain case=2: FAIL (注入期读失败)\n");
+        return 1;
+      }
+    }
+    printf("skipdrain case=%d 等待结束: pending=%llu 耗时=%llu ms adopt=[%s]\n",
+           cse, (unsigned long long)pend, (unsigned long long)wait_ms,
+           sp("rocksdb.zeroflush.adopt_stats").c_str());
+    if (cse == 2) {
+      unsetenv("ZF_TEST_FORCE_INSTALL_CONFLICT");  // 解除冲突（唯一的外部“操作”）
+    }
+    // 解除后等待自行排空（仍不新写、不手工排空、不关闭）
+    const uint64_t t1 = rocksdb::Env::Default()->NowMicros();
+    while (rocksdb::Env::Default()->NowMicros() - t1 < 90ull * 1000 * 1000) {
+      env_sleep_ms(200);
+      pend = p("pending_materialize_bytes");
+      if (pend == 0) break;
+    }
+    const std::string pg_end = sp("rocksdb.zeroflush.pending_gens");
+    const uint64_t reg_end = p("registered_gens");
+    const uint64_t recl = p("reclaimed_bytes");
+    const std::string ast = sp("rocksdb.zeroflush.adopt_stats");
+    printf("skipdrain case=%d 终态: pending=%llu registered=%llu reclaimed=%llu "
+           "pending_gens=%s adopt=[%s]\n",
+           cse, (unsigned long long)pend, (unsigned long long)reg_end,
+           (unsigned long long)recl, pg_end.substr(0, 80).c_str(), ast.c_str());
+    // 逐键（后台排空后）
+    size_t bad2 = 0;
+    for (int i = 0; i < n; ++i) {
+      const uint64_t kk = static_cast<uint64_t>(i) * 19;
+      std::string got;
+      const rocksdb::Status sdst2 = db->Get(rocksdb::ReadOptions(), keys[i], &got);
+      if (!sdst2.ok() || got != zf_keygen::ValueFor(kk, 1, kValueSize)) ++bad2;
+    }
+    const bool consist_ok = ast.find("gen_not_in_skip=0") != std::string::npos &&
+                            ast.find("double_return=0") != std::string::npos;
+    const bool pass = (pend == 0) && (reg_end == 0) && (recl > 0) && (bad2 == 0) &&
+                      consist_ok;
+    printf("skipdrain case=%d: %s (pending归零=%d registry=0=%d 回收>0=%d 读正确=%d "
+           "单任务归属一致=%d)\n",
+           cse, pass ? "PASS"
+                     : (saw_skip ? "FAIL(安装进展失败：前提成立但超时未排空)"
+                                 : "INCOMPLETE"),
+           pend == 0 ? 1 : 0, reg_end == 0 ? 1 : 0, recl > 0 ? 1 : 0, bad2 == 0 ? 1 : 0,
+           consist_ok ? 1 : 0);
+    return pass ? 0 : 1;
   }
 
   if (mode == "autodrain") {

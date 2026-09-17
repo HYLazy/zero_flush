@@ -325,6 +325,8 @@ struct ZfDrainEvents {
   std::atomic<uint64_t> handover{0};
   std::atomic<uint64_t> released{0};
   std::atomic<uint64_t> stopping_exits{0};
+  // 硬屏障达到 120s 上限的次数（必须判 FAIL，不得当成控制线程放行）。
+  std::atomic<uint64_t> hard_gate_timeouts{0};
   std::atomic<uint64_t> close_wait_rounds{0};
   std::atomic<uint64_t> close_returned_with_refs{0};
   std::atomic<uint64_t> close_calls{0};

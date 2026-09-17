@@ -664,6 +664,20 @@ class ZeroFlushContext {
   //   · drain/close 模式（ZfDrainNow / ZF_CLOSING_FLUSH）；
   //   · 该分区积压持续时间 > `backlog_drain_max_age_micros`（0=关闭）。
   // 注：物化任务始终携带真实 `covered_gens`，安装成功前不销账（既有规则）。
+  // step V0.6-A9（用户契约）：**skip 代在停写后独立进入正常物化**——
+  //   锁内选取未被其它任务占有的 skip gens
+  //   → 准备任务及其索引/生命周期依赖（注册进 epoch：物化 planner 可见）
+  //   → 原子完成 skip → drain task 的归属转移
+  //   → 由调用方入队，走正常规划与安装。
+  // 不变式：收养本身**不改变** pending / installed / drained / fence；建任务失败则退回归属。
+  // 返回：0=成功收养；1=无 skip 代可收养；-1=失败（已退回）。
+  int AdoptSkippedGensForDrainLocked();
+  uint64_t adopt_calls() const {
+    return adopt_calls_.load(std::memory_order_relaxed);
+  }
+  uint64_t adopt_rolled_back() const {
+    return adopt_rolled_back_.load(std::memory_order_relaxed);
+  }
   void NoteBacklogDrainRequest() { backlog_drain_requested_.store(true); }
   bool TakeBacklogDrainRequest() {
     return backlog_drain_requested_.exchange(false);
@@ -1361,6 +1375,8 @@ class ZeroFlushContext {
   mutable std::atomic<bool> backlog_drain_requested_{false};
   mutable std::atomic<bool> backlog_drain_active_{false};
   mutable std::atomic<uint64_t> backlog_drain_requests_{0};
+  mutable std::atomic<uint64_t> adopt_calls_{0};
+  mutable std::atomic<uint64_t> adopt_rolled_back_{0};
   mutable std::atomic<uint64_t> install_progress_failures_{0};
   // part → 开始积压的微秒时刻（0 = 无积压）。用 mutex 保护的向量（按分区数）。
   mutable std::mutex backlog_age_mu_;

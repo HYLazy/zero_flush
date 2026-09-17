@@ -425,6 +425,48 @@ size_t SealedFileCache::registered_gens() const {
   return gens_.size();
 }
 
+// step V0.6-A9：**一次完整的所有权交接**（锁内原子完成；不改变 pending/installed/drained）。
+std::vector<std::pair<uint32_t, uint32_t>>
+SealedFileCache::TakeSkippedGensForDrain(
+    std::unordered_map<uint32_t, uint64_t>* part_bytes_out) {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  std::vector<std::pair<uint32_t, uint32_t>> out;
+  out.reserve(skip_gens_.size());
+  for (ZfFileKey k : skip_gens_) {
+    out.emplace_back(static_cast<uint32_t>(k >> 32), static_cast<uint32_t>(k));
+  }
+  if (part_bytes_out != nullptr) {
+    *part_bytes_out = skip_part_bytes_;
+  }
+  skip_gens_.clear();       // 归属转移：离开可重试集合（在飞期间不再被第二次收养）
+  skip_bytes_ = 0;
+  skip_part_bytes_.clear();
+  return out;
+}
+
+void SealedFileCache::RestoreSkippedGens(
+    const std::vector<std::pair<uint32_t, uint32_t>>& gens,
+    const std::unordered_map<uint32_t, uint64_t>& part_bytes) {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  for (const auto& [p, g] : gens) {
+    const ZfFileKey key = MakeFileKey(p, g);
+    if (skip_gens_.count(key) > 0) {
+      adopt_double_return_.fetch_add(1, std::memory_order_relaxed);
+      continue;  // 已在集合内（不应发生）——计数而不重复登记
+    }
+    skip_gens_.insert(key);
+    const auto it = part_bytes.find(p);
+    if (it != part_bytes.end()) {
+      skip_part_bytes_[p] += it->second;
+      skip_bytes_ += it->second;
+    }
+  }
+  // 注意：**不触碰** ctx 侧的积压起始时间（backlog_since_micros_），
+  // 退回后年龄继续累积 ⇒ 不会被无限推迟（用户契约）。
+}
+
 void SealedFileCache::AddRecoveryGens(
     const std::vector<std::pair<uint32_t, uint32_t>>& gens,
     uint64_t total_bytes) {

@@ -280,6 +280,24 @@ class SealedFileCache {
   // 回收、不占 refcount，直到被下一次 AddEpochWithRecoveryAdoption 收养。
   void AddRecoveryGens(const std::vector<std::pair<uint32_t, uint32_t>>& gens,
                        uint64_t total_bytes);
+  // step V0.6-A9（用户契约：**转移所有权，而不是复制一份待处理列表**）：
+  //   TakeSkippedGensForDrain：锁内取走全部尚未被其它任务占有的 skip gens
+  //     （原子清空 ⇒ 同一代不会被两个在飞任务同时收养）；
+  //   RestoreSkippedGens：任务创建/入队失败时把归属**退回**可重试集合；
+  //     退回**不重置积压起始时间**（否则每次重试都会重置年龄 ⇒ 无限推迟安装）。
+  // 两者都**不改变 pending / installed / drained**（只动归属集合）。
+  std::vector<std::pair<uint32_t, uint32_t>> TakeSkippedGensForDrain(
+      std::unordered_map<uint32_t, uint64_t>* part_bytes_out);
+  void RestoreSkippedGens(
+      const std::vector<std::pair<uint32_t, uint32_t>>& gens,
+      const std::unordered_map<uint32_t, uint64_t>& part_bytes);
+  // 诊断：收养/退回的一致性计数（同一代不得同时属于两个在飞任务）。
+  uint64_t adopt_gen_not_in_skip() const {
+    return adopt_gen_not_in_skip_.load(std::memory_order_relaxed);
+  }
+  uint64_t adopt_double_return() const {
+    return adopt_double_return_.load(std::memory_order_relaxed);
+  }
 
   // M4.5b 攒批：把指定 gens 从 epoch 中移除并移交 recovery 集合（可读、
   // 不回收）——物化跳过（kSkip）的分区数据保留在磁盘，待下个 epoch
@@ -389,6 +407,9 @@ class SealedFileCache {
   // 由 HandOffSkippedToRecovery 登记，下个 epoch 封存时收养（多代合并
   // 物化）。与恢复期孤儿不同：seq 连续 → 可融合归并。
   std::unordered_set<ZfFileKey> skip_gens_;
+  // step V0.6-A9：收养/退回一致性计数（同一代不得被两个任务收养）。
+  mutable std::atomic<uint64_t> adopt_gen_not_in_skip_{0};
+  mutable std::atomic<uint64_t> adopt_double_return_{0};
   uint64_t skip_bytes_ = 0;
   std::unordered_map<uint32_t, uint64_t> skip_part_bytes_;
 

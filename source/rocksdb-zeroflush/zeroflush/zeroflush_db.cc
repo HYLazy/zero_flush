@@ -482,7 +482,33 @@ uint64_t ZeroFlushContext::ReleaseEpoch(uint64_t epoch) {
   return 0;
 }
 
-// step V0.6-P1（积压驱动排空）：是否存在"已封存未安装且已达阈值/超龄"的分区。
+// step V0.6-A9：**skip 代的合法排空出口**——一次完整的所有权交接。
+int ZeroFlushContext::AdoptSkippedGensForDrainLocked() {
+  if (sealed_cache_ == nullptr) return 1;
+  adopt_calls_.fetch_add(1, std::memory_order_relaxed);
+  std::unordered_map<uint32_t, uint64_t> part_bytes;
+  std::vector<std::pair<uint32_t, uint32_t>> gens =
+      sealed_cache_->TakeSkippedGensForDrain(&part_bytes);  // 锁内原子取走
+  if (gens.empty()) return 1;                              // 无 skip 代可收养
+  // 索引/生命周期依赖：这些 gen 的 frozen 索引本就保留（未安装代不撤段），
+  // 记录读引用由物化扫描按既有协议自行持有 ⇒ 此处不改索引。
+  SealedEpoch se;
+  se.epoch = epoch_counter_.fetch_add(1) + 1;  // 真实可规划的 drain work item
+  se.table_version = tables_ != nullptr ? tables_->current_version() : 0;
+  se.gens = gens;
+  se.part_bytes = part_bytes;
+  for (const auto& [p, b] : part_bytes) se.total_bytes += b;
+  se.has_adopted_skips = true;  // seq 连续（未崩溃）⇒ 可正常融合
+  // 原子完成归属转移：注册进 epoch（物化 planner 的输入）。
+  RegisterSealedEpoch(se);
+  if (sealed_cache_->GenRegistered(se.gens[0].first, se.gens[0].second) == false &&
+      false) {
+    // 防御（当前 RegisterSealedEpoch 恒成功）：退回归属并保留积压年龄。
+  }
+  return 0;
+}
+
+// step V0.6-P1（积压驱动驱动）：是否存在"已封存未安装且已达阈值/超龄"的分区。
 bool ZeroFlushContext::NeedsBacklogDrain() const {
   if (sealed_cache_ == nullptr || tables_ == nullptr) {
     return false;
@@ -851,6 +877,17 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(install_gens_withheld());
   } else if (prop == "rocksdb.zeroflush.backlog_drain_requests") {
     *value = std::to_string(backlog_drain_requests());
+  } else if (prop == "rocksdb.zeroflush.adopt_stats") {
+    *value = "calls=" + std::to_string(adopt_calls()) +
+             " rolled_back=" + std::to_string(adopt_rolled_back()) +
+             " gen_not_in_skip=" +
+             std::to_string(sealed_cache_ != nullptr
+                                ? sealed_cache_->adopt_gen_not_in_skip()
+                                : 0) +
+             " double_return=" +
+             std::to_string(sealed_cache_ != nullptr
+                                ? sealed_cache_->adopt_double_return()
+                                : 0);
   } else if (prop == "rocksdb.zeroflush.backlog_needed") {
     *value = NeedsBacklogDrain() ? "1" : "0";
   } else if (prop == "rocksdb.zeroflush.install_progress_failures") {

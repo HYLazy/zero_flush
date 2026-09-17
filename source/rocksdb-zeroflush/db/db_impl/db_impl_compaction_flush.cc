@@ -4067,7 +4067,12 @@ void DBImpl::ZfWaitGateHard(const char* env_name) {
   const uint64_t t0 = env_->NowMicros();
   while (!env_->FileExists(path).ok()) {
     env_->SleepForMicroseconds(1000);
-    if (env_->NowMicros() - t0 > 120ull * 1000 * 1000) break;
+    if (env_->NowMicros() - t0 > 120ull * 1000 * 1000) {
+      // 达到上限：**记超时**（测试必须据此判 FAIL，不得视为控制线程放行）。
+      zeroflush::get_trace::ZfDrainEventsGlobal().hard_gate_timeouts.fetch_add(
+          1, std::memory_order_relaxed);
+      break;
+    }
   }
 }
 
@@ -4203,6 +4208,9 @@ void DBImpl::BackgroundCallZfDrain() {
       drained_before = zf_ctx_->DrainedMaterializeBytes();
       pending_before = zf_ctx_->PendingMaterializeBytes();
       zf_ctx_->SetBacklogDrainActive(true);
+      // step V0.6-A9：先把 skip 代**收养**成可规划的 drain work item（所有权转移），
+      // 再走正常排空（seal→规划→冲突检查→安装）。无 skip 代时返回 1，正常排空照做。
+      zf_ctx_->AdoptSkippedGensForDrainLocked();
     }
     ZfDrainNow();
     if (zf_ctx_ != nullptr) {
@@ -4262,6 +4270,8 @@ void DBImpl::StopZfDrainForClose() {
     env_->UnSchedule(zf_drain_tag_.get(), Env::Priority::LOW);
   }
   // 无锁等待引用归零（沿用 bg_flush_scheduled_ 的既有等待式样：等待期间不持锁）。
+  // 用户口径：引用递减后的 mutex 解锁允许保留，但 **Close 必须取得同一把锁、
+  // 确认引用归零后才进入析构**（不能仅凭无锁读取计数决定销毁）。
   mutex_.Lock();
   while (zf_drain_refs_ > 0) {
     zf_ev_close_wait_rounds_.fetch_add(1, std::memory_order_relaxed);

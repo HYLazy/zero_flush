@@ -2802,3 +2802,47 @@ installtest scen 2 / 4      : PASS
 **`AdoptSkippedGensForDrainLocked()`**（仅剩 skip 时停写也能排空；持续冲突时保持可读且调度
 有界、解除后自行排空；不增加写入、不调用手工排空、不关闭 DB）。随后测完整生命周期写放大，
 再决定是否合入候选线。候选线 `0de022f` 已收口，本轮未再改动。
+
+## 实验分支 A9：skip 代排空出口（所有权交接已实现并受控；**调度缺口已定位**）
+
+### D-87. 本轮交付
+
+**实现（实验分支）**
+- `SealedFileCache::TakeSkippedGensForDrain()` / `RestoreSkippedGens()`：**一次完整的所有权
+  交接**——锁内原子取走（离开可重试集合 ⇒ 同一代不会被两个在飞任务同时收养）；失败退回时
+  **不重置积压起始时间**（避免每次重试都重置年龄而无限推迟安装）；两者都**不改变
+  pending / installed / drained**。新增一致性计数 `adopt_gen_not_in_skip` / `adopt_double_return`。
+- `ZeroFlushContext::AdoptSkippedGensForDrainLocked()`：取所有权 → 组装真实可规划的
+  `SealedEpoch`（真实 gens + part_bytes + `has_adopted_skips`）→ `RegisterSealedEpoch` 完成
+  归属转移；返回 0=已收养 / 1=无 skip 代 / -1=失败（已退回）。属性 `adopt_stats` 可观测。
+- 排空任务在 `ZfDrainNow()` **之前**调用收养（先转移归属，再走正常规划/冲突检查/安装）。
+- 两个测试约束：① 硬屏障达到 120s 上限 ⇒ 记 `hard_gate_timeouts`，用例**判 FAIL**
+  （不得视为控制线程放行）；② `Close` 的等待**持同一把锁确认引用归零**后才进入析构
+  （代码注释与实测一致：`close_wait_rounds` 在等待中自旋）。
+
+**case 2（持续冲突→解除）实测**
+```
+前置:  观察到 skip 归属=1  pending=6408000  drained=0  adopt=[calls=0 ...]
+注入期(30s): 读 bad=0/6000 | drained 变化=0（不销账）| adopt calls=87（有界，退避生效）
+等待结束:  pending=6408000  adopt=[calls=87 rolled_back=0 gen_not_in_skip=0 double_return=0]
+终态:  pending=6408000 registered=5 reclaimed=0
+       pending_gens=[3:1(1369176B,**epoch=3**) 1:0(280884B,epoch=3) ...]
+       adopt=[calls=396 ...]  ⇒ **FAIL(安装进展失败：前提成立但超时未排空)**
+```
+**诊断（本轮最重要的一条）**：收养**成功完成了所有权转移**（gens 从 skip 集合进入
+`epoch=3`，一致性计数全 0 ⇒ 单归属成立；96 次收养尝试有界），但**该 epoch 没有任何物化
+任务**——物化批次由 flush/imm 驱动，而收养出来的 epoch **没有对应的 memtable/imm**
+⇒ `ZfCloseFlush` 的 "seal+flush" 对**空尾**不产生可规划的任务 ⇒ gens 停在 `epoch=3` 里
+不被安装（正是此前记过的"空尾封存不产生可物化 epoch"）。按用户口径，这种情况**报安装进展
+失败（FAIL），不记 INCOMPLETE** ✓（本轮正是如此）。
+
+**case 1（停写后只剩 skip）**：本轮未建成前置（两轮封存的比例仍 > min_ratio ⇒ 直接融合、
+未产生 skip 归属）⇒ 记 `SETUP_INVALID`。需要更小的第二轮批量或更低 base 阈值，属用例参数
+问题，下一轮修正。
+
+### D-88. 下一步（唯一缺口）
+给"无 memtable 的 epoch"实现**真实的 drain work item 调度入口**（两条路可选）：
+① 让排空路径能对指定 epoch 直接构建并投递一个 `ZfMaterializeJob`（等价于 flush 批次的
+规划/安装，但不依赖 imm）；② 或让空尾封存也产生可规划任务（例如强制非空 flush 或显式
+投递）。要求：走正常 overlap/compaction 注册与安装；冲突时退回可重试集合并退避；
+不改变 pending/installed/drained/fence。完成后再跑两个用例 + 全生命周期写放大。
