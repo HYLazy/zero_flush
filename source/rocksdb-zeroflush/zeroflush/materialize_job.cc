@@ -1302,18 +1302,34 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         // step V0.6-P1（用户口径）：**合并收益阈值**的度量——每次融合前记录
         // 输入/输出规模与重写比，便于判定"该不该现在融合"。
         if (getenv("ZF_DBG_MERGE") != nullptr) {
-          const char* dec = nullptr;
-          if (ratio < ctx_->zfo_.base_merge_min_ratio) {
-            dec = "below_min_ratio";
-          } else {
-            dec = "above_min_ratio";
+          // step V0.6-C2（用户指定字段）：逐计划的收益决策现场——
+          //   part / consumed_gens / sealed_bytes_current_attempt /
+          //   se_.part_bytes / base_input_bytes / new_input_bytes / ratio /
+          //   decision / merge_enabled / forbid_l0
+          uint32_t consumed_gens = 0;
+          uint64_t new_input_bytes = 0;   // 本次 attempt 实际读入的代字节
+          for (const auto& [gp, gg] : se_.gens) {
+            if (gp != pid) continue;
+            ++consumed_gens;
+            // 本次 attempt 该代的实际输入字节（文件大小；文件缺失记 0）。
+            if (ctx_->wal() != nullptr) {
+              std::vector<std::pair<uint32_t, uint32_t>> all_files;
+              new_input_bytes += ctx_->wal()->GetFileSize(
+                  gp, gg, all_files, mc_.db_options->env);
+            }
           }
           fprintf(stderr,
-                  "ZFDBG-merge-benefit pid=%u sealed=%llu l0=%llu overlap=%llu "
-                  "ratio=%.3f min=%.3f decision=%s range=[%s,%s)\n",
-                  pid, (unsigned long long)sealed_in, (unsigned long long)l0_bytes,
-                  (unsigned long long)overlap_bytes, ratio,
-                  ctx_->zfo_.base_merge_min_ratio, dec,
+                  "ZFDBG-merge-benefit part=%u consumed_gens=%u "
+                  "sealed_attempt=%llu se_part_bytes=%llu base_input=%llu "
+                  "l0_input=%llu new_input=%llu ratio=%.4f min=%.3f "
+                  "decision=merge(pending_merge) merge_enabled=%d forbid_l0=%d "
+                  "range=[%s,%s)\n",
+                  pid, consumed_gens, (unsigned long long)sealed_in,
+                  (unsigned long long)sealed_in, (unsigned long long)overlap_bytes,
+                  (unsigned long long)l0_bytes, (unsigned long long)new_input_bytes,
+                  ratio, ctx_->zfo_.base_merge_min_ratio,
+                  ctx_->zfo_.merge_into_base_level ? 1 : 0,
+                  ctx_->zfo_.forbid_l0_install ? 1 : 0,
                   plan.lo.ToString(true).c_str(), plan.hi.ToString(true).c_str());
         }
         if (ratio < ctx_->zfo_.base_merge_min_ratio &&
@@ -1656,6 +1672,89 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     // 后序 epoch 的 PlanLocked 识别并跳过（§7.4 批内链式替换互斥）。
     for (ROCKSDB_NAMESPACE::FileMetaData* r : overlap) {
       batch_registered_files_.insert(r->fd.GetNumber());
+    }
+    // step V0.6-C2（用户指定字段）：**所有融合计划**的收益决策现场都经过这里
+    // （此前只插桩了 L0 融合分支 ⇒ 实测 0 命中：本 workload 的融合走的是本路径）。
+    // step V0.6-C2 修复（用户指令："如果证据确认累计值被拿来判断收益，再改为
+    // 本次 attempt 的新增输入字节，并保留上限"）——实测证据表明**不是**累计值问题：
+    // `se_part_bytes`（= 本 epoch 该分区封存字节）与 `new_input` 相等，而本路径
+    // **根本没有 ratio 判据**（ratio=0.004 也照融合：为 104KB 新数据重写 25MB base
+    // ⇒ 写放大 ~25×）。故在此就地加**收益阈值**：目标模式下收益不足则攒批
+    // （数据留在 frozen 索引 + WAL，仍可读），由 `base_merge_skip_max_generations`
+    // 上限保证最终一定进入融合 ⇒ 不牺牲进展与排空。
+    {
+      const auto itb = se_.part_bytes.find(pid);
+      const uint64_t pend_bytes = (itb != se_.part_bytes.end()) ? itb->second : 0;
+      const double benefit_ratio =
+          (overlap_bytes > 0)
+              ? static_cast<double>(pend_bytes) / static_cast<double>(overlap_bytes)
+              : 1.0;
+      // 收敛条件（用户："保留上限，确保禁 L0 时最终仍有合法安装出口"）：
+      //   · 关闭/排空模式（closing_flush）⇒ 必须融合（否则收尾 pending 不归零）；
+      //   · 该分区累计待物化字节 ≥ base_merge_skip_max_bytes ⇒ 融合（防无限滞留）；
+      //   · 代数达上限 ⇒ 融合。
+      // 用**该分区累计未安装字节**（注册表口径）判定"积压已到上限"——不能用
+      // 本 epoch 的 se_.part_bytes（它不含历史攒批）⇒ 否则积压永远达不到上限，
+      // 攒批无限持续、排空停滞（实测 pending=718MB 不排空）。
+      const uint64_t part_backlog =
+          ctx_->sealed_cache() != nullptr
+              ? ctx_->sealed_cache()->UninstalledBytesOf(pid)
+              : pend_bytes;
+      const bool drain_mode =
+          ctx_->closing_flush() ||
+          part_backlog >= ctx_->zfo_.base_merge_skip_max_bytes ||
+          PendingGenCount(pid) >= kMaxSkipGenerations;
+      // **默认关闭**（`base_merge_skip_max_generations > 0` 才启用）：实测该策略
+      // 把安装推迟到"下一次封存"，写入停止后没有新封存 ⇒ 积压只能靠收尾排空 ⇒
+      // db_bench 的读阶段退化（136k→35k ops/s、pending 718MB 未排空）。启用前需要
+      // 配套"积压驱动排空"（按分区积压触发物化批次，而非只在封存时）。收益已验证：
+      // 写放大 24×→1.8×（prof_output_bytes 4.5GB→355MB）、写吞吐 93k→176k ops/s。
+      if (ctx_->zfo_.base_merge_skip_max_generations > 0 && !drain_mode &&
+          ctx_->zfo_.forbid_l0_install && ctx_->zfo_.skip_batching &&
+          benefit_ratio < ctx_->zfo_.base_merge_min_ratio) {
+        const uint32_t skip_cap =
+            ctx_->zfo_.base_merge_skip_max_generations > 0
+                ? ctx_->zfo_.base_merge_skip_max_generations
+                : kMaxSkipGenerations;
+        if (skip_ok && PendingGenCount(pid) < skip_cap) {
+          plan.decision = MaterializeDecision::kSkip;
+          ctx_->skip_merge_benefit_.fetch_add(1, std::memory_order_relaxed);
+          ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+          plans_.push_back(std::move(plan));
+          continue;  // 未注册 compaction ⇒ 无需回滚
+        }
+      }
+    }
+    if (getenv("ZF_DBG_MERGE") != nullptr) {
+      uint32_t consumed_gens = 0;
+      uint64_t new_input_bytes = 0;
+      for (const auto& [gp, gg] : se_.gens) {
+        if (gp != pid) continue;
+        ++consumed_gens;
+        if (ctx_->wal() != nullptr) {
+          std::vector<std::pair<uint32_t, uint32_t>> all_files;
+          new_input_bytes +=
+              ctx_->wal()->GetFileSize(gp, gg, all_files, mc_.db_options->env);
+        }
+      }
+      const uint64_t se_part = [&] {
+        const auto it = se_.part_bytes.find(pid);
+        return it != se_.part_bytes.end() ? it->second : 0ULL;
+      }();
+      const double r =
+          (overlap_bytes > 0)
+              ? static_cast<double>(se_part) / static_cast<double>(overlap_bytes)
+              : 1.0;
+      fprintf(stderr,
+              "ZFDBG-merge-benefit part=%u consumed_gens=%u new_input=%llu "
+              "se_part_bytes=%llu base_input=%llu ratio=%.4f min=%.3f "
+              "decision=merge merge_enabled=%d forbid_l0=%d range=[%s,%s)\n",
+              pid, consumed_gens, (unsigned long long)new_input_bytes,
+              (unsigned long long)se_part, (unsigned long long)overlap_bytes, r,
+              ctx_->zfo_.base_merge_min_ratio,
+              ctx_->zfo_.merge_into_base_level ? 1 : 0,
+              ctx_->zfo_.forbid_l0_install ? 1 : 0,
+              plan.lo.ToString(true).c_str(), plan.hi.ToString(true).c_str());
     }
     plan.decision = MaterializeDecision::kMergeBase;
     plan.overlap = std::move(overlap);

@@ -3936,8 +3936,7 @@ ROCKSDB_NAMESPACE::Status StopGovernance(ROCKSDB_NAMESPACE::DB* db) {
 // ---------------------------------------------------------------------------
 
 ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
-                               const ZeroFlushOptions& zfo,
-                               const std::string& dbname,
+                               ZeroFlushOptions zfo, const std::string& dbname,
                                std::unique_ptr<ROCKSDB_NAMESPACE::DB>* db) {
   // 1) 替换 memtable factory（Slim，索引-only）
   ROCKSDB_NAMESPACE::Options zf_opt = opt;
@@ -4141,6 +4140,24 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   ctx->index_set_.reset(
       new PartitionIndexSet(ZfKeyComparator(cfd->internal_comparator())));
   ctx->SetCfd(cfd);  // step 1h：读路径查 installed fence
+  // step V0.6-C1（用户指令）：**消除不安全默认配置**。
+  //   目标模式（禁 L0）+ 固定 range 协议下，关融合会导致"停止写入后永远排不空"
+  //   （D-45/D-46 实证：pending 恒定、零回收）。
+  //   · 未显式指定 ⇒ **默认开启**；
+  //   · 显式关闭   ⇒ **启动报 InvalidArgument**；
+  //   · 历史 hash/采样库（非固定协议）⇒ 保持旧协议与旧行为，不做强制。
+  if (zfo.forbid_l0_install &&
+      zfo.routing_mode == ZeroFlushOptions::RoutingMode::kStatic) {
+    if (!zfo.merge_into_base_level &&
+        zfo.merge_into_base_level_explicit) {
+      return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+          "ZeroFlush: forbid_l0_install (target mode) requires "
+          "merge_into_base_level=true: disabling merge in target mode makes "
+          "drain/reclaim impossible (sealed data can never install without an "
+          "L0 outlet and without base merge)");
+    }
+    zfo.merge_into_base_level = true;
+  }
   ctx->set_ucmp(ucmp);
   // 创建 PartitionTableSet。
   auto table_set = std::unique_ptr<PartitionTableSet>(new PartitionTableSet());

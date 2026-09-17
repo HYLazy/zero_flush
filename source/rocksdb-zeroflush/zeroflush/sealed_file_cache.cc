@@ -231,6 +231,18 @@ size_t SealedFileCache::retiring_count() const {
 
 // D-38 诊断：列出**已注册但未安装**的代及其归属（epoch / recovery / skip），
 // 用于回答"pending 为何不为 0"：哪些 (part,gen) 卡住、字节多少、归谁管。
+uint64_t SealedFileCache::UninstalledBytesOf(uint32_t part) const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  uint64_t sum = 0;
+  for (const auto& [key, info] : gens_) {
+    if (info.installed) continue;
+    if (static_cast<uint32_t>(key >> 32) != part) continue;
+    sum += info.bytes;
+  }
+  return sum;
+}
+
 void SealedFileCache::ForEachRegisteredGen(
     const std::function<void(uint32_t, uint32_t, bool)>& fn) const {
   rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);

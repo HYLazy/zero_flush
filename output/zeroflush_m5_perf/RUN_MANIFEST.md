@@ -2499,3 +2499,66 @@ closestress 1000 轮          : PASS（零崩溃）
 P1（写放大 ~25×，缺杠杆）与 P2（额外候选分区 328）未达标，另需把"目标模式下
 `--zf_base_merge=1`"变成安全默认（或在启动时明确拒绝不安全配置）——这条本轮**未做**，
 列为下一步第一项。
+
+## V0.6 收口（三小提交）：C1 不安全默认已消除；C2 定位 P1 根因并验证收益；P2 暂缓
+
+### D-62. C1：消除不安全默认配置（目标模式必须融合）
+
+- `ZeroFlushOptions::merge_into_base_level` 增加**三态**：`merge_into_base_level_explicit`
+  （宿主传 flag 时置位；db_bench 用 gflags `is_default` 判定）。
+- `Open`（`zfo` 改为**按值**接收，规范化不回写调用方）：
+  **目标模式（forbid_l0_install）+ 固定 range 协议**下：未显式指定 ⇒ **默认开启**；
+  显式关闭 ⇒ **`InvalidArgument`**（"disabling merge in target mode makes drain/reclaim
+  impossible…"）；**历史 hash/采样协议不受影响**（保持旧协议与旧行为）。
+- 验收：
+  ```
+  负例 ZF_VC_MERGE_OFF=1 + 固定路由 ⇒ open failed: Invalid argument: … requires
+       merge_into_base_level=true  ✓（不再出现"启动成功但停止写入后永远排不空"）
+  正例（未指定）⇒ 融合默认开启：installtest scen=2 第二遍 融合输入=1/替换删除=1 ✓
+  历史 hash 库 + 显式 --zf_base_merge=0 ⇒ 仍可正常跑（fillrandom 211k ops/s）✓
+  ```
+
+### D-63. C2：P1 根因定位（**不是累计值问题**）与收益验证
+
+新增逐计划决策日志（`ZF_DBG_MERGE=1`，字段：part / consumed_gens / new_input /
+se_part_bytes / base_input / ratio / decision / merge_enabled / forbid_l0 / range）。
+
+**定位**：`ratio` 门槛只存在于 **L0 融合分支**（该分支在本 workload 从不被走到，插桩 0 命中）；
+真正产出融合的 `kMergeBase` 赋值点**根本没有 ratio 判据** ⇒ 实测
+`part=7 new_input=104664 base_input=25923226 ratio=0.0040 decision=merge`
+（为 104KB 新数据重写 25MB base）⇒ 写放大 ~24×。
+**并且**：`se_part_bytes == new_input`（二者相等）⇒ 用户怀疑的"累计值被当作收益"**不成立**。
+
+在该点加入收益阈值（目标模式 + 攒批允许 ⇒ 收益不足改攒批，带上限与收敛条件）后的实测：
+```
+写放大: prof_output_bytes 4.5–5.1GB → **355MB**（≈24×→1.8×）
+写吞吐: 93–108k → **176k ops/s**（175 MB/s）
+但读吞吐: 102–136k → **35k ops/s**；收尾 pending=718MB 未排空
+```
+**结论（未启用）**：该策略把安装推迟到"下一次封存"；写入停止后没有新封存 ⇒ 积压只能靠
+收尾排空（关闭期 guard 有界）⇒ 读阶段退化、pending 不归零。启用前必须先做**积压驱动排空**
+（按分区未安装字节触发物化批次，而非只在封存时）。故 `base_merge_skip_max_generations`
+默认 0 = **关闭**（代码/knob/诊断保留，收敛条件已就位；`UninstalledBytesOf(part)` 已加）。
+
+### D-64. P2：暂缓（按用户指示谨慎重做）
+
+本轮**未改**并集；仍为单一并集实现（`union_fallback_used` 计数器就位，供约束版重做时观测）。
+约束条件已记录：仅"新固定路由 + 当前协议版本 + 无历史别名 + **无显式候选列表**"才允许
+路由优先；历史库/旧表版本/显式 fixture 继续走完整并集；路由与兼容候选必须交给同一全局
+sequence 选择器。
+
+### D-65. 最终门禁（本 build，哈希 `/tmp/build_hash_c1c2.txt`）
+```
+closestress 1000 轮          : **零崩溃**
+semtest cases1-7            : PASS
+snapmini / aprobe(300 轮)    : PASS（errors=0 A_hits=0 陈旧索引胜出=0）
+baccept phase1-4            : PASS（phase3 pending=0 drained=42720000；phase4 registered=0 reclaimed=42720000）
+installtest 1-4             : PASS
+migrate（迁移矩阵）          : PASS 8/8
+all/scan/triage             : PASS（pending=0.0MB reclaimed=26.2MB wal_read_delta=0）
+五组压力 各 300 轮           : PASS（failures/silent_stale/notfound/corruption=0，timeouts=0，pending_last=0）
+db_bench 退出循环（含 histogram/statistics）20 次 : **crash=0**
+```
+**结论**：C1 达成（错误配置不再静默停滞）、P0 关闭（关闭无崩溃）、P2 未动语义；
+**P1 已量化并验证收益（24×→1.8×）但需"积压驱动排空"配套才能启用** ⇒ V0.6 候选仍不标记，
+下一步第一项即该配套（它是让 P1 收益落地的唯一前置）。

@@ -191,6 +191,8 @@ class SealedFileCache {
   std::string DescribeReclaimPending() const;
   // 诊断（D-38）：**未安装**的已注册代及其字节/归属列表——回答"pending 为何不为 0"。
   std::string DescribeUninstalledGens() const;
+  // step V0.6-C2：该分区**未安装**的累计字节（攒批上限判据；不依赖 epoch 归属）。
+  uint64_t UninstalledBytesOf(uint32_t part) const;
   // step B-3：遍历已注册代（恢复对账用；回调 (part, gen, installed)）。
   void ForEachRegisteredGen(
       const std::function<void(uint32_t, uint32_t, bool)>& fn) const;

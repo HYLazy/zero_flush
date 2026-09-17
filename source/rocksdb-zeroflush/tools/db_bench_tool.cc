@@ -5600,6 +5600,13 @@ class Benchmark {
         ErrorExit();
       }
       zfo.merge_into_base_level = FLAGS_zf_base_merge;
+      {
+        // step V0.6-C1：区分"用户显式给了 --zf_base_merge"与"用默认值"。
+        google::CommandLineFlagInfo zf_bm_info;
+        if (google::GetCommandLineFlagInfo("zf_base_merge", &zf_bm_info)) {
+          zfo.merge_into_base_level_explicit = !zf_bm_info.is_default;
+        }
+      }
       zfo.skip_batching = FLAGS_zf_skip_batching;
       zfo.l0_parallelism =
           static_cast<uint32_t>(std::max(1, FLAGS_zf_l0_parallelism));

@@ -121,6 +121,10 @@ struct ZeroFlushOptions {
   uint32_t materialize_parallelism = 8;  // K：并行归并 worker 数
   bool install_below_l0 = true;          // M3.2 层级下探直装开关
   bool merge_into_base_level = false;    // M3.3 融合归并开关（默认关，逐步放开）
+  // step V0.6-C1：调用方**是否显式指定**过融合开关。目标模式（禁 L0）下
+  // "未指定 ⇒ 默认开启"、"显式关闭 ⇒ 启动报错"（否则停止写入后永远排不空，
+  // D-45/D-46 实证）。宿主（db_bench / 校验器）传 flag 时置位。
+  bool merge_into_base_level_explicit = false;
   // M3.3 触发比：封存字节 / 待重写 base-level 字节 ≥ 该值才融合，否则落 L0
   double base_merge_min_ratio = 0.25;
   uint32_t l0_fallback_tolerance = 0;    // 允许的 L0 回落文件数（超出告警）
@@ -135,6 +139,9 @@ struct ZeroFlushOptions {
   // 每次 base 融合摊销的输入越多 ⇒ 重写放大越低（代价：WAL 保留更久、单批更大）。
   // 0 = 用包内默认（materialize_job 的 kMaxSkipGenerations=2）。
   uint32_t base_merge_skip_max_generations = 0;
+  // step V0.6-C2：攒批等收益的**字节上限**（该分区累计待物化字节超过它 ⇒
+  // 立即融合，避免无限滞留 WAL/索引）。默认 32MB。
+  uint64_t base_merge_skip_max_bytes = 32ull << 20;
 
   // ---- M4.3 终态 ----
   // M4.3d-2：分区索引总内存预算（背压触发 freeze；默认 4GB ≈ 6~8 千万
@@ -1427,9 +1434,10 @@ class ZeroFlushContext {
 //  - 创建 ZeroFlushContext 挂到 DBImpl；
 //  - 重放已有分区 WAL（恢复）。
 // opt 按值传入（内部拷贝修改 memtable_factory，不污染调用方选项）。
+// step V0.6-C1：zfo 也**按值**传入——Open 内部会做选项规范化（目标模式强制融合等），
+// 规范化结果只作用于本次打开，不回写调用方。
 ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
-                               const ZeroFlushOptions& zfo,
-                               const std::string& dbname,
+                               ZeroFlushOptions zfo, const std::string& dbname,
                                std::unique_ptr<ROCKSDB_NAMESPACE::DB>* db);
 
 // 关闭（DBImpl 析构时自动释放 ctx；此处仅显式解挂，供测试用）。

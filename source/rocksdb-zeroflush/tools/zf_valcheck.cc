@@ -289,6 +289,13 @@ std::unique_ptr<rocksdb::DB> OpenDb(const std::string& dbdir, bool create) {
     }
   }
   zfo.merge_into_base_level = true;
+  zfo.merge_into_base_level_explicit = true;
+  // step V0.6-C1 负例：ZF_VC_MERGE_OFF=1 ⇒ 在固定协议 + 目标模式下**显式关闭**
+  // 融合 ⇒ 启动必须报 InvalidArgument（不得静默接受）。
+  if (getenv("ZF_VC_MERGE_OFF") != nullptr) {
+    zfo.merge_into_base_level = false;
+    zfo.merge_into_base_level_explicit = true;
+  }
   std::unique_ptr<rocksdb::DB> db;
   const auto s = zeroflush::Open(opt, zfo, dbdir, &db);
   if (!s.ok()) {
