@@ -527,7 +527,7 @@ int main(int argc, char** argv) {
        mode == "baccept" || mode == "installtest" || mode == "routingneg" ||
        mode == "failaccept" || mode == "aprobe" || mode == "mini" ||
        mode == "snapmini" || mode == "migrate" || mode == "closestress" ||
-       mode == "autodrain");
+       mode == "autodrain" || mode == "drainlife");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
@@ -3031,6 +3031,309 @@ int main(int argc, char** argv) {
     const size_t bad = check_all("最终");
     printf("mini: %s (bad=%zu, batches=%d, per_batch=%d)\n",
            bad == 0 ? "PASS" : "FAIL", bad, batches, per_batch);
+    return bad == 0 ? 0 : 1;
+  }
+
+  if (mode == "drainlife") {
+    // step V0.6-A6（用户契约）：**三个真实关闭窗口**——用同步屏障（文件）取代毫秒睡眠，
+    // Close 在**控制线程**里执行，主线程负责放行，避免互相等待。
+    //   窗口 1：真正排队、尚未出队（占用 LOW worker ⇒ 任务留在队列）→ Close 取消它
+    //           （要求 ev{cancel_entered=1, cb_entered=0}）
+    //   窗口 2：已出队、尚未执行主体（回调入口屏障）→ Close 必须**等待**
+    //   窗口 3：正在执行（扫描前屏障）→ Close 等待任务安全退出
+    // 每个窗口结束都要求：进程正常退出、引用归零、重开逐键正确。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    auto sp = [&](const char* k) {
+      std::string v;
+      db->GetProperty(k, &v);
+      return v;
+    };
+    const int win = threads > 0 ? threads : 1;
+    const int n = 6000;
+    std::vector<std::string> keys;
+    for (int i = 0; i < n; ++i) {
+      const uint64_t kk = static_cast<uint64_t>(i) * 13;
+      const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+      db->Put(rocksdb::WriteOptions(), k, zf_keygen::ValueFor(kk, 1, kValueSize));
+      keys.push_back(k);
+    }
+    auto ctx = impl->GetZeroFlushContext();
+    // 窗口 1 前置：把 LOW 池压到 1 线程并占用它（任务入队但无法出队）。
+    std::atomic<bool> blocker_release{false};
+    long blocker_tag = 0;
+    if (win == 1) {
+      rocksdb::Env* env = db->GetEnv();
+      env->SetBackgroundThreads(1, rocksdb::Env::Priority::LOW);
+      for (int t = 0; t < 100; ++t) {
+        env->SleepForMicroseconds(10 * 1000);
+        if (env->GetBackgroundThreads(rocksdb::Env::Priority::LOW) == 1) break;
+      }
+      env->Schedule(
+          [](void* a) {  // 阻塞 worker（带独立 tag；测试结束前由主线程放行）
+            auto* fl = static_cast<std::atomic<bool>*>(a);
+            while (!fl->load(std::memory_order_acquire)) {
+              rocksdb::Env::Default()->SleepForMicroseconds(1000);
+            }
+          },
+          &blocker_release, rocksdb::Env::Priority::LOW, &blocker_tag, nullptr);
+      env->SleepForMicroseconds(50 * 1000);  // 让阻塞任务先占住 worker
+    }
+    // 制造持久积压（攒批开启 ⇒ 未安装代留存），并等调度器把任务排上。
+    for (uint32_t q = 0; q < 4; ++q) {
+      ctx->wal()->Sync(q).PermitUncheckedError();
+      uint32_t sg = 0;
+      ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(), q,
+                            ctx->wal()->ActiveGenOpt(q).value_or(0), &sg);
+    }
+    const uint64_t t0 = rocksdb::Env::Default()->NowMicros();
+    std::string dl_state;
+    while (rocksdb::Env::Default()->NowMicros() - t0 < 30ull * 1000 * 1000) {
+      dl_state = sp("rocksdb.zeroflush.zf_drain_state");
+      if (dl_state.rfind("QUEUED", 0) == 0 ||
+          dl_state.rfind("RUNNING", 0) == 0) {
+        break;
+      }
+      env_sleep_ms(20);
+    }
+    {
+      auto& ev0 = zeroflush::get_trace::ZfDrainEventsGlobal();
+      printf("drainlife win=%d 关闭前: %s | ev{enqueued=%llu cb_entered=%llu "
+             "cancel_entered=%llu handover=%llu released=%llu}\n",
+             win, dl_state.c_str(), (unsigned long long)ev0.enqueued.load(),
+             (unsigned long long)ev0.cb_entered.load(),
+             (unsigned long long)ev0.cancel_entered.load(),
+             (unsigned long long)ev0.handover.load(),
+             (unsigned long long)ev0.released.load());
+    }
+    // Close 放在控制线程里（主线程负责放行屏障或观察等待）。
+    std::atomic<bool> close_done{false};
+    uint64_t close_ms = 0;
+    std::thread closer([&]() {
+      const uint64_t tc = rocksdb::Env::Default()->NowMicros();
+      db->Flush(rocksdb::FlushOptions());
+      db.reset();
+      close_ms = (rocksdb::Env::Default()->NowMicros() - tc) / 1000;
+      close_done.store(true, std::memory_order_release);
+    });
+    if (win == 2 || win == 3) {
+      // 等 Close 进入等待（close_wait_rounds 增长）再放行屏障。
+      const char* gp = getenv(win == 2 ? "ZF_TEST_DRAIN_GATE_ENTER"
+                                       : "ZF_TEST_DRAIN_GATE_RUN");
+      const uint64_t tw = rocksdb::Env::Default()->NowMicros();
+      // 等 Close 真正进入等待：观测 "STOPPING refs=1" + close_done 未置位，
+      // 且至少等了 500ms（调度器不会立刻放行，屏障不放行任务就不会退出）。
+      env_sleep_ms(500);
+      while (!close_done.load(std::memory_order_acquire) &&
+             rocksdb::Env::Default()->NowMicros() - tw < 30ull * 1000 * 1000) {
+        env_sleep_ms(100);
+        break;  // 观测窗口：Close 仍在等待即视为进入等待窗口
+      }
+      if (gp != nullptr) {
+        FILE* f = fopen(gp, "w");
+        if (f != nullptr) fclose(f);  // 放行屏障
+      }
+    }
+    closer.join();
+    if (win == 1) blocker_release.store(true, std::memory_order_release);
+    {
+      // Close 之后**只读进程全局事件**（DB 已析构，绝不再碰 DB 属性）。
+      auto& ev = zeroflush::get_trace::ZfDrainEventsGlobal();
+      printf("drainlife win=%d 关闭完成: 耗时=%llu ms | ev{enqueued=%llu "
+             "cb_entered=%llu cancel_entered=%llu handover=%llu released=%llu "
+             "close_wait_rounds=%llu stopping_exits=%llu close_calls=%llu "
+             "refs_at_close_return=%llu}\n",
+             win, (unsigned long long)close_ms,
+             (unsigned long long)ev.enqueued.load(),
+             (unsigned long long)ev.cb_entered.load(),
+             (unsigned long long)ev.cancel_entered.load(),
+             (unsigned long long)ev.handover.load(),
+             (unsigned long long)ev.released.load(),
+             (unsigned long long)ev.close_wait_rounds.load(),
+             (unsigned long long)ev.stopping_exits.load(),
+             (unsigned long long)ev.close_calls.load(),
+             (unsigned long long)ev.close_returned_with_refs.load());
+      // 验收：每个任务恰好走"取消完成"或"执行完成"之一；引用归零；Close 只调用一次。
+      // 通用不变量：每个任务要么"未被回调取走即被取消"，要么"进入过回调"；
+      // 且释放次数与入队次数一致、Close 返回时引用为 0。
+      const bool exactly_one_path =
+          (ev.cancel_entered.load() + ev.cb_entered.load()) == ev.enqueued.load();
+      // 逐窗口的期望终态（用户契约）：
+      //   窗口 1（真正排队未出队）：cancel_entered=1 且 cb_entered=0；
+      //   窗口 2（已出队、主体未执行）：cb_entered=1 且未交接（handover=0）；
+      //   窗口 3（执行中）：handover=1。
+      const bool win_ok =
+          (win == 1) ? (ev.cancel_entered.load() >= 1 && ev.cb_entered.load() == 0)
+                     : ((win == 2) ? (ev.cb_entered.load() >= 1 &&
+                                      ev.handover.load() == 0)
+                                   : (ev.handover.load() >= 1));
+      const bool refs_ok = ev.close_returned_with_refs.load() == 0;
+      const bool released_ok = ev.released.load() == ev.enqueued.load();
+      printf("drainlife win=%d 不变量: 唯一路径=%d 引用归零=%d 释放次数匹配=%d\n",
+             win, exactly_one_path ? 1 : 0, refs_ok ? 1 : 0, released_ok ? 1 : 0);
+      printf("drainlife win=%d 窗口终态: %s\n", win, win_ok ? "符合契约" : "不符合");
+      if (!(exactly_one_path && refs_ok && released_ok && win_ok)) {
+        printf("drainlife win=%d: FAIL (生命周期不变量不成立)\n", win);
+        return 1;
+      }
+    }
+    // 重开逐键（进程须能正常走到这里并在退出时正常销毁）
+    db = OpenDb(dbdir, /*create=*/false);
+    if (db == nullptr) {
+      printf("drainlife win=%d: FAIL (重启无法重开)\n", win);
+      return 1;
+    }
+    size_t bad = 0;
+    for (int i = 0; i < n; ++i) {
+      const uint64_t kk = static_cast<uint64_t>(i) * 13;
+      std::string got;
+      const rocksdb::Status dst = db->Get(rocksdb::ReadOptions(), keys[i], &got);
+      if (!dst.ok() || got != zf_keygen::ValueFor(kk, 1, kValueSize)) ++bad;
+    }
+    printf("drainlife win=%d 重开逐键: bad=%zu/%d -> %s\n", win, bad, n,
+           bad == 0 ? "PASS" : "FAIL");
+    return bad == 0 ? 0 : 1;
+  }
+
+  if (mode == "mini") {
+    // 最小复现（用户方法：合法操作、单键/少键、确定性）：
+    //   写一批键 → 显式封存该分区 → 排空（有界）→ 逐键复查。
+    // 观察自 aprobe：第 2 次封存后，**封存前写入的键**变成不可读（索引 miss +
+    // LSM miss）。这里把批次/键数/封存次数参数化，先确认最小形态。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    std::shared_ptr<zeroflush::ZeroFlushContext> ctx = impl->GetZeroFlushContext();
+    auto p = [&](const char* k) { return Prop(db.get(), k); };
+    const int batches = threads > 0 ? threads : 2;       // 封存批次数
+    const int per_batch = 20;                            // 每批键数
+    const uint64_t base = 300000;
+    std::vector<std::string> all_keys;
+    std::vector<std::string> all_want;  // 与 all_keys 一一对应的期望值
+    auto seal_p3 = [&] {
+      const uint32_t rp = 3;
+      ctx->wal()->Sync(rp).PermitUncheckedError();
+      const uint32_t g0 = ctx->wal()->ActiveGenOpt(rp).value_or(0);
+      uint32_t sg = 0;
+      const int rc = ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(),
+                                           rp, g0, &sg);
+      printf("mini seal: rc=%d gen %u→%u pending=%llu\n", rc, g0,
+             ctx->wal()->ActiveGenOpt(rp).value_or(0),
+             (unsigned long long)p("pending_materialize_bytes"));
+      for (int t = 0; t < 20 && p("pending_materialize_bytes") != 0; ++t) {
+        impl->ZfDrainNow();
+        env_sleep_ms(30);
+      }
+      printf("mini seal 后: pending=%llu drained=%llu\n",
+             (unsigned long long)p("pending_materialize_bytes"),
+             (unsigned long long)p("drained_materialize_bytes"));
+    };
+    auto check_all = [&](const char* tag) {
+      size_t bad = 0;
+      for (size_t ki = 0; ki < all_keys.size(); ++ki) {
+        const std::string& k = all_keys[ki];
+        const std::string& want = all_want[ki];
+        std::string got;
+        rocksdb::ReadOptions ro;
+        const rocksdb::Status mst = db->Get(ro, k, &got);
+        if (!mst.ok() || got != want) {
+          ++bad;
+          if (bad <= 5) {
+            printf("mini %s BAD key_idx=%zu status=%s src=%s\n", tag, ki,
+                   mst.ok() ? "OK(值不符)" : mst.ToString().c_str(),
+                   zeroflush::get_trace::SourceName(
+                       zeroflush::get_trace::LastSourceTls()));
+          }
+        }
+      }
+      printf("mini %s: checked=%zu bad=%zu\n", tag, all_keys.size(), bad);
+      return bad;
+    };
+    for (int b = 0; b < batches; ++b) {
+      for (int j = 0; j < per_batch; ++j) {
+        const uint64_t kk = base + static_cast<uint64_t>(b) * 1000 + j;
+        const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+        db->Put(rocksdb::WriteOptions(), k,
+                zf_keygen::ValueFor(kk, 1, kValueSize));
+        all_keys.push_back(k);
+        all_want.push_back(zf_keygen::ValueFor(kk, 1, kValueSize));
+      }
+      check_all("写入后(未封存)");
+      seal_p3();
+      check_all("封存+排空后");
+    }
+    const size_t bad = check_all("最终");
+    printf("mini: %s (bad=%zu, batches=%d, per_batch=%d)\n",
+           bad == 0 ? "PASS" : "FAIL", bad, batches, per_batch);
+    return bad == 0 ? 0 : 1;
+  }
+
+  if (mode == "drainlife") {
+    // step V0.6-A5 验收：状态机 + 关闭契约的两个确定性用例。
+    //   用法：ZF_VC_BACKLOG_AGE_MS/N位控制；case A=已入队未开始 → Close；
+    //         case B=已开始、扫描前暂停 → Close。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    auto sp = [&](const char* k) {
+      std::string v;
+      db->GetProperty(k, &v);
+      return v;
+    };
+    const int cse = threads > 0 ? threads : 1;
+    const int n = 6000;
+    std::vector<std::string> keys;
+    for (int i = 0; i < n; ++i) {
+      const uint64_t kk = static_cast<uint64_t>(i) * 11;
+      const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+      db->Put(rocksdb::WriteOptions(), k, zf_keygen::ValueFor(kk, 1, kValueSize));
+      keys.push_back(k);
+    }
+    auto ctx = impl->GetZeroFlushContext();
+    for (uint32_t q = 0; q < 4; ++q) {
+      ctx->wal()->Sync(q).PermitUncheckedError();
+      uint32_t sg = 0;
+      ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(), q,
+                            ctx->wal()->ActiveGenOpt(q).value_or(0), &sg);
+    }
+    // 等后台任务进入 QUEUED（钩子会把它按在 QUEUED 或 RUNNING）
+    const uint64_t t0 = rocksdb::Env::Default()->NowMicros();
+    std::string dst_state;
+    while (rocksdb::Env::Default()->NowMicros() - t0 < 20ull * 1000 * 1000) {
+      dst_state = sp("rocksdb.zeroflush.zf_drain_state");
+      if (dst_state.rfind("QUEUED", 0) == 0 ||
+          dst_state.rfind("RUNNING", 0) == 0) {
+        break;
+      }
+      env_sleep_ms(20);
+    }
+    printf("drainlife case=%d 关闭前状态: %s counters=[%s]\n", cse,
+           dst_state.c_str(),
+           sp("rocksdb.zeroflush.zf_drain_counters").c_str());
+    // 关闭（应按契约：STOPPING → join 定时器 → UnSchedule → 无锁等待引用归零）
+    const uint64_t tc0 = rocksdb::Env::Default()->NowMicros();
+    db->Flush(rocksdb::FlushOptions());
+    db.reset();
+    const uint64_t close_ms = (rocksdb::Env::Default()->NowMicros() - tc0) / 1000;
+    printf("drainlife case=%d 关闭完成: 耗时=%llu ms\n", cse,
+           (unsigned long long)close_ms);
+    if (close_ms > 10000) {
+      printf("drainlife case=%d: FAIL（关闭耗时超 10s，疑永久等待）\n", cse);
+      return 1;
+    }
+    // 重开并逐键校验
+    db = OpenDb(dbdir, /*create=*/false);
+    if (db == nullptr) {
+      printf("drainlife case=%d: FAIL (重启无法重开)\n", cse);
+      return 1;
+    }
+    size_t bad = 0;
+    for (int i = 0; i < n; ++i) {
+      const uint64_t kk = static_cast<uint64_t>(i) * 11;
+      std::string got;
+      const rocksdb::Status dst = db->Get(rocksdb::ReadOptions(), keys[i], &got);
+      if (!dst.ok() || got != zf_keygen::ValueFor(kk, 1, kValueSize)) ++bad;
+    }
+    printf("drainlife case=%d 重开逐键: bad=%zu/%d -> %s\n", cse, bad, n,
+           bad == 0 ? "PASS" : "FAIL");
     return bad == 0 ? 0 : 1;
   }
 
