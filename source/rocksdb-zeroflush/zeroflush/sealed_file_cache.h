@@ -188,6 +188,9 @@ class SealedFileCache {
   std::string DescribeReclaimPending() const;
   // 诊断（D-38）：**未安装**的已注册代及其字节/归属列表——回答"pending 为何不为 0"。
   std::string DescribeUninstalledGens() const;
+  // step B-3：遍历已注册代（恢复对账用；回调 (part, gen, installed)）。
+  void ForEachRegisteredGen(
+      const std::function<void(uint32_t, uint32_t, bool)>& fn) const;
   // retiring 集合规模（诊断：清理完成应归零，长期不为零 = 回收被引用卡住）。
   size_t retiring_count() const;
   uint64_t assert_retiring_new_ref() const {

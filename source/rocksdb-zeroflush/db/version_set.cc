@@ -5970,6 +5970,18 @@ Status VersionSet::ProcessManifestWrites(
     FSDirectory* dir_contains_current_file, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options, const ReadOptions& read_options,
     const WriteOptions& write_options) {
+  // step B-3 故障注入（测试专用，env 门控；两处注入都在**两个 LogAndApply 重载
+  // 共用的**提交路径上，避免"注入了没人走的重载"）：
+  //   ① 提交**前**（manifest 未写、内存未应用）⇒ 语义 = "未提交"。
+  //   ② 提交**后**（见下方 AfterSyncManifest：manifest 已 sync、内存未应用）⇒
+  //      语义 = "结果不确定"，重启必须承认该 edit。
+  // 注入语义：**env 存在期间持续失败**（一次性注入会被 ZF 自动重试覆盖，
+  // 实测第二次尝试即成功 ⇒ 测不到失败路径）。测试窗口结束时 unsetenv。
+  if (getenv("ZF_TEST_LNA_FAIL_PRE") != nullptr) {
+    fprintf(stderr, "ZFTEST lna-fail-pre fired\n");
+    return Status::IOError("ZF test: injected LogAndApply failure (pre-write)");
+  }
+
   mu->AssertHeld();
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
@@ -6348,6 +6360,14 @@ Status VersionSet::ProcessManifestWrites(
         manifest_io_status = io_s;
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
+        // step B-3 注入点②：manifest **已 sync**，但内存尚未应用（AppendVersion
+        // 在 `if (s.ok())` 内，不会执行）⇒ 正是"已持久提交、内存应用前故障"。
+        if (io_s.ok() && getenv("ZF_TEST_LNA_FAIL_POST_SYNC") != nullptr) {
+          fprintf(stderr, "ZFTEST lna-fail-post-sync fired\n");
+          io_s = IOStatus::IOError(
+              "ZF test: injected failure AFTER manifest sync (edit is durable, "
+              "in-memory apply skipped)");
+        }
       }
       if (!io_s.ok()) {
         s = io_s;

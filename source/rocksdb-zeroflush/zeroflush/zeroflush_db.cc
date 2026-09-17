@@ -783,6 +783,10 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(install_assert_file_missing());
   } else if (prop == "rocksdb.zeroflush.install_gens_withheld") {
     *value = std::to_string(install_gens_withheld());
+  } else if (prop == "rocksdb.zeroflush.install_uncertain") {
+    *value = std::to_string(install_uncertain());
+  } else if (prop == "rocksdb.zeroflush.install_reconciled") {
+    *value = std::to_string(install_reconciled());
   } else if (prop == "rocksdb.zeroflush.gen_handoff") {
     *value = std::to_string(gen_handoff());
   } else if (prop == "rocksdb.zeroflush.gen_lost_before_install") {
@@ -2855,6 +2859,26 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
     // 已在磁盘上的未物化数据。
     for (const auto& [pp, gg] : orphans) {
       sealed_cache_->RegisterGen(pp, gg, wal_->GetFileSize(pp, gg, files, env_));
+    }
+  }
+  // step B-3（提交后故障的**恢复对账**）：已登记代若被 Version fence 覆盖，
+  // 说明它的记录已在 LSM（manifest 已承认该安装）——即使上一次进程内因
+  // "LogAndApply 报错但 manifest 已持久化"而未能销账，也必须在此**按持久化
+  // 证据**判为已安装，恢复 installed/pending 口径（幂等）。
+  if (sealed_cache_ != nullptr && cfd_ != nullptr && cfd_->current() != nullptr) {
+    std::vector<std::pair<uint32_t, uint32_t>> reconciled;
+    sealed_cache_->ForEachRegisteredGen([&](uint32_t rp, uint32_t rg,
+                                            bool installed) {
+      if (installed) return;
+      if (IsGenInstalled(rp, rg)) reconciled.emplace_back(rp, rg);
+    });
+    if (!reconciled.empty()) {
+      for (const auto& pr : reconciled) NoteInstallReconciled();
+      sealed_cache_->MarkGensInstalled(reconciled);
+      ROCKS_LOG_WARN(wal_->InfoLog(),
+                     "ZeroFlush recovery reconcile: %zu gens marked installed "
+                     "from Version fence (uncertain-install recovery)",
+                     reconciled.size());
     }
   }
   ROCKSDB_NAMESPACE::SequenceNumber max_seq = 0;

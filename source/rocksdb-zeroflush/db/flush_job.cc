@@ -454,6 +454,20 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
       }
     }
   }
+  // step B-3：s 非 ok ⇒ 本批安装未在内存中发布。但若是 **LogAndApply 报错**，
+  // manifest 可能已经持久化（注入点②/真实 MANIFEST IO 错误的边界情形）⇒ 记
+  // "提交结果不确定"，保持 pending、不删输出，交由重启按持久化证据对账。
+  if (zf_mode_ && !s.ok() && !zf_planned_installs_.empty()) {
+    if (auto zc = cfd_->GetZfCtx(); zc != nullptr) {
+      zc->NoteInstallUncertain();
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "[%s] [JOB %d] ZeroFlush install result UNCERTAIN: %s "
+                     "(edit may be durable; pending kept, outputs kept, "
+                     "reconcile on reopen)",
+                     cfd_->GetName().c_str(), job_context_->job_id,
+                     s.ToString().c_str());
+    }
+  }
   zf_planned_installs_.clear();  // 无论成败都清（失败/让位不得留待销账）
   if (getenv("ZF_DBG_MM") != nullptr) {
     fprintf(stderr, "ZFDBG-mm-installed job=%d ok=%d\n",

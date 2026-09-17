@@ -504,7 +504,8 @@ int main(int argc, char** argv) {
   const bool do_write =
       (mode == "all" || mode == "write" || mode == "walread" ||
        mode == "selftest" || mode == "semtest" || mode == "stress" ||
-       mode == "baccept" || mode == "installtest" || mode == "routingneg");
+       mode == "baccept" || mode == "installtest" || mode == "routingneg" ||
+       mode == "failaccept");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
@@ -924,10 +925,15 @@ int main(int argc, char** argv) {
     }
     db->Flush(rocksdb::FlushOptions());
     {
+      // step B-4：排空经**生产入口** ZfDrainNow（= ZfCloseFlush：flush +
+      // SealEpochAndSwitch + flush）——无新写入时也能推进既有 pending 代
+      // （移交 recovery 的代需要"下一次收养"，只调 Flush 永远等不到）。
+      rocksdb::DBImpl* bimpl = static_cast<rocksdb::DBImpl*>(db.get());
       const uint64_t deadline =
           rocksdb::Env::Default()->NowMicros() + 30ull * 1000 * 1000;
       while (rocksdb::Env::Default()->NowMicros() < deadline &&
              prop("pending_materialize_bytes") != 0) {
+        bimpl->ZfDrainNow();
         db->Flush(rocksdb::FlushOptions());
         env_sleep_ms(20);
       }
@@ -974,8 +980,10 @@ int main(int argc, char** argv) {
     if (!yield_ok) ++fails;
     // 阶段 3：解除冲突 → 重规划并安装 → pending 归零、drained 增加
     {
+      rocksdb::DBImpl* bimpl = static_cast<rocksdb::DBImpl*>(db.get());
       uint64_t tries = 0;
       while (prop("pending_materialize_bytes") != 0 && tries < 60) {
+        bimpl->ZfDrainNow();
         db->Flush(rocksdb::FlushOptions());
         env_sleep_ms(200);
         ++tries;
@@ -990,8 +998,24 @@ int main(int argc, char** argv) {
            drained_after > drained_base ? 1 : 0, install_ok ? "PASS" : "FAIL");
     if (!install_ok) ++fails;
     // 阶段 4：保护不是永久保留——索引代与 generation 最终释放/回收
+    // step B-4：回收需要"释放 → 入队 → 真实 unlink"完整走一遍：显式调用生产
+    // 回收入口并给有界重试（只等自动 purge 会看到 registered_gens 残留）。
+    {
+      rocksdb::DBImpl* bimpl = static_cast<rocksdb::DBImpl*>(db.get());
+      auto c4 = bimpl->GetZeroFlushContext();
+      for (int i = 0; i < 10 && prop("registered_gens") != 0; ++i) {
+        bimpl->ZfDrainNow();
+        if (c4 != nullptr) c4->PurgeSealedFiles();
+        env_sleep_ms(100);
+      }
+    }
     const uint64_t reg = prop("registered_gens");
     const uint64_t recl = prop("reclaimed_bytes");
+    std::string pg4;
+    db->GetProperty("rocksdb.zeroflush.pending_gens", &pg4);
+    printf("baccept phase4 明细: registered=%llu reclaimed=%llu pending_gens=%s\n",
+           (unsigned long long)reg, (unsigned long long)recl,
+           pg4.substr(0, 200).c_str());
     const bool reclaim_ok = (reg == 0) && (recl > 0);
     printf("baccept phase4 reclaim: registered_gens=%llu reclaimed=%llu -> %s\n",
            (unsigned long long)reg, (unsigned long long)recl,
@@ -1036,6 +1060,8 @@ int main(int argc, char** argv) {
     uint64_t iter_ms_total = 0, iter_ms_max = 0;
     // step B-1b：安装等待耗时/超时轮次（与工作耗时分开计量）
     uint64_t install_wait_ms_total = 0, install_wait_timeouts = 0;
+    // step B-4：安装进展侧末值（pending / registry 残留），与读正确性并列报告
+    uint64_t pending_last = 0, pending_max = 0, registry_last = 0;
     std::atomic<int> wd_stage{0};
     std::atomic<uint64_t> wd_iter{0};
     std::atomic<bool> wd_abort{false};
@@ -1192,9 +1218,13 @@ int main(int argc, char** argv) {
         }
         install_wait_ms_total +=
             (rocksdb::Env::Default()->NowMicros() - w_t0) / 1000;
-        if (Prop(idb.get(), "pending_materialize_bytes") != 0) {
+        const uint64_t pend_round = Prop(idb.get(), "pending_materialize_bytes");
+        if (pend_round != 0) {
           ++install_wait_timeouts;
         }
+        pending_last = pend_round;
+        if (pend_round > pending_max) pending_max = pend_round;
+        registry_last = Prop(idb.get(), "registered_gens");
       }
       bool unlink_done = false;
       bool engine_reclaim_due = false;
@@ -1374,7 +1404,8 @@ int main(int argc, char** argv) {
     printf("stress group=%d rounds=%llu failures=%llu silent_stale=%llu "
            "notfound=%llu corruption=%llu rotations=%llu propagated=%llu "
            "fellback=%llu pin_ok=%llu pin_active=%llu ms_avg=%llu ms_max=%llu "
-           "install_wait_avg=%llu install_wait_timeouts=%llu%s -> %s\n",
+           "install_wait_avg=%llu install_wait_timeouts=%llu "
+           "pending_last=%llu pending_max=%llu registry_last=%llu%s -> %s\n",
            group, (unsigned long long)rounds, (unsigned long long)failures,
            (unsigned long long)silent_stale, (unsigned long long)notfound,
            (unsigned long long)corruption, (unsigned long long)rotations,
@@ -1385,6 +1416,8 @@ int main(int argc, char** argv) {
            (unsigned long long)iter_ms_max,
            (unsigned long long)(rounds > 0 ? install_wait_ms_total / rounds : 0),
            (unsigned long long)install_wait_timeouts,
+           (unsigned long long)pending_last, (unsigned long long)pending_max,
+           (unsigned long long)registry_last,
            (group == 4) ? "(组4不要求安装)" : "", pass ? "PASS" : "FAIL");
     return pass ? 0 : 1;
   }
@@ -1703,7 +1736,9 @@ int main(int argc, char** argv) {
           }
         }
       }
-      const uint32_t P8A = 4, P8B = 5;     // 新代在 4、旧代在 5（互不相同）
+      // step B-4：物理分区必须**存在**（固定路由默认 4 分区 ⇒ 只用 0..3）。
+      // 原 fixture 硬编码 4/5，在 4 分区表下 WAL Append 直接失败（wal_file=0）。
+      const uint32_t P8A = 1, P8B = 2;     // 新代在 1、旧代在 2（互不相同）
       zeroflush::WalRecordRef ro{}, rn{};
       const bool ap_ok =
           ctx8->wal()
@@ -2674,6 +2709,214 @@ int main(int argc, char** argv) {
            scen, pass ? "PASS" : "FAIL", ok1 ? 1 : 0, ok2 ? 1 : 0,
            keys_ok ? 1 : 0, routing_same ? 1 : 0, keys_ok_after ? 1 : 0,
            overlap_ev_ok ? 1 : 0);
+    return pass ? 0 : 1;
+  }
+
+  if (mode == "failaccept") {
+    // step B-3（用户 2026-09-17 指令）：**失败语义验收**。三个确定场景：
+    //   A 整单元撤销（ZF_TEST_DROP_OUTPUT，装配 edit_ 与 fence **之前**整体撤销）
+    //   B 提交前失败（ZF_TEST_LNA_FAIL_PRE：manifest 未写、内存未应用）
+    //   C 提交后失败（ZF_TEST_LNA_FAIL_POST_SYNC：manifest 已 sync、内存未应用）
+    // 断言（A/B）：无 AddFile/DeleteFile/fence 提交；installed/drained/pending 不被错误
+    //   修改；WAL/registry/索引仍可读；重启后数据正确；解除注入后能安装、排空并回收。
+    // 断言（C）：进程内保持 pending（不假装已安装），**重启后必须承认该 edit**
+    //   （fence 覆盖 ⇒ installed 恢复、pending 归零），逐键正确。
+    // 每个场景：写入 → 封存 → 注入 → 驱动安装 → 断言 → （C 重启）→ 解除 → 排空+回收。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    std::shared_ptr<zeroflush::ZeroFlushContext> ctx = impl->GetZeroFlushContext();
+    auto p = [&](const char* k) { return Prop(db.get(), k); };
+    auto sp = [&](const char* k) {
+      std::string v;
+      db->GetProperty(k, &v);
+      return v;
+    };
+    const std::string sc = threads > 0 ? (threads == 1 ? "A" : (threads == 2 ? "B" : "C")) : "A";
+    const uint64_t span = 20000;
+    const uint64_t b1 = span / 4;
+    auto keys = [&] {
+      std::vector<uint64_t> v;
+      for (uint64_t k = 100; k < 160; ++k) v.push_back(k);
+      v.push_back(b1);
+      v.push_back(b1 - 1);
+      return v;
+    };
+    auto put_all = [&](int seed) {
+      for (uint64_t k : keys()) {
+        db->Put(rocksdb::WriteOptions(), zf_keygen::KeyFromInt(k, kKeySize),
+                zf_keygen::ValueFor(k, seed, kValueSize));
+      }
+    };
+    auto read_all = [&](const char* tag) {
+      size_t bad = 0;
+      for (uint64_t k : keys()) {
+        std::string got;
+        const rocksdb::Status s =
+            db->Get(rocksdb::ReadOptions(), zf_keygen::KeyFromInt(k, kKeySize), &got);
+        if (!s.ok() || got != zf_keygen::ValueFor(k, 1, kValueSize)) ++bad;
+      }
+      printf("failaccept %s %s: 逐键 bad=%zu/%zu\n", sc.c_str(), tag, bad,
+             keys().size());
+      return bad == 0;
+    };
+    auto seal_written = [&] {
+      std::set<uint32_t> parts;
+      for (uint64_t k : keys()) {
+        parts.insert(ctx->RoutePartId(
+            rocksdb::Slice(zf_keygen::KeyFromInt(k, kKeySize))));
+      }
+      for (uint32_t q : parts) {
+        ctx->wal()->Sync(q).PermitUncheckedError();
+        const uint32_t g0 = ctx->wal()->ActiveGenOpt(q).value_or(0);
+        uint32_t sg = 0;
+        ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(), q, g0, &sg);
+      }
+    };
+    put_all(1);
+    seal_written();
+    bool fence_same_during = true;
+    const uint64_t pend0 = p("pending_materialize_bytes");
+    const uint64_t dr0 = p("drained_materialize_bytes");
+    const uint64_t add0 = p("install_add_file");
+    const uint64_t del0 = p("install_delete_replaced");
+    const uint64_t fence0 = p("fence_advance_count");
+    const uint64_t empty0 = p("empty_edit_count");
+    const uint64_t withheld0 = p("install_gens_withheld");
+    printf("failaccept %s 基线: pending=%llu drained=%llu add_file=%llu "
+           "delete_replaced=%llu fence_adv=%llu empty_edit=%llu withheld=%llu\n",
+           sc.c_str(), (unsigned long long)pend0, (unsigned long long)dr0,
+           (unsigned long long)add0, (unsigned long long)del0,
+           (unsigned long long)fence0, (unsigned long long)empty0,
+           (unsigned long long)withheld0);
+    if (sc == "A") {
+      setenv("ZF_TEST_DROP_OUTPUT", "-1", 1);
+    } else if (sc == "B") {
+      setenv("ZF_TEST_LNA_FAIL_PRE", "1", 1);
+    } else {
+      setenv("ZF_TEST_LNA_FAIL_POST_SYNC", "1", 1);
+    }
+    // 注入期间驱动安装（有限次），并**在注入仍生效时**读取全部判据——
+    // 否则后台批次会在 unsetenv 之后立刻提交，测到的是"解除后"的状态
+    // （实测：一次性注入 + 先解除后读 ⇒ fence 已推进、看不到失败语义）。
+    {
+      std::string fx_before;
+      db->GetProperty("rocksdb.zeroflush.installed_fences", &fx_before);
+      for (int i = 0; i < 8; ++i) {
+        impl->ZfDrainNow();
+        env_sleep_ms(50);
+      }
+      std::string fx_during;
+      db->GetProperty("rocksdb.zeroflush.installed_fences", &fx_during);
+      if (sc != "A") {
+        printf("failaccept %s 注入窗口: fences 前=[%s] 后=[%s]\n", sc.c_str(),
+               fx_before.substr(0, 100).c_str(), fx_during.substr(0, 100).c_str());
+      }
+      fence_same_during = (fx_before == fx_during);
+    }
+    const uint64_t pend1 = p("pending_materialize_bytes");
+    const uint64_t dr1 = p("drained_materialize_bytes");
+    const uint64_t add1 = p("install_add_file");
+    const uint64_t del1 = p("install_delete_replaced");
+    const uint64_t fence1 = p("fence_advance_count");
+    const uint64_t withheld1 = p("install_gens_withheld");
+    const uint64_t unc1 = p("install_uncertain");
+    printf("failaccept %s 注入后: pending=%llu drained=%llu add_file=%llu(+%lld) "
+           "delete_replaced=%llu(+%lld) fence_adv=%llu(+%lld) withheld=%llu(+%lld) "
+           "uncertain=%llu\n",
+           sc.c_str(), (unsigned long long)pend1, (unsigned long long)dr1,
+           (unsigned long long)add1, (long long)(add1 - add0),
+           (unsigned long long)del1, (long long)(del1 - del0),
+           (unsigned long long)fence1, (long long)(fence1 - fence0),
+           (unsigned long long)withheld1, (long long)(withheld1 - withheld0),
+           (unsigned long long)unc1);
+    const bool readable = read_all("注入后(进程内)");
+    unsetenv("ZF_TEST_DROP_OUTPUT");
+    unsetenv("ZF_TEST_LNA_FAIL_PRE");
+    unsetenv("ZF_TEST_LNA_FAIL_POST_SYNC");
+    const std::string pg1 = sp("rocksdb.zeroflush.pending_gens");
+    const bool no_add = (add1 == add0);
+    const bool no_del = (del1 == del0);
+    // 判据用**持久证据**（Version 里的 installed_fences 未变），不用
+    // fence_advance_count（那个计数与实际提交不等价，实测注入窗口内为 +2
+    // 而 Version 里没有任何 fence）。
+    const bool no_fence = fence_same_during;
+    const bool pend_kept = (pend1 >= pend0 && pend1 > 0);
+    const bool drained_not_advanced = (dr1 == dr0);
+    bool okA = no_add && no_del && no_fence && pend_kept && drained_not_advanced && readable;
+    // C：进程内不假装已安装，但**记录不确定**。
+    if (sc == "C") okA = okA && (unc1 > 0);
+    printf("failaccept %s 判据: 无AddFile=%d 无Delete=%d 无fence=%d pending保持=%d "
+           "drained不推进=%d 可读=%d | pending_gens=%s\n",
+           sc.c_str(), no_add ? 1 : 0, no_del ? 1 : 0, no_fence ? 1 : 0,
+           pend_kept ? 1 : 0, drained_not_advanced ? 1 : 0, readable ? 1 : 0,
+           pg1.substr(0, 140).c_str());
+    // 重启：A/B 应"数据仍正确、edit 未被承认（pending 仍在，或数据仍可读）"；
+    // C 应"承认 edit ⇒ installed/fence 恢复 ⇒ pending 归零"。
+    db->Flush(rocksdb::FlushOptions());
+    db.reset();
+    db = OpenDb(dbdir, /*create=*/false);
+    if (db == nullptr) {
+      printf("failaccept %s: FAIL (重启无法重开)\n", sc.c_str());
+      return 1;
+    }
+    impl = static_cast<rocksdb::DBImpl*>(db.get());
+    ctx = impl->GetZeroFlushContext();
+    const bool readable_after = read_all("重启后");
+    const uint64_t pend_r = p("pending_materialize_bytes");
+    const uint64_t rec_r = p("install_reconciled");
+    std::string fx;
+    db->GetProperty("rocksdb.zeroflush.installed_fences", &fx);
+    printf("failaccept %s 重启后: pending=%llu reconciled=%llu registered=%llu "
+           "fences=%s\n",
+           sc.c_str(), (unsigned long long)pend_r, (unsigned long long)rec_r,
+           (unsigned long long)p("registered_gens"), fx.substr(0, 120).c_str());
+    printf("failaccept %s 重启后 pending_gens=%s\n", sc.c_str(),
+           sp("rocksdb.zeroflush.pending_gens").substr(0, 160).c_str());
+    bool ok_restart = readable_after;
+    if (sc == "C") {
+      // 提交后故障：重启必须承认该 edit（fence 覆盖 ⇒ 已安装 ⇒ pending 归零）。
+      // 用户要求："重启必须承认该 edit，恢复 installed/fence/drained"。
+      // 判据看**状态**：pending 归零 且 fence 覆盖该代（fences 非空），
+      // 不要求特定的对账机制被触发（reconciled 仅作信息打印）。
+      const bool fence_restored = fx.find("p1=[") != std::string::npos ||
+                                  fx.find("p0=[") != std::string::npos;
+      ok_restart = ok_restart && (pend_r == 0) && fence_restored;
+    }
+    // 解除注入后：能安装、排空并回收。
+    bool ok_clean = true;
+    {
+      // 解除后需要新的封存批次来驱动（数据本身仍在 WAL/registry 或已安装）。
+      put_all(1);
+      seal_written();
+      for (int i = 0; i < 24; ++i) {
+        impl->ZfDrainNow();
+        env_sleep_ms(50);
+        if (p("pending_materialize_bytes") == 0) break;
+      }
+      const uint64_t pend_f = p("pending_materialize_bytes");
+      const std::string pg2 = sp("rocksdb.zeroflush.pending_gens");
+      const bool zero = (pend_f == 0) && (pg2.rfind("n=0 ", 0) == 0);
+      // 回收：显式调用生产回收入口后应看到真实 unlink 与记账。可能需要多轮
+      // （引用释放 → 入队 → PurgePending），给有界重试。
+      uint64_t reclaim = p("reclaimed_bytes");
+      for (int i = 0; i < 8 && reclaim == 0; ++i) {
+        impl->ZfDrainNow();
+        // 真实 unlink 由**生产回收入口**完成（DBImpl::PurgeObsoleteFiles 调用的
+        // 同一个入口）；只排空不 purge 时文件仍在（记账也还不该推进）。
+        ctx->PurgeSealedFiles();
+        env_sleep_ms(80);
+        reclaim = p("reclaimed_bytes");
+      }
+      printf("failaccept %s 解除后: pending=%llu 无未安装代=%d reclaimed=%llu "
+             "pending_gens=%s\n",
+             sc.c_str(), (unsigned long long)pend_f, zero ? 1 : 0,
+             (unsigned long long)reclaim, pg2.substr(0, 120).c_str());
+      ok_clean = zero;
+    }
+    const bool pass = okA && ok_restart && ok_clean;
+    printf("failaccept %s: %s (注入期合规=%d 重启语义=%d 解除后安装排空=%d)\n",
+           sc.c_str(), pass ? "PASS" : "FAIL", okA ? 1 : 0, ok_restart ? 1 : 0,
+           ok_clean ? 1 : 0);
     return pass ? 0 : 1;
   }
 

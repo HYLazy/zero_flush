@@ -664,6 +664,22 @@ class ZeroFlushContext {
   void NoteInstallGensWithheld() const {
     install_gens_withheld_.fetch_add(1, std::memory_order_relaxed);
   }
+  // step B-3：**提交结果不确定**的安装尝试数（LogAndApply 返回错误 ⇒ 可能已
+  // 持久化也可能没有）。语义：绝不能直接当"未提交"处理——保持 pending、不删
+  // 输出，交由重启/恢复按**持久化证据**（fence/manifest）重新判定。
+  void NoteInstallUncertain() const {
+    install_uncertain_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t install_uncertain() const {
+    return install_uncertain_.load(std::memory_order_relaxed);
+  }
+  // step B-3：重启时按 fence 重新判定"已安装"的代数（恢复对账）。
+  void NoteInstallReconciled() const {
+    install_reconciled_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t install_reconciled() const {
+    return install_reconciled_.load(std::memory_order_relaxed);
+  }
   // 发布当场断言失败次数（输出文件号未出现在当前 Version；理论恒 0，
   // 仅作断言，不影响销账判据）。
   void NoteInstallAssertFileMissing() const {
@@ -1247,6 +1263,8 @@ class ZeroFlushContext {
   mutable std::atomic<uint64_t> ctx_stats_handoff_at_release_{0};
   mutable std::atomic<uint64_t> fence_no_committed_output_{0};
   mutable std::atomic<uint64_t> install_gens_withheld_{0};
+  mutable std::atomic<uint64_t> install_uncertain_{0};
+  mutable std::atomic<uint64_t> install_reconciled_{0};
   mutable std::atomic<uint64_t> install_assert_file_missing_{0};
   mutable std::atomic<uint64_t> forced_yield_batches_{0};
   mutable std::atomic<uint64_t> forced_yield_drained_flat_{0};

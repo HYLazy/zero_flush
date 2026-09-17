@@ -2213,3 +2213,66 @@ scen=4 第二遍: merge_input_files=3 add_file=6 delete_replaced=3 base_merge_co
 这两组**不再走到 sealed 代 pin / retiring 拒绝**路径（旧配置是 219 次 pin、112 次拒绝）。
 该路径的覆盖现由 semtest case5/case8a/case8b 承担；后续若要压力级覆盖，需要为固定路由
 单独调参（例如扩大 epoch 目标或注入让位）再补一组。
+
+## B step 3–4 收口：失败语义验收 + 同一 build 全面验收（**全绿**）
+
+build 哈希：`/tmp/build_hash_final.txt`（`zf_valcheck 2efa31bf…`、`librocksdb.so.11 60208545…`）。
+
+### D-50. 失败语义验收（新模式 `failaccept A|B|C`，三场景全 PASS）
+
+三个确定场景，每个都做：写入 → 显式封存 → 注入 → 驱动安装 → **在注入仍生效时**读判据
+→ 重启 → 解除注入后安装/排空/回收。
+
+| 场景 | 注入 | 结果 |
+|---|---|---|
+| A 整单元撤销 | `ZF_TEST_DROP_OUTPUT`（装配 edit/fence **之前**整体撤销） | PASS |
+| B 提交**前**失败 | `ZF_TEST_LNA_FAIL_PRE`（共享提交路径、manifest 未写） | PASS |
+| C 提交**后**失败 | `ZF_TEST_LNA_FAIL_POST_SYNC`（manifest 已 sync、内存未应用） | PASS |
+
+```
+A: 无AddFile=1 无Delete=1 无fence=1 pending保持=1 drained不推进=1 可读=1
+   重启后逐键 bad=0/62 | 解除后 pending=0 无未安装代=1 reclaimed=65148
+B: 同合规；重启后 **edit 未被承认**（fences=(none)、pending=66216、gens=NONE+recovery）
+   | 解除后 pending=0 无未安装代=1 reclaimed=132432
+C: 同合规 + install_uncertain>0；重启后 **承认该 edit**：
+   fences=p1=[0,0]b1068r1 p0=[0,0]b65148r61、pending=0、registered=0、逐键 62/62 正确
+   | 解除后 pending=0 无未安装代=1 reclaimed=66216
+```
+新增：`ZF_TEST_LNA_FAIL_PRE` / `ZF_TEST_LNA_FAIL_POST_SYNC`（**env 存在期间持续失败**——
+一次性注入会被自动重试覆盖，实测第二次尝试即成功而测不到失败路径）；
+`install_uncertain`（提交结果不确定计数）+ `install_reconciled`；恢复期**按 Version fence
+对账**（`ForEachRegisteredGen` + `MarkGensInstalled`）——C 的重启承认正是靠它/恢复本身完成。
+判据用**持久证据**（Version 里的 `installed_fences`）而不是 `fence_advance_count`
+（实测后者在注入窗口内为 +2 而 Version 里没有任何 fence，不能当判据）。
+
+### D-51. 同一 build 的完整验收（全部通过）
+
+| 项目 | 结果 |
+|---|---|
+| semtest（case5 / case7 / case8a / case8b / 1-3） | **PASS**（`cases1-7: PASS`，`fails=0`） |
+| baccept（phase1–4） | **PASS**（phase1 pending=0；phase2 让位 5 批；phase3 pending=0 drained=42720000；phase4 `registered_gens=0 reclaimed=42720000`） |
+| all / scan / triage | **PASS**（`scan mismatch=0`、`B2=0`、`all: mismatch/miss/errors=0`、`pending=0.0MB drained=34.2MB reclaimed=26.2MB`） |
+| installtest 1–4（停止写入后排空 + 重启一致性） | **PASS**（四场景含融合证据） |
+| routingneg（配置冲突/协议不支持/元数据损坏） | **PASS**（3/3） |
+| failaccept A/B/C | **PASS** |
+| 五组压力（各 300 轮） | **PASS** |
+
+五组压力汇总（按用户要求同时报告读错误/安装等待超时/pending/reclaimed/registry 残留）：
+```
+组1: failures=0 silent_stale=0 notfound=0 corruption=0 rotations=300 ms_avg=103
+     install_wait_timeouts=0 pending_last=0 pending_max=0 registry_last=2 PASS
+     reclaimed_bytes=39409200 reclaimed_gens=300
+组2: 同上 ms_avg=123 timeouts=0 pending=0 registry_last=2 reclaimed=118227600 gens=900
+组3: 同上 ms_avg=110 timeouts=0 pending=0 registry_last=2 reclaimed=65686400 gens=500
+组4: 同上 ms_avg=162 timeouts=0 pending=0 registry_last=0 reclaimed=197046000 gens=1500（组4 不要求安装）
+组5: 同上 ms_avg=155 timeouts=0 pending=0 registry_last=1 reclaimed=197046000 gens=1500
+断言（retiring=>no_new_ref / reclaimed=>installed&&refs==0 / 读引用未释放）全 0。
+```
+**覆盖度补记（用户指令 4）**：固定路由下组 4/5 的 `pin_ok/pin_active` 为 0——不再自然触发
+sealed 代 pin / retiring 路径；该路径的确定性覆盖由 **semtest case5/case7(sealed)/case8a/8b**
+承担（本 build 全 PASS）。若后续压力门禁要求覆盖该路径，需另加**受控让位场景**（不改生产逻辑）。
+另外组 1–3 每轮结束时 `registry_last=2`（当轮活跃/刚封存代），非残留泄漏（`pending_last=0`）。
+
+**状态**：`B（安全安装与失败语义）在本 build 上完整标绿`：安装/排空/回收、跨分区与重启一致性、
+整单元撤销、提交前失败、提交后故障恢复、协议负例、五组压力全部通过。
+下一步（按用户顺序）：**合法路径 A 的自然可达性判断**；其后是固定路由的性能与迁移细节。
