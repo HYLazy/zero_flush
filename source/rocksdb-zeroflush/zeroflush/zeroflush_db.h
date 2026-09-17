@@ -679,6 +679,9 @@ class ZeroFlushContext {
     install_progress_failures_.fetch_add(1, std::memory_order_relaxed);
   }
   // 排空模式（积压驱动执行中）——收益攒批在此模式下**强制融合**。
+  // step V0.6-A3：**排空模式**——关闭排空或积压驱动执行中。此时规划器禁止 kSkip
+  // （数据留在 skip 集合里等"下一次 epoch 收养"，停写后没有新 epoch ⇒ 永远装不上）。
+  bool NoSkipMode() const { return closing_flush() || backlog_drain_active(); }
   bool backlog_drain_active() const {
     return backlog_drain_active_.load(std::memory_order_relaxed);
   }

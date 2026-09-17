@@ -2141,11 +2141,17 @@ bool ZeroFlushContext::GetFromPartitionIndex(
       const bool in_registry = sealed_cache_ != nullptr &&
                               sealed_cache_->GenRegistered(rej.part, rej.gen);
       const bool fence_covers = IsGenInstalled(rej.part, rej.gen);
+      // step V0.6-A1（判定收紧）：**"registry 无条目"不再单独作为放行理由**。
+      // 需要明确证据：发布证据（cache 级 installed 且仍在登记）、fence 覆盖、
+      // 或**合法回收墓碑**（真实 unlink 过）。三者皆无 ⇒ 不回落，走"重试视图后
+      // 仍不安全 ⇒ 明确报错"的原路径（无证据不得当成成功）。
+      const bool reclaimed_proof =
+          sealed_cache_ != nullptr &&
+          sealed_cache_->GenReclaimedByFlow(rej.part, rej.gen);
       const bool published =
           rej.set && ((in_registry &&
                        sealed_cache_->GenInstalledPublished(rej.part, rej.gen)) ||
-                      fence_covers ||
-                      /* 陈旧条目 */ (!in_registry && !fence_covers));
+                      fence_covers || reclaimed_proof);
       if (getenv("ZF_DBG_RETIRE") != nullptr) {
         char dg[64];
         snprintf(dg, sizeof(dg), "rocksdb.zeroflush.describe_gen:%u:%u",

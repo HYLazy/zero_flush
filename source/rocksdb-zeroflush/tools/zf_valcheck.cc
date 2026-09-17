@@ -300,6 +300,11 @@ std::unique_ptr<rocksdb::DB> OpenDb(const std::string& dbdir, bool create) {
       zfo.base_merge_skip_max_generations = static_cast<uint32_t>(v);
     }
   }
+  // step V0.6-A3 验收：积压年龄上限（ms；用例可缩短以便快速验证年龄唤醒路径）。
+  if (const char* bam = getenv("ZF_VC_BACKLOG_AGE_MS")) {
+    const long v = strtol(bam, nullptr, 10);
+    if (v > 0) zfo.backlog_drain_max_age_micros = static_cast<uint64_t>(v) * 1000;
+  }
   if (getenv("ZF_VC_MERGE_OFF") != nullptr) {
     zfo.merge_into_base_level = false;
     zfo.merge_into_base_level_explicit = true;
@@ -521,7 +526,8 @@ int main(int argc, char** argv) {
        mode == "selftest" || mode == "semtest" || mode == "stress" ||
        mode == "baccept" || mode == "installtest" || mode == "routingneg" ||
        mode == "failaccept" || mode == "aprobe" || mode == "mini" ||
-       mode == "snapmini" || mode == "migrate" || mode == "closestress");
+       mode == "snapmini" || mode == "migrate" || mode == "closestress" ||
+       mode == "autodrain");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
@@ -3026,6 +3032,93 @@ int main(int argc, char** argv) {
     printf("mini: %s (bad=%zu, batches=%d, per_batch=%d)\n",
            bad == 0 ? "PASS" : "FAIL", bad, batches, per_batch);
     return bad == 0 ? 0 : 1;
+  }
+
+  if (mode == "autodrain") {
+    // step V0.6-A3（用户指定的关键验收）：
+    //   写入 → 封存 → **停止写入** → 不调用 Flush/DrainNow、不关闭 DB
+    //   → 后台自行安装（积压驱动 + 定时唤醒）→ pending 归零
+    //   → 回收完成、读正确、重启正确。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    std::shared_ptr<zeroflush::ZeroFlushContext> ctx = impl->GetZeroFlushContext();
+    auto p = [&](const char* k) { return Prop(db.get(), k); };
+    auto sp = [&](const char* k) {
+      std::string v;
+      db->GetProperty(k, &v);
+      return v;
+    };
+    const int n = 20000;
+    std::vector<std::string> keys;
+    keys.reserve(n);
+    for (int i = 0; i < n; ++i) {
+      const uint64_t kk = static_cast<uint64_t>(i) * 7;
+      const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+      db->Put(rocksdb::WriteOptions(), k, zf_keygen::ValueFor(kk, 1, kValueSize));
+      keys.push_back(k);
+    }
+    // 显式封存全部分区（之后**不再有写入**）。
+    for (uint32_t q = 0; q < 4; ++q) {
+      ctx->wal()->Sync(q).PermitUncheckedError();
+      uint32_t sg = 0;
+      ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(), q,
+                            ctx->wal()->ActiveGenOpt(q).value_or(0), &sg);
+    }
+    const uint64_t pend0 = p("pending_materialize_bytes");
+    const uint64_t recl0 = p("reclaimed_bytes");
+    printf("autodrain 停写: pending=%llu reclaimed=%llu backlog_needed=%s\n",
+           (unsigned long long)pend0, (unsigned long long)recl0,
+           sp("rocksdb.zeroflush.backlog_needed").c_str());
+    // **只等待**：不调用任何 drain/flush/close。后台应自行推进（定时唤醒 + 排空任务）。
+    const uint64_t t0 = rocksdb::Env::Default()->NowMicros();
+    uint64_t pend = pend0;
+    while (rocksdb::Env::Default()->NowMicros() - t0 < 120ull * 1000 * 1000) {
+      env_sleep_ms(200);
+      pend = p("pending_materialize_bytes");
+      if (pend == 0) break;
+    }
+    const uint64_t elapsed_ms =
+        (rocksdb::Env::Default()->NowMicros() - t0) / 1000;
+    const std::string pg = sp("rocksdb.zeroflush.pending_gens");
+    const uint64_t recl = p("reclaimed_bytes");
+    printf("autodrain 等待结束: pending=%llu（耗时 %llu ms）uninstalled=%s "
+           "reclaimed=%llu(基=%llu) requests=%llu\n",
+           (unsigned long long)pend, (unsigned long long)elapsed_ms,
+           pg.substr(0, 80).c_str(), (unsigned long long)recl,
+           (unsigned long long)recl0,
+           (unsigned long long)p("backlog_drain_requests"));
+    // 读正确性（进程内）
+    size_t bad = 0;
+    for (int i = 0; i < n; ++i) {
+      const uint64_t kk = static_cast<uint64_t>(i) * 7;
+      std::string got;
+      const rocksdb::Status adst1 =
+          db->Get(rocksdb::ReadOptions(), keys[i], &got);
+      if (!adst1.ok() || got != zf_keygen::ValueFor(kk, 1, kValueSize)) ++bad;
+    }
+    printf("autodrain 读校验: bad=%zu/%d\n", bad, n);
+    // 重启后可读
+    db->Flush(rocksdb::FlushOptions());
+    db.reset();
+    db = OpenDb(dbdir, /*create=*/false);
+    if (db == nullptr) {
+      printf("autodrain: FAIL (重启无法重开)\n");
+      return 1;
+    }
+    size_t bad2 = 0;
+    for (int i = 0; i < n; ++i) {
+      const uint64_t kk = static_cast<uint64_t>(i) * 7;
+      std::string got;
+      const rocksdb::Status adst2 =
+          db->Get(rocksdb::ReadOptions(), keys[i], &got);
+      if (!adst2.ok() || got != zf_keygen::ValueFor(kk, 1, kValueSize)) ++bad2;
+    }
+    printf("autodrain 重启读校验: bad=%zu/%d\n", bad2, n);
+    const bool pass = (pend == 0) && (recl > recl0) && (bad == 0) && (bad2 == 0);
+    printf("autodrain: %s (pending归零=%d 回收推进=%d 读正确=%d 重启可读=%d 耗时=%llu ms)\n",
+           pass ? "PASS" : "FAIL", pend == 0 ? 1 : 0, recl > recl0 ? 1 : 0,
+           bad == 0 ? 1 : 0, bad2 == 0 ? 1 : 0, (unsigned long long)elapsed_ms);
+    return pass ? 0 : 1;
   }
 
   if (mode == "closestress") {

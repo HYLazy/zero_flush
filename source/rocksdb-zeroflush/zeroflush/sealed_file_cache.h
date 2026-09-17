@@ -193,6 +193,12 @@ class SealedFileCache {
   std::string DescribeUninstalledGens() const;
   // step V0.6-C2：该分区**未安装**的累计字节（攒批上限判据；不依赖 epoch 归属）。
   uint64_t UninstalledBytesOf(uint32_t part) const;
+  // step V0.6-A1（用户口径）：**合法回收的墓碑证据**——`(part,gen)` 只有在
+  // PurgePending 里**真实 unlink 成功**后才登记（= 由合法回收流程留下的状态证明）。
+  // "该代已回收、数据在 LSM"的判定必须用这类证据（或发布证据 / fence 覆盖），
+  // **不得**仅凭"registry 里没有条目"推断——registry 缺失也可能是登记或生命周期
+  // 错误（历史上已发生过）。
+  bool GenReclaimedByFlow(uint32_t part, uint32_t gen) const;
   // step B-3：遍历已注册代（恢复对账用；回调 (part, gen, installed)）。
   void ForEachRegisteredGen(
       const std::function<void(uint32_t, uint32_t, bool)>& fn) const;
@@ -410,6 +416,8 @@ class SealedFileCache {
   std::atomic<uint64_t> assert_reclaim_unsafe_{0};
   // step 1aq：已进入回收（retiring）的代——禁止新读引用加入。
   std::unordered_set<ZfFileKey> retiring_gens_;
+  // step V0.6-A1：合法回收墓碑（真实 unlink 成功后登记；有界保留最近 64K 条）。
+  mutable std::unordered_set<ZfFileKey> reclaimed_by_flow_;
   std::atomic<uint64_t> acquire_rejected_retiring_{0};
   std::atomic<uint64_t> gen_read_ref_total_{0};
   std::atomic<uint64_t> reclaim_deferred_by_reader_{0};

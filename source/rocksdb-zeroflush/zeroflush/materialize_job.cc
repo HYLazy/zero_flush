@@ -2268,11 +2268,23 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   uint64_t min_seq = ROCKSDB_NAMESPACE::kMaxSequenceNumber;
   uint64_t prof_ab = 0;
   for (const auto& [p, gen] : gens) {
-    // step V0.6-P0：同 MaterializePartition——扫描期间持读引用；已回收则跳过。
+    // step V0.6-P0/A1：同 MaterializePartition——扫描期间持读引用；跳过必须有证据。
     auto* sfc = ctx_->sealed_cache();
     const bool gen_registered = sfc != nullptr && sfc->GenRegistered(p, gen);
-    if (sfc == nullptr || !gen_registered ||
-        !sfc->TryAcquireGenReadRef(p, gen)) {
+    if (!gen_registered) {
+      const bool reclaimed_proof =
+          sfc != nullptr && sfc->GenReclaimedByFlow(p, gen);
+      const bool fence_proof = ctx_->IsGenInstalled(p, gen);
+      if (reclaimed_proof || fence_proof) {
+        ctx_->NoteScanSkippedReclaimed();
+        continue;
+      }
+      return ROCKSDB_NAMESPACE::Status::Corruption(
+          "ZF merge scan: gen neither registered nor provably reclaimed/"
+          "installed (part=" + std::to_string(p) + " gen=" +
+          std::to_string(gen) + ")");
+    }
+    if (!sfc->TryAcquireGenReadRef(p, gen)) {
       ctx_->NoteScanSkippedReclaimed();
       continue;
     }

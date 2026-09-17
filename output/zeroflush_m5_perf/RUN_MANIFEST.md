@@ -2621,3 +2621,60 @@ semtest case1/2/3/7/8a 的跨分区语义，已在 D-55/D-60 记录并回退）�
 ⇒ 全部门禁通过、两个生产级问题均有明确结论与可回退实现 ⇒ **标记本 build 为 V0.6 候选版本**
 （具备受控运行条件）。下一步：P1 安全触发路径（独立调度线程）→ 启用收益攒批并复跑基准与门禁；
 P2 保持现状（真实开销为 0）。
+
+## V0.6 下一轮（A1–A3）：判定收紧已落地；后台排空机制完整但**默认不启用**
+
+### D-70. A1：危险判据已复核并收紧（必须有证据，不得把"缺失"当成功）
+
+问题（用户指出）：我此前两处按"registry 里没有条目 ⇒ 已回收 ⇒ 可跳过扫描 / 回落 LSM"
+放行——该推断不充分（registry 缺失也可能是登记或生命周期错误，历史上发生过）。
+
+改法：新增**合法回收墓碑** `reclaimed_by_flow_`（只有 `PurgePending` 里**真实 unlink
+成功**后才登记，有界保留最近 64K 条）；三处判定全部改为**必须有证据**（任一）：
+① 发布证据（cache 级 installed 且仍在登记）；② fence 覆盖；③ 合法回收墓碑。
+- 物化扫描（`MaterializePartition` 与融合路径）：无证据 ⇒ **返回 Corruption 明确报错**，
+  不再当作成功跳过；
+- 读路径 retiring 分流：无证据 ⇒ 不回落，走"重试视图后仍不安全 ⇒ 明确报错"原路径。
+验证：semtest（case1/2/3/5/7/8a/8b 全覆盖）PASS、installtest scen 2/4 PASS、压力组 1
+100 轮 PASS ⇒ 合法流程全部留下证据，**收紧后零误报**。
+
+### D-71. A2/A3：后台排空机制（完整实现，**默认门控关闭**）+ 定时唤醒的必要性实证
+
+实现（复用既有 flush 调度模式）：
+- 调度点 `MaybeScheduleZfDrainLocked()`（**持 DB mutex 只做**：探测积压 → 去重
+  （`zf_drain_scheduled_`/`zf_drain_running_`）→ `env_->Schedule` 入队，带 unsched 回调）；
+  任务 `BackgroundCallZfDrain()`（回调不持 DB mutex，内部调 `ZfDrainNow()` 的既有锁契约；
+  置 `SetBacklogDrainActive(true)` 让收益攒批在排空期强制融合；**有进展立即再排、无进展
+  退避 200ms + 计 `install_progress_failures`**）；定时器 `ZfDrainTimerThread`（200ms 周期，
+  独立于写入/封存）；`CloseHelper` 起始停止新调度并**无锁等待**运行中任务结束。
+
+**实测（`ZF_ENABLE_BACKLOG_DRAIN=1` + `ZF_VC_MERGE_BENEFIT=8` + 年龄 1s，autodrain 用例）**：
+```
+停写后（无任何 Flush/DrainNow/close 调用）：pending 10.68MB → 2.29MB
+reclaimed 0 → 19 069 140；读校验 bad=0/20000；后台请求数 26k（定时器在工作）
+但 pending **未归零**：残留 1 代 3:4(2.29MB, NONE+skip)
+```
+两个关键教训（都已记录，供下一步直接用）：
+1. **定时器必须在任何调度点就启动**，不能"发现积压之后"才启动——否则停写后没人再调用
+   调度函数，定时器永远不启动（实测 `requests=0`、pending 不动）。已修正为提前启动。
+2. 停写后**没有新 epoch** 来收养 skip 集合里的代 ⇒ 该代永远不安装。我尝试"排空模式禁止
+   kSkip（17 处一刀切改为 kMergeBase）"⇒ **段错误**：那些分支里有"目标文件被占用/冲突"
+   等尚不具备融合条件的情形，强选 kMergeBase 会在合并装配处空指针。**已完整回退**
+   （`NoSkipMode()` 保留但无调用点；kSkip 恢复 17 处）。
+   正确做法（下一步）：**只**在"融合装配已完成/compaction 已就绪"的那几处禁用 kSkip，
+   或在排空路径显式**收养 skip 集合**为一个 epoch（`AddEpochWithRecoveryAdoption` 已能把
+   skip 并入新 epoch，问题是空尾封存不一定产生可物化的 epoch）。
+3. 关闭期生命周期竞态：`autodrain` 在**重启/关闭**处 SIGSEGV（定时器/任务与 DB 析构顺序）；
+   已加停止标志与无锁等待，仍未消除。**故自动触发默认门控关闭**
+   （`ZF_ENABLE_BACKLOG_DRAIN` 显式开启），候选版本继续使用**已验收的安全默认**。
+
+### D-72. 门禁（默认路径，本 build，哈希 `/tmp/build_hash_a1a3.txt`）
+```
+semtest cases1-7            : PASS
+installtest scen 2 / 4      : PASS
+五组压力（此处跑组 1 100 轮）: PASS（failures/silent_stale/notfound/corruption=0、timeouts=0、pending=0）
+```
+**未完成（下一步，按用户顺序）**：① 关闭期生命周期修复（定时器/任务的停止与 DB 析构顺序）
+→ ② 排空路径的 skip 集合适配（"空尾封存也能收养并被物化"）或按站点精细禁用 kSkip →
+③ 满足"不开新写、不靠关闭也能自动排空"的关键验收 → ④ 全生命周期写放大收益重测
+（写阶段/立即读/排空后读、pending 峰值、排空耗时、总输出字节）→ ⑤ 启用新默认并复跑门禁。

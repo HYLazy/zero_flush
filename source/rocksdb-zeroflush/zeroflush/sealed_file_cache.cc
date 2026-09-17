@@ -231,6 +231,12 @@ size_t SealedFileCache::retiring_count() const {
 
 // D-38 诊断：列出**已注册但未安装**的代及其归属（epoch / recovery / skip），
 // 用于回答"pending 为何不为 0"：哪些 (part,gen) 卡住、字节多少、归谁管。
+bool SealedFileCache::GenReclaimedByFlow(uint32_t part, uint32_t gen) const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  return reclaimed_by_flow_.count(MakeFileKey(part, gen)) > 0;
+}
+
 uint64_t SealedFileCache::UninstalledBytesOf(uint32_t part) const {
   rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
   rocksdb::MutexLock l(m);
@@ -771,6 +777,12 @@ size_t SealedFileCache::PurgePending() {
         ++reclaimed_gens_;
         gens_.erase(git);
       }
+      // step V0.6-A1：留下**合法回收墓碑**（真实 unlink 成功 ⇒ 该代已回收）。
+      // 有界保留最近 64K 条（超出清理一半，避免无界增长）。
+      if (reclaimed_by_flow_.size() >= 65536) {
+        reclaimed_by_flow_.clear();
+      }
+      reclaimed_by_flow_.insert(req.key);
     }
   }
   return before;
