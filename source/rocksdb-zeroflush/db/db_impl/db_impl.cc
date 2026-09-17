@@ -875,6 +875,8 @@ void DBImpl::ZfCloseFlush() {
   if (zf_ctx_ == nullptr || default_cf_handle_ == nullptr) {
     return;
   }
+  const bool zf_td = getenv("ZF_DBG_TEARDOWN") != nullptr;
+  if (zf_td) fprintf(stderr, "ZFTD close-flush: enter\n");
   ColumnFamilyData* cfd = default_cf_handle_->cfd();
   zf_ctx_->SetClosingFlush(true);
   // step 0b-1：排空阶段可观测——固定写量运行的末态决定"总输出"能否跨运行
@@ -887,6 +889,7 @@ void DBImpl::ZfCloseFlush() {
   fo.wait = true;
   fo.allow_write_stall = true;
   Status zs = FlushMemTable(cfd, fo, FlushReason::kManualCompaction);
+  if (zf_td) fprintf(stderr, "ZFTD close-flush: after flush #1 status=%s\n", zs.ToString().c_str());
   int zf_guard = 0;
   while (zs.ok() && zf_ctx_->HasPendingSealedData() && zf_guard++ < 16) {
     // step 0b-3 第二阶段：区分"本轮真实安装了 AddFile"与"本轮只产出空
@@ -895,6 +898,7 @@ void DBImpl::ZfCloseFlush() {
     // 并报告残留，而不是把 guard 轮数烧完。
     const uint64_t zf_drained_before = zf_ctx_->DrainedMaterializeBytes();
     const uint64_t zf_pending_before_round = zf_ctx_->PendingMaterializeBytes();
+    if (zf_td) fprintf(stderr, "ZFTD close-flush: guard round=%d pending=%llu\n", zf_guard, (unsigned long long)zf_ctx_->PendingMaterializeBytes());
     {
       InstrumentedMutexLock l(&mutex_);
       zs = zf_ctx_->SealEpochAndSwitch(this, cfd);
@@ -915,6 +919,7 @@ void DBImpl::ZfCloseFlush() {
       break;
     }
   }
+  if (zf_td) fprintf(stderr, "ZFTD close-flush: drain loop done guard=%d status=%s\n", zf_guard, zs.ToString().c_str());
   // 注意：sealed_bytes() 是"累计已封存字节"统计量，不是当前 pending——真正的
   // pending 判据是 HasPendingSealedData()（此处记 before->after）。
   ROCKS_LOG_INFO(immutable_db_options_.info_log,

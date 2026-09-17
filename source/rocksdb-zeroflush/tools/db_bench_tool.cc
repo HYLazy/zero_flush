@@ -856,6 +856,10 @@ DEFINE_int32(zf_bp_timeout_ms, -1,
 DEFINE_string(zf_static_boundaries, "",
              "Comma-separated ascending boundary keys for --zf_routing=static "
              "(count must be zf_partitions - 1).");
+DEFINE_int64(zf_static_span, 0,
+             "step V0.6-3：--zf_routing=static 时按**键空间等分**内部生成边界"
+             "（= 本 workload 的最大键号；0 = 关闭）。用于性能对照：二进制键含 NUL "
+             "无法经命令行传递，故在工具内生成。");
 DEFINE_bool(zf_base_merge, false,
             "ZeroFlush M3.3: fuse materialization into base level (merge with "
             "overlapping base-level files) instead of falling back to L0.");
@@ -5562,7 +5566,14 @@ class Benchmark {
         zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kHash;
       } else if (FLAGS_zf_routing == "static") {
         zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
-        if (!FLAGS_zf_static_boundaries.empty()) {
+        if (FLAGS_zf_static_span > 0 && zfo.partitions > 1) {
+          // 内部按等分生成边界（与校验器同款键格式）。
+          for (uint32_t i = 1; i < zfo.partitions; ++i) {
+            zfo.static_boundaries.push_back(zf_keygen::KeyFromInt(
+                (static_cast<uint64_t>(FLAGS_zf_static_span) * i) / zfo.partitions,
+                FLAGS_key_size));
+          }
+        } else if (!FLAGS_zf_static_boundaries.empty()) {
           const std::string& b = FLAGS_zf_static_boundaries;
           size_t start = 0;
           while (true) {

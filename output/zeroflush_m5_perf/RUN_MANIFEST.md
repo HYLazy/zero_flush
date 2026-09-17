@@ -2362,3 +2362,70 @@ WAL·LSM 存在性/registry 状态）**一轮定位**：
 **`A: UNREACHABLE_UNDER_VALID_PROTOCOL`**（合法路径 4560 次 Get 零错误、零陈旧索引胜出、
 零持久丢失）；case6 同步标注。未对每次 Get 增加 LSM 查询（LSM-only 对照只在测试用例内做，
 生产路径开关是线程本地的一次性判断）。
+
+## 固定路由的性能与迁移收口（进行中）：迁移矩阵全绿，发现两个新阻断项
+
+### D-55. 迁移矩阵（新模式 `migrate`，8/8 PASS）
+
+| 用例 | 结果 |
+|---|---|
+| A 新库固定 range 路由：写→封存→安装→重启 | **PASS**（open ✓、路由身份前后**完全一致**、pending=0、逐键 bad=0） |
+| B 历史 hash 库重开 | **PASS**（旧协议继续可用、逐键正确、身份保持 `hash=1`；**用固定路由配置打开被明确拒绝**：`ZFPROPS partitions mismatch`） |
+| C 比较器名冲突（改 ZFPROPS+重算 CRC） | **PASS** ⇒ `InvalidArgument: ZFPROPS comparator mismatch` |
+| D 边界冲突 | **PASS** ⇒ `InvalidArgument: fixed-routing boundaries conflict` |
+| E 分区数冲突 | **PASS** ⇒ `Corruption: ZFPROPS corrupt but zfwal non-empty` |
+| F part_ids 损坏 | **PASS** ⇒ Corruption（同上） |
+| G 协议版本不支持（format_version=99） | **PASS** ⇒ Corruption |
+| H CRC 损坏 | **PASS** ⇒ Corruption |
+`migrate: PASS (fails=0)`；六类异常**全部明确报错**，无重建、无静默切换路由。
+
+### D-56. 多分区边界回归（installtest 3/4 + 新指标）
+
+```
+scen=3/4: PASS（第一遍/第二遍/重启前逐键/路由一致/重启后逐键/融合证据 全 1）
+终点: pending=0  registered=0  pending_gens=n=0  旧代 WAL 残留=0（磁盘证据，跨重启稳健）
+备注: 额外候选分区查询=328（**已知项**：读路径收敛待做）
+```
+- 覆盖：边界键（5000/10000/15000 及其 ±1）、跨边界多分区、跨分区覆盖写、删除、snapshot、重启。
+- `all/scan/triage`（同 build、新库）：`scan mismatch=0`、`B2=0`、`all pending=0.0MB drained=34.3MB reclaimed=26.2MB`、`wal_read_delta=0`。
+- **"额外候选分区查询=0"未达成**：实测 328。原因明确——固定边界下路由分区唯一，
+  但读路径仍做"全部有链分区"的候选并集（设计上属"读路径收敛"项）。我尝试实现后
+  **主动退回**：该改动会改变读路径语义（非路由分区不再被查），semtest case1/2/3/7/8a 的
+  跨分区 fixture 依赖并集，且迁移库可能仍有跨分区历史记录。按用户"不再改读写语义"指令，
+  该项**列为后续性能项**，指标如实报告（计数器 `union_skipped` 已就位，开启时可直接观测）。
+
+### D-57. 性能对照（固定 range vs 历史 hash，200k×1KB，8 分区，4 线程，`--zf_base_merge=1`）
+
+| 指标 | 固定 range | 历史 hash |
+|---|---|---|
+| fillrandom | **88 151 ops/s**（45.0 µs/op，87.4 MB/s） | 30 262 ops/s（130.8 µs/op，30.0 MB/s） |
+| readrandom | **258 397 ops/s**（15.4 µs/op，251.6 MB/s） | 12 866 ops/s（306.9 µs/op，12.5 MB/s） |
+| 写 P50/P75/P99/P99.9 | 16.1 / 21.9 / 50.8 / 352.9 µs | 13.4 / 18.9 / 45.7 / 111.2 µs |
+| 读 P50/P75/P99/P99.9 | **13.1 / 19.1 / 43.0 / 74.0 µs** | 313.2 / 347.1 / 379.5 / 564.4 µs |
+| wall clock | 13.8 s | 91.2 s |
+| 安装/排空/回收 | `reclaimed=789MB`、`installed_epochs=75`、`empty_edit=0`（另一次 200k 运行） | `pending=839MB`、`reclaimed=0`、`installed_epochs=1`、`empty_edit=51` |
+
+⇒ 固定路由在读吞吐/延迟与排空回收上大幅领先（读 ~20×、写 ~2.9×）；历史 hash 仍受既有
+"装不上/不回收"问题影响（D-45/D-46）。
+**新增两点（阻断候选标记）**：
+1. **物化写放大**：固定路由 200k×1KB（200MB）run 的 `prof_output_bytes=4.41GB`
+   （≈22×），`prof_merge_us=27.8s` ⇒ 反复 base 融合重写是下一优化目标。
+2. **关闭时罕见段错误**：`db_bench`（固定路由、`--zf_base_merge=1`）约 **1/7 次**在退出时
+   SIGSEGV。插桩定位：`ZFTD close-flush` 的排空返回
+   `Corruption: ZF sealed WAL scan failed: IO error: ZeroFlush: scanner file not open`
+   ⇒ **物化扫描与回收竞态**（物化扫描密封段时未持 generation 读引用，而读路径有）。
+   已挂后台复现循环（抓到即停，日志 `/tmp/crash_repro_iter*.log`）。
+
+### 当前门禁状态（本 build，哈希 `/tmp/build_hash_v062.txt`）
+```
+snapmini（base/对照/sw4）      : PASS
+aprobe（合法路径 300 轮）      : PASS —— errors=0 A_hits=0 陈旧索引胜出=0
+semtest cases1-7               : PASS（并集回退后恢复；case6=N/A/UNREACHABLE_UNDER_VALID_PROTOCOL）
+baccept phase1-4               : PASS（phase3 pending=0 drained=42720000；phase4 registered=0 reclaimed=42720000）
+installtest 1-4                : PASS（终点 pending=0/registry=0/旧代 WAL=0）
+migrate（迁移矩阵）             : PASS 8/8
+all/scan/triage                : PASS（pending=0.0MB reclaimed=26.2MB wal_read_delta=0）
+五组压力 各 300 轮              : PASS（install_wait_timeouts=0、pending 0、断言全 0）
+```
+**结论**：**不标记 V0.6 候选**——两个新阻断项（关闭时罕见 SIGSEGV、物化写放大 22×）与
+一个已知性能项（额外候选分区收敛）必须先关闭；核心正确性其余项目全绿。

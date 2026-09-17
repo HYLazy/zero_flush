@@ -656,6 +656,8 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(sealed_bytes());
   } else if (prop == "rocksdb.zeroflush.materialize_micros") {
     *value = std::to_string(materialize_micros());
+  } else if (prop == "rocksdb.zeroflush.union_skipped") {
+    *value = std::to_string(union_skipped());
   } else if (prop == "rocksdb.zeroflush.index_parts_scanned") {
     *value = std::to_string(index_parts_scanned());
   } else if (prop == "rocksdb.zeroflush.read_short_read_retried") {
@@ -1780,6 +1782,22 @@ bool ZeroFlushContext::SelectBestIndexRecord(
     for (uint32_t p : extra) {
       cands.push_back({p, index_set_->PartMaxSeqUpper(p)});
     }
+    // step V0.6-2（用户口径："新库额外候选分区查询=0"）：**固定 range 路由**
+    // 且表从未更替（current_version==0）且无 DRAINING/split 别名时，路由分区
+    // 唯一——其它分区的链不可能持有本键版本，全候选并集只是纯开销。
+    // 保留 DRAINING/split 别名回查（跨换代的历史记录仍可读）；历史 hash 库或
+    // 已更替表版本的库继续走并集（显式慢路径）。
+    // step V0.6-2 复核：该收敛**会改变读路径语义**（非路由分区的记录不再被查）
+    // ——用户本轮明确"不再改读写语义"，且 semtest case1/2/3/7/8a 的跨分区
+    // fixture 依赖并集；此外迁移库可能仍有跨分区历史记录。
+    // 故：**暂不启用**（读路径收敛列为后续性能项，指标 `index_parts_scanned`
+    // 继续如实报告）。union_skipped_ 计数器保留，供后续开启时观测。
+    const bool fixed_unique_route = false;
+    if (fixed_unique_route) {
+      union_skipped_.fetch_add(1, std::memory_order_relaxed);
+      std::stable_sort(cands.begin(), cands.end(),
+                       [](const Cand& a, const Cand& b) { return a.upper > b.upper; });
+    } else {
     std::vector<std::pair<uint32_t, uint64_t>> chain_parts;
     index_set_->ChainParts(&chain_parts);
     if (chain_parts.size() > zfo_.read_union_max_parts) {
@@ -1794,6 +1812,7 @@ bool ZeroFlushContext::SelectBestIndexRecord(
       if (std::find(extra.begin(), extra.end(), p) != extra.end()) continue;
       cands.push_back({p, ub});
       index_parts_scanned_.fetch_add(1, std::memory_order_relaxed);
+    }
     }
   }
   std::stable_sort(cands.begin(), cands.end(),

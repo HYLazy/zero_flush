@@ -572,6 +572,9 @@ class ZeroFlushContext {
   void NoteActiveWalRead() const {
     active_wal_read_count_.fetch_add(1, std::memory_order_relaxed);
   }
+  uint64_t union_skipped() const {
+    return union_skipped_.load(std::memory_order_relaxed);
+  }
   uint64_t active_wal_read_count() const {
     return active_wal_read_count_.load(std::memory_order_relaxed);
   }
@@ -1252,6 +1255,8 @@ class ZeroFlushContext {
   std::atomic<uint64_t> fence_hole_advance_count_{0};
   std::atomic<uint64_t> fence_input_incomplete_count_{0};
   mutable std::atomic<uint64_t> active_wal_read_count_{0};
+  // step V0.6-2：因"固定路由唯一分区"而跳过全候选并集的读次数（性能指标）。
+  mutable std::atomic<uint64_t> union_skipped_{0};
   mutable std::atomic<uint64_t> index_parts_scanned_{0};
   mutable std::atomic<uint64_t> read_readfail_propagated_{0};
   mutable std::atomic<uint64_t> read_short_read_retried_{0};
