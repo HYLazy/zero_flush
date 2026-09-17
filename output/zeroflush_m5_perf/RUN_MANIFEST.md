@@ -1982,3 +1982,32 @@ case8a PASS: sel_returned=0 retiring_rejected=1 db_gate=1 lsm_has_new=1
 ```
 **build 哈希**：`/tmp/build_hash_v3.txt`（zf_valcheck / librocksdb.so.11）。
 五组全量按该 build 重新排队（组 5→1→2→3→4，各 300 轮），日志 `/tmp/v3_g*_300.log`。
+
+### D-44. **五组压力全量通过**（v3 build，各 300 轮，零错误；组 5 覆盖新协议）
+
+build = `82032ce`（发布证据分流 + case8a 真实化）；哈希 `/tmp/build_hash_v3.txt`
+（`zf_valcheck b6aa030b…`、`librocksdb.so.11 04e0d049…`）。命令统一为
+`ZF_READ_SHORT_RETRY=0 ZF_VC_PARTITION_TARGET_KB=128 zf_valcheck <db> stress <g> 300`，
+watchdog=30s 内置，无外部终止（各组 exit=0）。
+
+| 组 | 覆盖 | rounds | failures | silent_stale | notfound | corruption | rotations | ms_avg/ms_max | 回收侧 |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 基础跨 Freeze | 300 | 0 | 0 | 0 | 0 | 300 | 10142/10157 | 0 |
+| 2 | 安装后回收 | 300 | 0 | 0 | 0 | 0 | 300 | 10144/10178 | gens=132 / 1.62MB |
+| 3 | snapshot/delete 混合 | 300 | 0 | 0 | 0 | 0 | 300 | 10143/10166 | gens=48 / 580KB |
+| 4 | 活跃+换代+不安装 | 300 | 0 | 0 | 0 | 0 | 300 | 209/248 | 0 |
+| 5 | sealed-at-selection | 300 | 0 | 0 | 0 | 0 | 300 | 10296/10772 | **gens=660 / 62.98MB**，`acquire_rejected_retiring=112`、`pin_ok=219` |
+
+全部组的断言均为 0：`retiring=>no_new_ref`、`reclaimed=>installed&&refs==0`、
+读引用未释放（`gen_read_ref_total`）；`gen_release_before_install=0`、
+`gen_lost_before_install=0`；保留契约被走到（`index_kept_uninstalled` 1116–1870、
+`handoff_at_release` 365–612）。
+
+**判读**：组 5 是本轮修复的**真正验证组**——它让"胜出代已 retiring"反复发生
+（112 次拒绝、219 次 sealed 代 pin、660 个代回收），读数全部正确且无一次 IOError/
+NotFound/旧值；组 2/3 证明回收在读写混合下也安全完成；组 1/4 覆盖活跃代与未安装代读路径。
+**外部终止**：无（未出现任何 exit=124/143 或被 kill 的记录）。
+
+**仍未通过的门禁（与本轮修复无关，根因见 D-40）**：baccept phase3/4（"冲突解除后继续
+安装并排空"、"保护非永久保留"）——目标模式禁装 L0 × 规划输出层为 L0 互锁；A/B 已证
+修复前后同数失败。整单元撤销、合法路径 A、固定路由仍未开始。
