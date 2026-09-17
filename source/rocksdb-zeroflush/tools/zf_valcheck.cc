@@ -206,6 +206,9 @@ void WriteRange(rocksdb::DB* db, uint64_t lo, uint64_t hi, uint32_t seed) {
   }
 }
 
+// OpenDb 需要 num_keys 提示来生成等分边界（kStatic 实验用）。
+static uint64_t g_num_keys_hint = 20000;
+
 std::unique_ptr<rocksdb::DB> OpenDb(const std::string& dbdir, bool create) {
   rocksdb::Options opt;
   opt.create_if_missing = create;
@@ -249,6 +252,23 @@ std::unique_ptr<rocksdb::DB> OpenDb(const std::string& dbdir, bool create) {
     if (v > 0) zfo.epoch_target_bytes = v << 20;
   }
   zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kSampled;
+  // step B-2 决定性实验：`ZF_VC_STATIC_BOUNDARIES=1` ⇒ 用**固定 range 边界**
+  // （kStatic，按键空间等分）而不是"先 hash 再学边界"。用途：区分"融合/安装
+  // 路径本身有缺陷"与"hash 路由（无 range 语义）与禁 L0 不相容"——若固定边界下
+  // installtest 场景 2 直接通过，则融合/安装路径是对的，缺口在路由语义。
+  if (getenv("ZF_VC_STATIC_BOUNDARIES") != nullptr) {
+    const uint32_t P = zfo.partitions > 0 ? zfo.partitions : 16;
+    zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+    zfo.static_boundaries.clear();
+    // 键空间跨度：小规模运行（fixture）也要能用——不足 1000 时按 20000 等分，
+    // 否则边界会重复（`PartitionTable: duplicate boundary key`）。
+    const uint64_t span =
+        g_num_keys_hint >= 1000 ? g_num_keys_hint : 20000;
+    for (uint32_t i = 1; i < P; ++i) {
+      const uint64_t v = (span * i) / P;
+      zfo.static_boundaries.push_back(zf_keygen::KeyFromInt(v, kKeySize));
+    }
+  }
   zfo.merge_into_base_level = true;
   std::unique_ptr<rocksdb::DB> db;
   const auto s = zeroflush::Open(opt, zfo, dbdir, &db);
@@ -458,6 +478,7 @@ int main(int argc, char** argv) {
   const int threads = argc > 4 ? atoi(argv[4]) : 4;
   const uint64_t per_thread = argc > 5 ? strtoull(argv[5], nullptr, 10) : 20000;
   const uint64_t total = num_keys > 0 ? num_keys : per_thread * threads;
+  g_num_keys_hint = total;  // kStatic 边界生成用（OpenDb 之前）
 
   std::map<int, uint64_t> ok_by_src;  // step 1f：读来源分布（walread 用）
   // step 1f：walread/selftest 自包含（先写后读，同一进程，不 Flush）

@@ -2076,3 +2076,45 @@ ZFDBG-pick vsstorage base=1 lvl=1 new=[00..00,00..C1] hit=file9 [同范围]
 
 **当前状态**：`B-step1 完成`（确定性用例 + 根因 + 性能线索量化）；`B-step2（修规划）待决策后实施`。
 semtest 复验仍全绿（case1/2/3/5/7/8a/8b + `cases1-7: PASS`）。
+
+### D-46. B step 2 进展与决定性证据：**融合/安装路径本身正确**，缺口是"边界必须从一开始就稳定"
+
+**已实施（本提交）**
+1. **学习窗口不再绑定 epoch 1**：只要表仍是 version 0（hash）就持续采样、每次封存都尝试学习。
+   旧实现只在 epoch 1 封存时学边界、且采样只在 `epoch_counter_==0` 期间 ⇒ 首 epoch 封得早
+   或样本少 ⇒ **永久停在 hash 表**（实测 `samples=7 parts=16 bd_ok=0`）。
+2. **采样不足时降级分区数**而不是放弃学习：`BuildBoundaries(P)` 在 `samples < P` 时返回
+   false；改为从 P 递减找到第一个可用的分区数（仍为 **range 语义**，只是分区数少于配置值，
+   与"align 表每 epoch 重建、分区数可变"的既有语义一致）。
+   实测：`ZFDBG-learn epoch=3 samples=7 seen=400 bd_ok=1 parts=16 eff_parts=7` ⇒
+   `cur_table_ver=1 cur_hash=0`，此后 epoch 4+ `merge_enabled=1`。
+3. 新增实验开关 `ZF_VC_STATIC_BOUNDARIES=1`（kStatic，按键空间等分给出 P-1 个固定边界）。
+
+**决定性实验（同一用例、同一 build、只改路由模式）**
+```
+installtest scen=1/2 @ kStatic（固定 range 边界）:
+  scen=1: PASS（真实安装=1 pending归零=1 l0_install=0 空edit=0）
+  scen=2: PASS（真实安装=1 pending归零=1 l0_install=0 空edit=0）
+    证据: ZFDBG-mm-plan epoch=2 pid=0 dec=1 lo=… hi=…4E2… ov=[9 ]   ← kMergeBase 消费目标层输入
+          ZFDBG-install lvl=1 file=11 … part=0 dec=1                 ← 同批替换安装成功
+installtest scen=2 @ kSampled（默认）: FAIL（同前：pending 冻结、empty_edit/l0_blocked 递增）
+```
+⇒ **引擎的融合路径（Compaction 注册 / 输出范围 / DeleteFile+AddFile / 安装时重叠检查）在
+稳定 range 边界下完全正确**；B 的"停止写入后能排空"只差**路由语义**。
+
+**学习窗口修复仍不足以解锁已写数据**（实测）：epoch 4+ 已 `merge_enabled=1`，但 hash 期
+（epoch ≤3）写下的代**键集按 hash 路由**，在 range 表下 `GetPartRange` 给不出覆盖它们的区间
+⇒ 仍只能让位（空 edit）。即"路由版本在库生命周期内改变"本身与"range 语义安装检查"不相容。
+
+**结论与建议（需决策，含存储/协议影响）**
+- **建议（已在实验中验证可行）**：把"**边界从创建起就稳定**"提前到目标模式落地——即
+  `forbid_l0_install` 的新库直接以 `kStatic`（或等价的确定性固定边界，前缀/等分均可）建表，
+  持久化于 ZFPROPS，写/读/恢复共用同一张表（这正是用户列在 V0.6 的"固定路由"；实测它一启用
+  B 就打通）。代价：新库的分区数/边界固定，后续调参需迁移（与 V0.6 设计一致）。
+- 备选：给**每条记录**（或每个 gen）记录写入时的路由版本，使旧 hash 期数据在其原表语义下安装
+  ——协议面更大（读/物化/恢复都要带版本判定），且与"边界稳定"目标重复。
+- 不建议：为目标模式在这条路径放开 L0（等于放弃目标模式约束）。
+
+**回归（本 build）**：semtest cases1-7 PASS；新库 `write/scan/triage/all` 全零
+（`scan mismatch=0`、`B2=0`、`all: mismatch/miss/errors=0 VALCHECK PASS`）；
+`all` 结束仍 `pending=44.8MB gens=32 drained=0`（= 上面这条未修完的"装不上"）。

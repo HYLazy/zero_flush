@@ -341,11 +341,44 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SealEpochAndSwitch(
   // 步骤 3），se.table_version 必须保持 0——物化用它取回 hash 表并跳过
   // 范围断言；若错误地标成新表版本，物化会拿学习后的边界对 hash 路由
   // 的记录做范围断言，必然报 "materialized range outside table bounds"。
+  // step B-2 修正（用户 2026-09-17 指令 2）：学习窗口**不再绑定 epoch==1**。
+  // 旧实现只在 epoch 1 封存时学边界，且采样只在 `epoch_counter_==0` 期间进行
+  // ⇒ 若首个 epoch 封存时样本不足（小批量/测试 fixture/128KB 分区），数据库
+  // **永久停在 hash 表**：hash 表无 range 语义 ⇒ 融合门禁恒关 ⇒ 规划只能出普通
+  // 物化 ⇒ 与"禁 L0 + range 安装检查"互锁（installtest 场景 2 实测）。
+  // 现在：只要表仍是 version 0 就持续采样、每次封存都尝试学习，直到学出 range 表。
+  // 语义不变：本 epoch 的记录仍用旧表（hash）写、se.table_version 保持旧版本，
+  // 新表从下一 epoch 起生效（与注释中的交接语义一致）。
   if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
       sampler_ && tables_ && tables_->current_version() == 0 &&
-      epoch == 1 && !sampler_->empty()) {
+      !sampler_->empty()) {
+    // step B-2 修正（关键）：采样数不足 P 时**降级用更少分区**，而不是放弃学习。
+    // 旧实现：`BuildBoundaries(P)` 在 samples_ < P 时返回 false ⇒ 表永远停在
+    // version 0（hash）⇒ 融合门禁恒关 ⇒ 与"禁 L0 + range 安装检查"互锁
+    // （实测 `samples=7 parts=16 bd_ok=0`：小批量/测试 fixture/小库永久卡住）。
+    // 降级后路由仍是 **range 语义**（连续区间），只是分区数少于配置值——这与
+    // "align 表每 epoch 重建、分区数可变"的既有语义一致；WAL 侧分区数不变，
+    // 未使用的 part id 只是没有数据。
     std::vector<std::string> boundaries;
-    if (sampler_->BuildBoundaries(zfo_.partitions, &boundaries)) {
+    uint32_t eff_parts = zfo_.partitions;
+    bool bd_ok = false;
+    for (uint32_t p = zfo_.partitions; p >= 1; --p) {
+      if (sampler_->BuildBoundaries(p, &boundaries)) {
+        bd_ok = true;
+        eff_parts = p;
+        break;
+      }
+      if (p == 1) break;
+    }
+    if (getenv("ZF_DBG_MM") != nullptr) {
+      fprintf(stderr,
+              "ZFDBG-learn epoch=%llu samples=%zu seen=%llu bd_ok=%d "
+              "parts=%u eff_parts=%u\n",
+              (unsigned long long)epoch, sampler_->sample_count(),
+              (unsigned long long)sampler_->total_seen(), bd_ok ? 1 : 0,
+              zfo_.partitions, eff_parts);
+    }
+    if (bd_ok) {
       std::shared_ptr<PartitionTable> new_table;
       rocksdb::Status cps = PartitionTable::Create(
           1, std::move(boundaries), ucmp_, &new_table);
@@ -1331,9 +1364,10 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::AddRecord(
               (unsigned long long)(wg_t3 - wg_t2), part, ref.gen);
     }
   }
-  // M3.1：kSampled 模式下记录采样（仅 epoch 1 学习期）。
+  // M3.1：kSampled 模式下记录采样。step B-2 修正：学习期 = "表仍是 version 0"，
+  // 而不是"首个 epoch 之前"——否则首 epoch 一封存就再也采不到样本（见封存处注释）。
   if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
-      sampler_ && epoch_counter_.load() == 0) {
+      sampler_ && tables_ && tables_->current_version() == 0) {
     sampler_->Sample(key);
   }
   return ROCKSDB_NAMESPACE::Status::OK();
@@ -1394,11 +1428,44 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::FreezeBatchPartitions(
   // M3.1/M4.2b：采样学习 / L1 对齐（批次封存路径的接线缺口，R49——
   // 融合从未启用的根因）。epoch 1 封存时学习安装新表（版本 1+）；本
   // epoch 用旧表写/物化（写组表版本绑定保证路由一致）。
+  // step B-2 修正（用户 2026-09-17 指令 2）：学习窗口**不再绑定 epoch==1**。
+  // 旧实现只在 epoch 1 封存时学边界，且采样只在 `epoch_counter_==0` 期间进行
+  // ⇒ 若首个 epoch 封存时样本不足（小批量/测试 fixture/128KB 分区），数据库
+  // **永久停在 hash 表**：hash 表无 range 语义 ⇒ 融合门禁恒关 ⇒ 规划只能出普通
+  // 物化 ⇒ 与"禁 L0 + range 安装检查"互锁（installtest 场景 2 实测）。
+  // 现在：只要表仍是 version 0 就持续采样、每次封存都尝试学习，直到学出 range 表。
+  // 语义不变：本 epoch 的记录仍用旧表（hash）写、se.table_version 保持旧版本，
+  // 新表从下一 epoch 起生效（与注释中的交接语义一致）。
   if (zfo_.routing_mode == ZeroFlushOptions::RoutingMode::kSampled &&
       sampler_ && tables_ && tables_->current_version() == 0 &&
-      epoch == 1 && !sampler_->empty()) {
+      !sampler_->empty()) {
+    // step B-2 修正（关键）：采样数不足 P 时**降级用更少分区**，而不是放弃学习。
+    // 旧实现：`BuildBoundaries(P)` 在 samples_ < P 时返回 false ⇒ 表永远停在
+    // version 0（hash）⇒ 融合门禁恒关 ⇒ 与"禁 L0 + range 安装检查"互锁
+    // （实测 `samples=7 parts=16 bd_ok=0`：小批量/测试 fixture/小库永久卡住）。
+    // 降级后路由仍是 **range 语义**（连续区间），只是分区数少于配置值——这与
+    // "align 表每 epoch 重建、分区数可变"的既有语义一致；WAL 侧分区数不变，
+    // 未使用的 part id 只是没有数据。
     std::vector<std::string> boundaries;
-    if (sampler_->BuildBoundaries(zfo_.partitions, &boundaries)) {
+    uint32_t eff_parts = zfo_.partitions;
+    bool bd_ok = false;
+    for (uint32_t p = zfo_.partitions; p >= 1; --p) {
+      if (sampler_->BuildBoundaries(p, &boundaries)) {
+        bd_ok = true;
+        eff_parts = p;
+        break;
+      }
+      if (p == 1) break;
+    }
+    if (getenv("ZF_DBG_MM") != nullptr) {
+      fprintf(stderr,
+              "ZFDBG-learn epoch=%llu samples=%zu seen=%llu bd_ok=%d "
+              "parts=%u eff_parts=%u\n",
+              (unsigned long long)epoch, sampler_->sample_count(),
+              (unsigned long long)sampler_->total_seen(), bd_ok ? 1 : 0,
+              zfo_.partitions, eff_parts);
+    }
+    if (bd_ok) {
       std::shared_ptr<PartitionTable> new_table;
       rocksdb::Status cps = PartitionTable::Create(
           1, std::move(boundaries), ucmp_, &new_table);
