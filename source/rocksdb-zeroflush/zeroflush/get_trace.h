@@ -291,6 +291,24 @@ inline bool ConsumeRetiringRejected() {
 // step A-probe（测试专用）：**线程本地**跳过索引层开关——用 env 做开关时
 // 每次 Get 前后 setenv/unsetenv 会与并发线程的 getenv 竞争（未定义行为，
 // 实测表现为偶发读错误）。TLS 只影响调用线程，且生产路径仅一次 thread_local 读。
+// step V0.6-A6（用户口径）：排空任务的**生命周期事件**记录在**进程全局**——Close 之后
+// DB 实例已析构，测试仍需核对"每个任务恰好走取消完成或执行完成之一、引用归零"。
+struct ZfDrainEvents {
+  std::atomic<uint64_t> enqueued{0};
+  std::atomic<uint64_t> cb_entered{0};
+  std::atomic<uint64_t> cancel_entered{0};
+  std::atomic<uint64_t> handover{0};
+  std::atomic<uint64_t> released{0};
+  std::atomic<uint64_t> stopping_exits{0};
+  std::atomic<uint64_t> close_wait_rounds{0};
+  std::atomic<uint64_t> close_returned_with_refs{0};
+  std::atomic<uint64_t> close_calls{0};
+};
+inline ZfDrainEvents& ZfDrainEventsGlobal() {
+  static ZfDrainEvents e;
+  return e;
+}
+
 inline bool& SkipIndexTls() {
   static thread_local bool b = false;
   return b;

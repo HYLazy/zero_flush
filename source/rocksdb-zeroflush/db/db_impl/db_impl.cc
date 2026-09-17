@@ -641,6 +641,12 @@ void DBImpl::UnregisterBlobDirectWriteColumnFamily() {
 Status DBImpl::CloseHelper() {
   // step V0.6-A5：关闭契约（STOPPING → join 定时器 → UnSchedule → 无锁等待引用归零）。
   StopZfDrainForClose();
+  // step V0.6-A7（gdb 栈实证）：排空任务已停稳 ⇒ 解挂 ZF 上下文对 DB 侧对象的引用。
+  // 否则 DB 析构期（~MemTable → ReleaseEpoch → IsGenInstalled）会解引用正在销毁的
+  // `cfd_->current()` 而 SIGSEGV（关闭时仍有未安装 epoch 的场景，如攒批/积压）。
+  if (zf_ctx_ != nullptr) {
+    zf_ctx_->DetachFromDb();
+  }
 
 
   // Below check is added as recovery_error_ is not checked and it causes crash
@@ -5298,7 +5304,14 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
              " coalesced=" + std::to_string(zf_coalesced_requests_.load()) +
              " no_progress_backoffs=" +
              std::to_string(zf_no_progress_backoffs_.load()) +
-             " cancelled=" + std::to_string(zf_tasks_cancelled_.load());
+             " cancelled=" + std::to_string(zf_tasks_cancelled_.load()) +
+             " | ev{enqueued=" + std::to_string(zf_ev_enqueued_.load()) +
+             " cb_entered=" + std::to_string(zf_ev_cb_entered_.load()) +
+             " cancel_entered=" + std::to_string(zf_ev_cancel_entered_.load()) +
+             " handover=" + std::to_string(zf_ev_handover_.load()) +
+             " released=" + std::to_string(zf_ev_released_.load()) +
+             " close_wait_rounds=" +
+             std::to_string(zf_ev_close_wait_rounds_.load()) + "}";
     return true;
   }
   if (zf_ctx_ != nullptr && property.starts_with("rocksdb.zeroflush.")) {

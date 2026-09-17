@@ -3464,6 +3464,16 @@ class DBImpl : public DB {
   // 该引用当前是否仍属于"已排队、未开始"的任务（决定由**取消回调**还是**任务自身**
   // 释放；两者都只看这个标志，避免重复释放或永不释放）。
   bool zf_drain_ref_queued_ = false;
+  // step V0.6-A6：**独立稳定 tag**——不能用 `this`：flush/compaction 在 LOW 优先级也
+  // 以 `this` 作 tag，`UnSchedule(this, LOW)` 会**误取消**它们（已核对源码）。
+  std::unique_ptr<int> zf_drain_tag_;
+  // 任务生命周期事件（每个任务恰好走"取消完成"或"执行完成"之一；用于核对释放次数）。
+  std::atomic<uint64_t> zf_ev_enqueued_{0};
+  std::atomic<uint64_t> zf_ev_cb_entered_{0};
+  std::atomic<uint64_t> zf_ev_cancel_entered_{0};
+  std::atomic<uint64_t> zf_ev_handover_{0};
+  std::atomic<uint64_t> zf_ev_released_{0};
+  std::atomic<uint64_t> zf_ev_close_wait_rounds_{0};
   // 调度计数（用户要求拆分；只用于测量，参与决策的只有状态与引用计数）。
   std::atomic<uint64_t> zf_timer_wakeups_{0};
   std::atomic<uint64_t> zf_tasks_queued_{0};
@@ -3477,6 +3487,8 @@ class DBImpl : public DB {
   std::atomic<uint64_t> zf_drain_next_deadline_us_{0};
   // 测试钩子（确定性关闭用例）：任务在转 RUNNING 前/进入扫描前的暂停毫秒数。
   static uint64_t ZfTestHookMs(const char* name);
+  // 文件屏障（存在即放行；关闭开始后不再等待）。
+  void ZfWaitGate(const char* env_name);
 
 
   LogsWithPrepTracker logs_with_prep_tracker_;

@@ -2714,3 +2714,50 @@ installtest scen 2 / 4      : PASS
 
 **未做（按用户顺序）**：`AdoptSkippedGensForDrainLocked()`（状态机完全通过后再做）；
 候选线 `b4b17b3` 的最终补充证据（`closestress 1000` + 五组各 300 轮）尚未跑。
+
+## 实验分支 A6/A7：关闭窗口契约 + 收尾崩溃根因（gdb 栈）
+
+### D-77. 两个已证实的缺陷（都不是"停止标志不够多"）
+
+1. **tag 冲突**：`UnSchedule(this, LOW)` 会**误取消同优先级的 flush/compaction**——
+   源码核对：`BGWorkCompaction`（LOW）与 `BGWorkFlush`（LOW）都以 `this` 为 tag。
+   ⇒ 排空任务改用**独立稳定 tag**（`zf_drain_tag_`，堆地址稳定），所有取消入口同步更新；
+   且仅在本 DB 真正入队过时才调用 `UnSchedule`。
+2. **收尾 SIGSEGV 的根因（gdb 栈实证，非假设）**：
+```
+#4 VersionStorageInfo::GetZfInstallFence   ← this 指向**栈上/已销毁**的 VersionStorageInfo
+#5 ZeroFlushContext::IsGenInstalled(phys_part=0, gen=1)
+#6 ZeroFlushContext::ReleaseEpoch(epoch=2)     zeroflush_db.cc:448
+#7 rocksdb::MemTable::~MemTable
+#9 rocksdb::ColumnFamilyData::~ColumnFamilyData
+#13 rocksdb::ColumnFamilySet::~ColumnFamilySet
+#18 rocksdb::VersionSet::~VersionSet
+```
+   ⇒ DB 析构期（`~MemTable → ReleaseEpoch → IsGenInstalled → cfd_->current()`）解引用正在
+   销毁的 Version。**触发条件 = 关闭时仍有未安装 epoch**（攒批/积压场景制造它；候选线的
+   closestress 之所以没暴露，是因为那里 epoch 在关闭前都已安装/释放）。
+   **修复**：`ZeroFlushContext::DetachFromDb()`（解挂 `cfd_`，之后 `IsGenInstalled` 安全
+   返回 false、不误销账），在 `CloseHelper` 里**排空任务停稳之后**调用。
+   ⇒ 三个窗口的进程退出**全部 exit=0**（此前 139）。
+
+### D-78. 三个真实关闭窗口（文件屏障 + 控制线程放行；Close 在控制线程里执行）
+
+| 窗口 | 构造 | 观察到的终态（进程全局事件，跨关闭存活） | 结果 |
+|---|---|---|---|
+| 1 真正排队、未出队 | LOW 池压到 1 线程 + 阻塞任务占住 worker | `enqueued=1 cb_entered=0 cancel_entered=1 released=1`（Close 取消，取消计数=1、回调进入=0） | **PASS**（190ms、重开 6000/6000、exit=0） |
+| 2 已出队、主体未执行 | 回调入口文件屏障暂停 | `cb_entered=1 cancel_entered=0 handover=0 stopping_exits=1 released=1`（**不当作已取消**，引用由任务自身释放） | **PASS**（191ms、重开全对、exit=0） |
+| 3 执行中、扫描前 | 转 RUNNING 后文件屏障暂停 | `handover=1 stopping_exits=1 released=1`（Close 等其安全退出） | **PASS**（187ms、重开全对、exit=0） |
+
+通用不变量（全部成立）：`cancel_entered + cb_entered == enqueued`、`released == enqueued`、
+`refs_at_close_return == 0`、`close_calls == 1`。
+**说明（如实记录）**：`close_wait_rounds=0` —— 屏障在 STOPPING 时即放行（保证无死锁的有界
+活性），因此窗口 2/3 表现为"任务在 STOPPING 后迅速退出并**恰好释放一次**"，而不是长时间
+等待；"Close 未把它当已取消"由 `cancel_entered=0` 直接证明。
+
+### D-79. 状态
+- `P1BacklogDrain-exp`：状态机 + 关闭契约**三个窗口全部通过**（进程正常退出、引用归零、
+  重开逐键正确、调度计数有界：`tasks_queued=1`、`timer_wakeups=1`，旧版 26 121 的风暴未再现）。
+- **候选线 `b4b17b3` 建议补一个小后移**：`DetachFromDb()`（~10 行，独立于排空功能，修的是
+  "关闭时仍有未安装 epoch ⇒ DB 析构期解引用已销毁 Version"的潜在崩溃）。是否后移请用户定。
+- 未做：`AdoptSkippedGensForDrainLocked()`（下一步）；候选线最终压力证据（closestress 1000 +
+  五组各 300 轮）。
