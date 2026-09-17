@@ -142,6 +142,8 @@ struct ZeroFlushOptions {
   // step V0.6-C2：攒批等收益的**字节上限**（该分区累计待物化字节超过它 ⇒
   // 立即融合，避免无限滞留 WAL/索引）。默认 32MB。
   uint64_t base_merge_skip_max_bytes = 32ull << 20;
+  // step V0.6-P1：积压年龄上限（微秒；超过 ⇒ 强制排空驱动）。默认 30s。
+  uint64_t backlog_drain_max_age_micros = 30ull * 1000 * 1000;
 
   // ---- M4.3 终态 ----
   // M4.3d-2：分区索引总内存预算（背压触发 freeze；默认 4GB ≈ 6~8 千万
@@ -584,6 +586,15 @@ class ZeroFlushContext {
     active_wal_read_count_.fetch_add(1, std::memory_order_relaxed);
   }
   // step V0.6-P2：第一段（路由∪别名）未命中、回退查历史并集的读次数。
+  // step V0.6-P2（测量细化）：并集候选里**实际被访问**（GetCopy 调用）的分区数
+  // ——`index_parts_scanned` 统计的是"列入候选"的数量（含被上界剪枝跳过的），
+  // 真实开销应看访问数。仅测量，不改变任何选择结果。
+  uint64_t union_parts_visited() const {
+    return union_parts_visited_.load(std::memory_order_relaxed);
+  }
+  void NoteUnionPartVisited() const {
+    union_parts_visited_.fetch_add(1, std::memory_order_relaxed);
+  }
   uint64_t union_fallback_used() const {
     return union_fallback_used_.load(std::memory_order_relaxed);
   }
@@ -641,6 +652,39 @@ class ZeroFlushContext {
   std::vector<std::pair<std::string, std::string>> TakeSinkRequests();
   // 累计下沉请求次数（诊断/统计：rocksdb.zeroflush.sink_requests）。
   uint64_t sink_request_count() const;
+
+  // ---- step V0.6-P1（积压驱动排空）----
+  // 后台调度/关闭路径/显式 Drain 共用：即使**没有新写入或新封存**，也要为
+  // "已封存但未安装"的积压代创建物化任务。触发条件（任一）：
+  //   · 某分区未安装字节 ≥ `base_merge_skip_max_bytes`（skip 阈值同源）；
+  //   · drain/close 模式（ZfDrainNow / ZF_CLOSING_FLUSH）；
+  //   · 该分区积压持续时间 > `backlog_drain_max_age_micros`（0=关闭）。
+  // 注：物化任务始终携带真实 `covered_gens`，安装成功前不销账（既有规则）。
+  void NoteBacklogDrainRequest() { backlog_drain_requested_.store(true); }
+  bool TakeBacklogDrainRequest() {
+    return backlog_drain_requested_.exchange(false);
+  }
+  // 是否存在需要排空的积压分区（扫描 registry 的每分区未安装字节 + 年龄）。
+  bool NeedsBacklogDrain() const;
+  // 积压年龄维护：写/封存路径登记"该分区开始积压的时刻"，清零时复位。
+  void TouchBacklogAge(uint32_t part) const;
+  uint64_t backlog_drain_requests() const {
+    return backlog_drain_requests_.load(std::memory_order_relaxed);
+  }
+  // 连续无进展的排空次数（关闭/排空路径判定 INSTALL_PROGRESS_FAILURE）。
+  uint64_t install_progress_failures() const {
+    return install_progress_failures_.load(std::memory_order_relaxed);
+  }
+  void NoteInstallProgressFailure() const {
+    install_progress_failures_.fetch_add(1, std::memory_order_relaxed);
+  }
+  // 排空模式（积压驱动执行中）——收益攒批在此模式下**强制融合**。
+  bool backlog_drain_active() const {
+    return backlog_drain_active_.load(std::memory_order_relaxed);
+  }
+  void SetBacklogDrainActive(bool v) {
+    backlog_drain_active_.store(v, std::memory_order_relaxed);
+  }
 
   // ---- M5P1b：多 flush 并行——跨批分区互斥登记（flush 批次级）----
   // max_background_flushes>1 后多个批次可同时在飞（imm 堆积流水）。同
@@ -1292,6 +1336,7 @@ class ZeroFlushContext {
   mutable std::atomic<uint64_t> union_skipped_{0};
   // step V0.6-P2：回退查历史并集的读次数。
   mutable std::atomic<uint64_t> union_fallback_used_{0};
+  mutable std::atomic<uint64_t> union_parts_visited_{0};
   mutable std::atomic<uint64_t> index_parts_scanned_{0};
   mutable std::atomic<uint64_t> read_readfail_propagated_{0};
   mutable std::atomic<uint64_t> read_short_read_retried_{0};
@@ -1306,6 +1351,13 @@ class ZeroFlushContext {
   mutable std::atomic<uint64_t> install_uncertain_{0};
   mutable std::atomic<uint64_t> scan_skipped_reclaimed_{0};
   mutable std::atomic<uint64_t> scan_ref_held_{0};
+  mutable std::atomic<bool> backlog_drain_requested_{false};
+  mutable std::atomic<bool> backlog_drain_active_{false};
+  mutable std::atomic<uint64_t> backlog_drain_requests_{0};
+  mutable std::atomic<uint64_t> install_progress_failures_{0};
+  // part → 开始积压的微秒时刻（0 = 无积压）。用 mutex 保护的向量（按分区数）。
+  mutable std::mutex backlog_age_mu_;
+  mutable std::vector<uint64_t> backlog_since_micros_;
   mutable std::atomic<uint64_t> install_reconciled_{0};
   mutable std::atomic<uint64_t> install_assert_file_missing_{0};
   mutable std::atomic<uint64_t> forced_yield_batches_{0};

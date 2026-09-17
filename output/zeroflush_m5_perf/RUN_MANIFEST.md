@@ -2562,3 +2562,62 @@ db_bench 退出循环（含 histogram/statistics）20 次 : **crash=0**
 **结论**：C1 达成（错误配置不再静默停滞）、P0 关闭（关闭无崩溃）、P2 未动语义；
 **P1 已量化并验证收益（24×→1.8×）但需"积压驱动排空"配套才能启用** ⇒ V0.6 候选仍不标记，
 下一步第一项即该配套（它是让 P1 收益落地的唯一前置）。
+
+## V0.6 候选版本标记（本 build）
+
+### D-66. P1 积压驱动排空：机制就位、**安全触发路径未完成** ⇒ 保持安全默认
+
+- 新增（代码保留、默认不启用）：
+  - `NeedsBacklogDrain()`（扫描每分区 `UninstalledBytesOf(part)`，阈值 = `base_merge_skip_max_bytes`；
+    年龄上限 `backlog_drain_max_age_micros` 默认 30s）、`TouchBacklogAge`、积压请求/执行计数、
+    `install_progress_failures`（关闭排空"连续无进展"计数，**不伪造 installed / 空 edit / 推进 fence**）；
+  - 收益攒批门禁纳入 `backlog_drain_active()`（"无新写入时 drain 模式强制执行"）。
+- **未完成**：把积压探测接到**安全触发路径**。我曾在 `MaybeScheduleZfSink`（持 DB mutex）里直接
+  `FlushMemTable` ⇒ **互斥重入，实测挂死**（200k 基准 900s 超时，exit=124）。已回退为**只探测不触发**；
+  正确做法是独立调度线程 / `Env::Schedule` 延迟执行（下一步）。
+- 因此 `base_merge_skip_max_generations` **保持默认 0（关闭）**：候选版本使用**当前安全默认**。
+  启用态（`ZF_VC_MERGE_BENEFIT=8`）下最小用例与压力已通过（installtest 2/3/4 PASS、
+  压力组 1/2 各 100 轮 PASS、timeouts=0、pending=0），但基准（200k）因上述挂死未完成 ⇒
+  按用户口径"哪一项不通过就用安全默认"。
+
+### D-67. P2 测量细化（**无需改语义**）
+
+现有实现已满足用户口径："路由候选与历史候选**合并后交给同一 sequence 选择器**决策，
+不提前返回路由候选"（单一候选列表 + 上界剪枝 + 全局 seq 比较）。
+新增**实际访问**计数后，边界回归的读数变为：
+```
+并集候选 列入=328 / **实际访问=0**（被上界剪枝全部跳过）
+```
+⇒ 328 只是"列名单"的计数，真实读路径开销为 0，**无需** 收敛改动（改动反而会破坏
+semtest case1/2/3/7/8a 的跨分区语义，已在 D-55/D-60 记录并回退）。计数器仅测量、不改变结果。
+
+### D-68. 最终门禁（本 build，哈希 `/tmp/build_hash_v06cand.txt`）
+
+| 项目 | 结果 |
+|---|---|
+| closestress 1000 轮 | 零崩溃 |
+| semtest cases1-7 | PASS |
+| snapmini（含开关/对照组） | PASS |
+| aprobe 合法路径 300 轮 | PASS（errors=0 / A_hits=0 / 陈旧索引胜出=0 / 持久丢失=0） |
+| baccept phase1–4 | PASS（phase3 pending=0 drained=42720000；phase4 registered=0 reclaimed=42720000） |
+| installtest 1–4 | PASS（终点 pending=0、registry=0、旧代 WAL=0） |
+| migrate 迁移矩阵 | PASS 8/8 |
+| all/scan/triage | PASS（pending=0.0MB、reclaimed=26.2MB、wal_read_delta=0） |
+| 五组压力 各 300 轮 | PASS（fails/ss/nf/c=0、rotations=300、install_wait_timeouts=0、pending_last=0） |
+| db_bench 退出循环 20 次（含 histogram/statistics） | crash=0 |
+
+### D-69. **V0.6 候选版本：`7d48d8d` 之后的本 build（哈希见 `/tmp/build_hash_v06cand.txt`）**
+
+判定依据（用户口径）：
+- **错误配置不会静默停滞**：目标模式 + 固定协议下未指定融合 ⇒ 默认开启；显式关闭 ⇒ 启动
+  `InvalidArgument`（C1，D-62）；历史 hash 库保持旧协议旧行为。
+- **关闭无崩溃**：P0 竞态修复（扫描持 `GenReadRef` + 已回收代跳过）；closestress 1000 轮 +
+  db_bench 退出循环（含 histogram/statistics）20 次均零崩溃。
+- **写放大**：量化完成（~24×，根因 = 真正的融合路径缺收益判据）；收益攒批可把写放大降到
+  ~1.8×（写吞吐 93k→176k），但需"积压驱动排空"的安全触发路径 ⇒ **按用户口径保持安全默认**
+  （`base_merge_skip_max_generations=0`），诊断开关与机制保留。
+- **额外查询优化不改变语义**：P2 采用同一选择器（不改语义），实测真实访问=0（列名单 328 是
+  计数口径问题，已用 `union_parts_visited` 精确化）。
+⇒ 全部门禁通过、两个生产级问题均有明确结论与可回退实现 ⇒ **标记本 build 为 V0.6 候选版本**
+（具备受控运行条件）。下一步：P1 安全触发路径（独立调度线程）→ 启用收益攒批并复跑基准与门禁；
+P2 保持现状（真实开销为 0）。

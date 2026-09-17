@@ -910,6 +910,9 @@ void DBImpl::ZfCloseFlush() {
     if (zs.ok() &&
         zf_ctx_->DrainedMaterializeBytes() == zf_drained_before &&
         zf_ctx_->PendingMaterializeBytes() >= zf_pending_before_round) {
+      if (zf_ctx_ != nullptr) {
+        zf_ctx_->NoteInstallProgressFailure();  // 连续无进展（不伪造已安装/空 edit）
+      }
       ROCKS_LOG_WARN(immutable_db_options_.info_log,
                      "[%s] ZeroFlush close-flush: no real install progress "
                      "(pending=%.1fMB, empty_edit=%llu) — stop draining",

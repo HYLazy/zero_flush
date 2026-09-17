@@ -482,6 +482,50 @@ uint64_t ZeroFlushContext::ReleaseEpoch(uint64_t epoch) {
   return 0;
 }
 
+// step V0.6-P1（积压驱动排空）：是否存在"已封存未安装且已达阈值/超龄"的分区。
+bool ZeroFlushContext::NeedsBacklogDrain() const {
+  if (sealed_cache_ == nullptr || tables_ == nullptr) {
+    return false;
+  }
+  const uint32_t P = zfo_.partitions;
+  const uint64_t now = env_ != nullptr ? env_->NowMicros() : 0;
+  for (uint32_t p = 0; p < P; ++p) {
+    const uint64_t bytes = sealed_cache_->UninstalledBytesOf(p);
+    if (bytes == 0) {
+      continue;
+    }
+    if (bytes >= zfo_.base_merge_skip_max_bytes) {
+      return true;
+    }
+    // 年龄：首次观察到该分区有积压时登记时刻（惰性维护，调度检查周期调用）。
+    {
+      std::lock_guard<std::mutex> l(backlog_age_mu_);
+      if (p >= backlog_since_micros_.size()) {
+        backlog_since_micros_.resize(p + 1, 0);
+      }
+      uint64_t& since = backlog_since_micros_[p];
+      if (since == 0 && now > 0) since = now;
+      if (zfo_.backlog_drain_max_age_micros > 0 && since != 0 && now > since &&
+          now - since >= zfo_.backlog_drain_max_age_micros) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// 登记/复位"该分区开始积压的时刻"（写与封存路径调用；幂等）。
+void ZeroFlushContext::TouchBacklogAge(uint32_t part) const {
+  if (sealed_cache_ == nullptr) return;
+  const uint64_t bytes = sealed_cache_->UninstalledBytesOf(part);
+  const uint64_t now = env_ != nullptr ? env_->NowMicros() : 0;
+  std::lock_guard<std::mutex> l(backlog_age_mu_);
+  if (part >= backlog_since_micros_.size()) {
+    backlog_since_micros_.resize(part + 1, 0);
+  }
+  backlog_since_micros_[part] = (bytes == 0) ? 0 : (backlog_since_micros_[part] == 0 ? now : backlog_since_micros_[part]);
+}
+
 size_t ZeroFlushContext::PurgeSealedFiles() {
   if (sealed_cache_ != nullptr) {
     return sealed_cache_->PurgePending();
@@ -656,6 +700,8 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(sealed_bytes());
   } else if (prop == "rocksdb.zeroflush.materialize_micros") {
     *value = std::to_string(materialize_micros());
+  } else if (prop == "rocksdb.zeroflush.union_parts_visited") {
+    *value = std::to_string(union_parts_visited());
   } else if (prop == "rocksdb.zeroflush.union_fallback_used") {
     *value = std::to_string(union_fallback_used());
   } else if (prop == "rocksdb.zeroflush.union_skipped") {
@@ -803,6 +849,12 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(install_assert_file_missing());
   } else if (prop == "rocksdb.zeroflush.install_gens_withheld") {
     *value = std::to_string(install_gens_withheld());
+  } else if (prop == "rocksdb.zeroflush.backlog_drain_requests") {
+    *value = std::to_string(backlog_drain_requests());
+  } else if (prop == "rocksdb.zeroflush.backlog_needed") {
+    *value = NeedsBacklogDrain() ? "1" : "0";
+  } else if (prop == "rocksdb.zeroflush.install_progress_failures") {
+    *value = std::to_string(install_progress_failures());
   } else if (prop == "rocksdb.zeroflush.scan_skipped_reclaimed") {
     *value = std::to_string(scan_skipped_reclaimed());
   } else if (prop == "rocksdb.zeroflush.scan_ref_held") {

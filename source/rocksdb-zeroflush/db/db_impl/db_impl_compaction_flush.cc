@@ -3424,6 +3424,13 @@ void DBImpl::MaybeScheduleZfSink() {
     // recovery（可读，自愈）。
     return;
   }
+  // step V0.6-P1（积压探测，**只观测不触发**）：本调度点持 DB mutex，
+  // 直接 FlushMemTable 会互斥重入 ⇒ 实测挂死（900s 超时）。积压驱动的**安全**
+  // 触发路径（独立调度线程 / Env::Schedule 延迟执行）列为下一步；此处只保留
+  // 探测与计数，供 ZfDrainNow/关闭路径与外部触发使用。
+  if (zf_ctx_->NeedsBacklogDrain()) {
+    zf_ctx_->backlog_drain_requests_.fetch_add(1, std::memory_order_relaxed);
+  }
   std::vector<std::pair<std::string, std::string>> reqs =
       zf_ctx_->TakeSinkRequests();
   if (reqs.empty()) {

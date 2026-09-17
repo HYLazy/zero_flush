@@ -292,6 +292,14 @@ std::unique_ptr<rocksdb::DB> OpenDb(const std::string& dbdir, bool create) {
   zfo.merge_into_base_level_explicit = true;
   // step V0.6-C1 负例：ZF_VC_MERGE_OFF=1 ⇒ 在固定协议 + 目标模式下**显式关闭**
   // 融合 ⇒ 启动必须报 InvalidArgument（不得静默接受）。
+  // step V0.6-P1 验收：ZF_VC_MERGE_BENEFIT=<代数上限> ⇒ 启用"收益攒批 + 积压驱动排空"
+  // （默认关闭；用于验证最小用例与基准达标后再改默认）。
+  if (const char* mb = getenv("ZF_VC_MERGE_BENEFIT")) {
+    const long v = strtol(mb, nullptr, 10);
+    if (v > 0) {
+      zfo.base_merge_skip_max_generations = static_cast<uint32_t>(v);
+    }
+  }
   if (getenv("ZF_VC_MERGE_OFF") != nullptr) {
     zfo.merge_into_base_level = false;
     zfo.merge_into_base_level_explicit = true;
@@ -2767,9 +2775,11 @@ int main(int argc, char** argv) {
       // 且 semtest 的跨分区 fixture 依赖并集。
       const uint64_t extra_cands = p("index_parts_scanned");
       if (extra_cands != 0) {
-        printf("installtest scen=%d 备注: 额外候选分区查询=%llu（>0 属已知项："
-               "读路径收敛待做，见 RUN_MANIFEST D-55）\n", scen,
-               (unsigned long long)extra_cands);
+        printf("installtest scen=%d 备注: 并集候选**列入**=%llu / **实际访问**=%llu"
+               "（P2 兼容实现：路由与历史候选合并后交给同一 sequence 选择器，"
+               "不提前返回路由候选；此处仅测量，不改变结果）\n", scen,
+               (unsigned long long)extra_cands,
+               (unsigned long long)p("union_parts_visited"));
       }
       cleanup_ok = (p("pending_materialize_bytes") == 0) && (reg_end == 0) &&
                    (stale_wal == 0);

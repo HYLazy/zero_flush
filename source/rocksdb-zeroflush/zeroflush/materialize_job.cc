@@ -1701,7 +1701,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
               ? ctx_->sealed_cache()->UninstalledBytesOf(pid)
               : pend_bytes;
       const bool drain_mode =
-          ctx_->closing_flush() ||
+          ctx_->closing_flush() || ctx_->backlog_drain_active() ||
           part_backlog >= ctx_->zfo_.base_merge_skip_max_bytes ||
           PendingGenCount(pid) >= kMaxSkipGenerations;
       // **默认关闭**（`base_merge_skip_max_generations > 0` 才启用）：实测该策略
