@@ -2276,3 +2276,41 @@ sealed 代 pin / retiring 路径；该路径的确定性覆盖由 **semtest case
 **状态**：`B（安全安装与失败语义）在本 build 上完整标绿`：安装/排空/回收、跨分区与重启一致性、
 整单元撤销、提交前失败、提交后故障恢复、协议负例、五组压力全部通过。
 下一步（按用户顺序）：**合法路径 A 的自然可达性判断**；其后是固定路由的性能与迁移细节。
+
+## A 自然可达性判断（进行中）：无 A 命中，但**发现另一类读失败（snapshot 交互）**
+
+### D-52. `aprobe` / `mini` 两个新用例 + 二分结果
+
+**新增**
+- `aprobe <n> <iters>`：**合法操作**（普通写/覆盖/删除墓碑/snapshot/封存+安装+回收交接/重启）
+  逐次 Get 记录 `read_sequence / index_sequence / truth_sequence / source / candidate_count /
+  fence`；A 命中判据 = 索引胜出（`source=INDEX`）且 `index_seq < 真值 seq` 且需要 LSM 才正确。
+  配套新增：索引选择的 TLS 记录（`LastIndexSelTls`）、**线程本地**的跳过索引开关
+  （`get_trace::SetSkipIndex`，用于取"LSM-only"对照；早前用 env 开关会与并发线程
+  getenv 竞争 ⇒ 未定义行为/偶发假失败）、首个错误处的**重启审计**（判定持久丢失 vs 内存状态）。
+- `mini <batches>`：干净最小序列（写一批 → 显式封存 → 排空 → 逐键复查）——**全 PASS**
+  （6 批 120 键、6 次封存、pending 归零、逐键全对）⇒ 写/封存/安装路径本身无问题。
+
+**A 判定（当前证据）**
+```
+base（全开）        : gets=1520 errors=410  A_hits=0 陈旧索引胜出(非快照)=0
+no_delete           : gets=1220 errors=846  A_hits=0 陈旧索引胜出=2
+no_snapshot         : gets= 920 errors=  **0**  A_hits=0 陈旧索引胜出=0   ← PASS
+no_delete+no_snapshot: gets= 620 errors= **0**  A_hits=0 陈旧索引胜出=5
+```
+⇒ **没有出现"A 命中导致结果错误"**；关闭 snapshot 步骤后整套混合负载**零读错误**。
+但**暂不宣布 `N/A/UNREACHABLE_UNDER_VALID_PROTOCOL`**：① `no_delete+no_snapshot` 仍有 5 次
+"索引 seq 低于真值"（值恰好正确，需单独最小化）；② 下面这条失败必须先解释掉。
+
+**新发现（优先级高于 A）：snapshot 交互会导致随后大量读失败**
+- 触发步骤：取快照 → 写入 → 用快照读（期望旧值）→ 实时读 → 释放快照。
+- 现象：`base/no_delete` 配置下 `errors=410/846`（`NotFound` 与值不符都有），
+  起点固定在**第 2–3 次封存附近**（首个失败 read_seq≈206）；至少一次实例中**重启后该键
+  仍缺失**（`重启审计: checked=42 仍缺失=1 → 持久丢失`）。
+- 关闭 snapshot 步骤后同一负载 **0 错误** ⇒ 触发点锁定在 snapshot 路径，而非封存/安装/purge
+  （`ZF_AP_NO_PURGE`、`ZF_AP_NO_LSM_PROBE` 均不能消除）。
+- 下一步（按用户方法）：把 snapshot 组合缩成**单键最小复现**（写 K → 快照 → 覆盖 → 快照读 →
+  实时读 → 释放 → 封存+排空 → 复查），定位是快照读路径、快照释放路径还是
+  "快照 + 写 + ZF 索引换代"的交互；在此之前不修读路径、不宣布 A 的最终结论。
+
+**状态**：A 步**未完成**（无命中但需先解释上述失败）；B 仍以 `e86a9fd` 为候选基线，未改动。

@@ -288,6 +288,15 @@ inline bool ConsumeRetiringRejected() {
   return b;
 }
 
+// step A-probe（测试专用）：**线程本地**跳过索引层开关——用 env 做开关时
+// 每次 Get 前后 setenv/unsetenv 会与并发线程的 getenv 竞争（未定义行为，
+// 实测表现为偶发读错误）。TLS 只影响调用线程，且生产路径仅一次 thread_local 读。
+inline bool& SkipIndexTls() {
+  static thread_local bool b = false;
+  return b;
+}
+inline void SetSkipIndex(bool v) { SkipIndexTls() = v; }
+
 inline std::atomic<uint64_t>& RetryReadViewNeeded() {
   static std::atomic<uint64_t> n{0};
   return n;
@@ -297,6 +306,23 @@ inline std::atomic<uint64_t>& RetryReadViewNeeded() {
 //     读取应回落 LSM 取值（不是降级；这是 fence 不变量的直接结论）；
 //   · 该代**未安装** ⇒ WAL 是唯一副本且正在被回收，只能明确报错，
 //     绝不能静默降级或 NotFound。
+// step A-probe（用户 2026-09-17）：最近一次**索引选择**的胜出信息——用于
+// 逐次 Get 记录 `index_sequence` / 候选数 / 来源，与 LSM 侧最新 seq 对照。
+struct IndexSel {
+  bool set = false;
+  bool hit = false;         // 索引是否命中（false = 未命中，读走 LSM）
+  uint32_t sel_part = 0;    // 命中来源的逻辑分区
+  uint32_t phys = 0;        // locator 的 physical part
+  uint32_t gen = 0;
+  uint64_t seq = 0;         // 胜出条目的 seq
+  uint32_t candidates = 0;  // 参与选择的候选数
+  bool tombstone = false;
+};
+inline IndexSel& LastIndexSelTls() {
+  static thread_local IndexSel s;
+  return s;
+}
+
 struct RejectedGenIdentity {
   bool set = false;
   uint32_t part = 0;

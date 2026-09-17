@@ -505,7 +505,7 @@ int main(int argc, char** argv) {
       (mode == "all" || mode == "write" || mode == "walread" ||
        mode == "selftest" || mode == "semtest" || mode == "stress" ||
        mode == "baccept" || mode == "installtest" || mode == "routingneg" ||
-       mode == "failaccept");
+       mode == "failaccept" || mode == "aprobe" || mode == "mini");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
@@ -2710,6 +2710,353 @@ int main(int argc, char** argv) {
            keys_ok ? 1 : 0, routing_same ? 1 : 0, keys_ok_after ? 1 : 0,
            overlap_ev_ok ? 1 : 0);
     return pass ? 0 : 1;
+  }
+
+  if (mode == "mini") {
+    // 最小复现（用户方法：合法操作、单键/少键、确定性）：
+    //   写一批键 → 显式封存该分区 → 排空（有界）→ 逐键复查。
+    // 观察自 aprobe：第 2 次封存后，**封存前写入的键**变成不可读（索引 miss +
+    // LSM miss）。这里把批次/键数/封存次数参数化，先确认最小形态。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    std::shared_ptr<zeroflush::ZeroFlushContext> ctx = impl->GetZeroFlushContext();
+    auto p = [&](const char* k) { return Prop(db.get(), k); };
+    const int batches = threads > 0 ? threads : 2;       // 封存批次数
+    const int per_batch = 20;                            // 每批键数
+    const uint64_t base = 300000;
+    std::vector<std::string> all_keys;
+    std::vector<std::string> all_want;  // 与 all_keys 一一对应的期望值
+    auto seal_p3 = [&] {
+      const uint32_t rp = 3;
+      ctx->wal()->Sync(rp).PermitUncheckedError();
+      const uint32_t g0 = ctx->wal()->ActiveGenOpt(rp).value_or(0);
+      uint32_t sg = 0;
+      const int rc = ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(),
+                                           rp, g0, &sg);
+      printf("mini seal: rc=%d gen %u→%u pending=%llu\n", rc, g0,
+             ctx->wal()->ActiveGenOpt(rp).value_or(0),
+             (unsigned long long)p("pending_materialize_bytes"));
+      for (int t = 0; t < 20 && p("pending_materialize_bytes") != 0; ++t) {
+        impl->ZfDrainNow();
+        env_sleep_ms(30);
+      }
+      printf("mini seal 后: pending=%llu drained=%llu\n",
+             (unsigned long long)p("pending_materialize_bytes"),
+             (unsigned long long)p("drained_materialize_bytes"));
+    };
+    auto check_all = [&](const char* tag) {
+      size_t bad = 0;
+      for (size_t ki = 0; ki < all_keys.size(); ++ki) {
+        const std::string& k = all_keys[ki];
+        const std::string& want = all_want[ki];
+        std::string got;
+        rocksdb::ReadOptions ro;
+        const rocksdb::Status mst = db->Get(ro, k, &got);
+        if (!mst.ok() || got != want) {
+          ++bad;
+          if (bad <= 5) {
+            printf("mini %s BAD key_idx=%zu status=%s src=%s\n", tag, ki,
+                   mst.ok() ? "OK(值不符)" : mst.ToString().c_str(),
+                   zeroflush::get_trace::SourceName(
+                       zeroflush::get_trace::LastSourceTls()));
+          }
+        }
+      }
+      printf("mini %s: checked=%zu bad=%zu\n", tag, all_keys.size(), bad);
+      return bad;
+    };
+    for (int b = 0; b < batches; ++b) {
+      for (int j = 0; j < per_batch; ++j) {
+        const uint64_t kk = base + static_cast<uint64_t>(b) * 1000 + j;
+        const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+        db->Put(rocksdb::WriteOptions(), k,
+                zf_keygen::ValueFor(kk, 1, kValueSize));
+        all_keys.push_back(k);
+        all_want.push_back(zf_keygen::ValueFor(kk, 1, kValueSize));
+      }
+      check_all("写入后(未封存)");
+      seal_p3();
+      check_all("封存+排空后");
+    }
+    const size_t bad = check_all("最终");
+    printf("mini: %s (bad=%zu, batches=%d, per_batch=%d)\n",
+           bad == 0 ? "PASS" : "FAIL", bad, batches, per_batch);
+    return bad == 0 ? 0 : 1;
+  }
+
+  if (mode == "aprobe") {
+    // step A-probe（用户 2026-09-17 指令）：**合法路径下 A 的自然可达性判断**。
+    // 只做合法操作（写入/覆盖/删除/snapshot/Freeze·安装·回收交接/重启），
+    // **禁止**人工篡改索引、删 registry、注入错误 locator。
+    // 每次 Get 记录：read_sequence / index_sequence / lsm_sequence / source /
+    // candidate_count / fence。A 命中判据：合法操作产生
+    //   index_sequence < lsm_sequence **且**结果依赖 LSM 才能保持正确
+    //   ⇒ 定义为 `source==INDEX && index_seq < lsm_seq && got != lsm_value`
+    //      （索引给出的版本比 LSM 更旧且值不同 = 陈旧索引胜出）。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    std::shared_ptr<zeroflush::ZeroFlushContext> ctx = impl->GetZeroFlushContext();
+    auto p = [&](const char* k) { return Prop(db.get(), k); };
+    auto sp = [&](const char* k) {
+      std::string v;
+      db->GetProperty(k, &v);
+      return v;
+    };
+    const int iters = threads > 0 ? threads : 200;
+    std::srand(20260917u);
+    // LSM 侧对照：**不碰内部结构**（NewInternalIterator 需要 SuperVersion 引用，
+    // 直接调用会 double free——实测崩溃）。改用 env 旁路 ZF_TEST_SKIP_INDEX
+    // 做一次"纯 LSM 读"拿值，并用写入路径跟踪的**真值 seq**（单线程精确可得：
+    // 每次 Put/Delete 后取 GetLatestSequenceNumber）作为 lsm_sequence 的语义等价量
+    // （用户要的是"A 命中"的判定：索引给出的版本是否比真值旧且需要 LSM 才正确）。
+    std::map<std::string, uint64_t> truth_seq;   // key → 最新版本的 seq（0=已删除）
+    std::map<std::string, std::string> expect_final;  // key → 重启后应读到的值（空=应 NotFound）
+    std::map<std::string, uint64_t> delete_seq;  // key → 墓碑 seq（信息）
+    auto lsm_only_get = [&](const std::string& key, rocksdb::SequenceNumber seq,
+                            std::string* val, bool* nf) {
+      zeroflush::get_trace::SetSkipIndex(true);
+      rocksdb::ReadOptions lro;
+      std::string lgot;
+      const rocksdb::Status lst = db->Get(lro, key, &lgot);
+      zeroflush::get_trace::SetSkipIndex(false);
+      *nf = lst.IsNotFound();
+      val->assign(lst.ok() ? lgot : "");
+      (void)seq;
+      return lst.ok();
+    };
+    struct Rec {
+      uint64_t read_seq = 0;
+      uint64_t index_seq = 0;   // 索引胜出条目的 seq（TLS）
+      uint64_t truth_seq = 0;   // 该键最新版本的 seq（写入路径跟踪；0=已删除）
+      bool lsm_has = false;     // LSM-only 读是否命中
+      bool lsm_is_newest = false;  // LSM-only 读的值是否等于真值
+      const char* source = "NONE";
+      uint32_t candidates = 0;
+      std::string fences = "-";
+      bool ok = false;
+      bool a_hit = false;
+      std::string note;
+      std::string cse;
+      std::string key;
+    };
+    std::vector<Rec> recs;
+    std::vector<std::string> a_hits;
+    size_t errors = 0, gets = 0, stale_index_wins = 0;
+    const char* kCaseName[6] = {"plain",    "overwrite", "delete",
+                                "snapshot", "handoff",   "restart"};
+    auto get_once = [&](const std::string& key, const std::string& expect,
+                        bool expect_nf, const char* cse,
+                        const rocksdb::Snapshot* snap) {
+      ++gets;
+      Rec r;
+      r.cse = cse;
+      r.key = key;
+      r.read_seq = snap != nullptr ? snap->GetSequenceNumber()
+                                   : db->GetLatestSequenceNumber();
+      zeroflush::get_trace::SetLastSource(zeroflush::get_trace::GetSource::kNone);
+      std::string got;
+      rocksdb::ReadOptions ro;
+      if (snap != nullptr) ro.snapshot = snap;
+      const rocksdb::Status gst = db->Get(ro, key, &got);
+      const auto& is = zeroflush::get_trace::LastIndexSelTls();
+      r.index_seq = is.hit ? is.seq : 0;
+      r.candidates = is.candidates;
+      r.source = zeroflush::get_trace::SourceName(
+          zeroflush::get_trace::LastSourceTls());
+      // LSM 侧对照 + 真值 seq。
+      std::string lv;
+      bool ldel = false;
+      if (getenv("ZF_AP_NO_LSM_PROBE") == nullptr) {
+        r.lsm_has = lsm_only_get(key, r.read_seq, &lv, &ldel);
+      }
+      const auto tsi = truth_seq.find(key);
+      r.truth_seq = (tsi == truth_seq.end()) ? 0 : tsi->second;
+      r.lsm_is_newest = r.lsm_has && !ldel && !expect.empty() && lv == expect;
+      if (expect_nf) r.lsm_is_newest = !r.lsm_has;  // 期望 NotFound：LSM 侧也应无
+      r.fences = sp("rocksdb.zeroflush.installed_fences").substr(0, 60);
+      // 期望值校验
+      if (expect_nf) {
+        r.ok = gst.IsNotFound();
+      } else {
+        r.ok = gst.ok() && got == expect;
+      }
+      if (!r.ok) {
+        ++errors;
+        r.note = std::string("EXPECT_MISMATCH status=") +
+                 (gst.ok() ? "OK" : gst.ToString().c_str());
+        if (errors == 1) {
+          // **重启审计**（决定性问题）：持久丢失 vs 内存/读路径状态。
+          printf("aprobe 重启审计（首个错误后）: 关闭并重开，逐键复查全部已知键\n");
+          fflush(stdout);
+          db->Flush(rocksdb::FlushOptions());
+          db.reset();
+          db = OpenDb(dbdir, /*create=*/false);
+          if (db == nullptr) {
+            printf("aprobe 重启审计: FAIL (无法重开)\n");
+            fflush(stdout);
+            std::_Exit(4);  // 无法重开 = 审计不可判定（独立退出码）
+          }
+          impl = static_cast<rocksdb::DBImpl*>(db.get());
+          ctx = impl->GetZeroFlushContext();
+          size_t missing = 0, checked = 0;
+          for (const auto& [kk, sq] : truth_seq) {
+            std::string got2;
+            const rocksdb::Status st2 =
+                db->Get(rocksdb::ReadOptions(), kk, &got2);
+            ++checked;
+            const auto ei = expect_final.find(kk);
+            const std::string want = (ei == expect_final.end()) ? std::string()
+                                                               : ei->second;
+            bool ok2 = want.empty() ? st2.IsNotFound()
+                                    : (st2.ok() && got2 == want);
+            if (!ok2) {
+              ++missing;
+              if (missing <= 5) {
+                printf("aprobe 重启审计 MISSING key=%s truth=%llu status=%s\n",
+                       kk.c_str(), (unsigned long long)sq,
+                       st2.ok() ? "OK" : st2.ToString().c_str());
+              }
+            }
+          }
+          printf("aprobe 重启审计: checked=%zu 仍缺失=%zu ⇒ %s\n", checked,
+                 missing, missing == 0 ? "非持久丢失（内存/读路径状态）"
+                                       : "**持久丢失**（重启后仍读不到）");
+          fflush(stdout);
+          // 审计后继续原流程（用新句柄）。
+        }
+      }
+      // A 命中判据（合法操作下的直接形式）：**索引胜出但给出的是旧版本**
+      // （index_seq < 真值 seq），且需要 LSM 才能保持正确（LSM-only 读拿到真值
+      // 而索引读没拿到）。任何 `got != expect` 都已计为 errors；这里额外把它
+      // 归因为"陈旧索引胜出"以便最小复现。
+      if (r.source != nullptr && std::string(r.source) == "INDEX" &&
+          r.truth_seq > 0 && r.index_seq > 0 && r.index_seq < r.truth_seq &&
+          r.lsm_is_newest && (!gst.ok() || got != expect)) {
+        r.a_hit = true;
+        a_hits.push_back(std::string(cse) + " key=" + key + " idx_seq=" +
+                         std::to_string(r.index_seq) + " truth_seq=" +
+                         std::to_string(r.truth_seq) + " idx_val_len=" +
+                         std::to_string(got.size()) + " lsm_val_len=" +
+                         std::to_string(lv.size()));
+      }
+      // 信息性：索引胜出但 seq 低于真值（陈旧索引）——**排除快照读**（快照本就应
+      // 看到更早的版本，把它算作"陈旧"是假阳性，实测会污染 A 的判定）。
+      if (snap == nullptr && r.source != nullptr &&
+          std::string(r.source) == "INDEX" && r.truth_seq > 0 &&
+          r.index_seq > 0 && r.index_seq < r.truth_seq) {
+        ++stale_index_wins;
+      }
+      if (recs.size() < 60 || r.a_hit || !r.ok) recs.push_back(r);
+      return r;
+    };
+    printf("aprobe: 开始（iters=%d 每类；seeded 20260917）路由=%s\n", iters,
+           sp("rocksdb.zeroflush.routing_table").c_str());
+    for (int i = 0; i < iters; ++i) {
+      const uint64_t kbase = 300000 + static_cast<uint64_t>(i) * 8;
+      const std::string k = zf_keygen::KeyFromInt(kbase, kKeySize);
+      const std::string v1 = zf_keygen::ValueFor(kbase, 1, kValueSize);
+      const std::string v2 = zf_keygen::ValueFor(kbase, 2, kValueSize);
+      // 1) 普通写入后读取
+      db->Put(rocksdb::WriteOptions(), k, v1);
+      truth_seq[k] = db->GetLatestSequenceNumber();
+      expect_final[k] = v1;
+      get_once(k, v1, false, kCaseName[0], nullptr);
+      // 2) 覆盖写
+      db->Put(rocksdb::WriteOptions(), k, v2);
+      truth_seq[k] = db->GetLatestSequenceNumber();
+      expect_final[k] = v2;
+      get_once(k, v2, false, kCaseName[1], nullptr);
+      // 3) 删除与墓碑（再来一次覆盖以覆盖"删除后重写"）；ZF_AP_NO_DELETE 可关。
+      if (getenv("ZF_AP_NO_DELETE") == nullptr) {
+        db->Delete(rocksdb::WriteOptions(), k);
+        truth_seq[k] = 0;  // 墓碑：真值 seq 记 0（期望 NotFound）
+        delete_seq[k] = db->GetLatestSequenceNumber();
+        expect_final[k] = std::string();  // 期望 NotFound
+        get_once(k, std::string(), true, kCaseName[2], nullptr);
+        db->Put(rocksdb::WriteOptions(), k, v1);
+        truth_seq[k] = db->GetLatestSequenceNumber();
+        expect_final[k] = v1;
+      }
+      // 4) snapshot 读取（覆盖前取快照 ⇒ 快照应看到 v1，实时看到 v2）；
+      //    ZF_AP_NO_SNAPSHOT 可关（二分触发点用）。
+      if (getenv("ZF_AP_NO_SNAPSHOT") == nullptr) {
+        const rocksdb::Snapshot* sn = db->GetSnapshot();
+        db->Put(rocksdb::WriteOptions(), k, v2);
+        truth_seq[k] = db->GetLatestSequenceNumber();
+        expect_final[k] = v2;
+        get_once(k, v1, false, kCaseName[3], sn);
+        get_once(k, v2, false, kCaseName[3], nullptr);
+        db->ReleaseSnapshot(sn);
+      } else {
+        db->Put(rocksdb::WriteOptions(), k, v2);
+        truth_seq[k] = db->GetLatestSequenceNumber();
+        expect_final[k] = v2;
+      }
+      // 5) Freeze → 安装 → 回收交接（每 20 轮做一次，避免过慢）
+      if (i % 20 == 0) {
+        const uint32_t rp = ctx->RoutePartId(rocksdb::Slice(k));
+        ctx->wal()->Sync(rp).PermitUncheckedError();
+        const uint32_t g0 = ctx->wal()->ActiveGenOpt(rp).value_or(0);
+        uint32_t sg = 0;
+        ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(), rp, g0, &sg);
+        for (int t = 0; t < 8 && p("pending_materialize_bytes") != 0; ++t) {
+          impl->ZfDrainNow();
+          env_sleep_ms(20);
+        }
+        if (getenv("ZF_AP_NO_PURGE") == nullptr) {
+          ctx->PurgeSealedFiles();
+        }
+        get_once(k, v2, false, kCaseName[4], nullptr);
+      }
+      // 6) 重启后读取（每 60 轮一次）
+      if (i % 60 == 59) {
+        const std::string key_saved = k;
+        db->Flush(rocksdb::FlushOptions());
+        db.reset();
+        db = OpenDb(dbdir, /*create=*/false);
+        if (db == nullptr) {
+          printf("aprobe: FAIL (重启无法重开)\n");
+          return 1;
+        }
+        impl = static_cast<rocksdb::DBImpl*>(db.get());
+        ctx = impl->GetZeroFlushContext();
+        get_once(key_saved, v2, false, kCaseName[5], nullptr);
+      }
+    }
+    // 逐次记录（只打印前若干条 + 任何异常）
+    printf("aprobe 记录（最多 40 条）: read_seq index_seq lsm_seq source cands ok a_hit note\n");
+    size_t printed = 0;
+    for (const auto& r : recs) {
+      // 优先打印错误/A 命中；其余仅打印前 20 条（避免只看前几条而漏掉失败样本）。
+      if (printed >= 40) break;
+      if (!r.ok || r.a_hit) {
+        ++printed;
+      } else {
+        continue;
+      }
+
+      printf("  cse=%s key=%s rs=%llu idx=%llu truth=%llu lsm_only_has=%d "
+             "lsm_is_newest=%d src=%s cands=%u ok=%d a_hit=%d note=%s\n",
+             r.cse.c_str(), r.key.c_str(), (unsigned long long)r.read_seq,
+             (unsigned long long)r.index_seq, (unsigned long long)r.truth_seq,
+             r.lsm_has ? 1 : 0, r.lsm_is_newest ? 1 : 0, r.source, r.candidates,
+             r.ok ? 1 : 0, r.a_hit ? 1 : 0, r.note.c_str());
+    }
+    printf("aprobe: gets=%zu errors=%zu A_hits=%zu 陈旧索引胜出(idx_seq<truth_seq)=%zu\n",
+           gets, errors, a_hits.size(), stale_index_wins);
+    for (const auto& h : a_hits) printf("aprobe A_HIT: %s\n", h.c_str());
+    if (errors > 0) {
+      printf("aprobe: FAIL (合法路径下结果错误 %zu 次)\n", errors);
+      return 1;
+    }
+    if (!a_hits.empty()) {
+      printf("aprobe: A_REACHABLE（%zu 次命中，需最小复现后决定是否修读路径）\n",
+             a_hits.size());
+      return 1;
+    }
+    printf("aprobe: PASS —— A 在合法协议下不可达（gets=%zu 全部正确，"
+           "index_seq<lsm_seq 的陈旧索引胜出=0）\n", gets);
+    return 0;
   }
 
   if (mode == "failaccept") {

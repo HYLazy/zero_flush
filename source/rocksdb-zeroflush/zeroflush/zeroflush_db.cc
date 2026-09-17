@@ -1782,6 +1782,11 @@ bool ZeroFlushContext::SelectBestIndexRecord(
   }
   std::stable_sort(cands.begin(), cands.end(),
                    [](const Cand& a, const Cand& b) { return a.upper > b.upper; });
+  {
+    auto& is = zeroflush::get_trace::LastIndexSelTls();
+    is = zeroflush::get_trace::IndexSel();
+    is.candidates = static_cast<uint32_t>(cands.size());
+  }
   bool have_any = false;
   ROCKSDB_NAMESPACE::ValueType best_type = ROCKSDB_NAMESPACE::kTypeValue;
   ROCKSDB_NAMESPACE::SequenceNumber best_seq = 0;
@@ -1886,7 +1891,17 @@ bool ZeroFlushContext::SelectBestIndexRecord(
     }
   }
   if (!have_any) {
-    return false;
+    return false;  // TLS: hit 保持 false（读走 LSM）
+  }
+  {
+    auto& is = zeroflush::get_trace::LastIndexSelTls();
+    is.set = true;
+    is.hit = true;
+    is.sel_part = best_part;
+    is.phys = best_phys;
+    is.gen = best_gen;
+    is.seq = best_seq;
+    is.tombstone = (best_type != ROCKSDB_NAMESPACE::kTypeValue);
   }
   // step 1ag（C 段）：选择胜出后，记录/对照胜出 locator 的解码结果与 A 表。
   if (zeroflush::get_trace::LocatorDiagEnabled() &&
@@ -1981,6 +1996,14 @@ bool ZeroFlushContext::GetFromPartitionIndex(
             "alias_candidates=%zu\n",
             (long long)zeroflush::get_trace::KeyId(user_key),
             (unsigned long long)snapshot, part, extra.size());
+  }
+  // step A-probe（测试专用）：**跳过索引层**，强制读走 LSM——用于取"LSM 侧
+  // 最新版本"作为对照。开关是**线程本地**的（env 开关需要每次 Get 前后
+  // setenv/unsetenv，与并发线程 getenv 竞争 ⇒ 未定义行为）。
+  if (zeroflush::get_trace::SkipIndexTls()) {
+    auto& is = zeroflush::get_trace::LastIndexSelTls();
+    is = zeroflush::get_trace::IndexSel();
+    return false;
   }
   ZfPinSlot best_pin;
   best_pin.ctx = this;
