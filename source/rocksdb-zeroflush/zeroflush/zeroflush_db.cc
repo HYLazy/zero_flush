@@ -2577,6 +2577,10 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::SyncTouchedPartitions(
   return ROCKSDB_NAMESPACE::Status::OK();
 }
 
+void ZeroFlushContext::DetachFromDb() {
+  cfd_ = nullptr;  // 之后 IsGenInstalled 一律 false：不解引用已销毁对象、不误销账
+}
+
 bool ZeroFlushContext::IsGenInstalled(uint32_t phys_part, uint32_t gen) const {
   if (cfd_ == nullptr || cfd_->current() == nullptr) {
     return false;

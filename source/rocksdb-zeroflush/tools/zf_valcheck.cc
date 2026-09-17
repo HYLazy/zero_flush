@@ -519,7 +519,7 @@ int main(int argc, char** argv) {
        mode == "baccept" || mode == "installtest" || mode == "routingneg" ||
        mode == "failaccept" || mode == "aprobe" || mode == "mini" ||
        mode == "snapmini" || mode == "migrate" || mode == "closestress" ||
-       mode == "autodrain");
+       mode == "autodrain" || mode == "detachreg");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
@@ -3024,6 +3024,64 @@ int main(int argc, char** argv) {
     printf("mini: %s (bad=%zu, batches=%d, per_batch=%d)\n",
            bad == 0 ? "PASS" : "FAIL", bad, batches, per_batch);
     return bad == 0 ? 0 : 1;
+  }
+
+  if (mode == "detachreg") {
+    // step V0.6-A7 回归（候选线）：**关闭时仍保留未安装 epoch** ⇒ 关闭 → 重开 → 逐键。
+    // 修复前：DB 析构期 `~MemTable → ReleaseEpoch → IsGenInstalled → cfd_->current()`
+    // 解引用正在销毁的 Version ⇒ SIGSEGV（gdb 栈实证）。修复后：正常退出 + 逐键正确。
+    // 用既有冲突钩子保留未安装 epoch（不依赖攒批/调度器）。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    auto p = [&](const char* k) { return Prop(db.get(), k); };
+    auto sp = [&](const char* k) {
+      std::string v;
+      db->GetProperty(k, &v);
+      return v;
+    };
+    const int n = 4000;
+    std::vector<std::string> keys;
+    for (int i = 0; i < n; ++i) {
+      const uint64_t kk = static_cast<uint64_t>(i) * 17;
+      const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+      db->Put(rocksdb::WriteOptions(), k, zf_keygen::ValueFor(kk, 1, kValueSize));
+      keys.push_back(k);
+    }
+    auto ctx = impl->GetZeroFlushContext();
+    // 用**提交前冲突**让安装整体让位 ⇒ epoch 保持未安装（数据仍在 WAL/registry）。
+    setenv("ZF_TEST_FORCE_INSTALL_CONFLICT", "-1000000", 1);
+    for (uint32_t q = 0; q < 4; ++q) {
+      ctx->wal()->Sync(q).PermitUncheckedError();
+      uint32_t sg = 0;
+      ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(), q,
+                            ctx->wal()->ActiveGenOpt(q).value_or(0), &sg);
+    }
+    env_sleep_ms(200);
+    const uint64_t pend = p("pending_materialize_bytes");
+    const std::string pg = sp("rocksdb.zeroflush.pending_gens");
+    unsetenv("ZF_TEST_FORCE_INSTALL_CONFLICT");
+    printf("detachreg 关闭前: pending=%llu pending_gens=%s\n",
+           (unsigned long long)pend, pg.substr(0, 100).c_str());
+    const bool had_uninstalled = (pend > 0);
+    db->Flush(rocksdb::FlushOptions());
+    db.reset();  // ← 修复前在此 SIGSEGV
+    printf("detachreg 关闭完成（未崩溃）\n");
+    db = OpenDb(dbdir, /*create=*/false);
+    if (db == nullptr) {
+      printf("detachreg: FAIL (重启无法重开)\n");
+      return 1;
+    }
+    size_t bad = 0;
+    for (int i = 0; i < n; ++i) {
+      const uint64_t kk = static_cast<uint64_t>(i) * 17;
+      std::string got;
+      const rocksdb::Status dst = db->Get(rocksdb::ReadOptions(), keys[i], &got);
+      if (!dst.ok() || got != zf_keygen::ValueFor(kk, 1, kValueSize)) ++bad;
+    }
+    printf("detachreg 重开逐键: bad=%zu/%d -> %s\n", bad, n,
+           (bad == 0 && had_uninstalled) ? "PASS"
+                                         : (bad == 0 ? "INCOMPLETE(未制造未安装代)" : "FAIL"));
+    return (bad == 0 && had_uninstalled) ? 0 : 1;
   }
 
   if (mode == "autodrain") {

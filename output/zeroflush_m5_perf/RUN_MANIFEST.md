@@ -2719,3 +2719,49 @@ installed/drained）；③ 关键验收（停写 + 不开新写 + 不关闭 ⇒ 
 旧代 WAL 回收 / 实时读·snapshot·重启读全对，且调度计数有界）；④ 全生命周期写放大重测
 （总输入/输出、pending 峰值、排空耗时、写吞吐、立即读与排空后读延迟、无进展次数、
 强制融合次数）；⑤ 全量门禁后再谈默认开启。
+
+## 候选线：拆卸期解挂修复（A7 后移）+ 最终证据
+
+### D-80. 后移内容与安全点核对（严格限定范围）
+
+**只后移解挂修复**（不带调度器/定时器/收益攒批）：
+- `ZeroFlushContext::DetachFromDb()`（`cfd_ = nullptr`）；
+- 调用点放在 `CloseHelper` **尾部**、`directories_.Close()` 之前——**此时**：
+  ① 所有可能访问 `cfd_` 的后台工作已按既有顺序停稳并 join（CloseHelper 前半段的 flush/
+  compaction 等待与 `env_->WaitForJoin()` 已完成）；② MemTable/epoch 清理与 Version 销毁
+  发生在 `~DBImpl` 中、**尚未越过安全边界**。
+- 解挂后的安全性：`IsGenInstalled` 一律返回 false ⇒ 清理路径**不会**因"缺少安装证据"而
+  提前回收未安装代（回收资格仍要求 cache 级 `installed` + 引用归零，见 `ReleaseGens`/
+  `ReleaseGenReadRef`）。
+
+### D-81. 回归用例 `detachreg`（候选线）
+
+构造：写入 4000 键 → 用**既有冲突钩子** `ZF_TEST_FORCE_INSTALL_CONFLICT` 让安装整体让位
+→ 显式封存 4 分区 ⇒ 关闭时**确有未安装 epoch**（实测 `pending=4272000`，`pending_gens=n=4`）
+→ 关闭 → 重开 → 逐键校验。
+```
+修复后：关闭前 pending=4272000 pending_gens=n=4 → 关闭完成（未崩溃）→ 重开逐键 bad=0/4000 → PASS
+```
+**如实记录**：该用例在**候选线**上修复前**未复现** SIGSEGV（exit=0）——崩溃是竞态，本次在
+**实验分支**（带排空特性）上由 gdb 栈复现并定位（`~MemTable → ReleaseEpoch → IsGenInstalled
+→ cfd_->current()`）。因此本用例在候选线的作用是**回归守卫**（覆盖"关闭时存在未安装 epoch"
+的清理路径）；修复前/后的对照证据是实验分支的三个关闭窗口（修复前 139 / 修复后 exit=0）。
+
+### D-82. 候选线最终证据（本 build，哈希 `/tmp/build_hash_cand_detach.txt`）
+```
+closestress 1000 轮            : **零崩溃**
+semtest cases1-7              : PASS
+installtest 1-4               : PASS
+detachreg（关闭含未安装 epoch）  : PASS（pending=4.27MB → 关闭未崩溃 → 重开 4000/4000）
+五组压力 各 300 轮             : PASS（failures/ss/nf/corruption=0、rotations=300、
+                                install_wait_timeouts=0、pending_last=0）
+```
+### D-83. 待办（下一份交付）
+1. **真正证明 Close 等待的窗口**（用户口径）：运行中的任务停在屏障上、**不随 STOPPING 自动
+   放行**；控制线程确认 Close 已进入等待且引用仍为 1，再放行 ⇒ 引用归零、Close 返回、进程
+   正常退出；事件记录按 **DB 实例 + task ID** 区分（避免重开后的任务污染计数）。
+2. **`AdoptSkippedGensForDrainLocked()`**：选取可收养的真实 gens → 原子转移所有权与索引
+   依赖 → 生成 drain work item → 进入正常规划/冲突检查/安装；不依赖新写入或新 WAL 封存；
+   同代不得被两个任务收养；失败保留/恢复归属、冲突退避，不强转 `kMergeBase`。
+   验收：只剩 skip 代时停写也能排空；有冲突时保持可读、解除后自动排空。
+3. 持续无进展场景的**调度风暴**验收（随 skip 冲突用例一起检查）。

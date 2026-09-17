@@ -849,6 +849,17 @@ Status DBImpl::CloseHelper() {
     write_buffer_manager_->RemoveDBFromQueue(wbm_stall_.get());
   }
 
+  // step V0.6-A7（gdb 栈实证）：解挂 ZF 上下文对 DB 侧对象的引用——**此时**
+  // 所有可能访问 `cfd_` 的后台工作已按既有顺序停稳并 join（上面已完成 flush/
+  // compaction 的等待与 `WaitForJoin`），而 MemTable/epoch 清理与 Version 销毁
+  // 尚未越过安全边界（发生在 ~DBImpl 里）。若不在此解挂，`~MemTable → ReleaseEpoch
+  // → IsGenInstalled → cfd_->current()` 会解引用正在销毁的 Version ⇒ SIGSEGV。
+  // 解挂后 `IsGenInstalled` 返回 false：清理路径不会因"缺少安装证据"而提前回收
+  // 未安装代（回收资格仍要求 cache 级 installed + 引用归零）。
+  if (zf_ctx_ != nullptr) {
+    zf_ctx_->DetachFromDb();
+  }
+
   IOStatus io_s = directories_.Close(IOOptions(), nullptr /* dbg */);
   if (!io_s.ok()) {
     ret = io_s;

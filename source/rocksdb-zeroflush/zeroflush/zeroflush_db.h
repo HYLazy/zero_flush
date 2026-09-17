@@ -281,6 +281,12 @@ class ZeroFlushContext {
   // **必须传播错误**而不是静默返回 LSM 的旧值/NotFound（后者会把生命周期
   // 错误伪装成陈旧读）。
   bool IsGenInstalled(uint32_t phys_part, uint32_t gen) const;
+  // step V0.6-A7（gdb 栈实证）：DB 析构期 `~MemTable → ReleaseEpoch → IsGenInstalled`
+  // 会解引用正在销毁的 `cfd_->current()` ⇒ SIGSEGV（关闭时仍有未安装 epoch 的场景）。
+  // 关闭流程在**所有可能访问 cfd_ 的后台工作停稳之后**调用本函数解挂 DB 侧引用；
+  // 之后 `IsGenInstalled` 安全返回 false（清理路径不会因"缺少安装证据"而误回收未安装代：
+  // 回收资格仍要求 cache 级 installed + 引用归零，见 ReleaseGens/ReleaseGenReadRef）。
+  void DetachFromDb();
 
   // step 1i（测试/诊断入口，与读路径共用同一段选择逻辑）：在候选间按 seq
   // 取最优，返回胜出者的 (logical_part, phys_part, gen, offset, type, seq)。
