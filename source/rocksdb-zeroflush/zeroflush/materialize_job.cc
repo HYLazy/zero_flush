@@ -527,6 +527,22 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::FinalizeLocked() {
   return ROCKSDB_NAMESPACE::Status::OK();
 }
 
+// step B-2b：把本次计划的融合输入文件号拼成短串（测试断言用）。
+std::string ZfMaterializeJob::MergeInputFilesDebug() const {
+  std::string out;
+  for (const auto& p : plans_) {
+    if (p.decision != MaterializeDecision::kMergeBase || p.overlap.empty()) {
+      continue;
+    }
+    out += "pid=" + std::to_string(p.part_id) + ":[";
+    for (auto* f : p.overlap) {
+      out += std::to_string(f->fd.GetNumber()) + " ";
+    }
+    out += "] ";
+  }
+  return out;
+}
+
 void ZfMaterializeJob::DumpPlansDebug() const {
   if (getenv("ZF_DBG_MM") == nullptr) {
     return;

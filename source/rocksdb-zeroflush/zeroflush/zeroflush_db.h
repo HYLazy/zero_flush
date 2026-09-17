@@ -1158,6 +1158,45 @@ class ZeroFlushContext {
   std::atomic<uint64_t> materialize_sort_micros_{0};  // 物化排序累计耗时
   // ---- M3.3 融合归并统计 ----
   std::atomic<uint64_t> base_merge_count_{0};       // 融合归并次数（按分区）
+  // step B-2b（用户 2026-09-17）：融合/安装的**逐次证据**——只报"最终层号"不足以
+  // 证明融合真的消费了目标层输入。三个计数分别对应：
+  //   merge_input_files     = 融合输入（被消费的 existing/base 文件）个数
+  //   install_add_file      = 本次安装 AddFile 的输出个数
+  //   install_delete_replaced = 因替换而真实 DeleteFile 的旧文件个数
+  std::atomic<uint64_t> merge_input_files_{0};
+  mutable std::mutex merge_inputs_mu_;
+  std::string merge_inputs_log_;
+  std::atomic<uint64_t> install_add_file_{0};
+  std::atomic<uint64_t> install_delete_replaced_{0};
+  uint64_t merge_input_files() const {
+    return merge_input_files_.load(std::memory_order_relaxed);
+  }
+  uint64_t install_add_file() const {
+    return install_add_file_.load(std::memory_order_relaxed);
+  }
+  uint64_t install_delete_replaced() const {
+    return install_delete_replaced_.load(std::memory_order_relaxed);
+  }
+  void NoteMergeInputFiles(uint64_t n) {
+    merge_input_files_.fetch_add(n, std::memory_order_relaxed);
+  }
+  // 实际融合输入文件号（"epoch/pid:[file …] "，最近 32 条）——用户要求"记录实际
+  // 融合输入及对应的 DeleteFile/AddFile，不能只看最终层号"。
+  void NoteMergeInputs(const std::string& one) {
+    std::lock_guard<std::mutex> l(merge_inputs_mu_);
+    if (merge_inputs_log_.size() > 8192) merge_inputs_log_.clear();
+    merge_inputs_log_ += one;
+  }
+  std::string merge_inputs() const {
+    std::lock_guard<std::mutex> l(merge_inputs_mu_);
+    return merge_inputs_log_;
+  }
+  void NoteInstallAddFile() {
+    install_add_file_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void NoteInstallDeleteReplaced() {
+    install_delete_replaced_.fetch_add(1, std::memory_order_relaxed);
+  }
   std::atomic<uint64_t> base_merge_rewritten_bytes_{0};  // 被重写 base 字节
   // ---- M4.5b 攒批统计 ----
   std::atomic<uint64_t> skip_count_{0};  // kSkip 攒批跳过的分区次数

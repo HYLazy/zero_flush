@@ -736,6 +736,40 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     // D-38 诊断：未安装的已注册代及其归属（回答"pending 为何不为 0"）。
     *value = sealed_cache_ != nullptr ? sealed_cache_->DescribeUninstalledGens()
                                       : std::string();
+  } else if (prop == "rocksdb.zeroflush.routing_table") {
+    // step B-2b：路由身份（重开一致性断言用）——版本/分区数/hash 标记/边界数/
+    // 模式/协议(格式)版本/比较器名。
+    std::string out = "none";
+    if (tables_ != nullptr && tables_->current() != nullptr) {
+      const auto& t = *tables_->current();
+      const std::vector<uint32_t>& ids = t.part_ids();
+      size_t nb = 0;
+      if (!t.IsHashMode() && ids.size() > 0) {
+        // 边界数 = 分区数 - 1（RangeOf 由 boundaries_ 推得）
+        nb = ids.size() - 1;
+      }
+      out = "ver=" + std::to_string(t.version()) +
+            " parts=" + std::to_string(ids.size()) +
+            " hash=" + (t.IsHashMode() ? "1" : "0") +
+            " boundaries=" + std::to_string(nb) +
+            " cur_ver=" + std::to_string(tables_->current_version()) +
+            " mode=" + std::to_string(static_cast<int>(zfo_.routing_mode));
+    }
+    *value = out;
+  } else if (prop == "rocksdb.zeroflush.install_evidence") {
+    // step B-2b：融合/安装逐次证据（不只看最终层号）。
+    *value = "merge_input_files=" + std::to_string(merge_input_files()) +
+             " add_file=" + std::to_string(install_add_file()) +
+             " delete_replaced=" + std::to_string(install_delete_replaced()) +
+             " base_merge_count=" + std::to_string(base_merge_count_.load()) +
+             " rewritten_bytes=" +
+             std::to_string(base_merge_rewritten_bytes_.load());
+  } else if (prop == "rocksdb.zeroflush.merge_input_files") {
+    *value = std::to_string(merge_input_files());
+  } else if (prop == "rocksdb.zeroflush.install_delete_replaced") {
+    *value = std::to_string(install_delete_replaced());
+  } else if (prop == "rocksdb.zeroflush.merge_inputs") {
+    *value = merge_inputs();
   } else if (prop == "rocksdb.zeroflush.skip_reasons") {
     // step B-1：让位原因计数（逐次可读、按库隔离）。
     *value = SkipReasonCounters();
@@ -2976,10 +3010,21 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::PersistZfProps() {
   tables_info.reserve(1);
   ZfPropsTableInfo ti;
   ti.version = 0;
-  ti.partitions = zfo_.partitions;
-  ti.part_ids.clear();
-  for (uint32_t i = 0; i < zfo_.partitions; ++i) ti.part_ids.push_back(i);
-  ti.boundaries.clear();  // 初始 phase 0 完整信息由 ZFPROPS 全量写入
+  // step B-2b 修正（关键）：version 0 **不再假定为 hash 表**。固定 range 路由下
+  // version 0 就是固定表——旧实现硬写 `boundaries.clear()` + `part_ids=[0,P)`
+  // ⇒ 边界根本没落盘（重开时被一致性守卫正确拒绝：
+  //   "fixed-routing boundaries conflict: persisted 0 boundaries, configured 3"）。
+  // 现在一律从**实际表**取分区数/part_ids/边界（hash 表的 boundaries 自然为空）。
+  if (auto t0 = tables_->Get(0); t0 != nullptr) {
+    ti.partitions = t0->partitions();
+    ti.part_ids = t0->part_ids();
+    ti.boundaries = t0->IsHashMode() ? std::vector<std::string>()
+                                     : t0->boundaries();
+  } else {
+    ti.partitions = zfo_.partitions;
+    for (uint32_t i = 0; i < zfo_.partitions; ++i) ti.part_ids.push_back(i);
+    ti.boundaries.clear();
+  }
   tables_info.push_back(ti);
   // 若有更多表（采样后 InstallNewVersion 的），也编码进去。
   for (uint32_t v = 1; v <= tables_->current_version(); ++v) {
@@ -3988,10 +4033,37 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   auto table_set = std::unique_ptr<PartitionTableSet>(new PartitionTableSet());
   // 根据路由模式创建初始表（version 0）。
   if (zfo.routing_mode == ZeroFlushOptions::RoutingMode::kStatic) {
-    // kStatic：用户提供 P-1 个分隔键。
-    if (zfo.static_boundaries.size() != zfo.partitions - 1) {
+    // step B-2b（用户 2026-09-17 决策）：kStatic = **固定 range 路由协议**。
+    // 规则：
+    //   · 优先使用**显式配置**的 P-1 个分隔键，并按**实际比较器**校验
+    //     （严格升序、非空）；不接受"通用等分边界"这种不存在的假设。
+    //   · 没有配置边界时，退化为**单一全范围分区**（P=1，持久化同一张表）——
+    //     不允许 P>1 却无边界。
+    //   · 本协议下 epoch 更替**不会**学习/替换边界（学习分支只对 kSampled 开）。
+    if (zfo.static_boundaries.empty()) {
+      if (zfo.partitions != 1) {
+        return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+            "ZeroFlush: fixed routing without explicit boundaries requires "
+            "partitions == 1 (single full-range partition); got partitions=" +
+            std::to_string(zfo.partitions) +
+            " and no static_boundaries");
+      }
+    } else if (zfo.static_boundaries.size() != zfo.partitions - 1) {
       return ROCKSDB_NAMESPACE::Status::InvalidArgument(
           "ZeroFlush: static_boundaries size must be partitions - 1");
+    }
+    for (size_t i = 0; i < zfo.static_boundaries.size(); ++i) {
+      if (zfo.static_boundaries[i].empty()) {
+        return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+            "ZeroFlush: static_boundaries[" + std::to_string(i) +
+            "] is empty");
+      }
+      if (i > 0 && ucmp->Compare(rocksdb::Slice(zfo.static_boundaries[i - 1]),
+                                 rocksdb::Slice(zfo.static_boundaries[i])) >= 0) {
+        return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+            "ZeroFlush: static_boundaries must be strictly ascending under the "
+            "active comparator (index " + std::to_string(i) + ")");
+      }
     }
     std::shared_ptr<PartitionTable> pt;
     ROCKSDB_NAMESPACE::Status ps = PartitionTable::Create(
@@ -4070,6 +4142,29 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
           return ROCKSDB_NAMESPACE::Status::InvalidArgument(
               "ZeroFlush: ZFPROPS routing_mode mismatch");
         }
+        // step B-2b：固定 range 协议下，**配置冲突必须显式报错**——
+        // 若调用方给出了显式边界，必须与持久化边界逐条一致（含数量），
+        // 否则新写入会按另一套边界路由，而旧代仍按持久化边界解释。
+        if (zfo.routing_mode == ZeroFlushOptions::RoutingMode::kStatic &&
+            !zfo.static_boundaries.empty()) {
+          const std::vector<std::string>* pb = nullptr;
+          for (const auto& ti : decoded.tables) {
+            if (ti.version == 0) pb = &ti.boundaries;
+          }
+          if (pb == nullptr) {
+            return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+                "ZeroFlush: ZFPROPS has no version-0 routing table but fixed "
+                "routing was requested");
+          }
+          if (*pb != zfo.static_boundaries) {
+            return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+                "ZeroFlush: fixed-routing boundaries conflict: persisted " +
+                std::to_string(pb->size()) +
+                " boundaries differ from configured " +
+                std::to_string(zfo.static_boundaries.size()) +
+                "; refusing to reinterpret existing generations");
+          }
+        }
         // 校验 comparator name（v2 才有；v1 自动跳过）。
         if (decoded.format_version >= 2 &&
             !decoded.comparator_name.empty() &&
@@ -4101,7 +4196,15 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
                                             &restored);
               }
               if (!cs.ok()) {
-                // 边界无法重建（comparator 变更等）——记录日志但继续。
+                // step B-2b：固定 range 协议下**不得**"记日志后继续"——那等于
+                // 悄悄换一张表（旧代会被按另一套边界解释）。下表无法按持久化
+                // 边界重建 ⇒ 明确报错。
+                if (zfo.routing_mode == ZeroFlushOptions::RoutingMode::kStatic) {
+                  return ROCKSDB_NAMESPACE::Status::Corruption(
+                      "ZeroFlush: cannot restore persisted routing table v" +
+                      std::to_string(ti.version) + " under fixed routing: " +
+                      cs.ToString() + " (refusing to silently rebuild)");
+                }
                 if (zfo.use_logger) {
                   ROCKS_LOG_WARN(zf_opt.info_log.get(),
                                 "ZeroFlush: cannot restore table v%u: %s",

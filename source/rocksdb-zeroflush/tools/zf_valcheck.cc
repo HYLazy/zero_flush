@@ -252,6 +252,19 @@ std::unique_ptr<rocksdb::DB> OpenDb(const std::string& dbdir, bool create) {
     if (v > 0) zfo.epoch_target_bytes = v << 20;
   }
   zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kSampled;
+  if (getenv("ZF_VC_FIXED_ROUTING") != nullptr) {
+    // step B-2b（用户决策）：**固定 range 路由**——边界是**显式配置**（本测试
+    // 定宽十进制键空间上的 1/4·1/2·3/4 分隔键），由比较器校验（严格升序、非空）。
+    const uint32_t P = 4;
+    const uint64_t span = g_num_keys_hint >= 1000 ? g_num_keys_hint : 20000;
+    zfo.partitions = P;
+    zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+    zfo.static_boundaries.clear();
+    for (uint32_t i = 1; i < P; ++i) {
+      zfo.static_boundaries.push_back(
+          zf_keygen::KeyFromInt((span * i) / P, kKeySize));
+    }
+  }
   // step B-2 决定性实验：`ZF_VC_STATIC_BOUNDARIES=1` ⇒ 用**固定 range 边界**
   // （kStatic，按键空间等分）而不是"先 hash 再学边界"。用途：区分"融合/安装
   // 路径本身有缺陷"与"hash 路由（无 range 语义）与禁 L0 不相容"——若固定边界下
@@ -485,11 +498,16 @@ int main(int argc, char** argv) {
   const bool do_write =
       (mode == "all" || mode == "write" || mode == "walread" ||
        mode == "selftest" || mode == "semtest" || mode == "stress" ||
-       mode == "baccept" || mode == "installtest");
+       mode == "baccept" || mode == "installtest" || mode == "routingneg");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
   Stats st;
+  // step B-2b：installtest 用**固定 range 路由**开库（必须在 OpenDb 之前设定，
+  // 保证"从第一条写入起"就是固定表；重开时同一配置 ⇒ 由 ZFPROPS 校验一致性）。
+  if (mode == "installtest") {
+    setenv("ZF_VC_FIXED_ROUTING", "1", 1);
+  }
   std::unique_ptr<rocksdb::DB> db = OpenDb(dbdir, do_write);
   if (db == nullptr) {
     return 1;
@@ -2413,113 +2431,362 @@ int main(int argc, char** argv) {
   }
 
   if (mode == "installtest") {
-    // step B-1（用户 2026-09-17 指令）：把"保留住了但装不上"缩成**确定性用例**。
-    //   场景 1 = 目标层**无重叠**（新库，只有本批数据）；
-    //   场景 2 = 目标层**有重叠**（同范围先有一批已安装数据落在 base 层，再封存一批）。
-    // 步骤：写入 → 生产封存流程封存该分区 → **停止写入** → 有限次驱动正常物化
-    // （ZfDrainNow + Flush）→ 要求：出现**真实安装**（drained 推进）且 pending 归零，
-    // 且不产生 L0 安装。**不依赖后续写入**，也不等待不存在的 L0 文件。
-    // 前提未建成（例如场景 2 的 base 层重叠没造出来）⇒ 记 SETUP_INCOMPLETE(exit 3)，
-    // 不得静默按 PASS 处理。
-    // stdout 默认块缓冲：与 stderr 的 ZFDBG 诊断无法按时序交替（实测导致
-    // "按标记切日志"完全错位）。本模式改为无缓冲，保证与引擎诊断逐行对齐。
+    // step B-2b（用户 2026-09-17 决策）：固定 range 路由下的**多分区安装验收 +
+    // 重启一致性**。场景：
+    //   1 = 单分区、目标层无重叠        2 = 单分区、目标层有重叠（同范围覆盖写）
+    //   3 = 跨边界多分区、无重叠（含边界键）  4 = 跨边界多分区、有重叠（覆盖写+删除+快照）
+    // 每场景：写入 → 显式封存 → **停止写入** → 有限次正常物化 → 要求 pending 归零
+    //   且 **registry 无未安装代**（不能只看 pending==0）→ **重启** → 路由身份一致 +
+    //   逐键正确。有重叠场景另断言真实融合输入 > 0（不能只看最终层号）。
     setvbuf(stdout, nullptr, _IONBF, 0);
-    const int scen = static_cast<int>(total > 0 ? total : 1);
     rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
     std::shared_ptr<zeroflush::ZeroFlushContext> ctx = impl->GetZeroFlushContext();
     auto p = [&](const char* k) { return Prop(db.get(), k); };
-    std::string sr0;
-    db->GetProperty("rocksdb.zeroflush.skip_reasons", &sr0);
-    auto sst_count = [&] {
-      long c = 0;
-      if (DIR* d = opendir(dbdir.c_str())) {
-        while (struct dirent* e = readdir(d)) {
-          if (strstr(e->d_name, ".sst") != nullptr) ++c;
+    auto sp = [&](const char* k) {
+      std::string v;
+      db->GetProperty(k, &v);
+      return v;
+    };
+    const int scen = static_cast<int>(total > 0 ? total : 1);
+    const uint64_t span = 20000;  // 与 OpenDb 的固定边界配置一致
+    const uint64_t b1 = span / 4, b2 = span / 2, b3 = (span * 3) / 4;
+    printf("installtest scen=%d 路由: %s | 边界=%llu,%llu,%llu\n", scen,
+           sp("rocksdb.zeroflush.routing_table").c_str(),
+           (unsigned long long)b1, (unsigned long long)b2,
+           (unsigned long long)b3);
+    struct KeySpec {
+      uint64_t key;
+      int mode;  // 0=值 v1；1=覆盖为 v2；2=删除
+    };
+    std::vector<KeySpec> spec;
+    auto add_range = [&](uint64_t lo, uint64_t hi) {
+      for (uint64_t k = lo; k < hi; ++k) spec.push_back({k, 0});
+    };
+    const bool multi = (scen == 3 || scen == 4);
+    const bool overlap = (scen == 2 || scen == 4);
+    if (multi) {
+      add_range(100, 180);      // 分区 0
+      add_range(10100, 10180);  // 分区 2
+      // 边界键与紧邻键（覆盖"边界键"与跨边界两侧）
+      spec.push_back({b1, 0});
+      spec.push_back({b1 - 1, 0});
+      spec.push_back({b2, 0});
+      spec.push_back({b2 - 1, 0});
+    } else {
+      add_range(100, 200);
+    }
+    if (scen == 4) {
+      spec.push_back({150, 1});  // 覆盖写
+      spec.push_back({120, 2});  // 删除
+    }
+    auto write_all = [&](int pass) {
+      for (const auto& ks : spec) {
+        const std::string k = zf_keygen::KeyFromInt(ks.key, kKeySize);
+        if (pass == 1 && ks.mode == 2) {
+          db->Delete(rocksdb::WriteOptions(), k);
+        } else {
+          const int seed = (pass == 1 && ks.mode == 1) ? 2 : 1;
+          db->Put(rocksdb::WriteOptions(), k,
+                  zf_keygen::ValueFor(ks.key, seed, kValueSize));
         }
-        closedir(d);
-      }
-      return c;
-    };
-    // 两批使用**同一键区间**（同分区、范围重叠），场景 2 才是"有重叠"。
-    const uint64_t lo_key = 0, hi_key = 200;
-    auto write_range = [&](uint64_t lo, uint64_t hi, int seed) {
-      for (uint64_t i = lo; i < hi; ++i) {
-        const std::string k = zf_keygen::KeyFromInt(i, kKeySize);
-        db->Put(rocksdb::WriteOptions(), k,
-                zf_keygen::ValueFor(i, seed, kValueSize));
       }
     };
-    const uint32_t part = ctx->RoutePartId(
-        rocksdb::Slice(zf_keygen::KeyFromInt(lo_key, kKeySize)));
-    auto seal_and_drain = [&](const char* tag, int max_pass) {
-      ctx->wal()->Sync(part).PermitUncheckedError();
-      const uint32_t g0 = ctx->wal()->ActiveGenOpt(part).value_or(0);
-      uint32_t sealed_g = 0;
-      const int rc = ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(),
-                                           part, g0, &sealed_g);
-      const uint32_t g1 = ctx->wal()->ActiveGenOpt(part).value_or(0);
-      const uint64_t pend0 = p("pending_materialize_bytes");
+    const rocksdb::Snapshot* snap_pre = nullptr;
+    auto parts_touched = [&] {
+      std::set<uint32_t> ps;
+      for (const auto& ks : spec) {
+        ps.insert(ctx->RoutePartId(
+            rocksdb::Slice(zf_keygen::KeyFromInt(ks.key, kKeySize))));
+      }
+      return ps;
+    };
+    auto seal_all = [&](const char* tag) {
+      const auto ps = parts_touched();
+      printf("installtest scen=%d %s: 涉及物理分区 %zu 个 [", scen, tag, ps.size());
+      for (uint32_t q : ps) printf("%u ", q);
+      printf("]\n");
+      for (uint32_t q : ps) {
+        ctx->wal()->Sync(q).PermitUncheckedError();
+        const uint32_t g0 = ctx->wal()->ActiveGenOpt(q).value_or(0);
+        uint32_t sg = 0;
+        const int rc = ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(),
+                                             q, g0, &sg);
+        if (rc < 0) {
+          printf("installtest scen=%d SEAL_FAILURE part=%u rc=%d\n", scen, q, rc);
+        }
+      }
+    };
+    // 证据快照必须在**该遍写入/封存之前**取：融合可能在封存时就已经发生，
+    // 若在排空函数开头才快照，delta 会恒为 0（实测 scen2/4 的 merge_input_files
+    // 绝对值=1/3 而 delta=0）。
+    uint64_t mi_pass0 = 0, del_pass0 = 0;
+    auto snapshot_evidence = [&] {
+      mi_pass0 = p("merge_input_files");
+      del_pass0 = p("install_delete_replaced");
+    };
+    auto drain_and_check = [&](const char* tag) {
       const uint64_t dr0 = p("drained_materialize_bytes");
-      printf("installtest scen=%d %s 封存: part=%u gen %u→%u rc=%d pending=%llu "
-             "drained=%llu sst=%ld | 停写\n",
-             scen, tag, part, g0, g1, rc, (unsigned long long)pend0,
-             (unsigned long long)dr0, sst_count());
-      bool real = false, zero = (pend0 == 0);
-      for (int pass = 0; pass < max_pass; ++pass) {
+      const uint64_t mi0 = mi_pass0;
+      const uint64_t del0 = del_pass0;
+      bool zero = false;
+      for (int pass = 0; pass < 20; ++pass) {
         impl->ZfDrainNow();
         env_sleep_ms(50);
-        const uint64_t pend = p("pending_materialize_bytes");
-        const uint64_t dr = p("drained_materialize_bytes");
-        std::string sr;
-        db->GetProperty("rocksdb.zeroflush.skip_reasons", &sr);
-        printf("installtest scen=%d %s pass=%d pending=%llu drained=%llu "
-               "delta=+%lld empty_edit=%llu l0_install=%llu l0_blocked=%llu | %s\n",
-               scen, tag, pass, (unsigned long long)pend,
-               (unsigned long long)dr, (long long)(dr - dr0),
-               (unsigned long long)p("empty_edit_count"),
-               (unsigned long long)p("l0_install_count"),
-               (unsigned long long)p("l0_install_blocked"), sr.c_str());
-        if (dr > dr0) real = true;
-        if (pend == 0) {
+        if (p("pending_materialize_bytes") == 0) {
           zero = true;
           break;
         }
       }
-      return std::make_pair(real, zero);
+      const bool real = p("drained_materialize_bytes") > dr0;
+      const std::string pg = sp("rocksdb.zeroflush.pending_gens");
+      const bool no_uninstalled = (pg.rfind("n=0 ", 0) == 0);
+      const std::string rpl = sp("rocksdb.zeroflush.reclaim_pending_list");
+      printf("installtest scen=%d %s: 真实安装=%d pending归零=%d registry无未安装代=%d "
+             "reclaim_pending=%s | pending_gens=%s\n",
+             scen, tag, real ? 1 : 0, zero ? 1 : 0, no_uninstalled ? 1 : 0,
+             rpl.empty() ? "(空)" : rpl.c_str(), pg.substr(0, 140).c_str());
+      const uint64_t mi = p("merge_input_files");
+      const uint64_t del = p("install_delete_replaced");
+      const std::string mt = sp("rocksdb.zeroflush.merge_inputs");
+      printf("installtest scen=%d %s: 融合输入 +=%llu 替换删除 +=%llu | %s | "
+             "合并输入日志=%s\n",
+             scen, tag, (unsigned long long)(mi - mi0),
+             (unsigned long long)(del - del0),
+             sp("rocksdb.zeroflush.install_evidence").c_str(),
+             mt.empty() ? "(空)" : mt.substr(0, 220).c_str());
+      return std::make_tuple(real, zero, no_uninstalled, mi - mi0, del - del0);
     };
-    bool setup_ok = true;
-    if (scen == 2) {
-      // 前置：先把一批同范围数据安装到 base 层（制造真实重叠）。
-      write_range(lo_key, hi_key, 1);
-      const auto pre = seal_and_drain("前置", 20);
-      int l1n = 0;
-      {
-        std::string lg;
-        db->GetProperty("rocksdb.zeroflush.installed_fences", &lg);
-        l1n = static_cast<int>(lg.size());  // 非空 = 至少一个分区有安装记录
+    auto verify_keys = [&](const char* tag) {
+      size_t bad = 0, checked = 0;
+      // **按键去重**：同一键可能在 spec 中出现多次（写入 + 覆盖/删除），期望值
+      // 取该键**最后一条**（= 最终状态）。按条目各自期望会把正确结果误判为错。
+      std::map<uint64_t, int> final_mode;
+      for (const auto& ks : spec) final_mode[ks.key] = ks.mode;
+      for (const auto& [key_v, mode_v] : final_mode) {
+        KeySpec ks{key_v, mode_v};
+        const std::string k = zf_keygen::KeyFromInt(ks.key, kKeySize);
+        std::string got;
+        const rocksdb::Status kst = db->Get(rocksdb::ReadOptions(), k, &got);
+        ++checked;
+        if (ks.mode == 2) {
+          if (!kst.IsNotFound()) {
+            ++bad;
+            if (bad <= 4) {
+              printf("installtest scen=%d %s BAD(应为NotFound) key=%llu "
+                     "status=%s got_len=%zu src=%s\n",
+                     scen, tag, (unsigned long long)ks.key,
+                     kst.ok() ? "OK" : kst.ToString().c_str(), got.size(),
+                     zeroflush::get_trace::SourceName(
+                         zeroflush::get_trace::LastSourceTls()));
+            }
+          }
+          continue;
+        }
+        const int seed = (scen == 4 && ks.mode == 1) ? 2 : 1;
+        const std::string want_v =
+            zf_keygen::ValueFor(ks.key, seed, kValueSize) ;
+        if (!kst.ok() || got != want_v) {
+          ++bad;
+          if (bad <= 4) {
+            printf("installtest scen=%d %s BAD key=%llu mode=%d status=%s "
+                   "got_eq_v1=%d got_eq_v2=%d got_len=%zu src=%s\n",
+                   scen, tag, (unsigned long long)ks.key, ks.mode,
+                   kst.ok() ? "OK" : kst.ToString().c_str(),
+                   got == zf_keygen::ValueFor(ks.key, 1, kValueSize) ? 1 : 0,
+                   got == zf_keygen::ValueFor(ks.key, 2, kValueSize) ? 1 : 0,
+                   got.size(),
+                   zeroflush::get_trace::SourceName(
+                       zeroflush::get_trace::LastSourceTls()));
+          }
+        }
       }
-      printf("installtest scen=2 前置结果: 真实安装=%d pending归零=%d "
-             "fences_nonempty=%d sst=%ld\n",
-             pre.first ? 1 : 0, pre.second ? 1 : 0, l1n,
-             sst_count());
-      if (!pre.first || !pre.second || l1n == 0 || sst_count() == 0) {
-        setup_ok = false;  // 重叠前提未建成
+      printf("installtest scen=%d %s: 逐键 checked=%zu bad=%zu\n", scen, tag,
+             checked, bad);
+      return bad == 0;
+    };
+    snapshot_evidence();
+    write_all(0);
+    seal_all("第一遍");
+    const auto r1 = drain_and_check("第一遍");
+    const bool ok1 = std::get<0>(r1) && std::get<1>(r1) && std::get<2>(r1);
+    bool ok2 = true, overlap_ev_ok = true;
+    if (overlap) {
+      if (scen == 4) snap_pre = db->GetSnapshot();
+      snapshot_evidence();
+      write_all(1);
+      seal_all("第二遍");
+      const auto r2 = drain_and_check("第二遍(覆盖)");
+      ok2 = std::get<0>(r2) && std::get<1>(r2) && std::get<2>(r2);
+      // 有重叠场景的证据判据用**绝对值**：后台批次可能在检查点之后才落盘
+      // （实测 delta 恒为 0 而绝对值=1/3）。要求：确实消费过目标层输入，且
+      // 确实为替换删过旧文件；输入文件号见上面打印的合并输入日志。
+      overlap_ev_ok = (p("merge_input_files") > 0) &&
+                      (p("install_delete_replaced") > 0);
+      if (scen == 4 && snap_pre != nullptr) {
+        size_t bad = 0;
+        for (uint64_t kk : {150ull, 120ull}) {
+          const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+          std::string got;
+          rocksdb::ReadOptions ro;
+          ro.snapshot = snap_pre;
+          const rocksdb::Status sst = db->Get(ro, k, &got);
+          if (!sst.ok() || got != zf_keygen::ValueFor(kk, 1, kValueSize)) ++bad;
+        }
+        printf("installtest scen=%d 快照读(覆盖前): bad=%zu\n", scen, bad);
+        db->ReleaseSnapshot(snap_pre);
+        snap_pre = nullptr;
+        ok2 = ok2 && (bad == 0);
       }
     }
-    if (!setup_ok) {
-      printf("installtest scen=%d: SETUP_INCOMPLETE（目标层重叠未能建成，"
-             "本用例的判定不适用）\n", scen);
-      return 3;
+    const bool keys_ok = verify_keys("重启前");
+    const std::string rt_before = sp("rocksdb.zeroflush.routing_table");
+    db->Flush(rocksdb::FlushOptions());
+    db.reset();
+    db = OpenDb(dbdir, /*create=*/false);
+    if (db == nullptr) {
+      printf("installtest scen=%d: FAIL (重启无法重开)\n", scen);
+      return 1;
     }
-    write_range(lo_key, hi_key, 2);
-    const auto res = seal_and_drain("本批", threads > 0 ? threads : 12);
-    const bool pass = res.first && res.second && p("l0_install_count") == 0;
-    printf("installtest scen=%d: %s (真实安装=%d pending归零=%d l0_install=%llu "
-           "空edit=%llu) | 初始 %s\n",
-           scen, pass ? "PASS" : "FAIL", res.first ? 1 : 0, res.second ? 1 : 0,
-           (unsigned long long)p("l0_install_count"),
-           (unsigned long long)p("empty_edit_count"), sr0.c_str());
+    impl = static_cast<rocksdb::DBImpl*>(db.get());
+    ctx = impl->GetZeroFlushContext();
+    const std::string rt_after = sp("rocksdb.zeroflush.routing_table");
+    const bool routing_same = (rt_before == rt_after) && !rt_after.empty() &&
+                              rt_after.find("hash=1") == std::string::npos;
+    printf("installtest scen=%d 重启: 路由一致=%d | 前=%s | 后=%s\n", scen,
+           routing_same ? 1 : 0, rt_before.c_str(), rt_after.c_str());
+    const bool keys_ok_after = verify_keys("重启后");
+    const bool pass = ok1 && ok2 && keys_ok && keys_ok_after && routing_same &&
+                      (!overlap || overlap_ev_ok);
+    printf("installtest scen=%d: %s (第一遍=%d 第二遍=%d 重启前逐键=%d 路由一致=%d "
+           "重启后逐键=%d 融合证据=%d)\n",
+           scen, pass ? "PASS" : "FAIL", ok1 ? 1 : 0, ok2 ? 1 : 0,
+           keys_ok ? 1 : 0, routing_same ? 1 : 0, keys_ok_after ? 1 : 0,
+           overlap_ev_ok ? 1 : 0);
     return pass ? 0 : 1;
+  }
+
+  if (mode == "routingneg") {
+    // step B-2b 负例（用户指令 1）：固定路由协议在**重开时**必须明确报错，
+    // 不能悄悄生成另一张表。三个负例：
+    //   A) 配置冲突：用**不同边界**重开固定路由库 ⇒ InvalidArgument
+    //   B) 元数据损坏：ZFPROPS 写坏（且 zfwal 非空）⇒ Corruption
+    //   C) 协议不支持：用固定路由配置打开**hash 建的**库 ⇒ InvalidArgument
+    // 每个负例都必须**带明确错误**失败；返回 0 表示三个负例都符合预期。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    // 本模式自己要多次重开同一个库 ⇒ 先释放 main 里预先打开的句柄（否则 LOCK 冲突），
+    // 并**清空**该目录——main 的预开库是默认（hash/16 分区）建的，与固定路由配置
+    // 冲突（这正是负例要检测的"协议不支持"，但基准库得是固定路由建的）。
+    db.reset();
+    const std::string sub = dbdir;  // 由调用方给出临时目录
+    {
+      const std::string cmd = "rm -rf '" + sub + "' '" + sub + "_hash'";
+      if (system(cmd.c_str()) != 0) {
+        printf("routingneg SETUP_WARN: rm -rf 返回非零\n");
+      }
+    }
+    auto open_with = [&](const std::string& dir,
+                         const std::vector<std::string>& bnds, uint32_t parts,
+                         rocksdb::Options opt, zeroflush::ZeroFlushOptions zfo,
+                         std::unique_ptr<rocksdb::DB>* out) {
+      zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kStatic;
+      zfo.partitions = parts;
+      zfo.static_boundaries = bnds;
+      zfo.merge_into_base_level = true;
+      return zeroflush::Open(opt, zfo, dir, out);
+    };
+    int fails = 0;
+    rocksdb::Options opt;
+    opt.create_if_missing = true;
+    // 建立基准库（固定路由，边界 b1/b2）
+    const std::vector<std::string> base_b{
+        zf_keygen::KeyFromInt(5000, kKeySize),
+        zf_keygen::KeyFromInt(10000, kKeySize)};
+    {
+      std::unique_ptr<rocksdb::DB> d;
+      const auto s0 =
+          open_with(sub, base_b, 3, opt, zeroflush::ZeroFlushOptions(), &d);
+      if (!s0.ok()) {
+        printf("routingneg SETUP_FAIL: 基准库打开失败: %s\n", s0.ToString().c_str());
+        return 3;
+      }
+      for (uint64_t i = 0; i < 300; ++i) {
+        const std::string k = zf_keygen::KeyFromInt(i, kKeySize);
+        d->Put(rocksdb::WriteOptions(), k, zf_keygen::ValueFor(i, 1, kValueSize));
+      }
+      d->Flush(rocksdb::FlushOptions());
+    }
+    // A) 配置冲突：不同边界
+    {
+      std::unique_ptr<rocksdb::DB> d;
+      rocksdb::Options o2 = opt;
+      o2.create_if_missing = false;
+      const std::vector<std::string> other_b{
+          zf_keygen::KeyFromInt(4000, kKeySize),
+          zf_keygen::KeyFromInt(9000, kKeySize)};
+      const auto sA =
+          open_with(sub, other_b, 3, o2, zeroflush::ZeroFlushOptions(), &d);
+      const bool okA = !sA.ok() && sA.IsInvalidArgument();
+      printf("routingneg A 配置冲突: %s (%s) -> %s\n",
+             okA ? "PASS" : "FAIL", sA.ToString().c_str(), okA ? "PASS" : "FAIL");
+      if (!okA) ++fails;
+    }
+    // C) 协议不支持：以 hash 模式建的库 + 固定路由配置
+    {
+      const std::string hd = sub + "_hash";
+      std::unique_ptr<rocksdb::DB> d;
+      rocksdb::Options o3;
+      o3.create_if_missing = true;
+      zeroflush::ZeroFlushOptions z3;
+      z3.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kHash;
+      z3.partitions = 8;
+      const auto s0 = zeroflush::Open(o3, z3, hd, &d);
+      if (s0.ok()) {
+        d->Put(rocksdb::WriteOptions(), zf_keygen::KeyFromInt(1, kKeySize),
+               zf_keygen::ValueFor(1, 1, kValueSize));
+        d->Flush(rocksdb::FlushOptions());
+        d.reset();
+        std::unique_ptr<rocksdb::DB> d2;
+        rocksdb::Options o4;
+        o4.create_if_missing = false;
+        // C 必须重开的是**hash 建的**那个库（不是固定库目录）。
+        const auto sC =
+            open_with(hd, base_b, 3, o4, zeroflush::ZeroFlushOptions(), &d2);
+        const bool okC = !sC.ok() && sC.IsInvalidArgument();
+        printf("routingneg C 协议不支持(hash 库+固定路由): %s (%s)\n",
+               okC ? "PASS" : "FAIL", sC.ToString().c_str());
+        if (!okC) ++fails;
+      } else {
+        printf("routingneg C SETUP_FAIL: hash 库建立失败: %s\n",
+               s0.ToString().c_str());
+        ++fails;
+      }
+    }
+    // B) 元数据损坏：把 ZFPROPS 前 8 字节写坏（zfwal 非空 ⇒ 必须 Corruption）
+    {
+      const std::string pp = sub + "/zfwal/ZFPROPS";
+      std::unique_ptr<rocksdb::WritableFile> wf;
+      rocksdb::Options oe;
+      const auto es = rocksdb::Env::Default()->NewWritableFile(
+          pp, &wf, rocksdb::EnvOptions());
+      bool corrupt_ok = false;
+      if (es.ok()) {
+        corrupt_ok = wf->Append(rocksdb::Slice("\xde\xad\xbe\xef\xde\xad\xbe\xef",
+                                               8))
+                         .ok();
+        wf->Close().PermitUncheckedError();
+      }
+      std::unique_ptr<rocksdb::DB> d;
+      rocksdb::Options o5;
+      o5.create_if_missing = false;
+      const auto sB =
+          open_with(sub, base_b, 3, o5, zeroflush::ZeroFlushOptions(), &d);
+      const bool okB = corrupt_ok && !sB.ok();
+      printf("routingneg B 元数据损坏: %s (%s)\n", okB ? "PASS" : "FAIL",
+             sB.ToString().c_str());
+      if (!okB) ++fails;
+    }
+    printf("routingneg: %s (fails=%d/3)\n", fails == 0 ? "PASS" : "FAIL", fails);
+    return fails == 0 ? 0 : 1;
   }
 
   if (mode == "drainprobe") {

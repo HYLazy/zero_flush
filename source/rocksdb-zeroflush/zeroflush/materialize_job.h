@@ -325,6 +325,8 @@ class ZfMaterializeJob {
   // M5 诊断（ZF_DBG_MM=1）：打印本 job 的 plan 明细（pid/decision/
   // overlap 文件号/replaced 文件号）——定位跨批安装重叠。
   void DumpPlansDebug() const;
+  // step B-2b：本次计划的融合输入文件号（"pid=N:[file …] " 串；无融合为空）。
+  std::string MergeInputFilesDebug() const;
 
  private:
   // R59C：分区范围安全获取——孤儿/攒批 gens 的 part 来自旧路由表（align_l1

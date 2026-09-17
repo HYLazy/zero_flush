@@ -85,6 +85,9 @@ class PartitionTable {
 
   // 分区在全局 part_id 空间中的编号（初始为 [0, P)），分裂后可能稀疏。
   const std::vector<uint32_t>& part_ids() const { return part_ids_; }
+  // step B-2b：持久化需要**原始边界**（version 0 也可能是 range 表——固定路由
+  // 协议下 version 0 就是固定表，不能按"初始=hash"硬编码）。
+  const std::vector<std::string>& boundaries() const { return boundaries_; }
 
   // 该表中第 i 个分区对应的全局 part_id (i ∈ [0, partitions))。
   uint32_t part_id(uint32_t i) const { return part_ids_[i]; }

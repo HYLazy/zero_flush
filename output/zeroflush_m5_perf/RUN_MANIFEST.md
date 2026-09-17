@@ -2118,3 +2118,63 @@ installtest scen=2 @ kSampled（默认）: FAIL（同前：pending 冻结、empt
 **回归（本 build）**：semtest cases1-7 PASS；新库 `write/scan/triage/all` 全零
 （`scan mismatch=0`、`B2=0`、`all: mismatch/miss/errors=0 VALCHECK PASS`）；
 `all` 结束仍 `pending=44.8MB gens=32 drained=0`（= 上面这条未修完的"装不上"）。
+
+## B step 2b 检查点交付：固定 range 路由持久化 + 多分区 installtest + 重启一致性
+
+### D-47. 固定路由协议（创建 / 重开 / 负例）
+
+**协议语义（`RoutingMode::kStatic` = 固定 range 路由）**
+- 新库**从第一条写入起**就是固定 range 表：边界为**显式配置**（`static_boundaries`），
+  按**实际比较器**校验（严格升序、非空、个数 = P-1）；**没有配置边界时只允许 P=1 的
+  单一全范围分区**（不做"通用等分"假设）。
+- epoch 更替**不学习、不替换**边界（学习分支只对 kSampled 开放）。
+- **持久化（ZFPROPS v2）**：协议版本(format_version=2)、比较器名、分区数、**边界**、
+  physical part_ids、current_version、CRC32C；原子写（tmp→rename）+ SyncDir。
+- 重开：加载同一份配置；**配置冲突 / 元数据损坏 / 协议不支持一律明确报错**。
+
+**本提交修的关键缺陷**：`PersistZfProps()` 把 version 0 **硬当 hash 表**编码
+（`boundaries.clear()` + `part_ids=[0,P)`）⇒ 固定路由的边界根本没落盘，重开被守卫
+正确拒绝（`fixed-routing boundaries conflict: persisted 0 boundaries, configured 3`）。
+现改为从**实际表**取分区数/part_ids/边界。另外重开时"表无法按持久化边界重建"原本
+只记日志继续（= 悄悄换一张表），固定路由下改为 **Corruption 硬报错**。
+
+**负例（新模式 `routingneg`，三项全 PASS）**
+```
+A 配置冲突（不同边界重开固定库）      -> Invalid argument: fixed-routing boundaries conflict …
+C 协议不支持（hash 库 + 固定路由配置） -> Invalid argument: ZFPROPS partitions mismatch …
+B 元数据损坏（ZFPROPS 写坏且 zfwal 非空）-> Corruption: ZFPROPS corrupt but zfwal non-empty
+routingneg: PASS (fails=0/3)
+```
+
+### D-48. 多分区安装验收 + 重启一致性（`installtest 1..4`，四个场景全 PASS）
+
+每个场景都执行：**写入 → 显式封存 → 停止写入 → 有限次正常物化 → 重启**；判据为
+`pending 归零` **且 registry 无未安装代**（`pending_gens: n=0`）且 `reclaim_pending` 空，
+再要求**路由身份重启前后一致**（`ver/parts/hash/boundaries/cur_ver/mode`）与**逐键正确**。
+
+| 场景 | 覆盖 | 涉及分区 | 结果 |
+|---|---|---|---|
+| 1 | 单分区、目标层无重叠 | [0] | PASS |
+| 2 | 单分区、目标层有重叠（覆盖写） | [0] | PASS |
+| 3 | **跨边界多分区**、无重叠（含边界键 5000/9999/10000/14999） | [0 1 2] | PASS |
+| 4 | 跨边界多分区、有重叠（覆盖写 + 删除 + 快照读） | [0 1 2] | PASS |
+
+有重叠场景的**实际证据**（不只看最终层号）：
+```
+scen=2 第二遍: merge_input_files=1 add_file=2 delete_replaced=1 base_merge_count=1
+               rewritten_bytes=106742 | 合并输入日志=part=0/file=11:[9 ]
+scen=4 第二遍: merge_input_files=3 add_file=6 delete_replaced=3 base_merge_count=3
+               rewritten_bytes=176857 | 日志=part=0/file=14:[11 ] part=1/file=16:[10 ]
+                                            part=2/file=17:[12 ]
+```
+（`file=新增输出 : [被消费/替换的旧文件号]`；scen=4 还验证了"覆盖前快照读到旧值"。）
+
+新增诊断面：`routing_table`（路由身份）、`install_evidence`/
+`merge_input_files`/`install_delete_replaced`、`merge_inputs`（实际输入文件号）、
+`pending_gens`（未安装代清单）。固定路由实验/用例开关：`ZF_VC_FIXED_ROUTING`
+（installtest 自动启用，4 分区、边界 5000/10000/15000）。
+
+**回归（本 build）**：semtest `cases1-7 PASS`；新库 `write/scan/triage/all` 全零
+（`scan mismatch=0`、`B2=0`、`all VALCHECK PASS`）。
+**未做（按用户顺序，属下一步）**：整单元撤销与提交失败注入（step 3）、同一 build 收口
+（step 4：完整 baccept + 五组压力 + 停止写入排水/重启校验；学习窗口改动后旧绿灯只作历史证据）。

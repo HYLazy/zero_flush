@@ -2093,9 +2093,11 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       zf_ctx->NoteL0Install();  // 累计计数（目标模式下上面已拦下）
     }
     for (uint64_t num : o.replaced_l0_file_numbers) {
+      zf_ctx->NoteInstallDeleteReplaced();
       DeleteFileIfPresent(num, 0);
     }
     for (uint64_t num : o.replaced_file_numbers) {
+      zf_ctx->NoteInstallDeleteReplaced();  // step B-2b：真实替换删除
       DeleteFileIfPresent(num, o.level);
     }
     {
@@ -2120,6 +2122,21 @@ Status FlushJob::ZfMaterializeAllEpochs() {
               o.meta.smallest.user_key().ToString(true).c_str(),
               o.meta.largest.user_key().ToString(true).c_str(), o.part_id,
               static_cast<int>(o.decision));
+    }
+    zf_ctx->NoteInstallAddFile();  // step B-2b：安装证据（AddFile 个数）
+    // step B-2b：**实际被消费的目标层输入**（融合/替换的输入文件号）——挂在
+    // output 的 replaced_inputs 上，任何一个规划分支（kMergeBase / 直装替换）
+    // 走到安装点时都在这里被记录，不能只看最终层号。
+    if (!o.replaced_inputs.empty()) {
+      zf_ctx->NoteMergeInputFiles(
+          static_cast<uint64_t>(o.replaced_inputs.size()));
+      std::string ids = "part=" + std::to_string(o.part_id) + "/file=" +
+                        std::to_string(o.meta.fd.GetNumber()) + ":[";
+      for (auto* f : o.replaced_inputs) {
+        ids += std::to_string(f->fd.GetNumber()) + " ";
+      }
+      ids += "] ";
+      zf_ctx->NoteMergeInputs(ids);
     }
     edit_->AddFile(o.level, o.meta);
   }
