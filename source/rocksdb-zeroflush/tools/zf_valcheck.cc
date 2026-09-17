@@ -251,7 +251,13 @@ std::unique_ptr<rocksdb::DB> OpenDb(const std::string& dbdir, bool create) {
     const uint64_t v = strtoull(em, nullptr, 10);
     if (v > 0) zfo.epoch_target_bytes = v << 20;
   }
+  // step B-4（用户交付线）：目标模式（禁 L0）的新库**默认固定 range 路由**——
+  // hash 路由下"覆盖写"没有合法安装路径（D-45/D-46）；历史协议由
+  // `ZF_VC_LEGACY_ROUTING=1` 显式回退（对应"现有 hash 库继续走历史协议"）。
   zfo.routing_mode = zeroflush::ZeroFlushOptions::RoutingMode::kSampled;
+  if (getenv("ZF_VC_LEGACY_ROUTING") == nullptr) {
+    setenv("ZF_VC_FIXED_ROUTING", "1", 1);
+  }
   if (getenv("ZF_VC_FIXED_ROUTING") != nullptr) {
     // step B-2b（用户决策）：**固定 range 路由**——边界是**显式配置**（本测试
     // 定宽十进制键空间上的 1/4·1/2·3/4 分隔键），由比较器校验（严格升序、非空）。
@@ -1337,9 +1343,14 @@ int main(int argc, char** argv) {
     }
     wd_abort.store(true);
     wd.join();
+    // step B-4（用户口径）：压力汇总必须同时报告**读正确性**与**安装进展**——
+    // 要求安装的组（1/2/3/5）等待超时即判失败；组 4 明确不要求安装。
+    const uint64_t install_timeouts_effective =
+        (group == 4) ? 0 : install_wait_timeouts;
     const bool pass = (failures == 0 && silent_stale == 0 && notfound == 0 &&
-                       corruption == 0 && rotations > 0 && assert_newref_total == 0 &&
-                       assert_unsafe_total == 0 && ref_leak_total == 0);
+                       corruption == 0 && rotations > 0 &&
+                       assert_newref_total == 0 && assert_unsafe_total == 0 &&
+                       ref_leak_total == 0 && install_timeouts_effective == 0);
     printf("stress gate: index_kept_uninstalled=%llu "
            "gen_release_before_install=%llu handoff_at_release=%llu "
            "gen_lost_before_install=%llu\n",
@@ -1363,7 +1374,7 @@ int main(int argc, char** argv) {
     printf("stress group=%d rounds=%llu failures=%llu silent_stale=%llu "
            "notfound=%llu corruption=%llu rotations=%llu propagated=%llu "
            "fellback=%llu pin_ok=%llu pin_active=%llu ms_avg=%llu ms_max=%llu "
-           "install_wait_avg=%llu install_wait_timeouts=%llu -> %s\n",
+           "install_wait_avg=%llu install_wait_timeouts=%llu%s -> %s\n",
            group, (unsigned long long)rounds, (unsigned long long)failures,
            (unsigned long long)silent_stale, (unsigned long long)notfound,
            (unsigned long long)corruption, (unsigned long long)rotations,
@@ -1373,7 +1384,8 @@ int main(int argc, char** argv) {
            (unsigned long long)(rounds > 0 ? iter_ms_total / rounds : 0),
            (unsigned long long)iter_ms_max,
            (unsigned long long)(rounds > 0 ? install_wait_ms_total / rounds : 0),
-           (unsigned long long)install_wait_timeouts, pass ? "PASS" : "FAIL");
+           (unsigned long long)install_wait_timeouts,
+           (group == 4) ? "(组4不要求安装)" : "", pass ? "PASS" : "FAIL");
     return pass ? 0 : 1;
   }
 

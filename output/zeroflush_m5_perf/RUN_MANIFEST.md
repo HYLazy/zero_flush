@@ -2178,3 +2178,38 @@ scen=4 第二遍: merge_input_files=3 add_file=6 delete_replaced=3 base_merge_co
 （`scan mismatch=0`、`B2=0`、`all VALCHECK PASS`）。
 **未做（按用户顺序，属下一步）**：整单元撤销与提交失败注入（step 3）、同一 build 收口
 （step 4：完整 baccept + 五组压力 + 停止写入排水/重启校验；学习窗口改动后旧绿灯只作历史证据）。
+
+### D-49. 固定路由作为目标模式默认：**安装/排空/回收全部打通**（五组 300 轮双通过）
+
+**变更**：校验器的目标模式（禁 L0）新库**默认固定 range 路由**（`ZF_VC_FIXED_ROUTING`，
+4 分区、边界 5000/10000/15000）；历史协议由 `ZF_VC_LEGACY_ROUTING=1` 显式回退。
+压力汇总按用户口径同时报告**读正确性 + 安装进展**：要求安装的组（1/2/3/5）**等待超时即判失败**，
+组 4 明确不要求安装。
+
+**五组全量（各 300 轮，固定路由）**
+| 组 | failures/silent_stale/notfound/corruption | rotations | ms_avg/max | install_wait avg/timeouts | 回收 |
+|---|---|---|---|---|---|
+| 1 | 0/0/0/0 | 300 | 103/119 | 8ms / **0** | 300 代 / 39.4MB |
+| 2 | 0/0/0/0 | 300 | 123/140 | 8ms / **0** | 900 代 / 118MB |
+| 3 | 0/0/0/0 | 300 | 110/137 | 8ms / **0** | 500 代 / 65.7MB |
+| 4 | 0/0/0/0 | 300 | 162/179 | 0ms / 0 | 1500 代 / 197MB |
+| 5 | 0/0/0/0 | 300 | 156/172 | 17ms / **0** | 1500 代 / 197MB |
+全部 `-> PASS`；断言（retiring=>no_new_ref / reclaimed=>installed&&refs==0 / 读引用未释放）全 0。
+对比旧配置：`ms_avg=10151`、`install_wait_timeouts=20/20`、`reclaimed=0`。
+
+**新库门禁两种路由对比（同一 build、同一命令）**
+```
+固定路由: write pending=10.3MB drained=16.0MB | scan mismatch=0 | triage B2=0
+          all: wal_read_delta=0 sealed_miss_delta=0 pending=**0.0MB** drained=34.3MB
+               reclaimed=26.2MB gens=2  VALCHECK PASS
+历史协议: write pending=14.8MB drained=4.2MB | scan mismatch=0 | triage B2=0
+          all: wal_read_delta=23016 sealed_miss_delta=20 pending=**46.1MB**
+               drained=0.0MB reclaimed=0.0MB gens=33  VALCHECK PASS
+```
+⇒ 固定路由把"停止写入后能排空"与"空间最终回收"两条**直接做通**（pending→0、回收 26.2MB）；
+历史协议保持原行为（读正确，但 pending 滞留 46MB、零回收）。
+
+**覆盖度提醒（如实记录）**：固定路由下组 4/5 的 `pin_ok=0 / pin_active=0`——数据装得太快，
+这两组**不再走到 sealed 代 pin / retiring 拒绝**路径（旧配置是 219 次 pin、112 次拒绝）。
+该路径的覆盖现由 semtest case5/case8a/case8b 承担；后续若要压力级覆盖，需要为固定路由
+单独调参（例如扩大 epoch 目标或注入让位）再补一组。
