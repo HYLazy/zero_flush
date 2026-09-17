@@ -519,7 +519,7 @@ int main(int argc, char** argv) {
        mode == "baccept" || mode == "installtest" || mode == "routingneg" ||
        mode == "failaccept" || mode == "aprobe" || mode == "mini" ||
        mode == "snapmini" || mode == "migrate" || mode == "closestress" ||
-       mode == "autodrain" || mode == "detachreg");
+       mode == "autodrain" || mode == "detachreg" || mode == "tailflush");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
@@ -3024,6 +3024,206 @@ int main(int argc, char** argv) {
     printf("mini: %s (bad=%zu, batches=%d, per_batch=%d)\n",
            bad == 0 ? "PASS" : "FAIL", bad, batches, per_batch);
     return bad == 0 ? 0 : 1;
+  }
+
+  if (mode == "tailflush") {
+    // step P1-A12（用户 2026-09-18 指定的回归）：**每分区写入 < 4KB → 关闭 → 重开逐键校验**。
+    // 触发条件（必须精确）：ZF WAL 的 `Append` 只把记录写进分区内存缓冲
+    // （`p->buf`，≥4KB 才 `FlushBuf` 落盘）。关闭路径的封存循环受
+    // `HasPendingSealedData()` 保护——**当"已封存数据已排空、只剩活跃代尾部"时循环
+    // 不执行** ⇒ 残量缓冲（每分区 <4KB）永不落盘；只有进程退出时的析构才刷。
+    // 因此本用例必须两段：
+    //   ① 写入足量基线数据（每分区 > 分区目标 ⇒ 触发封存）并**等它安装完**（pending=0）；
+    //   ② 再写**每分区 < 4KB** 的尾部（此时活跃代文件尚未被任何 4KB 阈值刷过）；
+    //   ③ 关闭 → 重开 → 逐键校验（含基线抽样）。
+    // 修复前：尾部键在重开后必然丢失；修复后（`ZfCloseFlush` 入口 `SyncAll()`）：全通过。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl_tf = static_cast<rocksdb::DBImpl*>(db.get());
+    auto ctx_tf = impl_tf->GetZeroFlushContext();
+    auto prop_tf = [&](const char* k) { return Prop(db.get(), k); };
+    const int nparts = 4;
+    const int base_per_part = 5000;   // 5000 × 1044B ≈ 5.2MB/分区 > 4MB 分区目标
+    const int tail_per_part = 3;      // 3 × 1044B ≈ 3.1KB/分区 < 4KB
+    std::vector<std::pair<std::string, std::string>> tail_kv;
+    auto put_one = [&](uint64_t kk, std::vector<std::pair<std::string, std::string>>* rec) {
+      const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+      std::string v(1000, '\0');
+      for (size_t b = 0; b < v.size(); ++b) {
+        v[b] = static_cast<char>((kk * 131 + b * 7) & 0xFF);
+      }
+      const rocksdb::Status ws = db->Put(rocksdb::WriteOptions(), k, v);
+      if (!ws.ok()) {
+        printf("tailflush: FAIL (写入失败 %s)\n", ws.ToString().c_str());
+        return false;
+      }
+      if (rec != nullptr) rec->emplace_back(k, v);
+      return true;
+    };
+    // ---- ① 基线数据（每分区 5.2MB ⇒ 触发封存 + 安装）----
+    for (int p = 0; p < nparts; ++p) {
+      for (int j = 0; j < base_per_part; ++j) {
+        if (!put_one(static_cast<uint64_t>(p) * 5000 + 10 + j, nullptr)) {
+          return 1;
+        }
+      }
+    }
+    {
+      const uint64_t t0 = rocksdb::Env::Default()->NowMicros();
+      while (rocksdb::Env::Default()->NowMicros() - t0 < 60ull * 1000 * 1000) {
+        if (prop_tf("pending_materialize_bytes") == 0) break;
+        env_sleep_ms(50);
+      }
+      printf("tailflush 基线: pending=%llu（须 0 ⇒ 已封存数据已排空）\n",
+             (unsigned long long)prop_tf("pending_materialize_bytes"));
+      if (prop_tf("pending_materialize_bytes") != 0) {
+        printf("tailflush: SETUP_INVALID (基线未排空 ⇒ 无法建立'仅剩活跃代尾部'条件)\n");
+        return 3;
+      }
+    }
+    // ---- ② 尾部（每分区 < 4KB）----
+    // 先把各分区缓冲显式刷到文件（生产 API `Sync` = FlushBuf + fsync，封存路径同样
+    // 调它）⇒ 之后追加的尾部**必然全部留在内存缓冲里**（确定性前提，而不是靠
+    // "上次刷盘残留恰好 < 4KB"的偶然）。
+    std::vector<uint64_t> active_before(nparts, 0);
+    for (int p = 0; p < nparts; ++p) {
+      const rocksdb::Status ss =
+          ctx_tf->wal()->Sync(static_cast<uint32_t>(p));
+      if (!ss.ok()) {
+        printf("tailflush: SETUP_INVALID (Sync(part=%d) 失败: %s)\n", p,
+               ss.ToString().c_str());
+        return 3;
+      }
+      active_before[static_cast<size_t>(p)] =
+          ctx_tf->wal()->ActiveSize(static_cast<uint32_t>(p));
+    }
+    for (int p = 0; p < nparts; ++p) {
+      for (int i = 0; i < tail_per_part; ++i) {
+        if (!put_one(static_cast<uint64_t>(p) * 5000 + 1000 + i, &tail_kv)) {
+          return 1;
+        }
+      }
+    }
+    // 前提断言：活跃代文件必须**尚未**被刷过（0B），且活跃代字节 < 4KB
+    //（= 记录全部只存在于内存缓冲 —— 缺陷的充要条件）。否则用例可能假通过。
+    {
+      uint64_t tail_bytes_total = 0, grew_files = 0;
+      for (int p = 0; p < nparts; ++p) {
+        const auto ag = ctx_tf->wal()->ActiveGenOpt(static_cast<uint32_t>(p));
+        if (!ag.has_value()) {
+          printf("tailflush: SETUP_INVALID (分区 %d 无活跃代)\n", p);
+          return 3;
+        }
+        const uint64_t now_sz =
+            ctx_tf->wal()->ActiveSize(static_cast<uint32_t>(p));
+        const uint64_t delta = now_sz - active_before[static_cast<size_t>(p)];
+        tail_bytes_total += delta;
+        // 文件是否因尾部而增长？逐文件大小 vs Sync 后的记录值（用 fstat 直接看）
+        std::ifstream in(ZfWalPath(dbdir + "/zfwal",
+                                   static_cast<uint32_t>(p), *ag),
+                         std::ios::binary | std::ios::ate);
+        const std::streampos pos = in.tellg();
+        const uint64_t fsz =
+            (pos < static_cast<std::streampos>(0))
+                ? 0u
+                : static_cast<uint64_t>(pos);
+        if (fsz > active_before[static_cast<size_t>(p)]) ++grew_files;
+      }
+      printf("tailflush 尾部: 追加字节合计=%llu（每分区 %d 条 ≈ %d B，须 <4096/分区）"
+             " 尾部已落盘的分区数=%llu（须 0）\n",
+             (unsigned long long)tail_bytes_total, tail_per_part,
+             static_cast<int>(tail_per_part * 1044),
+             (unsigned long long)grew_files);
+      if (tail_bytes_total !=
+              static_cast<uint64_t>(tail_per_part) * 1044u * static_cast<uint64_t>(nparts) ||
+          grew_files != 0) {
+        printf("tailflush: SETUP_INVALID (尾部未被完整缓冲或已落盘 ⇒ 未命中缺陷条件)\n");
+        return 3;
+      }
+    }
+    const size_t expect = tail_kv.size();
+    // 关闭前的"账实对照"基线：每分区活跃代 accounted 字节（关闭后文件必须 ≥ 它）。
+    std::vector<uint32_t> pre_close_gen(static_cast<size_t>(nparts), 0);
+    std::vector<uint64_t> pre_close_acct(static_cast<size_t>(nparts), 0);
+    for (int p = 0; p < nparts; ++p) {
+      const auto ag = ctx_tf->wal()->ActiveGenOpt(static_cast<uint32_t>(p));
+      if (ag.has_value()) {
+        pre_close_gen[static_cast<size_t>(p)] = *ag;
+        pre_close_acct[static_cast<size_t>(p)] =
+            ctx_tf->wal()->ActiveSize(static_cast<uint32_t>(p));
+      }
+    }
+    // ---- ③ 关闭 → 重开 → 逐键校验 ----
+    db.reset();
+    {
+      // **文件级不变量**（本修复的直接判据）：关闭之后，每个分区活跃代的 WAL 文件
+      // 必须已经包含"管理器记账的全部字节"。这正是"关闭必须无条件刷 WAL 尾部"的
+      // 可证伪形式：若关闭某条路径跳过了 fsync/flush，此处立刻暴露（而逐键读可能
+      // 因数据恰好已被物化安装而看不出来）。
+      const std::string wdir = dbdir + "/zfwal";
+      size_t short_files = 0, missing = 0;
+      for (int p = 0; p < nparts; ++p) {
+        const uint32_t gen = pre_close_gen[static_cast<size_t>(p)];
+        const uint64_t accounted = pre_close_acct[static_cast<size_t>(p)];
+        std::ifstream in(ZfWalPath(wdir, static_cast<uint32_t>(p), gen),
+                         std::ios::binary | std::ios::ate);
+        const std::streampos pos = in.tellg();
+        if (pos < static_cast<std::streampos>(0)) {
+          // 文件已被回收（安装成功后的正常回收）⇒ 数据在 SST，由逐键校验覆盖。
+          ++missing;
+          continue;
+        }
+        const uint64_t fsz = static_cast<uint64_t>(pos);
+        printf("tailflush 账实对照: part=%d gen=%u 记账=%lluB 文件=%lluB\n", p,
+               gen, (unsigned long long)accounted, (unsigned long long)fsz);
+        if (fsz < accounted) ++short_files;
+      }
+      if (missing != 0) {
+        printf("tailflush 账实对照: %zu 个分区文件已被回收（数据在 SST，由逐键校验覆盖）\n",
+               missing);
+      }
+      if (short_files != 0) {
+        printf("tailflush: FAIL (关闭后 WAL 文件短于记账字节: %zu 个文件)"
+               " ⇒ 尾部未落盘\n",
+               short_files);
+        return 1;
+      }
+    }
+    db = OpenDb(dbdir, /*create=*/false);
+    if (db == nullptr) {
+      printf("tailflush: FAIL (重开失败)\n");
+      return 1;
+    }
+    size_t bad = 0;
+    for (const auto& [k, v] : tail_kv) {
+      std::string got;
+      const rocksdb::Status sdst = db->Get(rocksdb::ReadOptions(), k, &got);
+      if (!sdst.ok() || got != v) {
+        ++bad;
+        if (bad <= 3) {
+          printf("tailflush 尾部键丢失: key=%s status=%s 期望=%zuB 实际=%zuB\n",
+                 k.c_str(), sdst.ToString().c_str(), v.size(), got.size());
+        }
+      }
+    }
+    // 基线抽样（确认不是"整体重开坏了"）：每分区抽 200 键
+    size_t base_bad = 0;
+    for (int p = 0; p < nparts; ++p) {
+      for (int j = 0; j < 200; ++j) {
+        const uint64_t kk = static_cast<uint64_t>(p) * 5000 + 10 + j;
+        const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+        std::string want(1000, '\0');
+        for (size_t b = 0; b < want.size(); ++b) {
+          want[b] = static_cast<char>((kk * 131 + b * 7) & 0xFF);
+        }
+        std::string got;
+        const rocksdb::Status sdst = db->Get(rocksdb::ReadOptions(), k, &got);
+        if (!sdst.ok() || got != want) ++base_bad;
+      }
+    }
+    const bool pass = (bad == 0) && (base_bad == 0);
+    printf("tailflush: %s (尾部逐键 %zu/%zu 丢失=%zu；基线抽样 800 失败=%zu)\n",
+           pass ? "PASS" : "FAIL", expect - bad, expect, bad, base_bad);
+    return pass ? 0 : 1;
   }
 
   if (mode == "detachreg") {

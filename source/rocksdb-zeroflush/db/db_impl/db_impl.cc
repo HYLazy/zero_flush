@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_impl/db_impl.h"
 #include "zeroflush/get_trace.h"
+#include "zeroflush/wal_manager.h"
 
 #include <cstdint>
 #ifdef OS_SOLARIS
@@ -889,6 +890,25 @@ void DBImpl::ZfCloseFlush() {
   const bool zf_td = getenv("ZF_DBG_TEARDOWN") != nullptr;
   if (zf_td) fprintf(stderr, "ZFTD close-flush: enter\n");
   ColumnFamilyData* cfd = default_cf_handle_->cfd();
+  // step P1-A12（用户 2026-09-18：**独立移入候选线的数据安全修复**）：
+  // **关闭前必须把 ZF WAL 的在途缓冲刷盘**。ZF WAL 的 `Append` 只把记录写进分区
+  // 内存缓冲（`p->buf`，≥4KB 才 `FlushBuf` 落盘），而本关闭路径的封存/排空循环受
+  // `HasPendingSealedData()` 保护——当"已封存数据已排空、只剩活跃代尾部"时循环不
+  // 执行；此时若内存表也已被先前路径消费（实验分支的排空路径即如此），关闭**不会
+  // 触发任何封存** ⇒ 残量缓冲（每分区 <4KB）永不落盘，只有进程退出时的析构才刷。
+  // 实测（实验分支 lifecycle 用例，200k/1KB × 4 分区）：干净关闭后重开丢失每个分区
+  // 最后 0–3 条已确认写入（`restart_read_errors=6/20000`，`last_seq` 少 2–3）；
+  // 本修复后同一用例 4 组全部 `restart_read_errors=0`。
+  // 修复语义：无条件 `SyncAll()`（= 逐分区 FlushBuf + fsync）——活跃代尾部保持
+  // "未封存"语义（重开由恢复重放读取），但**必须真实落盘**。
+  if (zf_ctx_->wal() != nullptr) {
+    const rocksdb::Status zf_sync_s = zf_ctx_->wal()->SyncAll();
+    if (!zf_sync_s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "[%s] ZeroFlush close: WAL SyncAll failed: %s",
+                     cfd->GetName().c_str(), zf_sync_s.ToString().c_str());
+    }
+  }
   zf_ctx_->SetClosingFlush(true);
   // step 0b-1：排空阶段可观测——固定写量运行的末态决定"总输出"能否跨运行
   // 比较（未完成的 L0/fallback 残留会让工作量显得更少）。此处记录排空起止
