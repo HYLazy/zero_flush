@@ -518,6 +518,15 @@ class PartitionIndexSet {
       }
     }
     if (idx == nullptr) {
+      // step A-snap 修复：先尝试按"新代"换代（旧段入 frozen 保持可读）；
+      // 只有请求的代**更旧**（真的已物化释放）才维持丢弃。
+      bool rotated = false;
+      idx = EnsureActiveForGen(part_id, gen, &rotated);
+      if (rotated) {
+        index_resegmented_.fetch_add(1, std::memory_order_relaxed);
+      }
+    }
+    if (idx == nullptr) {
       insert_dropped_.fetch_add(1, std::memory_order_relaxed);
       // gen 已物化并释放（数据已进 SST）——索引插入丢弃，数据由 SST 承载。
       // M5 诊断：插入丢弃（Concurrent 定位）。
@@ -579,6 +588,55 @@ class PartitionIndexSet {
   // recovery 后数据不在 SST → 读不到（Concurrent 用例 NotFound 实锤）。
   // 无条件转后：在途 Insert 按 gen 找 frozen 链命中 → 可读。空占位
   // （freeze 时真无数据）仅链中占位（mem=0 无条目），量级可忽略。
+  // step A-snap 诊断：该分区索引侧 active 段的代（-1 = 无）。与 WAL 的
+  // ActiveGenOpt 对照可判定"索引换代 vs WAL 换代"是否同步。
+  int64_t ActiveGenOf(uint32_t part_id) const {
+    std::shared_lock<std::shared_mutex> l(mu_);
+    auto it = active_.find(part_id);
+    if (it == active_.end() || it->second == nullptr) return -1;
+    return static_cast<int64_t>(it->second->gen());
+  }
+
+  // step A-snap 修复：索引 active 段**落后于 WAL active 代**时，为请求的代
+  // 换代（旧段移入 frozen 链保持可读），而不是静默丢弃插入。
+  // 背景（snapmini 实锤）：WAL 换代（封存/SealEpochAndSwitch）后索引侧
+  // active 段可能仍停在旧代（部分封存路径有意跳过 index Freeze）⇒ 之后写入
+  // 的 record 其 gen > active_gen ⇒ 原实现走 insert_dropped_（注释假设
+  // "该代已物化释放、数据在 SST"，对**新代**不成立：记录刚进 WAL、不在任何
+  // SST）⇒ 刚写入的键读不到（NotFound），直到下一次物化才可见。
+  // 返回可用的 active 段；`rotated` 标记本次是否发生了换代（诊断计数）。
+  std::shared_ptr<PartitionIndex> EnsureActiveForGen(uint32_t part_id,
+                                                     uint32_t gen,
+                                                     bool* rotated) {
+    std::shared_ptr<PartitionIndex> old;
+    std::shared_ptr<PartitionIndex> cur;
+    {
+      std::unique_lock<std::shared_mutex> l(mu_);
+      auto it = active_.find(part_id);
+      if (it == active_.end() || it->second == nullptr) {
+        auto ni = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
+        active_[part_id] = ni;
+        blooms_.emplace(part_id, std::make_shared<PartitionBloom>());
+        return ni;
+      }
+      if (it->second->gen() == gen) {
+        return it->second;
+      }
+      if (gen > it->second->gen()) {
+        old = it->second;
+        it->second = std::make_shared<PartitionIndex>(part_id, gen, cmp_);
+        cur = it->second;
+        if (rotated != nullptr) *rotated = true;
+      }
+    }
+    if (old != nullptr) {
+      old->SetFrozen();
+      std::unique_lock<std::shared_mutex> l(mu_);
+      frozen_[part_id].push_back(old);
+    }
+    return cur;
+  }
+
   void Freeze(uint32_t part_id, uint32_t new_gen) {
     std::shared_ptr<PartitionIndex> old;
     {
@@ -1074,6 +1132,14 @@ class PartitionIndexSet {
   uint64_t insert_dropped() const {
     return insert_dropped_.load(std::memory_order_relaxed);
   }
+  // step A-snap：换代次数（诊断）。
+  uint64_t IndexResegmented() const {
+    return index_resegmented_.load(std::memory_order_relaxed);
+  }
+  // step A-snap 诊断：索引插入丢弃计数（合法写入被静默丢弃 = 读不到的根因）。
+  uint64_t InsertDropped() const {
+    return insert_dropped_.load(std::memory_order_relaxed);
+  }
 
   // R57 诊断：dump 每分区 active/frozen 索引字节与 gen（定位索引泄漏）。
   void DumpState() {
@@ -1172,6 +1238,8 @@ class PartitionIndexSet {
   // M5：布隆假阴性慢路径计数（正确性兜底；Get 布隆 miss 时查链）。
   mutable std::atomic<uint64_t> bloom_slowpath_{0};
   std::atomic<uint64_t> insert_dropped_{0};
+  // step A-snap：因"索引 active 代落后于 WAL active 代"而换代（旧段入 frozen）的次数。
+  std::atomic<uint64_t> index_resegmented_{0};
 };
 
 // M4.3d-3：分区索引的 InternalIterator（终态 L0 窗口的迭代器）。

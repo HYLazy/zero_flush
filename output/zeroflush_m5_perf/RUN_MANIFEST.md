@@ -2314,3 +2314,51 @@ no_delete+no_snapshot: gets= 620 errors= **0**  A_hits=0 陈旧索引胜出=5
   "快照 + 写 + ZF 索引换代"的交互；在此之前不修读路径、不宣布 A 的最终结论。
 
 **状态**：A 步**未完成**（无命中但需先解释上述失败）；B 仍以 `e86a9fd` 为候选基线，未改动。
+
+## snapshot 序列读失败：**已定根因并修复**（A 判定完成）
+
+### D-53. 根因不是 snapshot，而是"索引 active 代落后于 WAL active 代 ⇒ 插入被静默丢弃"
+
+`snapmini`（用户指定的唯一最小用例：Put→Get→快照→Put→快照读→实时读→释放→Freeze+DrainNow→
+Get→重启→Get，逐步记录 read_sequence/source/index_sequence/truth/candidate_count/fence/
+WAL·LSM 存在性/registry 状态）**一轮定位**：
+
+```
+第 0 轮（首次封存前）     : 全部步骤 ok（src=INDEX / LSM）
+第 1 轮起                : Put 之后立即 Get = LSM_NOTFOUND，cands=0（候选链为空）
+   registry: part=3 index_active_gen=2 wal_active_gen=4 insert_dropped=1（每次失败 +1）
+```
+→ `PartitionIndexSet::Insert` 在"active 段代 ≠ 请求代、frozen 链里也没有该代"时走
+`insert_dropped_` **静默丢弃**；其注释假设"该代已物化释放、数据在 SST"，而对**新的当前代**
+这个假设不成立（记录刚进 WAL、不在任何 SST）⇒ 刚写入的键读不到，直到下一次物化才可见。
+触发条件是 **WAL 换代（封存/SealEpochAndSwitch）后索引侧 active 段停在旧代**——部分封存路径
+有意跳过 `index_set_->Freeze`，于是写入直接撞上这个分支。**snapshot 只是改变了写入模式把它
+暴露出来**（我上一轮把它归因成 snapshot 交互，此处更正）。
+
+**修复 1（生产路径，最小改动）**：新增 `PartitionIndexSet::EnsureActiveForGen()`——当请求代
+**更新**时按 `Freeze` 的既有语义换代（旧段 `SetFrozen()` 后入 frozen 链**保持可读**，为请求代
+建新 active 段）；只有请求代**更旧**（确已物化释放）才维持丢弃。新增计数
+`index_resegmented`/`insert_dropped` 可观测。
+
+**修复 2（读路径的"陈旧条目"放行，删掉最后一类拒绝）**：`GetFromPartitionIndex` 在
+"retiring 拒绝"后的分流原本只认"发布证据"；probe 残余 3–6 次拒绝的实测数值是
+`published=0 fence=0 registry=absent`（LSM 里却已是最新值）⇒ 这类条目**既没被登记为待安装、
+也没有安装证据**，拒绝它保护不了任何东西。现判据 = 发布证据 ∨ fence 覆盖 ∨ (**陈旧条目**：
+不在 registry 且 fence 不覆盖) ⇒ 回落 LSM。case8a 的语义不受影响（其合成代 registry 内有条目、
+走"发布证据"分支）——semtest `case8a PASS` 复验通过。
+
+### D-54. 修复后完整验收（build 哈希 `/tmp/build_hash_snapfix.txt`）
+
+| 项目 | 结果 |
+|---|---|
+| `snapmini` 全序列 + 四组开关 + 对照组（共 6 配置） | **全 PASS**（每配置 80–120 项检查、重启审计 0 bad） |
+| `aprobe` 合法路径 300 轮 ×3 | **errors=0 / A_hits=0 / 陈旧索引胜出=0 / 持久丢失=0**（共 4560 次 Get） |
+| semtest（case5/7/8a/8b + 1-3） | **PASS**（`cases1-7: PASS`，case6 标注更新为 `N/A/UNREACHABLE_UNDER_VALID_PROTOCOL`） |
+| baccept phase1–4 | **PASS**（phase3 pending=0 drained=42720000；phase4 `registered_gens=0 reclaimed=42720000`） |
+| all/scan/triage | **PASS**（`scan mismatch=0`、`B2=0`、`all pending=0.0MB reclaimed=26.2MB`） |
+| 五组压力 各 300 轮 | **PASS**（`install_wait_timeouts=0`、`pending_last=0`、回收 39.4/118/65.7/197/197MB、断言全 0） |
+
+**A 判定（用户判据）**：`A_hits = 0` 且所有合法路径正确 ⇒
+**`A: UNREACHABLE_UNDER_VALID_PROTOCOL`**（合法路径 4560 次 Get 零错误、零陈旧索引胜出、
+零持久丢失）；case6 同步标注。未对每次 Get 增加 LSM 查询（LSM-only 对照只在测试用例内做，
+生产路径开关是线程本地的一次性判断）。

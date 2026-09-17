@@ -163,6 +163,9 @@ class SealedFileCache {
   // 注意与 fence 的区别：fence 还要求消费证明完整，可能**滞后于**发布 ⇒ 判"能否回落"
   // 必须用发布证据，而不是 fence（实测：用 fence 会让真实已安装的代被判为不可回落）。
   bool GenInstalledPublished(uint32_t part, uint32_t gen) const;
+  // step A-snap 修复：该代是否仍在 registry（有登记条目）。用于判定"索引条目
+  // 是否已无法归属到任何未安装数据"（登记缺失 + fence 不覆盖 ⇒ 陈旧条目）。
+  bool GenRegistered(uint32_t part, uint32_t gen) const;
   uint64_t GenReadRefs(uint32_t part, uint32_t gen) const;
   uint64_t gen_read_ref_total() const {
     return gen_read_ref_total_.load(std::memory_order_relaxed);

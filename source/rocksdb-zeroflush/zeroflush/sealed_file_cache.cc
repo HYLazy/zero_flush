@@ -163,6 +163,12 @@ bool SealedFileCache::GenRetiring(uint32_t part, uint32_t gen) const {
   return retiring_gens_.count(MakeFileKey(part, gen)) > 0;
 }
 
+bool SealedFileCache::GenRegistered(uint32_t part, uint32_t gen) const {
+  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+  rocksdb::MutexLock l(m);
+  return gens_.find(MakeFileKey(part, gen)) != gens_.end();
+}
+
 bool SealedFileCache::GenInstalledPublished(uint32_t part, uint32_t gen) const {
   rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
   rocksdb::MutexLock l(m);

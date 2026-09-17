@@ -505,7 +505,8 @@ int main(int argc, char** argv) {
       (mode == "all" || mode == "write" || mode == "walread" ||
        mode == "selftest" || mode == "semtest" || mode == "stress" ||
        mode == "baccept" || mode == "installtest" || mode == "routingneg" ||
-       mode == "failaccept" || mode == "aprobe" || mode == "mini");
+       mode == "failaccept" || mode == "aprobe" || mode == "mini" ||
+       mode == "snapmini");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
@@ -2150,7 +2151,7 @@ int main(int argc, char** argv) {
         }
       }
     }
-    printf("semtest per-case: case1/2/3=%s  case5=%s  case6=N/A(前提失效)  "
+    printf("semtest per-case: case1/2/3=%s  case5=%s  case6=N/A/UNREACHABLE_UNDER_VALID_PROTOCOL  "
            "case7=%s\n",
            (fails == 0) ? "见上（各自 PASS/FAIL）" : "见上",
            setup_incomplete > 0 ? "INCOMPLETE(未完成)" : "见上",
@@ -2712,6 +2713,168 @@ int main(int argc, char** argv) {
     return pass ? 0 : 1;
   }
 
+  if (mode == "snapmini") {
+    // step A-snap（用户 2026-09-17 指令）：**唯一最小用例**——合法 snapshot 序列。
+    //   Put(K,v1) → Get(K)=v1 → 取快照 S → Put(K,v2) → Get(K,S)=v1 →
+    //   Get(K,latest)=v2 → 释放 S → Freeze+DrainNow → Get(K,latest)=v2 → 重启 → Get=v2
+    // 每步记录：read_sequence / source / index_sequence / truth_sequence /
+    //           candidate_count / fence / WAL/LSM 是否存在 / registry 状态
+    // 开关（二分，见下）：NO_READ_SNAP / NO_RELEASE / NO_SEAL / RELEASE_AFTER_SEAL /
+    //                    NO_SNAPSHOT（对照组）
+    // 验收：任何一步都不得 NotFound / 旧值 / 重启后缺失；不做 A 读策略改动，
+    //       不给每次 Get 增加 LSM 查询（LSM 存在性检查仅在本用例内做）。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    std::shared_ptr<zeroflush::ZeroFlushContext> ctx = impl->GetZeroFlushContext();
+    auto p = [&](const char* k) { return Prop(db.get(), k); };
+    auto sp = [&](const char* k) {
+      std::string v;
+      db->GetProperty(k, &v);
+      return v;
+    };
+    const bool no_read_snap = getenv("ZF_SM_NO_READ_SNAP") != nullptr;
+    const bool no_release = getenv("ZF_SM_NO_RELEASE") != nullptr;
+    const bool no_seal = getenv("ZF_SM_NO_SEAL") != nullptr;
+    const bool rel_after_seal = getenv("ZF_SM_RELEASE_AFTER_SEAL") != nullptr;
+    const bool no_snapshot = getenv("ZF_SM_NO_SNAPSHOT") != nullptr;  // 对照组
+    const int iters = threads > 0 ? threads : 20;
+    struct KeyInfo { std::string key; std::string v1, v2; };
+    std::vector<KeyInfo> kinfo;
+    size_t fails = 0, checks = 0;
+    auto log_step = [&](const char* tag, const KeyInfo& ki,
+                        const rocksdb::Snapshot* snap, const std::string& expect,
+                        bool expect_nf, bool verbose) {
+      ++checks;
+      const uint64_t rseq = snap != nullptr ? snap->GetSequenceNumber()
+                                           : db->GetLatestSequenceNumber();
+      zeroflush::get_trace::SetLastSource(zeroflush::get_trace::GetSource::kNone);
+      std::string got;
+      rocksdb::ReadOptions ro;
+      if (snap != nullptr) ro.snapshot = snap;
+      const rocksdb::Status smst = db->Get(ro, ki.key, &got);
+      const auto& is = zeroflush::get_trace::LastIndexSelTls();
+      const char* src = zeroflush::get_trace::SourceName(
+          zeroflush::get_trace::LastSourceTls());
+      const uint64_t truth = db->GetLatestSequenceNumber();
+      // WAL/LSM 存在性（LSM-only 读；线程本地开关，不影响其他线程）
+      zeroflush::get_trace::SetSkipIndex(true);
+      std::string lgot;
+      rocksdb::ReadOptions lro;
+      if (snap != nullptr) lro.snapshot = snap;
+      const rocksdb::Status lst = db->Get(lro, ki.key, &lgot);
+      zeroflush::get_trace::SetSkipIndex(false);
+      const bool ok =
+          expect_nf ? smst.IsNotFound() : (smst.ok() && got == expect);
+      if (!ok) ++fails;
+      std::string pg;
+      db->GetProperty("rocksdb.zeroflush.pending_gens", &pg);
+      if (verbose || !ok) {
+        printf("snapmini %-22s rs=%llu src=%-16s idx_seq=%llu truth_latest=%llu "
+               "cands=%u fence=[%s] lsm_only=%s ok=%d\n",
+               tag, (unsigned long long)rseq, src,
+               (unsigned long long)(is.hit ? is.seq : 0),
+               (unsigned long long)truth, is.candidates,
+               sp("rocksdb.zeroflush.installed_fences").substr(0, 40).c_str(),
+               lst.ok() ? "HAS" : "MISS", ok ? 1 : 0);
+        char iga[64], wga[64];
+        const uint32_t rp = ctx->RoutePartId(rocksdb::Slice(ki.key));
+        snprintf(iga, sizeof(iga), "rocksdb.zeroflush.index_active_gen:%u", rp);
+        snprintf(wga, sizeof(wga), "rocksdb.zeroflush.wal_active_gen:%u", rp);
+        printf("snapmini %-22s registry: registered=%llu pending=%llu "
+               "reclaim_pending=%s pending_gens=%s | part=%u index_active_gen=%s "
+               "wal_active_gen=%s insert_dropped=%llu\n",
+               tag, (unsigned long long)p("registered_gens"),
+               (unsigned long long)p("pending_materialize_bytes"),
+               sp("rocksdb.zeroflush.reclaim_pending_list").c_str(),
+               pg.substr(0, 100).c_str(), rp, sp(iga).c_str(), sp(wga).c_str(),
+               (unsigned long long)p("insert_dropped"));
+      }
+      return ok;
+    };
+    printf("snapmini: iters=%d [读取快照=%d 释放=%d 封存=%d 封存后释放=%d "
+           "对照组(无快照)=%d]\n",
+           iters, !no_read_snap, !no_release, !no_seal, rel_after_seal,
+           no_snapshot);
+    for (int i = 0; i < iters; ++i) {
+      const uint64_t kk = 400000 + static_cast<uint64_t>(i) * 16;
+      KeyInfo ki;
+      ki.key = zf_keygen::KeyFromInt(kk, kKeySize);
+      ki.v1 = zf_keygen::ValueFor(kk, 1, kValueSize);
+      ki.v2 = zf_keygen::ValueFor(kk, 2, kValueSize);
+      kinfo.push_back(ki);
+      const bool verbose = (i == 0);
+      db->Put(rocksdb::WriteOptions(), ki.key, ki.v1);
+      log_step("1.Put/Get(v1)", ki, nullptr, ki.v1, false, verbose);
+      const rocksdb::Snapshot* sn = nullptr;
+      if (!no_snapshot) {
+        sn = db->GetSnapshot();
+      }
+      db->Put(rocksdb::WriteOptions(), ki.key, ki.v2);
+      if (sn != nullptr && !no_read_snap) {
+        log_step("2.Get(S)=v1", ki, sn, ki.v1, false, verbose);
+      }
+      log_step("3.Get(latest)=v2", ki, nullptr, ki.v2, false, verbose);
+      auto do_seal = [&] {
+        const uint32_t rp = ctx->RoutePartId(rocksdb::Slice(ki.key));
+        ctx->wal()->Sync(rp).PermitUncheckedError();
+        const uint32_t g0 = ctx->wal()->ActiveGenOpt(rp).value_or(0);
+        uint32_t sg = 0;
+        ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(), rp, g0, &sg);
+        for (int t = 0; t < 20 && p("pending_materialize_bytes") != 0; ++t) {
+          impl->ZfDrainNow();
+          env_sleep_ms(30);
+        }
+      };
+      if (rel_after_seal) {
+        // 开关 4b：**封存后再释放**
+        if (!no_seal) do_seal();
+        if (sn != nullptr) {
+          db->ReleaseSnapshot(sn);
+          sn = nullptr;
+        }
+        log_step("4a.Get(after seal)", ki, nullptr, ki.v2, false, verbose);
+      } else {
+        if (sn != nullptr && !no_release) {
+          db->ReleaseSnapshot(sn);
+          sn = nullptr;
+        }
+        if (!no_seal) do_seal();
+      }
+      log_step("4.Get(sealed)=v2", ki, nullptr, ki.v2, false, verbose);
+      if (sn != nullptr) {
+        db->ReleaseSnapshot(sn);  // NO_RELEASE 情况下的收尾释放
+      }
+    }
+    // 重启后再验全部键（审计）
+    db->Flush(rocksdb::FlushOptions());
+    db.reset();
+    db = OpenDb(dbdir, /*create=*/false);
+    if (db == nullptr) {
+      printf("snapmini: FAIL (重启无法重开)\n");
+      return 1;
+    }
+    impl = static_cast<rocksdb::DBImpl*>(db.get());
+    ctx = impl->GetZeroFlushContext();
+    size_t after_bad = 0;
+    for (const auto& ki : kinfo) {
+      ++checks;
+      std::string got;
+      const rocksdb::Status rst = db->Get(rocksdb::ReadOptions(), ki.key, &got);
+      if (!rst.ok() || got != ki.v2) {
+        ++after_bad;
+        ++fails;
+        if (after_bad <= 5) {
+          printf("snapmini 重启后 BAD key_idx=%zu status=%s\n", &ki - &kinfo[0],
+                 rst.ok() ? "OK(值不符)" : rst.ToString().c_str());
+        }
+      }
+    }
+    printf("snapmini: 重启后 checked=%zu bad=%zu | 总计 checks=%zu fails=%zu -> %s\n",
+           kinfo.size(), after_bad, checks, fails,
+           fails == 0 ? "PASS" : "FAIL");
+    return fails == 0 ? 0 : 1;
+  }
+
   if (mode == "mini") {
     // 最小复现（用户方法：合法操作、单键/少键、确定性）：
     //   写一批键 → 显式封存该分区 → 排空（有界）→ 逐键复查。
@@ -3054,8 +3217,9 @@ int main(int argc, char** argv) {
              a_hits.size());
       return 1;
     }
-    printf("aprobe: PASS —— A 在合法协议下不可达（gets=%zu 全部正确，"
-           "index_seq<lsm_seq 的陈旧索引胜出=0）\n", gets);
+    printf("aprobe: PASS —— A: UNREACHABLE_UNDER_VALID_PROTOCOL "
+           "（合法路径 gets=%zu 全部正确；陈旧索引胜出=0；持久丢失=0）\n",
+           gets);
     return 0;
   }
 

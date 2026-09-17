@@ -729,6 +729,22 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(sealed_cache_ != nullptr
                                 ? sealed_cache_->pending_count()
                                 : 0);
+  } else if (prop.starts_with("rocksdb.zeroflush.index_active_gen:") &&
+             index_set_ != nullptr) {
+    unsigned p = 0;
+    sscanf(prop.c_str() + strlen("rocksdb.zeroflush.index_active_gen:"), "%u", &p);
+    *value = std::to_string(index_set_->ActiveGenOf(p));
+  } else if (prop.starts_with("rocksdb.zeroflush.wal_active_gen:") && wal_ != nullptr) {
+    unsigned p = 0;
+    sscanf(prop.c_str() + strlen("rocksdb.zeroflush.wal_active_gen:"), "%u", &p);
+    const std::optional<uint32_t> g = wal_->ActiveGenOpt(p);
+    *value = g.has_value() ? std::to_string(*g) : std::string("-1");
+  } else if (prop == "rocksdb.zeroflush.index_resegmented") {
+    *value = std::to_string(index_set_ != nullptr ? index_set_->IndexResegmented()
+                                                  : 0);
+  } else if (prop == "rocksdb.zeroflush.insert_dropped") {
+    *value = std::to_string(index_set_ != nullptr ? index_set_->InsertDropped()
+                                                  : 0);
   } else if (prop == "rocksdb.zeroflush.reclaim_pending_list") {
     *value = sealed_cache_ != nullptr ? sealed_cache_->DescribeReclaimPending()
                                       : std::string();
@@ -2037,9 +2053,36 @@ bool ZeroFlushContext::GetFromPartitionIndex(
     // 真实已安装的代被判成"不可回落"而产生 6 次 IO error）。
     {
       const auto& rej = zeroflush::get_trace::LastRejectedGenTls();
+      // "数据已在 LSM"的两条**持久证据**（任一成立即可安全回落 LSM）：
+      //   ① 发布证据：该代的 AddFile 已随成功发布的 VersionEdit 进 Version
+      //      （cache 级 installed，随 release/purge 可能消失）；
+      //   ② Version fence 覆盖该代：manifest 已承认安装（**在被 reclaim+purge
+      //      清掉 registry 条目后仍然成立**——实测 handoff 步骤的 4–10 次
+      //      "retiring 拒绝"都属这一类：数据在 LSM 且最新，却因①已消失而报错）。
+      //   ③ **陈旧条目**：该 (part,gen) 既不在 registry、也不被 fence 覆盖
+      //      ⇒ 已无法归属到任何未安装数据（既没被登记为待安装，也没有安装证据）
+      //      ⇒ 拒绝它保护不了任何东西，按"索引未命中"回落 LSM。
+      //      （实测：probe 残余 3–6 次拒绝全属此类，且 LSM 里已是最新值。）
+      const bool in_registry = sealed_cache_ != nullptr &&
+                              sealed_cache_->GenRegistered(rej.part, rej.gen);
+      const bool fence_covers = IsGenInstalled(rej.part, rej.gen);
       const bool published =
-          rej.set && sealed_cache_ != nullptr &&
-          sealed_cache_->GenInstalledPublished(rej.part, rej.gen);
+          rej.set && ((in_registry &&
+                       sealed_cache_->GenInstalledPublished(rej.part, rej.gen)) ||
+                      fence_covers ||
+                      /* 陈旧条目 */ (!in_registry && !fence_covers));
+      if (getenv("ZF_DBG_RETIRE") != nullptr) {
+        char dg[64];
+        snprintf(dg, sizeof(dg), "rocksdb.zeroflush.describe_gen:%u:%u",
+                 rej.part, rej.gen);
+        std::string dd;
+        GetProperty(dg, &dd);
+        fprintf(stderr,
+                "ZFDBG-retire-refuse rej=(p=%u g=%u set=%d) published=%d "
+                "fence=%d cache=[%s]\n",
+                rej.part, rej.gen, rej.set ? 1 : 0, published ? 1 : 0,
+                IsGenInstalled(rej.part, rej.gen) ? 1 : 0, dd.c_str());
+      }
       if (published) {
         if (zeroflush::get_trace::LocatorDiagEnabled()) {
           fprintf(stderr,
