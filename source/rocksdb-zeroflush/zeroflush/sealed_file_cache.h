@@ -428,4 +428,22 @@ class SealedFileCache {
   uint64_t pending_epochs_ = 0;
 };
 
+// step V0.6-P0：物化扫描用的 RAII 读引用守卫——与读路径同一套 GenReadRef 协议，
+// 保证"扫描期间该代不会被 unlink"。析构时释放（幂等）。
+class SealedCacheReadRefGuard {
+ public:
+  SealedCacheReadRefGuard(SealedFileCache* c, uint32_t part, uint32_t gen)
+      : c_(c), part_(part), gen_(gen) {}
+  SealedCacheReadRefGuard(const SealedCacheReadRefGuard&) = delete;
+  SealedCacheReadRefGuard& operator=(const SealedCacheReadRefGuard&) = delete;
+  ~SealedCacheReadRefGuard() {
+    if (c_ != nullptr) c_->ReleaseGenReadRef(part_, gen_);
+  }
+
+ private:
+  SealedFileCache* c_;
+  uint32_t part_;
+  uint32_t gen_;
+};
+
 }  // namespace zeroflush

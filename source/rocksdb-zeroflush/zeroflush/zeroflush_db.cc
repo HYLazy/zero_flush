@@ -656,6 +656,8 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(sealed_bytes());
   } else if (prop == "rocksdb.zeroflush.materialize_micros") {
     *value = std::to_string(materialize_micros());
+  } else if (prop == "rocksdb.zeroflush.union_fallback_used") {
+    *value = std::to_string(union_fallback_used());
   } else if (prop == "rocksdb.zeroflush.union_skipped") {
     *value = std::to_string(union_skipped());
   } else if (prop == "rocksdb.zeroflush.index_parts_scanned") {
@@ -801,6 +803,10 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(install_assert_file_missing());
   } else if (prop == "rocksdb.zeroflush.install_gens_withheld") {
     *value = std::to_string(install_gens_withheld());
+  } else if (prop == "rocksdb.zeroflush.scan_skipped_reclaimed") {
+    *value = std::to_string(scan_skipped_reclaimed());
+  } else if (prop == "rocksdb.zeroflush.scan_ref_held") {
+    *value = std::to_string(scan_ref_held());
   } else if (prop == "rocksdb.zeroflush.install_uncertain") {
     *value = std::to_string(install_uncertain());
   } else if (prop == "rocksdb.zeroflush.install_reconciled") {
@@ -1747,6 +1753,9 @@ bool ZeroFlushContext::SelectBestIndexRecord(
     uint32_t part;
     uint64_t upper;
   };
+  // step V0.6-P2：`part`/`extra` 供两段式候选构建共用（阶段 2 也要用）。
+  uint32_t part = 0;
+  std::vector<uint32_t> extra;
   std::vector<Cand> cands;
   if (candidates != nullptr && !candidates->empty()) {
     // 测试入口：给定候选列表（每个候选都用**真实上界**参与剪枝）。
@@ -1754,8 +1763,7 @@ bool ZeroFlushContext::SelectBestIndexRecord(
       cands.push_back({p, index_set_->PartMaxSeqUpper(p)});
     }
   } else {
-    const uint32_t part = RoutePartId(user_key);
-    std::vector<uint32_t> extra;
+    part = RoutePartId(user_key);
     if (draining_active_.load(std::memory_order_acquire) != 0 &&
         ucmp_ != nullptr) {
       std::lock_guard<std::mutex> l(draining_mu_);
@@ -1787,32 +1795,28 @@ bool ZeroFlushContext::SelectBestIndexRecord(
     // 唯一——其它分区的链不可能持有本键版本，全候选并集只是纯开销。
     // 保留 DRAINING/split 别名回查（跨换代的历史记录仍可读）；历史 hash 库或
     // 已更替表版本的库继续走并集（显式慢路径）。
-    // step V0.6-2 复核：该收敛**会改变读路径语义**（非路由分区的记录不再被查）
-    // ——用户本轮明确"不再改读写语义"，且 semtest case1/2/3/7/8a 的跨分区
-    // fixture 依赖并集；此外迁移库可能仍有跨分区历史记录。
-    // 故：**暂不启用**（读路径收敛列为后续性能项，指标 `index_parts_scanned`
-    // 继续如实报告）。union_skipped_ 计数器保留，供后续开启时观测。
-    const bool fixed_unique_route = false;
-    if (fixed_unique_route) {
-      union_skipped_.fetch_add(1, std::memory_order_relaxed);
-      std::stable_sort(cands.begin(), cands.end(),
-                       [](const Cand& a, const Cand& b) { return a.upper > b.upper; });
-    } else {
-    std::vector<std::pair<uint32_t, uint64_t>> chain_parts;
-    index_set_->ChainParts(&chain_parts);
-    if (chain_parts.size() > zfo_.read_union_max_parts) {
-      read_union_overflow_.fetch_add(1, std::memory_order_relaxed);
-      ROCKS_LOG_WARN(wal_ != nullptr ? wal_->InfoLog() : nullptr,
-                     "ZF read union candidates=%zu exceed cap=%u: scanning ALL "
-                     "(no silent truncation)",
-                     chain_parts.size(), zfo_.read_union_max_parts);
-    }
-    for (const auto& [p, ub] : chain_parts) {
-      if (p == part) continue;
-      if (std::find(extra.begin(), extra.end(), p) != extra.end()) continue;
-      cands.push_back({p, ub});
-      index_parts_scanned_.fetch_add(1, std::memory_order_relaxed);
-    }
+    // step V0.6-P2（**尝试后回退**）：曾实现"路由优先、缺候选才查历史并集"的
+    // 两段式选择，但 semtest case7（显式候选列表 + 跨分区 fixture）在其下选错
+    // 胜出者（得 part=3/seq=100，期望 part=2/seq=200）⇒ 该改动的语义影响超出
+    // 预期。按"性能项不得破坏既有语义/覆盖"的原则**回退**，保持单一并集实现。
+    // 指标 `index_parts_scanned`（额外候选分区）继续如实报告；
+    // `union_fallback_used` 计数器保留，供后续以更小步长重做时观测。
+    {
+      std::vector<std::pair<uint32_t, uint64_t>> chain_parts;
+      index_set_->ChainParts(&chain_parts);
+      if (chain_parts.size() > zfo_.read_union_max_parts) {
+        read_union_overflow_.fetch_add(1, std::memory_order_relaxed);
+        ROCKS_LOG_WARN(wal_ != nullptr ? wal_->InfoLog() : nullptr,
+                       "ZF read union candidates=%zu exceed cap=%u: scanning ALL "
+                       "(no silent truncation)",
+                       chain_parts.size(), zfo_.read_union_max_parts);
+      }
+      for (const auto& [cp, ub] : chain_parts) {
+        if (cp == part) continue;
+        if (std::find(extra.begin(), extra.end(), cp) != extra.end()) continue;
+        cands.push_back({cp, ub});
+        index_parts_scanned_.fetch_add(1, std::memory_order_relaxed);
+      }
     }
   }
   std::stable_sort(cands.begin(), cands.end(),

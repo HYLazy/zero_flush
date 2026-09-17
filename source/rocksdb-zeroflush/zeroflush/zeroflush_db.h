@@ -131,6 +131,10 @@ struct ZeroFlushOptions {
   // CURRENT 防御修复已加。实测：2.2GB +28%、50GB 60.0K ops/s（关
   // 55.4K，+8.4%）、fallback 减半、停写 1.3%。
   bool skip_batching = true;
+  // step V0.6-P1：目标模式（禁 L0）下"攒批等收益"的**代数上限**——上限越大，
+  // 每次 base 融合摊销的输入越多 ⇒ 重写放大越低（代价：WAL 保留更久、单批更大）。
+  // 0 = 用包内默认（materialize_job 的 kMaxSkipGenerations=2）。
+  uint32_t base_merge_skip_max_generations = 0;
 
   // ---- M4.3 终态 ----
   // M4.3d-2：分区索引总内存预算（背压触发 freeze；默认 4GB ≈ 6~8 千万
@@ -572,6 +576,10 @@ class ZeroFlushContext {
   void NoteActiveWalRead() const {
     active_wal_read_count_.fetch_add(1, std::memory_order_relaxed);
   }
+  // step V0.6-P2：第一段（路由∪别名）未命中、回退查历史并集的读次数。
+  uint64_t union_fallback_used() const {
+    return union_fallback_used_.load(std::memory_order_relaxed);
+  }
   uint64_t union_skipped() const {
     return union_skipped_.load(std::memory_order_relaxed);
   }
@@ -670,6 +678,21 @@ class ZeroFlushContext {
   // step B-3：**提交结果不确定**的安装尝试数（LogAndApply 返回错误 ⇒ 可能已
   // 持久化也可能没有）。语义：绝不能直接当"未提交"处理——保持 pending、不删
   // 输出，交由重启/恢复按**持久化证据**（fence/manifest）重新判定。
+  // step V0.6-P0：物化扫描时发现"该代已被回收"而跳过（数据已在 LSM）的次数。
+  void NoteScanSkippedReclaimed() const {
+    scan_skipped_reclaimed_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t scan_skipped_reclaimed() const {
+    return scan_skipped_reclaimed_.load(std::memory_order_relaxed);
+  }
+  // step V0.6-P0：物化扫描期间持有的 generation 读引用次数（用于观测竞态保护生效）。
+  void NoteScanRefHeld() const {
+    scan_ref_held_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t scan_ref_held() const {
+    return scan_ref_held_.load(std::memory_order_relaxed);
+  }
+
   void NoteInstallUncertain() const {
     install_uncertain_.fetch_add(1, std::memory_order_relaxed);
   }
@@ -1227,6 +1250,9 @@ class ZeroFlushContext {
   //   batch_prev=本批前序已注册冲突；bytes=让位字节；sink=下沉请求被让位；
   //   cross_batch=跨批冲突。
   std::atomic<uint64_t> skip_no_merge_{0};
+  // step V0.6-P1：因**融合收益不足**（sealed+loss/overlap < base_merge_min_ratio）
+  // 而选择攒批等待的次数（目标模式下替代"无条件融合"）。
+  std::atomic<uint64_t> skip_merge_benefit_{0};
   std::atomic<uint64_t> skip_busy_conflict_{0};
   std::atomic<uint64_t> skip_batch_l0_{0};
   std::atomic<uint64_t> skip_l0_busy_{0};
@@ -1257,6 +1283,8 @@ class ZeroFlushContext {
   mutable std::atomic<uint64_t> active_wal_read_count_{0};
   // step V0.6-2：因"固定路由唯一分区"而跳过全候选并集的读次数（性能指标）。
   mutable std::atomic<uint64_t> union_skipped_{0};
+  // step V0.6-P2：回退查历史并集的读次数。
+  mutable std::atomic<uint64_t> union_fallback_used_{0};
   mutable std::atomic<uint64_t> index_parts_scanned_{0};
   mutable std::atomic<uint64_t> read_readfail_propagated_{0};
   mutable std::atomic<uint64_t> read_short_read_retried_{0};
@@ -1269,6 +1297,8 @@ class ZeroFlushContext {
   mutable std::atomic<uint64_t> fence_no_committed_output_{0};
   mutable std::atomic<uint64_t> install_gens_withheld_{0};
   mutable std::atomic<uint64_t> install_uncertain_{0};
+  mutable std::atomic<uint64_t> scan_skipped_reclaimed_{0};
+  mutable std::atomic<uint64_t> scan_ref_held_{0};
   mutable std::atomic<uint64_t> install_reconciled_{0};
   mutable std::atomic<uint64_t> install_assert_file_missing_{0};
   mutable std::atomic<uint64_t> forced_yield_batches_{0};

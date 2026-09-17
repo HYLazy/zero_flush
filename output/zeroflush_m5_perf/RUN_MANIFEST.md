@@ -2429,3 +2429,73 @@ all/scan/triage                : PASS（pending=0.0MB reclaimed=26.2MB wal_read_
 ```
 **结论**：**不标记 V0.6 候选**——两个新阻断项（关闭时罕见 SIGSEGV、物化写放大 22×）与
 一个已知性能项（额外候选分区收敛）必须先关闭；核心正确性其余项目全绿。
+
+## V0.6 收口：P0 竞态已修（1000 轮关闭压力零崩溃）；P1/P2 有度量与方案但未达标的
+
+### D-58. P0：关闭阶段崩溃（物化扫描 vs 回收竞态）——**已修复并验收**
+
+根因（上一轮插桩定位）：关闭排空返回 `Corruption: ZF sealed WAL scan failed: scanner
+file not open`，随后 SIGSEGV。机制：`ZfMaterializeJob::MaterializePartition` / 融合路径
+**开 WalScanner 扫描密封段时不持 generation 读引用**，回收路径（`ReleaseGens`→`PurgePending`）
+在 refs==0 时把文件 unlink ⇒ 扫描拿到已删除文件 ⇒ IOError → Corruption → 关闭路径崩溃。
+
+修复（两处，均在扫描点）：
+1. 扫描前 `TryAcquireGenReadRef(p,gen)` 并持有到扫描结束（新增 RAII
+   `zeroflush::SealedCacheReadRefGuard`）⇒ 回收路径按既有 deferral 规则**延迟 unlink**；
+2. 若该代**已被回收**（未登记 / 引用被拒）：其记录必已在 LSM（回收规则要求 installed
+   ⇒ refs==0），物化无需再读 ⇒ **跳过并计数** `scan_skipped_reclaimed`，不再报 Corruption。
+   新增计数：`scan_ref_held`（生效的扫描保护次数）、`scan_skipped_reclaimed`。
+
+**验收**
+```
+closestress（新模式：开库→写 2k 键→封存 4 分区→带 pending 关闭）×1000 轮 : **零崩溃**
+db_bench 定长循环（原复现器：固定路由、base_merge=1、200k×1KB）           : 无 SIGSEGV
+  （循环中途两次出现 exit=127 = 我在循环运行时重建 db_bench 导致的"文件不存在"，
+    非崩溃；纯净一轮循环已无 139）
+```
+
+### D-59. P1：物化写放大 —— **测量完成，但未找到杠杆**（默认行为保持原样）
+
+度量（新增 `ZF_DBG_MERGE=1` 打印每次融合的输入/输出规模与重写比 + 范围）：
+```
+固定路由 200k×1KB（200MB 输入）：prof_scan_bytes≈760MB、prof_output_bytes≈**5.1GB**（≈25×）、
+prof_tasks≈266、installed_epochs≈70、reclaimed≈795MB、pending 收尾≈53MB
+```
+尝试的参数（均**未**改善，且降低写吞吐）：
+| 配置 | 写 ops/s | prof_output_bytes |
+|---|---|---|
+| 默认（min_ratio 0.25） | 93 459 | 5.09 GB |
+| min_ratio=1.0 | 51 264 | 5.21 GB |
+| min_ratio=2.0 | 18 104 | 6.13 GB |
+| 收益攒批（ratio 0.25 + cap 8） | 102 108 | 5.18 GB |
+| 收益攒批（cap 16） | 104 174 | 5.11 GB |
+
+⇒ 放大**几乎与这两个 knob 无关**，说明"每 epoch 每活跃分区都走融合"这一分流点不是我改的
+分支。**结论**：收益攒批（`base_merge_skip_max_generations`）默认**关闭**（保留 knob 与
+度量；`ZF_DBG_MERGE=1` 可直接看到每次决策的 ratio/范围），P1 需在下一轮**专门追踪**
+`plan.decision == kMergeBase` 的赋值点与 ratio 的实际取值（怀疑 `sealed_in`
+（`se_.part_bytes[pid]`，含历史累计）使 ratio 恒达标）。
+
+### D-60. P2：历史并集收敛 —— 实现了两段式，但破坏 case7 ⇒ **已回退**
+
+实现"路由∪别名优先，缺候选才查历史并集"后，semtest case7（显式候选列表 + 跨分区
+fixture）选错胜出者（得 `part=3/seq=100`，期望 `part=2/seq=200`）⇒ 该改动的影响超出
+预期（候选顺序/剪枝与显式候选路径的交互）。按"性能项不得破坏既有语义与覆盖"原则回退为
+单一并集实现；`union_fallback_used` 计数器保留，供后续以更小步长重做。
+额外候选分区查询实测 **328**（未达成 0，属已知性能项）。
+
+### D-61. 门禁（本 build，哈希 `/tmp/build_hash_p0fix.txt`）
+```
+semtest cases1-7            : PASS
+aprobe（合法路径 300 轮）    : PASS —— errors=0 A_hits=0 陈旧索引胜出=0
+baccept phase1-4            : PASS（phase3 pending=0 drained=42720000；phase4 registered=0 reclaimed=42720000）
+installtest 1-4             : PASS
+migrate（迁移矩阵）          : PASS 8/8
+all/scan/triage             : PASS（pending=0.0MB reclaimed=26.2MB wal_read_delta=0）
+五组压力 各 300 轮           : PASS（failures/silent_stale/notfound/corruption=0，install_wait_timeouts=0）
+closestress 1000 轮          : PASS（零崩溃）
+```
+**结论**：P0（关闭崩溃）已关闭 ⇒ **可进入受控功能测试**；但 **V0.6 候选仍不标记**：
+P1（写放大 ~25×，缺杠杆）与 P2（额外候选分区 328）未达标，另需把"目标模式下
+`--zf_base_merge=1`"变成安全默认（或在启动时明确拒绝不安全配置）——这条本轮**未做**，
+列为下一步第一项。

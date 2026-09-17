@@ -1292,13 +1292,30 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           l0_bytes += f->fd.GetFileSize();
         }
         const auto pit = se_.part_bytes.find(pid);
-        const uint64_t sealed =
+        const uint64_t sealed_in =
             (pit != se_.part_bytes.end()) ? pit->second : 0;
         const double ratio =
             (overlap_bytes > 0)
-                ? static_cast<double>(sealed + l0_bytes) /
+                ? static_cast<double>(sealed_in + l0_bytes) /
                       static_cast<double>(overlap_bytes)
                 : 1.0;
+        // step V0.6-P1（用户口径）：**合并收益阈值**的度量——每次融合前记录
+        // 输入/输出规模与重写比，便于判定"该不该现在融合"。
+        if (getenv("ZF_DBG_MERGE") != nullptr) {
+          const char* dec = nullptr;
+          if (ratio < ctx_->zfo_.base_merge_min_ratio) {
+            dec = "below_min_ratio";
+          } else {
+            dec = "above_min_ratio";
+          }
+          fprintf(stderr,
+                  "ZFDBG-merge-benefit pid=%u sealed=%llu l0=%llu overlap=%llu "
+                  "ratio=%.3f min=%.3f decision=%s range=[%s,%s)\n",
+                  pid, (unsigned long long)sealed_in, (unsigned long long)l0_bytes,
+                  (unsigned long long)overlap_bytes, ratio,
+                  ctx_->zfo_.base_merge_min_ratio, dec,
+                  plan.lo.ToString(true).c_str(), plan.hi.ToString(true).c_str());
+        }
         if (ratio < ctx_->zfo_.base_merge_min_ratio &&
             !ctx_->zfo_.forbid_l0_install) {
           // ratio 不足：回落 L0 累积（compaction 消费——滞留由后续
@@ -1307,9 +1324,35 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           plans_.push_back(std::move(plan));
           continue;
         }
-        // step 1o（用户 2026-09-16）：目标模式下 L0 出口已关闭 ⇒ 稳定的
-        // L0/base 重叠必须**进入融合**（等待不会使重叠消失；ratio 门槛让位
-        // 于正确性与进展）。
+        // step V0.6-P1（用户口径："再加合并收益阈值或批次合并策略"）：
+        // **目标模式**下 L0 出口已关闭，原实现无条件融合 ⇒ 每个 epoch 重写整块
+        // base（实测 200MB 输入 → 4.4GB 输出 ≈ 22×）。改为：收益不足时**攒批
+        // 等收益**（数据留在 frozen 索引 + WAL，仍可读；由 kMaxSkipGenerations
+        // 上限保证最终一定进入融合 ⇒ 不牺牲进展）。上限触发或攒批关闭时仍融合。
+        // 注：本分支**默认不生效**（`base_merge_skip_max_generations` 默认 0 表示
+        // "不启用收益攒批"）。实测（D-58）：ratio 0.25→1.0→2.0、cap 2→8→16 对
+        // `prof_output_bytes` 均无改善（5.05–6.13GB），反而降低写吞吐
+        // （88k→69k→18k ops/s）⇒ 收益攒批不是本问题的杠杆，默认关闭；
+        // 度量（ZF_DBG_MERGE 打印）与 knob 保留，供后续定位"每 epoch 都融合"
+        // 的真正分流点。
+        const bool merge_benefit_skip_enabled =
+            ctx_->zfo_.base_merge_skip_max_generations > 0;
+        if (merge_benefit_skip_enabled &&
+            ratio < ctx_->zfo_.base_merge_min_ratio &&
+            ctx_->zfo_.forbid_l0_install) {
+          const uint32_t skip_cap =
+              ctx_->zfo_.base_merge_skip_max_generations;
+          const bool can_skip = skip_ok && ctx_->zfo_.skip_batching &&
+                                PendingGenCount(pid) < skip_cap;
+          if (can_skip) {
+            plan.decision = MaterializeDecision::kSkip;
+            ctx_->skip_merge_benefit_.fetch_add(1, std::memory_order_relaxed);
+            ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+            plans_.push_back(std::move(plan));
+            continue;
+          }
+        }
+        // 收益达标（或攒批不可用/已达上限）：进入融合。
         plan.l0_overlap = std::move(l0_overlap);
       } else {
         // 批内有本分区未安装的 L0 输出（替换会丢其数据）：等待下一批
@@ -1841,6 +1884,22 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
   std::vector<std::string> values;
   uint64_t prof_ab = 0;
   for (const auto& [p, gen] : gens) {
+    // step V0.6-P0（关闭竞态修复）：扫描期间**持有 generation 读引用**——回收路径
+    // （ReleaseGens/ReleasePurgPending）在 refs>0 时会延迟 unlink，于是不会出现
+    // "扫描开着文件、回收把文件删了" ⇒ 原先的 `scanner file not open` →
+    // Corruption → 关闭阶段 SIGSEGV 的链条被切断。
+    // 若该代已被回收（引用获取被拒 / registry 已无登记）：它的记录**必已在 LSM**
+    // （回收规则要求 installed ⇒ refs==0），物化无需再读 ⇒ 跳过并计数，
+    // 而不是报 Corruption。
+    auto* sfc = ctx_->sealed_cache();
+    const bool gen_registered = sfc != nullptr && sfc->GenRegistered(p, gen);
+    if (sfc == nullptr || !gen_registered ||
+        !sfc->TryAcquireGenReadRef(p, gen)) {
+      ctx_->NoteScanSkippedReclaimed();
+      continue;
+    }
+    zeroflush::SealedCacheReadRefGuard scan_ref(sfc, p, gen);  // 析构释放 ↦ 允许回收
+    ctx_->NoteScanRefHeld();
     WalScanner scanner(mc_.db_options->env, ctx_->wal_dir(), p, gen,
                        mc_.db_options->info_log.get());
     ZfRecordHeader h;
@@ -2110,6 +2169,16 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
   uint64_t min_seq = ROCKSDB_NAMESPACE::kMaxSequenceNumber;
   uint64_t prof_ab = 0;
   for (const auto& [p, gen] : gens) {
+    // step V0.6-P0：同 MaterializePartition——扫描期间持读引用；已回收则跳过。
+    auto* sfc = ctx_->sealed_cache();
+    const bool gen_registered = sfc != nullptr && sfc->GenRegistered(p, gen);
+    if (sfc == nullptr || !gen_registered ||
+        !sfc->TryAcquireGenReadRef(p, gen)) {
+      ctx_->NoteScanSkippedReclaimed();
+      continue;
+    }
+    zeroflush::SealedCacheReadRefGuard scan_ref(sfc, p, gen);
+    ctx_->NoteScanRefHeld();
     WalScanner scanner(mc_.db_options->env, ctx_->wal_dir(), p, gen,
                        mc_.db_options->info_log.get());
     ZfRecordHeader h;

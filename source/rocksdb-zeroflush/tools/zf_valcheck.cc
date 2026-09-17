@@ -506,7 +506,7 @@ int main(int argc, char** argv) {
        mode == "selftest" || mode == "semtest" || mode == "stress" ||
        mode == "baccept" || mode == "installtest" || mode == "routingneg" ||
        mode == "failaccept" || mode == "aprobe" || mode == "mini" ||
-       mode == "snapmini" || mode == "migrate");
+       mode == "snapmini" || mode == "migrate" || mode == "closestress");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
@@ -3009,6 +3009,50 @@ int main(int argc, char** argv) {
     printf("mini: %s (bad=%zu, batches=%d, per_batch=%d)\n",
            bad == 0 ? "PASS" : "FAIL", bad, batches, per_batch);
     return bad == 0 ? 0 : 1;
+  }
+
+  if (mode == "closestress") {
+    // step V0.6-P0（用户指令）：**关闭压力**——反复"开库 → 写 → 封存 → 带 pending
+    // 关闭（ZfCloseFlush 排空）"，用来压 P0 竞态（物化扫描 vs WAL 回收）。
+    // 每轮独立新库（与 db_bench 的关闭路径同源）；进程若崩溃即整体退出，
+    // 由外层 shell 循环计数 ⇒ "1000 次零崩溃" 由外层判定。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    const int iters = threads > 0 ? threads : 100;
+    const int keys_per_cycle = 2000;
+    const uint64_t span = 20000;
+    for (int it = 0; it < iters; ++it) {
+      const std::string dir = dbdir + "/cs_" + std::to_string(it);
+      std::unique_ptr<rocksdb::DB> d = OpenDb(dir, /*create=*/true);
+      if (d == nullptr) {
+        printf("closestress iter=%d OPEN_FAIL\n", it);
+        return 1;
+      }
+      auto* di = static_cast<rocksdb::DBImpl*>(d.get());
+      auto c = di->GetZeroFlushContext();
+      for (int i = 0; i < keys_per_cycle; ++i) {
+        const uint64_t kk = static_cast<uint64_t>(i) * 7;
+        d->Put(rocksdb::WriteOptions(), zf_keygen::KeyFromInt(kk, kKeySize),
+               zf_keygen::ValueFor(kk, 1, kValueSize));
+      }
+      // 部分封存（不排空）⇒ 关闭时 pending>0，正是崩溃现场的条件。
+      for (uint32_t q = 0; q < 4; ++q) {
+        c->wal()->Sync(q).PermitUncheckedError();
+        uint32_t sg = 0;
+        c->ForceSealForTest(di, di->GetDefaultColumnFamily(), q,
+                            c->wal()->ActiveGenOpt(q).value_or(0), &sg);
+      }
+      if (c->zfo_.merge_into_base_level == false) {
+        printf("closestress WARN: base_merge 未开（与 db_bench 默认不同）\n");
+      }
+      const uint64_t pend_before_close = Prop(d.get(), "pending_materialize_bytes");
+      d.reset();  // ← 关闭路径（ZfCloseFlush 排空）
+      if (it % 20 == 0) {
+        printf("closestress iter=%d ok (关闭前 pending=%llu)\n", it,
+               (unsigned long long)pend_before_close);
+      }
+    }
+    printf("closestress: DONE %d 轮无崩溃\n", iters);
+    return 0;
   }
 
   if (mode == "migrate") {

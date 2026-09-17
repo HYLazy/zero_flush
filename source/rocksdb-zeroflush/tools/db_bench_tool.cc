@@ -860,6 +860,8 @@ DEFINE_int64(zf_static_span, 0,
              "step V0.6-3：--zf_routing=static 时按**键空间等分**内部生成边界"
              "（= 本 workload 的最大键号；0 = 关闭）。用于性能对照：二进制键含 NUL "
              "无法经命令行传递，故在工具内生成。");
+DEFINE_int32(zf_base_merge_skip_max_generations, 0,
+             "step V0.6-P1：目标模式下攒批等收益的代数上限（0=包内默认 2）。");
 DEFINE_bool(zf_base_merge, false,
             "ZeroFlush M3.3: fuse materialization into base level (merge with "
             "overlapping base-level files) instead of falling back to L0.");
@@ -5627,6 +5629,10 @@ class Benchmark {
       }
       if (FLAGS_zf_base_merge_min_ratio >= 0.0) {
         zfo.base_merge_min_ratio = FLAGS_zf_base_merge_min_ratio;
+      }
+      if (FLAGS_zf_base_merge_skip_max_generations > 0) {
+        zfo.base_merge_skip_max_generations = static_cast<uint32_t>(
+            FLAGS_zf_base_merge_skip_max_generations);
       }
       if (FLAGS_zf_merge_ratio > 0) {
         zfo.base_merge_min_ratio = FLAGS_zf_merge_ratio;
