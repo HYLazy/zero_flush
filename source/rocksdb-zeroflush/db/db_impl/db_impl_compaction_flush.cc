@@ -4059,6 +4059,18 @@ void DBImpl::BGWorkFlush(void* arg) {
 
 // step V0.6-A5（用户契约）：ZF 积压排空的**单任务状态机**。
 // 状态只在 mutex_ 下变更（IDLE/QUEUED/RUNNING/STOPPING），引用计数 = queued+running。
+void DBImpl::ZfWaitGateHard(const char* env_name) {
+  const char* path = getenv(env_name);
+  if (path == nullptr || *path == '\0') return;
+  // 只由控制线程创建该文件放行（不随 STOPPING 逃逸）：用于"证明 Close 确实等待"。
+  // 有界保护：最多等 120s（测试必须放行；超时视为测试错误而非引擎挂死）。
+  const uint64_t t0 = env_->NowMicros();
+  while (!env_->FileExists(path).ok()) {
+    env_->SleepForMicroseconds(1000);
+    if (env_->NowMicros() - t0 > 120ull * 1000 * 1000) break;
+  }
+}
+
 void DBImpl::ZfWaitGate(const char* env_name) {
   const char* path = getenv(env_name);
   if (path == nullptr || *path == '\0') return;
@@ -4131,6 +4143,8 @@ void DBImpl::UnscheduleZfDrainCallback(void* arg) {
   db->zf_tasks_cancelled_.fetch_add(1, std::memory_order_relaxed);
   // 只有"仍属于排队阶段"的引用由本回调释放；**状态可能是 STOPPING**（关闭先置位），
   // 因此不能以 `state == kQueued` 作为条件（否则引用永不释放 ⇒ 关闭永久等待）。
+  zeroflush::get_trace::ZfDrainNoteTask(db->zf_db_instance_,
+                                        db->zf_drain_task_seq_, 5 /*cancel*/);
   if (db->zf_drain_ref_queued_) {
     db->zf_drain_ref_queued_ = false;
     if (db->zf_drain_refs_ > 0) --db->zf_drain_refs_;
@@ -4147,75 +4161,87 @@ void DBImpl::BGWorkZfDrain(void* arg) {
 }
 
 void DBImpl::BackgroundCallZfDrain() {
+  // step V0.6-A8（用户契约）：**释放引用必须是回调的最后一步 DB 访问**——
+  // 引用归零之后不得再改计数/状态/重排/打印依赖 DB 的日志（Close 可能已开始析构）。
+  // 因此结构固定为：① 进入/交接记账 ② 执行排空 ③ 结果记账（含退避与重排判定）
+  // ④ **最后**递减引用并记录 released ⑤ 立即返回（其后只有 mutex 解锁）。
+  if (zf_db_instance_ == 0) {
+    zf_db_instance_ =
+        zeroflush::get_trace::ZfDrainDbInstanceSeq().fetch_add(1) + 1;
+  }
+  ++zf_drain_task_seq_;
+  const uint64_t task_id = zf_drain_task_seq_;
+  const uint64_t db_inst = zf_db_instance_;
   zf_ev_cb_entered_.fetch_add(1, std::memory_order_relaxed);
-  zeroflush::get_trace::ZfDrainEventsGlobal().cb_entered.fetch_add(1, std::memory_order_relaxed);
-  // 屏障①（文件屏障，取代毫秒睡眠）：回调已进入、尚未转 RUNNING（归属仍=排队阶段）。
+  zeroflush::get_trace::ZfDrainEventsGlobal().cb_entered.fetch_add(
+      1, std::memory_order_relaxed);
+  zeroflush::get_trace::ZfDrainNoteTask(db_inst, task_id, 2 /*cb_entered*/);
+  // 屏障①（硬屏障，只由控制线程放行）：回调已进入、尚未转 RUNNING。
   // 语义：**回调已进入即持有生命周期引用**，Close 不得因"尚未标记 RUNNING"而提前释放。
-  ZfWaitGate("ZF_TEST_DRAIN_GATE_ENTER");
+  ZfWaitGateHard("ZF_TEST_DRAIN_GATE_ENTER");
+  bool stopping_exit = false;
   {
     InstrumentedMutexLock l(&mutex_);
     if (zf_drain_state_ == ZfDrainState::kStopping) {
-      // 回调**开始**时检查 STOPPING：关闭中直接退出（不触碰排空路径），
-      // 并释放本任务持有的那一个引用（排队阶段或运行阶段，恰好一次）。
-      if (zf_drain_refs_ > 0) --zf_drain_refs_;
-      zf_drain_ref_queued_ = false;
-      zf_ev_released_.fetch_add(1, std::memory_order_relaxed);
-      zeroflush::get_trace::ZfDrainEventsGlobal().released.fetch_add(
+      stopping_exit = true;
+    } else {
+      zf_drain_ref_queued_ = false;  // 交接：引用归属转为"运行中的任务"
+      zf_ev_handover_.fetch_add(1, std::memory_order_relaxed);
+      zeroflush::get_trace::ZfDrainEventsGlobal().handover.fetch_add(
           1, std::memory_order_relaxed);
-      zeroflush::get_trace::ZfDrainEventsGlobal().stopping_exits.fetch_add(
-          1, std::memory_order_relaxed);
-      return;
+      zeroflush::get_trace::ZfDrainNoteTask(db_inst, task_id, 3 /*handover*/);
+      zf_drain_state_ = ZfDrainState::kRunning;
     }
-    zf_drain_ref_queued_ = false;  // 交接：引用归属转为"运行中的任务"
-    zf_ev_handover_.fetch_add(1, std::memory_order_relaxed);
-    zeroflush::get_trace::ZfDrainEventsGlobal().handover.fetch_add(1, std::memory_order_relaxed);
-    zf_drain_state_ = ZfDrainState::kRunning;
   }
-  zf_tasks_started_.fetch_add(1, std::memory_order_relaxed);
-  // 屏障②：转 RUNNING 之后、扫描之前（"执行中、扫描前"窗口）。
-  ZfWaitGate("ZF_TEST_DRAIN_GATE_RUN");
-  uint64_t drained_before = 0, pending_before = 0;
-  if (zf_ctx_ != nullptr) {
-    drained_before = zf_ctx_->DrainedMaterializeBytes();
-    pending_before = zf_ctx_->PendingMaterializeBytes();
-    zf_ctx_->SetBacklogDrainActive(true);
-  }
-  ZfDrainNow();
-  if (zf_ctx_ != nullptr) zf_ctx_->SetBacklogDrainActive(false);
   bool progress = false;
-  {
-    InstrumentedMutexLock l(&mutex_);
+  if (!stopping_exit) {
+    zf_tasks_started_.fetch_add(1, std::memory_order_relaxed);
+    // 屏障②（硬屏障）：转 RUNNING 之后、扫描之前。
+    ZfWaitGateHard("ZF_TEST_DRAIN_GATE_RUN");
+    uint64_t drained_before = 0, pending_before = 0;
     if (zf_ctx_ != nullptr) {
+      drained_before = zf_ctx_->DrainedMaterializeBytes();
+      pending_before = zf_ctx_->PendingMaterializeBytes();
+      zf_ctx_->SetBacklogDrainActive(true);
+    }
+    ZfDrainNow();
+    if (zf_ctx_ != nullptr) {
+      zf_ctx_->SetBacklogDrainActive(false);
       progress = (zf_ctx_->DrainedMaterializeBytes() > drained_before) ||
                  (zf_ctx_->PendingMaterializeBytes() < pending_before);
     }
-    // 回调**结束**时检查 STOPPING，并释放生命周期引用。
-    if (zf_drain_state_ == ZfDrainState::kStopping) {
-      if (zf_drain_refs_ > 0) --zf_drain_refs_;
+  }
+  {
+    InstrumentedMutexLock l(&mutex_);
+    // ③ 结果记账（全部在**释放之前**完成：含 STOPPING 判定、退避与重排标记）
+    if (stopping_exit) {
+      if (zf_drain_state_ != ZfDrainState::kStopping) {
+        zf_drain_state_ = ZfDrainState::kStopping;
+      }
       zf_ev_released_.fetch_add(1, std::memory_order_relaxed);
-      zeroflush::get_trace::ZfDrainEventsGlobal().released.fetch_add(
-          1, std::memory_order_relaxed);
       zeroflush::get_trace::ZfDrainEventsGlobal().stopping_exits.fetch_add(
           1, std::memory_order_relaxed);
-      return;
-    }
-    if (zf_drain_refs_ > 0) --zf_drain_refs_;
-    zf_ev_released_.fetch_add(1, std::memory_order_relaxed);
-    zeroflush::get_trace::ZfDrainEventsGlobal().released.fetch_add(
-        1, std::memory_order_relaxed);
-    zf_drain_state_ = ZfDrainState::kIdle;
-    if (zf_ctx_ != nullptr && zf_ctx_->NeedsBacklogDrain()) {
-      if (progress) {
-        zf_drain_next_deadline_us_.store(0, std::memory_order_relaxed);
-      } else {
-        // 无进展：退避，交给定时器按 deadline 唤醒（不立即重排）。
-        zf_no_progress_backoffs_.fetch_add(1, std::memory_order_relaxed);
-        zf_ctx_->NoteInstallProgressFailure();
-        zf_drain_next_deadline_us_.store(
-            env_->NowMicros() + 200 * 1000, std::memory_order_relaxed);
+    } else {
+      zf_drain_state_ = ZfDrainState::kIdle;
+      if (zf_ctx_ != nullptr && zf_ctx_->NeedsBacklogDrain()) {
+        if (progress) {
+          zf_drain_next_deadline_us_.store(0, std::memory_order_relaxed);
+        } else {
+          // 无进展：退避，交给定时器按 deadline 唤醒（不立即重排）。
+          zf_no_progress_backoffs_.fetch_add(1, std::memory_order_relaxed);
+          zf_ctx_->NoteInstallProgressFailure();
+          zf_drain_next_deadline_us_.store(
+              env_->NowMicros() + 200 * 1000, std::memory_order_relaxed);
+        }
       }
     }
+    // ④ **最后**：递减生命周期引用（此后不再访问任何 DB 成员）。
+    if (zf_drain_refs_ > 0) --zf_drain_refs_;
+    zeroflush::get_trace::ZfDrainEventsGlobal().released.fetch_add(
+        1, std::memory_order_relaxed);
+    zeroflush::get_trace::ZfDrainNoteTask(db_inst, task_id, 4 /*released*/);
   }
+  // ⑤ 返回（其后仅 mutex 解锁，不再触碰 DB 状态）。
 }
 
 void DBImpl::StopZfDrainForClose() {

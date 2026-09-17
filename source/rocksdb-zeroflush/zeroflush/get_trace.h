@@ -293,6 +293,31 @@ inline bool ConsumeRetiringRejected() {
 // 实测表现为偶发读错误）。TLS 只影响调用线程，且生产路径仅一次 thread_local 读。
 // step V0.6-A6（用户口径）：排空任务的**生命周期事件**记录在**进程全局**——Close 之后
 // DB 实例已析构，测试仍需核对"每个任务恰好走取消完成或执行完成之一、引用归零"。
+// 逐任务记录（用户口径：按 **DB 实例 + task ID** 隔离，避免重开后污染）。
+struct ZfDrainTaskRec {
+  uint64_t db_instance = 0;
+  uint64_t task_id = 0;
+  int phase = 0;  // 1=enqueued 2=cb_entered 3=handover 4=released 5=cancel
+};
+inline std::atomic<uint64_t>& ZfDrainDbInstanceSeq() {
+  static std::atomic<uint64_t> n{0};
+  return n;
+}
+inline std::vector<ZfDrainTaskRec>& ZfDrainTaskRing() {
+  static std::vector<ZfDrainTaskRec> v;
+  return v;
+}
+inline std::mutex& ZfDrainTaskRingMu() {
+  static std::mutex m;
+  return m;
+}
+inline void ZfDrainNoteTask(uint64_t db_inst, uint64_t task_id, int phase) {
+  std::lock_guard<std::mutex> l(ZfDrainTaskRingMu());
+  auto& v = ZfDrainTaskRing();
+  if (v.size() < 256) v.push_back(ZfDrainTaskRec{db_inst, task_id, phase});
+  else v[(task_id + phase) % v.size()] = ZfDrainTaskRec{db_inst, task_id, phase};
+}
+
 struct ZfDrainEvents {
   std::atomic<uint64_t> enqueued{0};
   std::atomic<uint64_t> cb_entered{0};

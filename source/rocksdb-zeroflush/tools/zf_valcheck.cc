@@ -3106,6 +3106,16 @@ int main(int argc, char** argv) {
              (unsigned long long)ev0.handover.load(),
              (unsigned long long)ev0.released.load());
     }
+    // 窗口 4（用户契约）：**证明 Close 确实等待**——任务运行中停在硬屏障上，
+    // 不随 STOPPING 自动放行；主线程确认 Close 已进入等待且引用仍为 1，再放行。
+    if (win == 4) {
+      auto& ev = zeroflush::get_trace::ZfDrainEventsGlobal();
+      const uint64_t refs_before = ev.released.load();
+      printf("drainlife win=4 前置: enqueued=%llu handover=%llu released=%llu\n",
+             (unsigned long long)ev.enqueued.load(),
+             (unsigned long long)ev.handover.load(),
+             (unsigned long long)refs_before);
+    }
     // Close 放在控制线程里（主线程负责放行屏障或观察等待）。
     std::atomic<bool> close_done{false};
     uint64_t close_ms = 0;
@@ -3116,18 +3126,30 @@ int main(int argc, char** argv) {
       close_ms = (rocksdb::Env::Default()->NowMicros() - tc) / 1000;
       close_done.store(true, std::memory_order_release);
     });
-    if (win == 2 || win == 3) {
+    if (win == 2 || win == 3 || win == 4) {
       // 等 Close 进入等待（close_wait_rounds 增长）再放行屏障。
       const char* gp = getenv(win == 2 ? "ZF_TEST_DRAIN_GATE_ENTER"
                                        : "ZF_TEST_DRAIN_GATE_RUN");
       const uint64_t tw = rocksdb::Env::Default()->NowMicros();
-      // 等 Close 真正进入等待：观测 "STOPPING refs=1" + close_done 未置位，
-      // 且至少等了 500ms（调度器不会立刻放行，屏障不放行任务就不会退出）。
+      // 等 Close 真正进入等待，并**验证它尚未返回、且引用尚未释放**（窗口 4 的核心断言）。
       env_sleep_ms(500);
-      while (!close_done.load(std::memory_order_acquire) &&
-             rocksdb::Env::Default()->NowMicros() - tw < 30ull * 1000 * 1000) {
-        env_sleep_ms(100);
-        break;  // 观测窗口：Close 仍在等待即视为进入等待窗口
+      const bool close_pending =
+          !close_done.load(std::memory_order_acquire);
+      auto& evw = zeroflush::get_trace::ZfDrainEventsGlobal();
+      const uint64_t rel_before = evw.released.load();
+      const uint64_t ho_before = evw.handover.load();
+      printf("drainlife win=%d 等待确认: close_未返回=%d 放行前 released=%llu "
+             "handover=%llu（硬屏障 ⇒ 任务仍持引用）\n",
+             win, close_pending ? 1 : 0, (unsigned long long)rel_before,
+             (unsigned long long)ho_before);
+      if (win == 4) {
+        // 断言（顺序证明）：Close 已进入等待（未返回），且**任务尚未释放引用**
+        // ——此时任务停在硬屏障上、仍持引用。判据：released 尚未追上 handover。
+        if (!close_pending || rel_before >= ho_before) {
+          printf("drainlife win=4: FAIL (Close 未等待，或引用在放行前已释放)\n");
+        } else {
+          printf("drainlife win=4: 顺序成立（Close 未返回 + 任务仍持引用）\n");
+        }
       }
       if (gp != nullptr) {
         FILE* f = fopen(gp, "w");

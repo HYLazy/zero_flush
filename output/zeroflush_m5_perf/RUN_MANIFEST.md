@@ -2761,3 +2761,44 @@ installtest scen 2 / 4      : PASS
   "关闭时仍有未安装 epoch ⇒ DB 析构期解引用已销毁 Version"的潜在崩溃）。是否后移请用户定。
 - 未做：`AdoptSkippedGensForDrainLocked()`（下一步）；候选线最终压力证据（closestress 1000 +
   五组各 300 轮）。
+
+## 实验分支 A8：Close 等待的顺序证明（窗口 4）+ 释放语义收紧
+
+### D-84. 代码层收紧（用户契约）
+
+1. **释放必须是回调的最后一步 DB 访问**：重排 `BackgroundCallZfDrain` 为
+   ①进入/交接记账 → ②执行排空 → ③结果记账（含 STOPPING 判定、退避与重排标记）
+   → ④**最后**递减引用并记录 released → ⑤立即返回（其后仅 mutex 解锁）。
+   此前"先递减再改 `zf_ev_released_`/`zf_drain_state_`/deadline"违反该契约，已改正。
+2. **硬屏障** `ZfWaitGateHard`：**只由控制线程创建放行文件**才继续（不随 STOPPING 逃逸），
+   带 120s 安全上限（防止测试自身挂死）；原 `ZfWaitGate`（STOPPING 即放行）保留给窗口 2/3
+   的有界活性语义。
+3. **逐任务记录**（用户口径：DB 实例 + task ID 隔离）：新增 `ZfDrainTaskRec{db_instance,
+   task_id, phase}` 环形记录与 `ZfDrainDbInstanceSeq()`；enqueue/cb_entered/handover/
+   released/cancel 各记一条，重开后的新实例不会污染旧实例计数。
+
+### D-85. 四个窗口的最终结果（实验分支）
+
+```
+窗口 1 真正排队/未出队 : exit=0 符合契约 重开 6000/6000
+窗口 2 已出队/主体未执行: exit=0 符合契约 重开 6000/6000
+窗口 3 执行中/扫描前    : exit=0 符合契约 重开 6000/6000
+窗口 4 **Close 等待顺序证明**: exit=0 符合契约 顺序成立（Close 未返回 + 任务仍持引用）重开 6000/6000
+```
+窗口 4 的实测（控制线程放行版）：
+```
+关闭前: RUNNING refs=1 | ev{enqueued=1 cb_entered=1 handover=1 released=0}
+等待确认: close_未返回=1 放行前 released=0 handover=1（硬屏障 ⇒ 任务仍持引用）
+顺序成立（Close 未返回 + 任务仍持引用）
+关闭完成: 耗时=508 ms | ev{... released=1 close_wait_rounds=285 stopping_exits=0
+          close_calls=1 refs_at_close_return=0}
+不变量: 唯一路径=1 引用归零=1 释放次数匹配=1
+```
+⇒ 顺序 **"任务持引用 → Close 进入等待且未返回 → 控制线程放行 → 任务完成最后一次访问 →
+释放引用 → Close 返回"** 已被直接观测（`close_wait_rounds=285` 即 Close 在等待中自旋，
+`released` 在放行后才追上 `handover`）。
+
+### D-86. 待办（下一份交付）
+**`AdoptSkippedGensForDrainLocked()`**（仅剩 skip 时停写也能排空；持续冲突时保持可读且调度
+有界、解除后自行排空；不增加写入、不调用手工排空、不关闭 DB）。随后测完整生命周期写放大，
+再决定是否合入候选线。候选线 `0de022f` 已收口，本轮未再改动。

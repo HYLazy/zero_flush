@@ -3474,6 +3474,9 @@ class DBImpl : public DB {
   std::atomic<uint64_t> zf_ev_handover_{0};
   std::atomic<uint64_t> zf_ev_released_{0};
   std::atomic<uint64_t> zf_ev_close_wait_rounds_{0};
+  // 逐任务身份（用户口径：DB 实例 + task ID 隔离；避免重开后污染计数）。
+  uint64_t zf_db_instance_ = 0;
+  uint64_t zf_drain_task_seq_ = 0;
   // 调度计数（用户要求拆分；只用于测量，参与决策的只有状态与引用计数）。
   std::atomic<uint64_t> zf_timer_wakeups_{0};
   std::atomic<uint64_t> zf_tasks_queued_{0};
@@ -3489,6 +3492,8 @@ class DBImpl : public DB {
   static uint64_t ZfTestHookMs(const char* name);
   // 文件屏障（存在即放行；关闭开始后不再等待）。
   void ZfWaitGate(const char* env_name);
+  // 硬屏障（**只由控制线程放行**；不随 STOPPING 自动放行）——用于证明 Close 确实等待。
+  void ZfWaitGateHard(const char* env_name);
 
 
   LogsWithPrepTracker logs_with_prep_tracker_;
