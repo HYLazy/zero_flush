@@ -2678,3 +2678,39 @@ installtest scen 2 / 4      : PASS
 → ② 排空路径的 skip 集合适配（"空尾封存也能收养并被物化"）或按站点精细禁用 kSkip →
 ③ 满足"不开新写、不靠关闭也能自动排空"的关键验收 → ④ 全生命周期写放大收益重测
 （写阶段/立即读/排空后读、pending 峰值、排空耗时、总输出字节）→ ⑤ 启用新默认并复跑门禁。
+
+## 实验分支 P1BacklogDrain-exp：单任务状态机与关闭契约（A5）
+
+### D-75. 实现（严格按用户契约）
+
+- **状态机**（DB mutex 下唯一维护）：`IDLE → QUEUED → RUNNING → IDLE`，
+  `QUEUED/RUNNING ↘ STOPPING`；同一 DB 至多一个 queued/running 任务。
+- **生命周期引用**：入队前 `refs+1` 并标 `ref_queued=true`（归属=排队阶段）；
+  转 RUNNING 时交接归属（`ref_queued=false`）；**取消回调只释放排队阶段的引用**，
+  运行中的任务在退出时释放（两个退出路径都恰好释放一次）。
+- **取消**：`env_->Schedule(..., tag=this, unschedCallback)` +
+  `env_->UnSchedule(this, LOW)`（ThreadPool 的取消函数在**调用者线程同步执行**，已核对实现）。
+- **关闭契约（固定顺序）**：STOPPING → 停并 **join 定时器** → `UnSchedule(tag)` 取消 queued
+  → **无锁等待 refs 归零**（沿用 `bg_flush_scheduled_` 的既有等待式样）→ 析构。
+  回调在**开始与结束**都检查 STOPPING；关闭开始后不创建新任务。
+- **退避**：无进展时**不立即重排**，写 `next_deadline=now+200ms`，交给定时器按 deadline 唤醒。
+- **计数拆分**：`timer_wakeups / tasks_queued / tasks_started / coalesced_requests /
+  no_progress_backoffs / tasks_cancelled`（新增属性 `zf_drain_state`、`zf_drain_counters`）。
+- **定向钩子**：`ZF_TEST_DRAIN_QUEUED_HOLD_MS`（回调开始后、转 RUNNING 前暂停）、
+  `ZF_TEST_DRAIN_RUN_DELAY_MS`（转 RUNNING 后、扫描前暂停）。
+
+### D-76. 验收结果
+
+| 用例 | 状态 | 结果 |
+|---|---|---|
+| **B：执行中、扫描前暂停 → Close** | `RUNNING refs=1` | **PASS**：关闭等待 3002ms（等暂停任务退出）→ 关闭完成 → 重开逐键 6000/6000 正确；计数有界（`tasks_queued=1 tasks_started=1 timer_wakeups=1`） |
+| **A：已入队、未开始 → Close** | `QUEUED refs=1 tasks_started=0` | **未通过**：修复了一个真实死锁后关闭能完成（1992ms、重开逐键正确），但**进程在收尾阶段 SIGSEGV** |
+
+**修复的真实缺陷（case A 暴露）**：取消回调原先以 `state == kQueued` 为释放条件，而 Close 已把
+状态置为 STOPPING ⇒ **引用永不释放、关闭永久等待**（实测 exit=124 超时）。改为按
+`ref_queued` 归属标志释放后，关闭契约成立。
+
+**调度风暴已消除**：两个窗口内 `timer_wakeups=1`、`tasks_queued=1`（此前实测 26 121）。
+
+**未做（按用户顺序）**：`AdoptSkippedGensForDrainLocked()`（状态机完全通过后再做）；
+候选线 `b4b17b3` 的最终补充证据（`closestress 1000` + 五组各 300 轮）尚未跑。

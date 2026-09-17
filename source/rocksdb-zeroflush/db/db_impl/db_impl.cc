@@ -639,25 +639,9 @@ void DBImpl::UnregisterBlobDirectWriteColumnFamily() {
 }
 
 Status DBImpl::CloseHelper() {
-  // step V0.6-A3（用户口径：关闭时停止新调度、按既有关闭顺序完成/取消任务、
-  // 等任务结束时不持有它需要的锁）：
-  //   ① 停止新调度（shutting_down_ 由既有流程置位；定时器也检查它并退出）；
-  //   ② 等**正在执行**的排空任务结束——**不持 mutex_**（任务内部要取它）；
-  //   ③ 停定时线程（env_->WaitForJoin 在关闭尾部统一 join，见既有流程）。
-  zf_drain_timer_stop_.store(true, std::memory_order_release);
-  for (int i = 0; i < 2000 && zf_drain_running_.load(std::memory_order_acquire);
-       ++i) {
-    env_->SleepForMicroseconds(1000);  // ≤2s，无锁等待
-  }
-  // Guarantee that there is no background error recovery in progress before
-  // continuing with the shutdown
-  mutex_.Lock();
-  shutdown_initiated_ = true;
-  error_handler_.CancelErrorRecoveryForShutDown();
-  while (!error_handler_.ReadyForShutdown()) {
-    bg_cv_.Wait();
-  }
-  mutex_.Unlock();
+  // step V0.6-A5：关闭契约（STOPPING → join 定时器 → UnSchedule → 无锁等待引用归零）。
+  StopZfDrainForClose();
+
 
   // Below check is added as recovery_error_ is not checked and it causes crash
   // in DBSSTTest.DBWithMaxSpaceAllowedWithBlobFiles when space limit is
@@ -5293,6 +5277,28 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
              std::to_string(f.consumed_record_count) + " ";
     }
     *value = out.empty() ? "(none)" : out;
+    return true;
+  }
+  // step V0.6-A5：排空状态机的**DB 级**观测（状态在 DBImpl 里，不在 ctx）。
+  if (property == "rocksdb.zeroflush.zf_drain_state") {
+    const char* stn = "IDLE";
+    switch (zf_drain_state_) {
+      case ZfDrainState::kQueued: stn = "QUEUED"; break;
+      case ZfDrainState::kRunning: stn = "RUNNING"; break;
+      case ZfDrainState::kStopping: stn = "STOPPING"; break;
+      default: stn = "IDLE"; break;
+    }
+    *value = std::string(stn) + " refs=" + std::to_string(zf_drain_refs_);
+    return true;
+  }
+  if (property == "rocksdb.zeroflush.zf_drain_counters") {
+    *value = "timer_wakeups=" + std::to_string(zf_timer_wakeups_.load()) +
+             " tasks_queued=" + std::to_string(zf_tasks_queued_.load()) +
+             " tasks_started=" + std::to_string(zf_tasks_started_.load()) +
+             " coalesced=" + std::to_string(zf_coalesced_requests_.load()) +
+             " no_progress_backoffs=" +
+             std::to_string(zf_no_progress_backoffs_.load()) +
+             " cancelled=" + std::to_string(zf_tasks_cancelled_.load());
     return true;
   }
   if (zf_ctx_ != nullptr && property.starts_with("rocksdb.zeroflush.")) {

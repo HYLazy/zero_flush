@@ -1843,9 +1843,17 @@ class DBImpl : public DB {
   // 两路径共用——须在 CloseImpl 停后台线程前调用）。
   void ZfCloseFlush();
   // 调度点（持 DB mutex）：检查积压 → 去重 → 入队（不在此处做 IO/排空）。
+  // step V0.6-A5（用户契约）：**单任务状态机**——状态在 DB mutex 下唯一维护：
+  //   IDLE → QUEUED → RUNNING → IDLE ；RUNNING/QUeued ↘ STOPPING（关闭时）。
+  // 排空任务持有 DB 生命周期引用：入队前登记（queued+running 计数 +1）；
+  // 取消未运行任务时由**取消回调**释放；运行中的任务在退出时释放。
+  enum class ZfDrainState { kIdle = 0, kQueued = 1, kRunning = 2, kStopping = 3 };
   void MaybeScheduleZfDrainLocked();
   // 后台排空任务主体（自带锁契约：内部按需取 mutex_，不在持锁时被等待）。
   void BackgroundCallZfDrain();
+  // 关闭契约：STOPPING → 停并 join 定时器 → UnSchedule(tag) 取消 queued →
+  // **无锁等待** queued/running 引用归零（沿用 bg_flush_scheduled_ 的既有等待式样）。
+  void StopZfDrainForClose();
 
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
@@ -3449,11 +3457,26 @@ class DBImpl : public DB {
       kMaxSequenceNumber;
 
   // step V0.6-A2：ZF 排空任务去重（同一 DB 不重复启动）与后台执行标志。
-  std::atomic<int> zf_drain_scheduled_{0};
-  std::atomic<bool> zf_drain_running_{false};
+  // 状态机（**mutex_ 下唯一维护**；枚举见 ZfDrainState）。
+  ZfDrainState zf_drain_state_ = ZfDrainState::kIdle;
+  // queued + running 的**生命周期引用计数**（关闭时无锁等待它归零）。
+  int zf_drain_refs_ = 0;
+  // 该引用当前是否仍属于"已排队、未开始"的任务（决定由**取消回调**还是**任务自身**
+  // 释放；两者都只看这个标志，避免重复释放或永不释放）。
+  bool zf_drain_ref_queued_ = false;
+  // 调度计数（用户要求拆分；只用于测量，参与决策的只有状态与引用计数）。
+  std::atomic<uint64_t> zf_timer_wakeups_{0};
+  std::atomic<uint64_t> zf_tasks_queued_{0};
+  std::atomic<uint64_t> zf_tasks_started_{0};
+  std::atomic<uint64_t> zf_coalesced_requests_{0};
+  std::atomic<uint64_t> zf_no_progress_backoffs_{0};
+  std::atomic<uint64_t> zf_tasks_cancelled_{0};
   std::atomic<bool> zf_drain_timer_stop_{false};
   std::atomic<bool> zf_drain_timer_started_{false};
-  std::atomic<uint64_t> zf_drain_backoff_us_{0};
+  std::unique_ptr<port::Thread> zf_drain_timer_thread_;
+  std::atomic<uint64_t> zf_drain_next_deadline_us_{0};
+  // 测试钩子（确定性关闭用例）：任务在转 RUNNING 前/进入扫描前的暂停毫秒数。
+  static uint64_t ZfTestHookMs(const char* name);
 
 
   LogsWithPrepTracker logs_with_prep_tracker_;
