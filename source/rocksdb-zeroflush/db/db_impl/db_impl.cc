@@ -639,16 +639,6 @@ void DBImpl::UnregisterBlobDirectWriteColumnFamily() {
 }
 
 Status DBImpl::CloseHelper() {
-  // step V0.6-A3（用户口径：关闭时停止新调度、按既有关闭顺序完成/取消任务、
-  // 等任务结束时不持有它需要的锁）：
-  //   ① 停止新调度（shutting_down_ 由既有流程置位；定时器也检查它并退出）；
-  //   ② 等**正在执行**的排空任务结束——**不持 mutex_**（任务内部要取它）；
-  //   ③ 停定时线程（env_->WaitForJoin 在关闭尾部统一 join，见既有流程）。
-  zf_drain_timer_stop_.store(true, std::memory_order_release);
-  for (int i = 0; i < 2000 && zf_drain_running_.load(std::memory_order_acquire);
-       ++i) {
-    env_->SleepForMicroseconds(1000);  // ≤2s，无锁等待
-  }
   // Guarantee that there is no background error recovery in progress before
   // continuing with the shutdown
   mutex_.Lock();

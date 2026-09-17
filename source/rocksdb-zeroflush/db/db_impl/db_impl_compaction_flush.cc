@@ -3424,9 +3424,7 @@ void DBImpl::MaybeScheduleZfSink() {
     // recovery（可读，自愈）。
     return;
   }
-  // step V0.6-A2：积压驱动排空——**只在此处做 检查→去重→入队**（持 DB mutex），
-  // 真正的排空在后台任务里（回调不持 DB mutex 调用排空入口）。
-  MaybeScheduleZfDrainLocked();
+  // step V0.6-A2/A3：后台积压排空**仅在实验分支**（P1BacklogDrain-exp）；候选线不含该路径（生命周期状态机完成前不并入）。
   std::vector<std::pair<std::string, std::string>> reqs =
       zf_ctx_->TakeSinkRequests();
   if (reqs.empty()) {
@@ -4054,106 +4052,6 @@ void DBImpl::BGWorkFlush(void* arg) {
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
   static_cast_with_check<DBImpl>(fta.db_)->BackgroundCallFlush(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
-}
-
-// step V0.6-A2：ZF 积压排空——调度（持 DB mutex）/ 后台执行 / 去重 / 退避。
-void DBImpl::MaybeScheduleZfDrainLocked() {
-  if (zf_ctx_ == nullptr) return;
-  // step V0.6-A3（安全门控，默认关闭）：后台排空任务的**关闭期生命周期**仍有竞态
-  // （定时器/任务与 DB 析构顺序；实测 autodrain 在重启/关闭处 SIGSEGV），本轮不启用。
-  // 机制完整保留（探测/去重/入队/定时唤醒/退避/无进展计数），由
-  // `ZF_ENABLE_BACKLOG_DRAIN=1` 显式开启供后续修复生命周期后验证。
-  if (getenv("ZF_ENABLE_BACKLOG_DRAIN") == nullptr) return;
-  if (zf_drain_timer_stop_.load(std::memory_order_acquire)) {
-    return;  // 关闭已开始：停止一切新调度（含定时器路径）
-  }
-  if (shutting_down_.load(std::memory_order_acquire)) {
-    return;  // 关闭时停止新调度（已在队列/执行中的任务按既有顺序完成）
-  }
-  // step V0.6-A3：**真实定时唤醒**——只要本调度点被调用过就启动定时线程
-  // （1 次/200ms，独立于写入与封存）。此前把启动放在"发现积压之后"是错的：
-  // 停写后没人再调用本函数 ⇒ 定时器永远不会启动（实测 requests=0、pending 不归零）。
-  if (!zf_drain_timer_started_.exchange(true, std::memory_order_acq_rel)) {
-    env_->StartThread(&DBImpl::ZfDrainTimerThread, this);
-  }
-  if (!zf_ctx_->NeedsBacklogDrain()) {
-    return;
-  }
-  zf_ctx_->backlog_drain_requests_.fetch_add(1, std::memory_order_relaxed);
-  if (zf_drain_scheduled_.load(std::memory_order_acquire) != 0) {
-    return;  // 去重：同一 DB 不重复启动排空任务
-  }
-  if (zf_drain_running_.load(std::memory_order_acquire)) {
-    return;  // 正在执行，结束后自会复核是否需要再排
-  }
-  zf_drain_scheduled_.store(1, std::memory_order_release);
-  env_->Schedule(&DBImpl::BGWorkZfDrain, this, Env::Priority::LOW,
-                 /*tag=*/this, &DBImpl::UnscheduleZfDrainCallback);
-}
-
-void DBImpl::UnscheduleZfDrainCallback(void* arg) {
-  DBImpl* db = static_cast<DBImpl*>(arg);
-  db->zf_drain_scheduled_.store(0, std::memory_order_release);
-}
-
-void DBImpl::BGWorkZfDrain(void* arg) {
-  static_cast_with_check<DBImpl>(arg)->BackgroundCallZfDrain();
-}
-
-void DBImpl::BackgroundCallZfDrain() {
-  // 生命周期：本任务由 Env 持有 DBImpl 引用（与 BGWorkFlush 同款约定）；
-  // 关闭阶段（shutting_down_ 或排空定时器已停止）直接返回，不触碰开始析构的状态。
-  if (shutting_down_.load(std::memory_order_acquire) ||
-      zf_drain_timer_stop_.load(std::memory_order_acquire)) {
-    zf_drain_scheduled_.store(0, std::memory_order_release);
-    return;
-  }
-  zf_drain_running_.store(true, std::memory_order_release);
-  uint64_t drained_before = 0, pending_before = 0;
-  if (zf_ctx_ != nullptr) {
-    drained_before = zf_ctx_->DrainedMaterializeBytes();
-    pending_before = zf_ctx_->PendingMaterializeBytes();
-  }
-  // 排空入口（内部自行取锁：FlushMemTable / SealEpochAndSwitch 的既有锁契约）。
-  // 置 drain 模式 ⇒ 收益攒批在此模式下强制融合（保证收敛）。
-  if (zf_ctx_ != nullptr) zf_ctx_->SetBacklogDrainActive(true);
-  ZfDrainNow();
-  if (zf_ctx_ != nullptr) zf_ctx_->SetBacklogDrainActive(false);
-  const uint64_t drained_after =
-      zf_ctx_ != nullptr ? zf_ctx_->DrainedMaterializeBytes() : 0;
-  const uint64_t pending_after =
-      zf_ctx_ != nullptr ? zf_ctx_->PendingMaterializeBytes() : 0;
-  const bool progress = (drained_after > drained_before) ||
-                        (pending_after < pending_before);
-  zf_drain_running_.store(false, std::memory_order_release);
-  zf_drain_scheduled_.store(0, std::memory_order_release);
-  if (zf_ctx_ != nullptr && zf_ctx_->NeedsBacklogDrain()) {
-    if (progress) {
-      zf_drain_backoff_us_.store(0, std::memory_order_relaxed);
-      // 有进展：立刻再排一次（继续消化积压）。
-      {
-        InstrumentedMutexLock l(&mutex_);
-        MaybeScheduleZfDrainLocked();
-      }
-    } else {
-      // 无进展：退避（避免反复调度同一批无进展任务），由定时器兜底重试。
-      zf_drain_backoff_us_.store(200 * 1000, std::memory_order_relaxed);
-      InstrumentedMutexLock l(&mutex_);
-      if (zf_ctx_ != nullptr) zf_ctx_->NoteInstallProgressFailure();
-    }
-  }
-}
-
-void DBImpl::ZfDrainTimerThread(void* arg) {
-  DBImpl* db = static_cast_with_check<DBImpl>(arg);
-  while (!db->zf_drain_timer_stop_.load(std::memory_order_acquire)) {
-    db->env_->SleepForMicroseconds(200 * 1000);
-    if (db->zf_drain_timer_stop_.load(std::memory_order_acquire)) break;
-    if (db->shutting_down_.load(std::memory_order_acquire)) break;
-    InstrumentedMutexLock l(&db->mutex_);
-    if (db->zf_drain_timer_stop_.load(std::memory_order_acquire)) break;
-    db->MaybeScheduleZfDrainLocked();
-  }
 }
 
 void DBImpl::BGWorkCompaction(void* arg) {

@@ -2678,3 +2678,44 @@ installtest scen 2 / 4      : PASS
 → ② 排空路径的 skip 集合适配（"空尾封存也能收养并被物化"）或按站点精细禁用 kSkip →
 ③ 满足"不开新写、不靠关闭也能自动排空"的关键验收 → ④ 全生命周期写放大收益重测
 （写阶段/立即读/排空后读、pending 峰值、排空耗时、总输出字节）→ ⑤ 启用新默认并复跑门禁。
+
+## 候选线清洗（A4）：已知会崩溃的实验路径移出候选
+
+### D-73. 候选线（`fix/zeroflush-recovery-visibility-fences`）现在包含什么
+
+**保留（已验收）**：
+- **A1 判定收紧**：合法回收墓碑 `reclaimed_by_flow_` + "必须有证据"（发布证据 ∨ fence 覆盖
+  ∨ 回收墓碑），无证据 ⇒ Corruption 明确报错 / 不回落；
+- **P0 扫描保护**：物化扫描持 `GenReadRef`（回收延迟 unlink）+ 已回收代跳过；
+- 此前全部已验收项（固定路由协议与迁移、失败语义、A 判定、五组压力等）。
+
+**移出候选（只留在实验分支 `P1BacklogDrain-exp`）**：
+- 收益攒批（`base_merge_skip_max_generations` 相关门控与 skip 分支）——实测"攒批 +
+  关闭/重启"路径存在未消除的 SIGSEGV，且停写后 skip 集合无合法出口；
+- 后台积压排空调度器（`MaybeScheduleZfDrainLocked`/`BGWorkZfDrain`/定时器/`CloseHelper`
+  等待）——其关闭期生命周期尚未做成状态机；
+- 对应**环境开关全部移除**（`ZF_VC_MERGE_BENEFIT` 删除、db_bench 的
+  `--zf_base_merge_skip_max_generations` 删除）⇒ **候选线上不存在可达的崩溃路径**。
+
+**墓碑的适用边界（用户约束，已写入代码注释）**：`reclaimed_by_flow_` 是**同进程竞态**的
+补充证据；跨重启必须依赖**持久 fence / 发布记录**（墓碑是内存态，重启后为空 ⇒ 重启后
+无证据的路径一律走"明确报错/不回落"，不会把缺失当成功）。
+
+### D-74. 候选线验证（本 build，哈希 `/tmp/build_hash_cand_clean.txt`）
+```
+semtest cases1-7        : PASS
+closestress 500 轮      : 零崩溃
+installtest 1-4         : PASS（终点 pending=0、registry=0、旧代 WAL=0）
+autodrain（停写后自动排空）: PASS —— 400 ms 内 pending=0、回收推进、读与重启全对
+                            （注：此路径下无积压——攒批关闭 ⇒ 正常物化即完成；
+                             真正的"攒批 + 停写"验收在实验分支）
+组5（100 轮）            : PASS（failures/ss/nf/corruption=0、rotations=100、timeouts=0、pending=0）
+```
+**下一步（实验分支，按用户顺序）**：① 单任务状态机（IDLE/QUEUED/RUNNING/STOPPING +
+生命周期计数 + 可取消 tag + 两个关闭同步钩子用例 + 计数拆分，消除 26121 的调度风暴）；
+② `AdoptSkippedGensForDrainLocked()`（无新 WAL 尾部也能生成可规划 recovery epoch；
+占用/未就绪 ⇒ 保持 skip 所有权 + TryAgain + 有界退避；不得空计划、不得推进 fence/
+installed/drained）；③ 关键验收（停写 + 不开新写 + 不关闭 ⇒ pending=0 / registry=0 /
+旧代 WAL 回收 / 实时读·snapshot·重启读全对，且调度计数有界）；④ 全生命周期写放大重测
+（总输入/输出、pending 峰值、排空耗时、写吞吐、立即读与排空后读延迟、无进展次数、
+强制融合次数）；⑤ 全量门禁后再谈默认开启。

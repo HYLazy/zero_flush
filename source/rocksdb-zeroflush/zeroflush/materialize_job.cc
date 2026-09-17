@@ -1351,23 +1351,9 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         // （88k→69k→18k ops/s）⇒ 收益攒批不是本问题的杠杆，默认关闭；
         // 度量（ZF_DBG_MERGE 打印）与 knob 保留，供后续定位"每 epoch 都融合"
         // 的真正分流点。
-        const bool merge_benefit_skip_enabled =
-            ctx_->zfo_.base_merge_skip_max_generations > 0;
-        if (merge_benefit_skip_enabled &&
-            ratio < ctx_->zfo_.base_merge_min_ratio &&
-            ctx_->zfo_.forbid_l0_install) {
-          const uint32_t skip_cap =
-              ctx_->zfo_.base_merge_skip_max_generations;
-          const bool can_skip = skip_ok && ctx_->zfo_.skip_batching &&
-                                PendingGenCount(pid) < skip_cap;
-          if (can_skip) {
-            plan.decision = MaterializeDecision::kSkip;
-            ctx_->skip_merge_benefit_.fetch_add(1, std::memory_order_relaxed);
-            ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
-            plans_.push_back(std::move(plan));
-            continue;
-          }
-        }
+        // step V0.6-A4（候选线）：收益攒批**已移除**（实现保留在实验分支
+        // `P1BacklogDrain-exp`）——它与 skip 集合的排空出口、关闭期生命周期
+        // 状态机一起构成一个尚未验收的整体，候选线不引入。
         // 收益达标（或攒批不可用/已达上限）：进入融合。
         plan.l0_overlap = std::move(l0_overlap);
       } else {
@@ -1709,21 +1695,6 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       // db_bench 的读阶段退化（136k→35k ops/s、pending 718MB 未排空）。启用前需要
       // 配套"积压驱动排空"（按分区积压触发物化批次，而非只在封存时）。收益已验证：
       // 写放大 24×→1.8×（prof_output_bytes 4.5GB→355MB）、写吞吐 93k→176k ops/s。
-      if (ctx_->zfo_.base_merge_skip_max_generations > 0 && !drain_mode &&
-          ctx_->zfo_.forbid_l0_install && ctx_->zfo_.skip_batching &&
-          benefit_ratio < ctx_->zfo_.base_merge_min_ratio) {
-        const uint32_t skip_cap =
-            ctx_->zfo_.base_merge_skip_max_generations > 0
-                ? ctx_->zfo_.base_merge_skip_max_generations
-                : kMaxSkipGenerations;
-        if (skip_ok && PendingGenCount(pid) < skip_cap) {
-          plan.decision = MaterializeDecision::kSkip;
-          ctx_->skip_merge_benefit_.fetch_add(1, std::memory_order_relaxed);
-          ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
-          plans_.push_back(std::move(plan));
-          continue;  // 未注册 compaction ⇒ 无需回滚
-        }
-      }
     }
     if (getenv("ZF_DBG_MERGE") != nullptr) {
       uint32_t consumed_gens = 0;

@@ -1842,10 +1842,7 @@ class DBImpl : public DB {
   // ZeroFlush M5 §3.5-2：关闭冲刷（skip/recovery 强制物化；Close 与析构
   // 两路径共用——须在 CloseImpl 停后台线程前调用）。
   void ZfCloseFlush();
-  // 调度点（持 DB mutex）：检查积压 → 去重 → 入队（不在此处做 IO/排空）。
-  void MaybeScheduleZfDrainLocked();
-  // 后台排空任务主体（自带锁契约：内部按需取 mutex_，不在持锁时被等待）。
-  void BackgroundCallZfDrain();
+
 
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
@@ -2737,10 +2734,7 @@ class DBImpl : public DB {
   static void BGWorkFlush(void* arg);
   // step V0.6-A2（用户口径）：ZF 积压驱动的**后台排空任务**——调度点（持 DB mutex）
   // 只做：检查积压 → 去重 → 入队；回调在**释放 DB mutex 后**调用排空入口。
-  static void BGWorkZfDrain(void* arg);
-  static void UnscheduleZfDrainCallback(void* arg);
-  // 定时唤醒线程（保证"停写后"也能被唤醒；30s 年龄上限需要真实定时器）。
-  static void ZfDrainTimerThread(void* arg);
+
   static void BGWorkPurge(void* arg);
   static void UnscheduleCompactionCallback(void* arg);
   static void UnscheduleFlushCallback(void* arg);
@@ -3448,12 +3442,7 @@ class DBImpl : public DB {
   SequenceNumber standalone_range_deletion_files_mark_threshold_ =
       kMaxSequenceNumber;
 
-  // step V0.6-A2：ZF 排空任务去重（同一 DB 不重复启动）与后台执行标志。
-  std::atomic<int> zf_drain_scheduled_{0};
-  std::atomic<bool> zf_drain_running_{false};
-  std::atomic<bool> zf_drain_timer_stop_{false};
-  std::atomic<bool> zf_drain_timer_started_{false};
-  std::atomic<uint64_t> zf_drain_backoff_us_{0};
+
 
 
   LogsWithPrepTracker logs_with_prep_tracker_;

@@ -292,14 +292,6 @@ std::unique_ptr<rocksdb::DB> OpenDb(const std::string& dbdir, bool create) {
   zfo.merge_into_base_level_explicit = true;
   // step V0.6-C1 负例：ZF_VC_MERGE_OFF=1 ⇒ 在固定协议 + 目标模式下**显式关闭**
   // 融合 ⇒ 启动必须报 InvalidArgument（不得静默接受）。
-  // step V0.6-P1 验收：ZF_VC_MERGE_BENEFIT=<代数上限> ⇒ 启用"收益攒批 + 积压驱动排空"
-  // （默认关闭；用于验证最小用例与基准达标后再改默认）。
-  if (const char* mb = getenv("ZF_VC_MERGE_BENEFIT")) {
-    const long v = strtol(mb, nullptr, 10);
-    if (v > 0) {
-      zfo.base_merge_skip_max_generations = static_cast<uint32_t>(v);
-    }
-  }
   // step V0.6-A3 验收：积压年龄上限（ms；用例可缩短以便快速验证年龄唤醒路径）。
   if (const char* bam = getenv("ZF_VC_BACKLOG_AGE_MS")) {
     const long v = strtol(bam, nullptr, 10);
