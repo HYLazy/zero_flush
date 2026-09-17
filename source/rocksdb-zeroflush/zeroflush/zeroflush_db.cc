@@ -467,6 +467,23 @@ size_t ZeroFlushContext::PurgeSealedFiles() {
 //   reclaimed: 引用全部释放、物理可回收时增加
 //   pending 归零 ≠ 文件已回收（旧读视图/snapshot 仍可能持有引用）。
 // ---------------------------------------------------------------------------
+// step B-1：让位原因计数（逐次读取；用于"停止写入后为何装不上"的定位）。
+std::string ZeroFlushContext::SkipReasonCounters() const {
+  auto g = [](const std::atomic<uint64_t>& v) {
+    return v.load(std::memory_order_relaxed);
+  };
+  return "no_merge=" + std::to_string(g(skip_no_merge_)) +
+         " busy_conflict=" + std::to_string(g(skip_busy_conflict_)) +
+         " batch_l0=" + std::to_string(g(skip_batch_l0_)) +
+         " l0_busy=" + std::to_string(g(skip_l0_busy_)) +
+         " direct_conflict=" + std::to_string(g(skip_direct_conflict_)) +
+         " batch_prev=" + std::to_string(g(skip_batch_prev_)) +
+         " bytes=" + std::to_string(g(skip_bytes_)) +
+         " sink_request=" + std::to_string(g(sink_request_)) +
+         " cross_batch=" + std::to_string(g(skip_cross_batch_)) +
+         " skips=" + std::to_string(g(skip_count_));
+}
+
 uint64_t ZeroFlushContext::PendingMaterializeBytes() const {
   return sealed_cache_ != nullptr ? sealed_cache_->pending_materialize_bytes() : 0;
 }
@@ -686,6 +703,9 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     // D-38 诊断：未安装的已注册代及其归属（回答"pending 为何不为 0"）。
     *value = sealed_cache_ != nullptr ? sealed_cache_->DescribeUninstalledGens()
                                       : std::string();
+  } else if (prop == "rocksdb.zeroflush.skip_reasons") {
+    // step B-1：让位原因计数（逐次可读、按库隔离）。
+    *value = SkipReasonCounters();
   } else if (prop.starts_with("rocksdb.zeroflush.gen_read_refs:") &&
              sealed_cache_ != nullptr) {
     unsigned p = 0, g = 0;

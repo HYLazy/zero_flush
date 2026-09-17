@@ -2011,3 +2011,68 @@ NotFound/旧值；组 2/3 证明回收在读写混合下也安全完成；组 1/
 **仍未通过的门禁（与本轮修复无关，根因见 D-40）**：baccept phase3/4（"冲突解除后继续
 安装并排空"、"保护非永久保留"）——目标模式禁装 L0 × 规划输出层为 L0 互锁；A/B 已证
 修复前后同数失败。整单元撤销、合法路径 A、固定路由仍未开始。
+
+## B step 1（用户 2026-09-17 指令）：把互锁缩成确定性用例 —— 完成，根因钉死
+
+### D-45. 确定性复现 + 根因：**hash 表 + 目标模式**下"覆盖写"没有合法安装路径
+
+**新用例 `zf_valcheck <db> installtest <1|2> [轮数]`**（禁 L0、封存一批、**停止写入**、
+只驱动正常物化；不依赖后续写入、不等待不存在的 L0 文件；stdout 改无缓冲以便与引擎诊断
+逐行对齐）。两批使用**同一键区间**，场景 2 才是"目标层有重叠"。
+
+```
+场景 1（目标层无重叠）: PASS
+  installtest scen=1 本批 封存: part=1 gen 0→1 rc=0 pending=13884 drained=0 sst=0 | 停写
+  pass=0 pending=0 drained=13884 delta=+13884 empty_edit=0 l0_install=0 l0_blocked=0 | 全 0
+场景 2（目标层有重叠）: FAIL
+  前置: 安装成功（fences_nonempty=18 sst=1 drained=+13884）
+  本批: part=1 gen 1→2 pending=13884 → 停写
+  pass=0..N: pending=413316 drained=13884 **delta=+0**（冻结）
+             empty_edit +1/次, l0_blocked **+2/次**, skips +1/次, 其余让位原因全 0
+  installtest scen=2: FAIL (真实安装=0 pending归零=0 l0_install=0 空edit=7)
+```
+
+**根因（逐层证据，含新增 `ZFDBG-mergegate`）**
+```
+ZFDBG-mergegate epoch=2 merge_enabled=0 merge_opt=1 range_override=0 adopted_orphans=0
+   adopted_skips=0 table_null=0 hash_mode=1 forbid_l0=1 |
+   epoch_table_ver=0 cur_table_ver=0 cur_hash=1 routing=2(kSampled)
+ZFDBG-mm-plan epoch=2 pid=1 dec=0 lo= hi= ov=[]        ← 规划只出普通物化，无重叠记录
+ZFDBG-pick vsstorage base=1 lvl=1 new=[00..00,00..C1] hit=file9 [同范围]
+                                                       ← 安装点发现 L1 同范围文件
+→ 目标模式禁 L0 ⇒ PickInstallLevel 返回 kCannotInstall ⇒ 整批让位（空 edit）
+   → 代移交 recovery ⇒ 下一 epoch 收养（adopted_skips=1）⇒ merge 仍被禁（同为 hash 表）
+   ⇒ **自持死循环**：pending 永不归零、drained 永不推进、每轮白烧一次空 edit。
+```
+- `routing_mode=kSampled` 的库在采样边界建立前**一直用 version 0 的 hash 表**
+  （`PartitionTable::CreateHash`）——hash 表无 range 语义 ⇒ `merge_enabled` 恒为 0
+  （门禁含 `!table_->IsHashMode()`），规划只能出 `kMaterialize`；
+- 而**安装点**是 range 语义（`OverlapInLevel`）：同分区上一批自己产出的 L1 文件与之
+  同范围 ⇒ 必然重叠 ⇒ 在禁 L0 下无合法出口。
+- 结论：这不是"某个 guard 太严"，而是**hash 路由与"禁 L0 + range 安装检查"在覆盖写场景下
+  语义不相容**：既不能融合（无 range 语义），也不能替换（无法判定重叠文件是否属于本分区——
+  文件元数据里**没有分区归属**），更不能装 L0。
+
+**性能线索（用户提示）已量化：固定等待，不是引擎慢**
+```
+组1 20 轮: ms_avg=10151  install_wait_avg=10010  install_wait_timeouts=20/20
+组4 20 轮: ms_avg=215    install_wait_avg=0      install_wait_timeouts=0
+```
+⇒ 10.14s/轮中 98.6% 是测试的固定 10s 安装等待；**每轮都等到超时**（= 上面这个
+"装不上"在压力轮里 100% 复现）。压力轮现在把 `install_wait_avg/timeouts` 计入汇总，
+后续不再用 ms_avg 代表性能。
+
+**让位原因计数修正**：`zf_skip_*` 原为 `materialize_job.cc` 内的 **static**（进程级共享）
+⇒ 同进程多库（压力/校验器每轮新开库）会串味，实测日志里的 `dirconf/batchprev` 即由此而来，
+**不能作为"本轮为何让位"的证据**。已改为上下文成员并按库隔离，新增属性
+`rocksdb.zeroflush.skip_reasons`（逐次可读）。
+
+**修复方向（待用户确认，涉及路由/表语义 = V0.6 固定路由范畴）**
+1. **目标模式禁止在 hash 表上封存/安装**：封存前若表仍是 hash 且禁 L0，先建立 range 表
+   （固定边界或采样边界），使每个 epoch 都有 range 语义 ⇒ 走正常融合/下沉；
+2. 或给文件加**分区归属元数据**，使"输出范围 ⊇ 全部重叠文件且全部属于本分区"时可安全替换
+   （M4.5b-2 直装替换的推广）；
+3. 不建议：为目标模式在这条路径上放开 L0（那就等于放弃目标模式的核心约束）。
+
+**当前状态**：`B-step1 完成`（确定性用例 + 根因 + 性能线索量化）；`B-step2（修规划）待决策后实施`。
+semtest 复验仍全绿（case1/2/3/5/7/8a/8b + `cases1-7: PASS`）。

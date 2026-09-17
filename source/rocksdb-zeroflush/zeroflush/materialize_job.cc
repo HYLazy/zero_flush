@@ -675,6 +675,31 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
                               se_.has_range_override) &&
                        !se_.has_adopted_orphans && table_ != nullptr &&
                        !table_->IsHashMode();
+  // step B-1 诊断：融合门禁的**输入**（回答"为何没走融合/下沉"）。
+  // 关键：has_adopted_orphans 会禁用融合；而让位又会把代移交 recovery ⇒
+  // 下一 epoch 收养 ⇒ 融合继续被禁 ⇒ 自持（实测死循环）。
+  if (getenv("ZF_DBG_MM") != nullptr) {
+    fprintf(stderr,
+            "ZFDBG-mergegate epoch=%llu merge_enabled=%d merge_opt=%d "
+            "range_override=%d adopted_orphans=%d adopted_skips=%d "
+            "table_null=%d hash_mode=%d forbid_l0=%d | epoch_table_ver=%u "
+            "cur_table_ver=%u cur_hash=%d routing=%d\n",
+            (unsigned long long)epoch_, merge_enabled ? 1 : 0,
+            ctx_->zfo_.merge_into_base_level ? 1 : 0,
+            se_.has_range_override ? 1 : 0, se_.has_adopted_orphans ? 1 : 0,
+            se_.has_adopted_skips ? 1 : 0, table_ == nullptr ? 1 : 0,
+            (table_ != nullptr && table_->IsHashMode()) ? 1 : 0,
+            ctx_->zfo_.forbid_l0_install ? 1 : 0,
+            se_.table_version,
+            (ctx_->tables() != nullptr && ctx_->tables()->current() != nullptr)
+                ? ctx_->tables()->current()->version()
+                : 0u,
+            (ctx_->tables() != nullptr && ctx_->tables()->current() != nullptr &&
+             ctx_->tables()->current()->IsHashMode())
+                ? 1
+                : 0,
+            static_cast<int>(ctx_->zfo_.routing_mode));
+  }
 
   // R59C：kSkip 攒批在 align_l1 下禁用——skip 数据跨 epoch 收养时 part
   // 属于旧路由表（align 表每 epoch 按 L1 重建，分区数可变），孤儿全范围
@@ -683,12 +708,19 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
   // L1 自洽。
   const bool skip_ok = ctx_->zfo_.routing_mode !=
                        zeroflush::ZeroFlushOptions::RoutingMode::kAlignL1;
-  // R59E 诊断：skip 原因计数（static 累积，PlanLocked 每次调用打印）。
-  static uint64_t zf_skip_no_merge = 0, zf_skip_busy_conflict = 0,
-                   zf_skip_batch_l0 = 0, zf_skip_l0_busy = 0,
-                   zf_skip_direct_conflict = 0, zf_skip_batch_prev = 0,
-                   zf_skip_bytes = 0, zf_sink_request = 0,
-                   zf_skip_cross_batch = 0;
+  // R59E 诊断（step B-1 修正）：skip 原因计数改为**上下文成员**。
+  // 原实现是 materialize_job.cc 内的 `static`——进程级共享 ⇒ 同进程多库（压力/校验器
+  // 每轮新开库）会把上一轮的计数带进来，实测日志里的 `dirconf/batchprev` 即由此串味，
+  // 不能作为"本轮为何让位"的证据。改为 ctx 成员后可逐次读取（属性
+  // `rocksdb.zeroflush.skip_reasons`）并按库隔离。
+  auto& zf_skip_no_merge = ctx_->skip_no_merge_;
+  auto& zf_skip_busy_conflict = ctx_->skip_busy_conflict_;
+  auto& zf_skip_batch_l0 = ctx_->skip_batch_l0_;
+  auto& zf_skip_l0_busy = ctx_->skip_l0_busy_;
+  auto& zf_skip_direct_conflict = ctx_->skip_direct_conflict_;
+  auto& zf_skip_batch_prev = ctx_->skip_batch_prev_;
+  auto& zf_sink_request = ctx_->sink_request_;
+  auto& zf_skip_cross_batch = ctx_->skip_cross_batch_;
   ROCKSDB_NAMESPACE::VersionStorageInfo* vstorage =
       (mc_.base != nullptr) ? mc_.base->storage_info() : nullptr;
   const int base = (vstorage != nullptr) ? vstorage->base_level() : 0;
@@ -926,7 +958,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
             !ctx_->AddMaterializePart(mc_.materialize_token, absorb_id)) {
           if (skip_ok) {
             plan.decision = MaterializeDecision::kSkip;
-            zf_skip_cross_batch++;
+            zf_skip_cross_batch.fetch_add(1, std::memory_order_relaxed);
             ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
           } else {
             plan.decision = MaterializeDecision::kFallback;
@@ -947,7 +979,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       if (!single_task_mode_) {
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
-          zf_skip_no_merge++;
+          zf_skip_no_merge.fetch_add(1, std::memory_order_relaxed);
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
         } else {
           // align_l1（R59C）→ 旧 L0 兜底（P1 稳态配置不可达）。
@@ -958,7 +990,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         // （同批占位会让代表任务输出与他批未安装输出撞 range）。
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
-          zf_skip_cross_batch++;
+          zf_skip_cross_batch.fetch_add(1, std::memory_order_relaxed);
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
         } else {
           // align_l1（R59C）→ 旧 L0 兜底（P1 稳态配置不可达）。
@@ -980,7 +1012,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         mc_.batch_planned_parts->count(pid) != 0) {
       if (skip_ok) {
         plan.decision = MaterializeDecision::kSkip;
-        zf_skip_batch_prev++;
+        zf_skip_batch_prev.fetch_add(1, std::memory_order_relaxed);
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       } else {
         // align_l1（R59C）→ 旧 L0 兜底。
@@ -1000,7 +1032,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         // 分区 → 整批让位（数据转 recovery，下批收养重试）。
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
-          zf_skip_cross_batch++;
+          zf_skip_cross_batch.fetch_add(1, std::memory_order_relaxed);
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
         } else {
           // align_l1（R59C）→ 旧 L0 兜底。
@@ -1063,7 +1095,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
     if (xbatch_conflict) {
       if (skip_ok) {
         plan.decision = MaterializeDecision::kSkip;
-        zf_skip_cross_batch++;
+        zf_skip_cross_batch.fetch_add(1, std::memory_order_relaxed);
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       } else {
         // align_l1（R59C）→ 旧 L0 兜底（P1 稳态配置不可达）。
@@ -1083,7 +1115,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           PendingGenCount(pid) < kMaxSkipGenerations) {
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
-          zf_skip_no_merge++;
+          zf_skip_no_merge.fetch_add(1, std::memory_order_relaxed);
         } else {
           plan.decision = MaterializeDecision::kFallback;
         }
@@ -1172,7 +1204,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       // 融合完成后 vstorage 可见），数据留 frozen+WAL 可读，下批重试。
       if (skip_ok) {
         plan.decision = MaterializeDecision::kSkip;
-        zf_skip_busy_conflict++;
+        zf_skip_busy_conflict.fetch_add(1, std::memory_order_relaxed);
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       } else {
         // align_l1（R59C：skip 跨路由表收养不安全）→ 旧 L0 兜底（P1 稳态
@@ -1279,7 +1311,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         if (ctx_->skipped_bytes() < shadow_limit) {
           if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
-          zf_skip_batch_l0++;
+          zf_skip_batch_l0.fetch_add(1, std::memory_order_relaxed);
         } else {
           plan.decision = MaterializeDecision::kFallback;
         }
@@ -1300,7 +1332,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       if (ctx_->skipped_bytes() < shadow_limit) {
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
-          zf_skip_l0_busy++;
+          zf_skip_l0_busy.fetch_add(1, std::memory_order_relaxed);
         } else {
           plan.decision = MaterializeDecision::kFallback;
         }
@@ -1368,7 +1400,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
                                                             base)) {
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
-          zf_skip_direct_conflict++;
+          zf_skip_direct_conflict.fetch_add(1, std::memory_order_relaxed);
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
         } else {
           // align_l1（R59C）→ 旧 L0 兜底（P1 稳态配置不可达）。
@@ -1394,7 +1426,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
          last_batch->decision != MaterializeDecision::kMergeBase)) {
       if (skip_ok) {
         plan.decision = MaterializeDecision::kSkip;
-        zf_skip_batch_prev++;
+        zf_skip_batch_prev.fetch_add(1, std::memory_order_relaxed);
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       } else {
         // align_l1（R59C）→ 旧 L0 兜底（P1 稳态配置不可达）。
@@ -1465,7 +1497,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       if (pending + overlap_bytes > kRangeMergeBytes &&
           !ctx_->closing_flush()) {
         // 判据 2：F 让位（下沉请求 + 本批转 recovery）。
-        zf_sink_request++;
+        zf_sink_request.fetch_add(1, std::memory_order_relaxed);
         ctx_->RequestRangeSink(plan.lo, plan.hi);
         if (skip_ok) {
           plan.decision = MaterializeDecision::kSkip;
@@ -1507,7 +1539,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
                                                           base)) {
       if (skip_ok) {
         plan.decision = MaterializeDecision::kSkip;
-        zf_skip_direct_conflict++;
+        zf_skip_direct_conflict.fetch_add(1, std::memory_order_relaxed);
         ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
       } else {
         // align_l1（R59C）→ 旧 L0 兜底（P1 稳态配置不可达）。
@@ -1623,15 +1655,15 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           "ZFDBG-skip no_merge=%llu busy=%llu batch_l0=%llu l0busy=%llu "
           "dirconf=%llu batchprev=%llu bytes=%llu sink=%llu cross=%llu "
           "act=%zu\n",
-          (unsigned long long)zf_skip_no_merge,
-          (unsigned long long)zf_skip_busy_conflict,
-          (unsigned long long)zf_skip_batch_l0,
-          (unsigned long long)zf_skip_l0_busy,
-          (unsigned long long)zf_skip_direct_conflict,
-          (unsigned long long)zf_skip_batch_prev,
-          (unsigned long long)zf_skip_bytes,
-          (unsigned long long)zf_sink_request,
-          (unsigned long long)zf_skip_cross_batch,
+          (unsigned long long)zf_skip_no_merge.load(std::memory_order_relaxed),
+          (unsigned long long)zf_skip_busy_conflict.load(std::memory_order_relaxed),
+          (unsigned long long)zf_skip_batch_l0.load(std::memory_order_relaxed),
+          (unsigned long long)zf_skip_l0_busy.load(std::memory_order_relaxed),
+          (unsigned long long)zf_skip_direct_conflict.load(std::memory_order_relaxed),
+          (unsigned long long)zf_skip_batch_prev.load(std::memory_order_relaxed),
+          (unsigned long long)ctx_->skip_bytes_.load(std::memory_order_relaxed),
+          (unsigned long long)zf_sink_request.load(std::memory_order_relaxed),
+          (unsigned long long)zf_skip_cross_batch.load(std::memory_order_relaxed),
           ctx_->ActiveMaterializeParts());
   return ROCKSDB_NAMESPACE::Status::OK();
 }

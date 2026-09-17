@@ -464,7 +464,7 @@ int main(int argc, char** argv) {
   const bool do_write =
       (mode == "all" || mode == "write" || mode == "walread" ||
        mode == "selftest" || mode == "semtest" || mode == "stress" ||
-       mode == "baccept");
+       mode == "baccept" || mode == "installtest");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
@@ -989,6 +989,8 @@ int main(int argc, char** argv) {
              ref_leak_total = 0;
     // 每轮耗时（用户指定：短跑要记每轮耗时，用于判断变慢是否来自引用/封存路径）。
     uint64_t iter_ms_total = 0, iter_ms_max = 0;
+    // step B-1b：安装等待耗时/超时轮次（与工作耗时分开计量）
+    uint64_t install_wait_ms_total = 0, install_wait_timeouts = 0;
     std::atomic<int> wd_stage{0};
     std::atomic<uint64_t> wd_iter{0};
     std::atomic<bool> wd_abort{false};
@@ -1131,12 +1133,22 @@ int main(int argc, char** argv) {
       if (group == 4) {
         env_sleep_ms(30);
       } else {
-        const uint64_t deadline =
-            rocksdb::Env::Default()->NowMicros() + 10ull * 1000 * 1000;
+        // step B-1b（用户提示）：把"安装等待"与"实际工作"分开计量——此前每轮
+        // ~10.14s 全被这段固定 10s 等待吞掉，不能当作引擎性能。等待超时（到点
+        // 仍未排空）同时计数，用来量化"停止写入后装不上"的出现频率。
+        rocksdb::DBImpl* idbimpl = static_cast<rocksdb::DBImpl*>(idb.get());
+        const uint64_t w_t0 = rocksdb::Env::Default()->NowMicros();
+        const uint64_t deadline = w_t0 + 10ull * 1000 * 1000;
         while (rocksdb::Env::Default()->NowMicros() < deadline &&
                Prop(idb.get(), "pending_materialize_bytes") != 0) {
+          idbimpl->ZfDrainNow();
           idb->Flush(rocksdb::FlushOptions());
           env_sleep_ms(5);
+        }
+        install_wait_ms_total +=
+            (rocksdb::Env::Default()->NowMicros() - w_t0) / 1000;
+        if (Prop(idb.get(), "pending_materialize_bytes") != 0) {
+          ++install_wait_timeouts;
         }
       }
       bool unlink_done = false;
@@ -1312,7 +1324,7 @@ int main(int argc, char** argv) {
     printf("stress group=%d rounds=%llu failures=%llu silent_stale=%llu "
            "notfound=%llu corruption=%llu rotations=%llu propagated=%llu "
            "fellback=%llu pin_ok=%llu pin_active=%llu ms_avg=%llu ms_max=%llu "
-           "-> %s\n",
+           "install_wait_avg=%llu install_wait_timeouts=%llu -> %s\n",
            group, (unsigned long long)rounds, (unsigned long long)failures,
            (unsigned long long)silent_stale, (unsigned long long)notfound,
            (unsigned long long)corruption, (unsigned long long)rotations,
@@ -1320,7 +1332,9 @@ int main(int argc, char** argv) {
            (unsigned long long)fellback_total, (unsigned long long)pin_ok_total,
            (unsigned long long)pin_active_total,
            (unsigned long long)(rounds > 0 ? iter_ms_total / rounds : 0),
-           (unsigned long long)iter_ms_max, pass ? "PASS" : "FAIL");
+           (unsigned long long)iter_ms_max,
+           (unsigned long long)(rounds > 0 ? install_wait_ms_total / rounds : 0),
+           (unsigned long long)install_wait_timeouts, pass ? "PASS" : "FAIL");
     return pass ? 0 : 1;
   }
 
@@ -2375,6 +2389,116 @@ int main(int argc, char** argv) {
              (unsigned char)s2[0]);
     }
     return 0;
+  }
+
+  if (mode == "installtest") {
+    // step B-1（用户 2026-09-17 指令）：把"保留住了但装不上"缩成**确定性用例**。
+    //   场景 1 = 目标层**无重叠**（新库，只有本批数据）；
+    //   场景 2 = 目标层**有重叠**（同范围先有一批已安装数据落在 base 层，再封存一批）。
+    // 步骤：写入 → 生产封存流程封存该分区 → **停止写入** → 有限次驱动正常物化
+    // （ZfDrainNow + Flush）→ 要求：出现**真实安装**（drained 推进）且 pending 归零，
+    // 且不产生 L0 安装。**不依赖后续写入**，也不等待不存在的 L0 文件。
+    // 前提未建成（例如场景 2 的 base 层重叠没造出来）⇒ 记 SETUP_INCOMPLETE(exit 3)，
+    // 不得静默按 PASS 处理。
+    // stdout 默认块缓冲：与 stderr 的 ZFDBG 诊断无法按时序交替（实测导致
+    // "按标记切日志"完全错位）。本模式改为无缓冲，保证与引擎诊断逐行对齐。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    const int scen = static_cast<int>(total > 0 ? total : 1);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    std::shared_ptr<zeroflush::ZeroFlushContext> ctx = impl->GetZeroFlushContext();
+    auto p = [&](const char* k) { return Prop(db.get(), k); };
+    std::string sr0;
+    db->GetProperty("rocksdb.zeroflush.skip_reasons", &sr0);
+    auto sst_count = [&] {
+      long c = 0;
+      if (DIR* d = opendir(dbdir.c_str())) {
+        while (struct dirent* e = readdir(d)) {
+          if (strstr(e->d_name, ".sst") != nullptr) ++c;
+        }
+        closedir(d);
+      }
+      return c;
+    };
+    // 两批使用**同一键区间**（同分区、范围重叠），场景 2 才是"有重叠"。
+    const uint64_t lo_key = 0, hi_key = 200;
+    auto write_range = [&](uint64_t lo, uint64_t hi, int seed) {
+      for (uint64_t i = lo; i < hi; ++i) {
+        const std::string k = zf_keygen::KeyFromInt(i, kKeySize);
+        db->Put(rocksdb::WriteOptions(), k,
+                zf_keygen::ValueFor(i, seed, kValueSize));
+      }
+    };
+    const uint32_t part = ctx->RoutePartId(
+        rocksdb::Slice(zf_keygen::KeyFromInt(lo_key, kKeySize)));
+    auto seal_and_drain = [&](const char* tag, int max_pass) {
+      ctx->wal()->Sync(part).PermitUncheckedError();
+      const uint32_t g0 = ctx->wal()->ActiveGenOpt(part).value_or(0);
+      uint32_t sealed_g = 0;
+      const int rc = ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(),
+                                           part, g0, &sealed_g);
+      const uint32_t g1 = ctx->wal()->ActiveGenOpt(part).value_or(0);
+      const uint64_t pend0 = p("pending_materialize_bytes");
+      const uint64_t dr0 = p("drained_materialize_bytes");
+      printf("installtest scen=%d %s 封存: part=%u gen %u→%u rc=%d pending=%llu "
+             "drained=%llu sst=%ld | 停写\n",
+             scen, tag, part, g0, g1, rc, (unsigned long long)pend0,
+             (unsigned long long)dr0, sst_count());
+      bool real = false, zero = (pend0 == 0);
+      for (int pass = 0; pass < max_pass; ++pass) {
+        impl->ZfDrainNow();
+        env_sleep_ms(50);
+        const uint64_t pend = p("pending_materialize_bytes");
+        const uint64_t dr = p("drained_materialize_bytes");
+        std::string sr;
+        db->GetProperty("rocksdb.zeroflush.skip_reasons", &sr);
+        printf("installtest scen=%d %s pass=%d pending=%llu drained=%llu "
+               "delta=+%lld empty_edit=%llu l0_install=%llu l0_blocked=%llu | %s\n",
+               scen, tag, pass, (unsigned long long)pend,
+               (unsigned long long)dr, (long long)(dr - dr0),
+               (unsigned long long)p("empty_edit_count"),
+               (unsigned long long)p("l0_install_count"),
+               (unsigned long long)p("l0_install_blocked"), sr.c_str());
+        if (dr > dr0) real = true;
+        if (pend == 0) {
+          zero = true;
+          break;
+        }
+      }
+      return std::make_pair(real, zero);
+    };
+    bool setup_ok = true;
+    if (scen == 2) {
+      // 前置：先把一批同范围数据安装到 base 层（制造真实重叠）。
+      write_range(lo_key, hi_key, 1);
+      const auto pre = seal_and_drain("前置", 20);
+      int l1n = 0;
+      {
+        std::string lg;
+        db->GetProperty("rocksdb.zeroflush.installed_fences", &lg);
+        l1n = static_cast<int>(lg.size());  // 非空 = 至少一个分区有安装记录
+      }
+      printf("installtest scen=2 前置结果: 真实安装=%d pending归零=%d "
+             "fences_nonempty=%d sst=%ld\n",
+             pre.first ? 1 : 0, pre.second ? 1 : 0, l1n,
+             sst_count());
+      if (!pre.first || !pre.second || l1n == 0 || sst_count() == 0) {
+        setup_ok = false;  // 重叠前提未建成
+      }
+    }
+    if (!setup_ok) {
+      printf("installtest scen=%d: SETUP_INCOMPLETE（目标层重叠未能建成，"
+             "本用例的判定不适用）\n", scen);
+      return 3;
+    }
+    write_range(lo_key, hi_key, 2);
+    const auto res = seal_and_drain("本批", threads > 0 ? threads : 12);
+    const bool pass = res.first && res.second && p("l0_install_count") == 0;
+    printf("installtest scen=%d: %s (真实安装=%d pending归零=%d l0_install=%llu "
+           "空edit=%llu) | 初始 %s\n",
+           scen, pass ? "PASS" : "FAIL", res.first ? 1 : 0, res.second ? 1 : 0,
+           (unsigned long long)p("l0_install_count"),
+           (unsigned long long)p("empty_edit_count"), sr0.c_str());
+    return pass ? 0 : 1;
   }
 
   if (mode == "drainprobe") {

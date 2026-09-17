@@ -1161,6 +1161,23 @@ class ZeroFlushContext {
   std::atomic<uint64_t> base_merge_rewritten_bytes_{0};  // 被重写 base 字节
   // ---- M4.5b 攒批统计 ----
   std::atomic<uint64_t> skip_count_{0};  // kSkip 攒批跳过的分区次数
+  // ---- step B-1：kSkip/让位的**原因**计数（逐次可读、按库隔离）----
+  // 原为 materialize_job.cc 内 `static`：进程级共享 ⇒ 同进程多库（压力/校验器每轮
+  // 新开库）会串味，不能作为"本轮为何让位"的证据。语义：
+  //   no_merge=无可融合输入；busy_conflict=目标层文件正被压缩（临时占用）；
+  //   batch_l0=批内 L0 输出；l0_busy=目标 L0 文件忙；direct_conflict=直装冲突；
+  //   batch_prev=本批前序已注册冲突；bytes=让位字节；sink=下沉请求被让位；
+  //   cross_batch=跨批冲突。
+  std::atomic<uint64_t> skip_no_merge_{0};
+  std::atomic<uint64_t> skip_busy_conflict_{0};
+  std::atomic<uint64_t> skip_batch_l0_{0};
+  std::atomic<uint64_t> skip_l0_busy_{0};
+  std::atomic<uint64_t> skip_direct_conflict_{0};
+  std::atomic<uint64_t> skip_batch_prev_{0};
+  std::atomic<uint64_t> skip_bytes_{0};
+  std::atomic<uint64_t> sink_request_{0};
+  std::atomic<uint64_t> skip_cross_batch_{0};
+  std::string SkipReasonCounters() const;
   // ---- M5 下沉请求状态 ----
   std::atomic<bool> closing_flush_{false};  // 关闭冲刷模式（强制物化）
   mutable std::mutex sink_mu_;
