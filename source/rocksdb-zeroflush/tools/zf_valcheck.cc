@@ -1437,6 +1437,8 @@ int main(int argc, char** argv) {
   }
 
   int setup_incomplete = 0;  // fixture 未建成：计"未完成"，不得显示为通过
+  // case7：缺实验分支专属的逐候选 visitor 插桩时记 N/A（既不算通过、也不算失败）。
+  int case7_na_count = 0;
   if (mode == "semtest") {
     // step 1j（用户 2026-09-15 指定的四个确定性用例）：活跃读语义。
     // 1) 路由分区命中旧值，其他候选持有新值   → 必须返回新值
@@ -2133,6 +2135,14 @@ int main(int argc, char** argv) {
       const bool sealed_ok_all = sealed_ok && sealed_pin && pin_read_ok;
       const bool pass7 = setup_ok && loc_ok && pin_ok && visited_a &&
                          visited_b && b_hit && b_lost && sealed_ok_all;
+      // 用户 2026-09-18 决定：case7 的 `exec[A/B/B_hit/B_lost]` 四计数来自**实验分支
+      // 专属的逐候选 visitor 插桩**；候选线不含该插桩（也不应把它移入候选线）。
+      // ⇒ 当四个计数**同时为 0**、而**身份断言全部成立**（setup/locator/pin/sealed）
+      // 时，判为 `N/A/IDENTITY_PASS`（既不算通过、也不算失败），避免把"缺少实验
+      // 插桩"显示成功能失败。legacy 负例检查仅在插桩可用时有意义（跳过）。
+      const bool visitor_absent = !visited_a && !visited_b && !b_hit && !b_lost;
+      const bool identity_ok = setup_ok && loc_ok && pin_ok && sealed_ok_all;
+      const bool case7_na = visitor_absent && identity_ok;
       printf("case7 fixture: appends=%d ins=%d candA=%d candB=%d | sel=(part=%u "
              "gen=%u off=%llu seq=%llu) expect=(part=%u gen=%u off=%llu seq=200) "
              "| pin=(part=%u gen=%u pinned=%d active=%d) | exec[A=%d B=%d "
@@ -2144,11 +2154,18 @@ int main(int argc, char** argv) {
              pin7.part, pin7.gen, pin7.pinned ? 1 : 0, pin7.is_active ? 1 : 0,
              visited_a ? 1 : 0, visited_b ? 1 : 0, b_hit ? 1 : 0, b_lost ? 1 : 0,
              getenv("ZF_TEST_LEGACY_PIN_SLOT") != nullptr ? "ON" : "off",
-             pass7 ? "PASS" : "FAIL");
+             case7_na ? "N/A/IDENTITY_PASS(实验分支 visitor 插桩缺失)"
+                      : (pass7 ? "PASS" : "FAIL"));
+      if (case7_na) {
+        printf("case7 说明: 身份断言全部成立（locator/pin/sealed 读取身份一致）；"
+               "仅缺实验分支专属的逐候选 visitor 计数 ⇒ 记 N/A，不计入失败。\n");
+      }
       printf("case7 sealed: sealed=%d pinned=%d pin_read_A=%d\n", sealed_ok ? 1 : 0,
              sealed_pin ? 1 : 0, pin_read_ok ? 1 : 0);
       if (!setup_ok || !sealed_ok) {
         ++setup_incomplete;
+      } else if (case7_na) {
+        ++case7_na_count;  // 单独计数：既不是 fails 也不是 setup_incomplete
       } else {
         // 旧共享槽模式下**必须失败**（否则说明用例区分不出该缺陷）。
         const bool legacy = getenv("ZF_TEST_LEGACY_PIN_SLOT") != nullptr;
@@ -2168,14 +2185,16 @@ int main(int argc, char** argv) {
            "case7=%s\n",
            (fails == 0) ? "见上（各自 PASS/FAIL）" : "见上",
            setup_incomplete > 0 ? "INCOMPLETE(未完成)" : "见上",
-           getenv("ZF_TEST_LEGACY_PIN_SLOT") != nullptr
-               ? "legacy-check 见上"
-               : "见上");
-    printf("semtest cases1-7: %s (fails=%d setup_incomplete=%d)\n",
+           case7_na_count > 0
+               ? "N/A/IDENTITY_PASS(缺实验分支 visitor 插桩)"
+               : (getenv("ZF_TEST_LEGACY_PIN_SLOT") != nullptr
+                      ? "legacy-check 见上"
+                      : "见上"));
+    printf("semtest cases1-7: %s (fails=%d setup_incomplete=%d n/a=%d)\n",
            (fails == 0 && setup_incomplete == 0)
                ? "PASS"
                : (setup_incomplete > 0 ? "SEMTEST_INCOMPLETE" : "FAIL"),
-           fails, setup_incomplete);
+           fails, setup_incomplete, case7_na_count);
     if (setup_incomplete > 0) {
       return 3;  // 独立非成功状态：不得当作通过
     }
