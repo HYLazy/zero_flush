@@ -1,0 +1,389 @@
+[
+ {
+  "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md",
+  "title": "原生 RocksDB 100GB/1KB fillrandom：写放大 · 写停顿 · Compaction 规模",
+  "category": "note",
+  "lines": 66,
+  "bytes": 4211,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md",
+  "title": "原生 RocksDB 100GB/1KB fillrandom：8 线程 vs 16 线程（三类写停顿对比）",
+  "category": "note",
+  "lines": 70,
+  "bytes": 3697,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md",
+  "title": "ZeroFlush vs 原生 RocksDB 对比实验报告",
+  "category": "note",
+  "lines": 195,
+  "bytes": 13213,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/l0_l1_importance/DESIGN.md",
+  "title": "论文实验：L0→L1 compaction 影响整体写路径性能的证明",
+  "category": "protocol",
+  "lines": 41,
+  "bytes": 2382,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md",
+  "title": "原生 RocksDB 100GB/1KB fillrandom：写放大 · 写停顿 · Compaction 规模实验设计",
+  "category": "protocol",
+  "lines": 36,
+  "bytes": 2369,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/DESIGN.md",
+  "title": "原生 RocksDB 100GB/1KB fillrandom · 8 线程：三类写停顿复测",
+  "category": "protocol",
+  "lines": 8,
+  "bytes": 547,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/bench_matrix_report.md",
+  "title": "ZeroFlush vs 原生 RocksDB 性能矩阵（fillrandom + readrandom）",
+  "category": "report",
+  "lines": 111,
+  "bytes": 5420,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md",
+  "title": "1KB 100GB 同窗对比（2026-09-02，负载 3-30）",
+  "category": "report",
+  "lines": 38,
+  "bytes": 1644,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md",
+  "title": "1KB 50GB 同窗对比（2026-09-02，负载 2-33）",
+  "category": "report",
+  "lines": 34,
+  "bytes": 1614,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md",
+  "title": "方案 A（L0 排他所有权）50GB 验证（2026-09-03）",
+  "category": "report",
+  "lines": 25,
+  "bytes": 1348,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md",
+  "title": "skip_batching=true 50GB（2026-09-03）：同窗参数格 1",
+  "category": "report",
+  "lines": 29,
+  "bytes": 1179,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md",
+  "title": "trigger=32 实验（2026-09-03）：50GB 1KB fillrandom 同窗",
+  "category": "report",
+  "lines": 27,
+  "bytes": 1354,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/integrated_report/REPORT.md",
+  "title": "原生 RocksDB 写路径与 ZeroFlush 对照：综合实验报告",
+  "category": "report",
+  "lines": 193,
+  "bytes": 10523,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md",
+  "title": "L0 是写路径瓶颈：三角度互证（原生 RocksDB 100GB/1KB fillrandom）",
+  "category": "report",
+  "lines": 88,
+  "bytes": 5614,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md",
+  "title": "论文实验：L0→L1 compaction 影响整体写路径性能的证明",
+  "category": "report",
+  "lines": 78,
+  "bytes": 4810,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md",
+  "title": "M5 50GB 验收实测（2026-09-07，数据丢失修复后）",
+  "category": "report",
+  "lines": 44,
+  "bytes": 2384,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md",
+  "title": "原生 RocksDB 100GB/1KB fillrandom：L0→L1 与 L1 以下 compaction 耗时统计",
+  "category": "report",
+  "lines": 57,
+  "bytes": 3336,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md",
+  "title": "原生 RocksDB 100GB/1KB fillrandom：写线程数 16/8/4/2 三类写停顿对比",
+  "category": "report",
+  "lines": 62,
+  "bytes": 3812,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/profiling/profiling_report.md",
+  "title": "ZeroFlush 写路径剖析报告（profiling 2026-08-21）",
+  "category": "report",
+  "lines": 152,
+  "bytes": 12724,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/profiling/verification_report.md",
+  "title": "ZeroFlush 成果检验报告（M4.0 + M4.1，2026-08-21）",
+  "category": "report",
+  "lines": 73,
+  "bytes": 4123,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md",
+  "title": "zeroflush0.9 分支 100GB/1KB 读写测试（2026-09-03）",
+  "category": "report",
+  "lines": 75,
+  "bytes": 3546,
+  "milestone": "m3",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m4_perf/REPORT.md",
+  "title": "ZeroFlushV0 M4 动态治理规模验收（首轮，2026-09-10 更新）",
+  "category": "report",
+  "lines": 372,
+  "bytes": 22170,
+  "milestone": "m4",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/B4B17B3_50GB_TASK_PROGRESS.md",
+  "title": "任务进度存档：b4b17b3 分支 50GB/1KB KV 读写测试",
+  "category": "note",
+  "lines": 102,
+  "bytes": 5779,
+  "milestone": "m5",
+  "tracked": false
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md",
+  "title": "50GB merge-ON 验收 + 严格最旧准入尝试（2026-09-14）",
+  "category": "note",
+  "lines": 46,
+  "bytes": 2352,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+  "title": "运行清单（配置 / 结果 / 复现）",
+  "category": "protocol",
+  "lines": 3817,
+  "bytes": 264719,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md",
+  "title": "本目录文件说明（避免误读取证）",
+  "category": "protocol",
+  "lines": 17,
+  "bytes": 1214,
+  "milestone": "m5",
+  "tracked": false
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md",
+  "title": "install 锁协议修复尝试记录（2026-09-14）",
+  "category": "protocol",
+  "lines": 249,
+  "bytes": 12869,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md",
+  "title": "50GB/1KB 对比 DNF 的环境诊断（2026-09-12）",
+  "category": "report",
+  "lines": 175,
+  "bytes": 9745,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/ABORTED_RUN_AMPLIFICATION.md",
+  "title": "ZF merge-off 公平版 50GB 运行 —— 中止记录与写放大证据（2026-09-12）",
+  "category": "report",
+  "lines": 64,
+  "bytes": 3872,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md",
+  "title": "b4b17b3 分支：50GB / 100GB × 1KB KV 读写测试报告",
+  "category": "report",
+  "lines": 189,
+  "bytes": 13360,
+  "milestone": "m5",
+  "tracked": false
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/l0_closure/REPORT.md",
+  "title": "L0→L1 闭包分布实验报告（2026-09-12）",
+  "category": "report",
+  "lines": 311,
+  "bytes": 16482,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md",
+  "title": "step 0b-3（第一阶段）：pending ledger 水位背压",
+  "category": "report",
+  "lines": 361,
+  "bytes": 22060,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md",
+  "title": "物化滞后专题分析（2026-09-12）",
+  "category": "report",
+  "lines": 127,
+  "bytes": 6273,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md",
+  "title": "50GB merge-ON 验收（zf_install_mu_ 修复后，2026-09-12）",
+  "category": "report",
+  "lines": 103,
+  "bytes": 6010,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md",
+  "title": "50GB merge-ON 验收报告（2026-09-14，准入循环修复后）",
+  "category": "report",
+  "lines": 79,
+  "bytes": 3450,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md",
+  "title": "50GB merge-ON 同窗对照：ZeroFlush vs native RocksDB（2026-09-14）",
+  "category": "report",
+  "lines": 89,
+  "bytes": 4772,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md",
+  "title": "sink / L2 清场受控实验（2026-09-15，实验 A/B）",
+  "category": "report",
+  "lines": 74,
+  "bytes": 4539,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md",
+  "title": "step 0a：窄区间 sink 失败原因分类（2026-09-15）",
+  "category": "report",
+  "lines": 316,
+  "bytes": 20177,
+  "milestone": "m5",
+  "tracked": true
+ },
+ {
+  "path": "archive/README.md",
+  "title": "archive/ —— m 系列（ZeroFlush V0）存档区（与 `output/` 同级）",
+  "category": "note",
+  "lines": 60,
+  "bytes": 3361,
+  "milestone": "repo",
+  "tracked": false
+ },
+ {
+  "path": "archive/report/progress/DEVELOPMENT_PROGRESS.md",
+  "title": "ZeroFlush 开发进展文档",
+  "category": "note",
+  "lines": 244,
+  "bytes": 18575,
+  "milestone": "repo",
+  "tracked": true
+ },
+ {
+  "path": "archive/report/study/ZEROFLUSHV0_PROBLEM_STUDY.md",
+  "title": "ZeroFlushV0 现状 · 问题 · 研究方向（研究用文档）",
+  "category": "note",
+  "lines": 609,
+  "bytes": 39471,
+  "milestone": "repo",
+  "tracked": true
+ },
+ {
+  "path": "archive/report/study/ZEROFLUSHV0_ROADMAP.md",
+  "title": "ZeroFlushV0 实施路线图（修订版 v2，2026-09-09）",
+  "category": "protocol",
+  "lines": 369,
+  "bytes": 28645,
+  "milestone": "repo",
+  "tracked": true
+ },
+ {
+  "path": "archive/report/benchmark/benchmark_analysis_report.md",
+  "title": "ZeroFlush 与原生 RocksDB 对比基准测试结果分析报告",
+  "category": "report",
+  "lines": 200,
+  "bytes": 11730,
+  "milestone": "repo",
+  "tracked": true
+ }
+]

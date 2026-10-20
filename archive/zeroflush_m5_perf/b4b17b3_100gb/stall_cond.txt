@@ -1,0 +1,67 @@
+[New LWP 4060074]
+[New LWP 4060075]
+[New LWP 4060076]
+[New LWP 4060077]
+[New LWP 4060078]
+[New LWP 4060079]
+[New LWP 4060080]
+[New LWP 4060081]
+[New LWP 4060082]
+[New LWP 4060083]
+[New LWP 4060084]
+[New LWP 4060085]
+[New LWP 4060086]
+[New LWP 4060087]
+[New LWP 4060088]
+[New LWP 4060089]
+[New LWP 4060090]
+[New LWP 4060091]
+[New LWP 4060092]
+[New LWP 4060093]
+[New LWP 4060094]
+[New LWP 4060095]
+[New LWP 4060096]
+[New LWP 4060097]
+[New LWP 4060114]
+[New LWP 4060115]
+[New LWP 4060131]
+[New LWP 4060132]
+[New LWP 4060133]
+[New LWP 4060134]
+[New LWP 4060135]
+[New LWP 4060136]
+[New LWP 4060137]
+[New LWP 4060138]
+[New LWP 4060139]
+[New LWP 4060140]
+[New LWP 4060141]
+[New LWP 4060142]
+[New LWP 4060143]
+[New LWP 4060144]
+[New LWP 4060145]
+[New LWP 4060146]
+[New LWP 4060147]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+__futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7fffce362430) at ./nptl/futex-internal.c:57
+57	./nptl/futex-internal.c: No such file or directory.
+[Switching to thread 29 (Thread 0x7927c01be640 (LWP 4060132))]
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c01b9518) at ./nptl/futex-internal.c:57
+57	in ./nptl/futex-internal.c
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+1135	  write_thread_.JoinBatchGroup(&w);
+Stack level 8, frame at 0x7927c01bb4b0:
+ rip = 0x7927e75b9bf5 in rocksdb::DBImpl::WriteImpl (/home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135); saved rip = 0x7927e75bc216
+ called by frame at 0x7927c01bb580, caller of frame at 0x7927c01b8e00
+ source language c++.
+ Arglist at 0x7927c01bb4a0, args: this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0
+ Locals at 0x7927c01bb4a0, Previous frame's sp is 0x7927c01bb4b0
+ Saved registers:
+  rbx at 0x7927c01bb478, rbp at 0x7927c01bb4a0, r12 at 0x7927c01bb480, r13 at 0x7927c01bb488, r14 at 0x7927c01bb490, r15 at 0x7927c01bb498, rip at 0x7927c01bb4a8
+$1 = 0
+$2 = 0
+$3 = 0
+There is no member or method named stoppable_count_.
+$4 = std::atomic<int> = { 0 }
+$5 = std::atomic<int> = { 0 }
+[Inferior 1 (process 4060072) detached]

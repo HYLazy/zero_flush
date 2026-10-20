@@ -1,0 +1,19 @@
+start 2026-09-19 03:19:03
+bin=b29d439da6359757aa99d7df96badf49 so=609c747930a331a4f163472efa30ae38
+readpartial50_pid=4085900 start=03:19:03
+readpartial50_watch=91 readpartial50_rc=137 readpartial50_end=2026-09-19 03:21:15
+readpartial100_pid=4086747 start=03:21:15
+readpartial100_watch=91 readpartial100_rc=137 readpartial100_end=2026-09-19 03:23:27
+wsmoke_pid=4087591 start=03:23:27
+wsmoke_watch=0 wsmoke_rc=0 wsmoke_end=2026-09-19 03:23:57
+wrepeat_pid=4087825 start=03:23:57
+wrepeat_watch=91 wrepeat_rc=137 wrepeat_end=2026-09-19 03:26:08
+ALL_DONE
+read-retest start 2026-09-19 03:26:36
+--- A': 读 50GB 臂部分库（2.69GB 现场）---
+reads50_retest_pid=4088952 start=03:26:36
+reads50_retest_watch=0 reads50_retest_rc=0 reads50_retest_end=2026-09-19 03:41:06
+--- B': 读 100GB 臂部分库（14.41GB 现场）---
+reads100_retest_pid=4093901 start=03:41:06
+reads100_retest_watch=0 reads100_retest_rc=0 reads100_retest_end=2026-09-19 03:45:06
+READ_RETEST_ALL_DONE

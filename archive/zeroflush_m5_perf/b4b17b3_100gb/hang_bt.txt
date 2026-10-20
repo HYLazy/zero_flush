@@ -1,0 +1,662 @@
+[New LWP 4060074]
+[New LWP 4060075]
+[New LWP 4060076]
+[New LWP 4060077]
+[New LWP 4060078]
+[New LWP 4060079]
+[New LWP 4060080]
+[New LWP 4060081]
+[New LWP 4060082]
+[New LWP 4060083]
+[New LWP 4060084]
+[New LWP 4060085]
+[New LWP 4060086]
+[New LWP 4060087]
+[New LWP 4060088]
+[New LWP 4060089]
+[New LWP 4060090]
+[New LWP 4060091]
+[New LWP 4060092]
+[New LWP 4060093]
+[New LWP 4060094]
+[New LWP 4060095]
+[New LWP 4060096]
+[New LWP 4060097]
+[New LWP 4060114]
+[New LWP 4060115]
+[New LWP 4060131]
+[New LWP 4060132]
+[New LWP 4060133]
+[New LWP 4060134]
+[New LWP 4060135]
+[New LWP 4060136]
+[New LWP 4060137]
+[New LWP 4060138]
+[New LWP 4060139]
+[New LWP 4060140]
+[New LWP 4060141]
+[New LWP 4060142]
+[New LWP 4060143]
+[New LWP 4060144]
+[New LWP 4060145]
+[New LWP 4060146]
+[New LWP 4060147]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+__futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7fffce362430) at ./nptl/futex-internal.c:57
+57	./nptl/futex-internal.c: No such file or directory.
+
+Thread 44 (Thread 0x7927be9bb640 (LWP 4060147) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927be9b6518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927be9b6518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927be9b6518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927be9b64c8, cond=0x7927be9b64f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927be9b64f0, mutex=0x7927be9b64c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927be9b64f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927be9b6430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927be9b8d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f9eb70, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49a68) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3f49cf0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 43 (Thread 0x7927bf1bc640 (LWP 4060146) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927bf1b7518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927bf1b7518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927bf1b7518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927bf1b74c8, cond=0x7927bf1b74f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927bf1b74f0, mutex=0x7927bf1b74c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927bf1b74f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927bf1b7430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927bf1b9d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f9e0c0, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49a40) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3f6f650) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 42 (Thread 0x7927c19c1640 (LWP 4060145) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c19bc518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c19bc518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c19bc518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c19bc4c8, cond=0x7927c19bc4f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c19bc4f0, mutex=0x7927c19bc4c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c19bc4f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c19bc430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c19bed60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f9d610, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49a18) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3f70ce0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 41 (Thread 0x7927c21c2640 (LWP 4060144) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c21bd518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c21bd518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c21bd518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c21bd4c8, cond=0x7927c21bd4f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c21bd4f0, mutex=0x7927c21bd4c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c21bd4f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c21bd430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c21bfd60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f9cb60, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f499f0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3f60ea0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 40 (Thread 0x7927c39c5640 (LWP 4060143) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c39c0518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c39c0518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c39c0518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c39c04c8, cond=0x7927c39c04f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c39c04f0, mutex=0x7927c39c04c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c39c04f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c39c0430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c39c2d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f9c0b0, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f499c8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3f722d0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 39 (Thread 0x7927c41c6640 (LWP 4060142) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c41c1518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c41c1518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c41c1518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c41c14c8, cond=0x7927c41c14f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c41c14f0, mutex=0x7927c41c14c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c41c14f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c41c1430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c41c3d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f9b600, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f499a0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3f313a0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 38 (Thread 0x7927c49c7640 (LWP 4060141) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c49c2518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c49c2518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c49c2518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c49c24c8, cond=0x7927c49c24f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c49c24f0, mutex=0x7927c49c24c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c49c24f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c49c2430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c49c4d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f9ab50, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49978) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3f71d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 37 (Thread 0x7927c51c8640 (LWP 4060140) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c51c3518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c51c3518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c51c3518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c51c34c8, cond=0x7927c51c34f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c51c34f0, mutex=0x7927c51c34c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c51c34f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c51c3430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c51c5d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f5f6d0, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49950) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3f310e0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 36 (Thread 0x7927c59c9640 (LWP 4060139) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c59c4518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c59c4518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c59c4518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c59c44c8, cond=0x7927c59c44f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c59c44f0, mutex=0x7927c59c44c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c59c44f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c59c4430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c59c6d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f5ec20, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49928) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3f6f580) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 35 (Thread 0x7927c61ca640 (LWP 4060138) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c61c5518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c61c5518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c61c5518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c61c54c8, cond=0x7927c61c54f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c61c54f0, mutex=0x7927c61c54c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c61c54f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c61c5430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c61c7d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f5e170, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49900) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3f61470) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 34 (Thread 0x7927c69cb640 (LWP 4060137) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c69c6518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c69c6518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c69c6518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c69c64c8, cond=0x7927c69c64f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c69c64f0, mutex=0x7927c69c64c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c69c64f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c69c6430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c69c8d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f66790, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f498d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3f619e0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 33 (Thread 0x7927c71cc640 (LWP 4060136) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c71c7518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c71c7518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c71c7518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c71c74c8, cond=0x7927c71c74f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c71c74f0, mutex=0x7927c71c74c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c71c74f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c71c7430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c71c9d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f65ce0, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f498b0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3fab7a0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 32 (Thread 0x7927c79cd640 (LWP 4060135) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c79c8518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c79c8518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c79c8518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c79c84c8, cond=0x7927c79c84f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c79c84f0, mutex=0x7927c79c84c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c79c84f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c79c8430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c79cad60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f696a0, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49888) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3fab780) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 31 (Thread 0x7927c31c4640 (LWP 4060134) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c31bf518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c31bf518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c31bf518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c31bf4c8, cond=0x7927c31bf4f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c31bf4f0, mutex=0x7927c31bf4c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c31bf4f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c31bf430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c31c1d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f6e050, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49860) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3fab740) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 30 (Thread 0x7927c29c3640 (LWP 4060133) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7927c29be518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7927c29be518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7927c29be518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7927c29be4c8, cond=0x7927c29be4f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7927c29be4f0, mutex=0x7927c29be4c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e77997fb in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x7927c29be4f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x62b5a3f3ab98, w=w@entry=0x7927c29be430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x00007927e7799956 in rocksdb::WriteThread::AwaitState (this=0x62b5a3f3ab98, w=<optimized out>, goal_mask=94 '^', ctx=0x7927e7e62680 <rocksdb::jbg_ctx>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x00007927e75b9bf5 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c29c0d60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f3f750, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#11 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49838) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3fab760) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 29 (Thread 0x7927c01be640 (LWP 4060132) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=-1544281536, cancel=true, abstime=0x7927c01b8b00, op=393, expected=0, futex_word=0x62b5a3f3a854) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=-1544281536, abstime=0x7927c01b8b00, clockid=-1071936928, expected=0, futex_word=0x62b5a3f3a854) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f3a854, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x7927c01b8b00, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893e5b in __pthread_cond_wait_common (abstime=0x7927c01b8b00, clockid=0, mutex=0x62b5a3f3a400, cond=0x62b5a3f3a828) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_timedwait64 (cond=0x62b5a3f3a828, mutex=0x62b5a3f3a400, abstime=0x7927c01b8b00) at ./nptl/pthread_cond_wait.c:652
+#5  0x00007927e7c2cb2d in rocksdb::port::CondVar::TimedWait (this=this@entry=0x62b5a3f3a828, abs_time_us=abs_time_us@entry=1789755818970448) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/port/port_posix.cc:133
+#6  0x00007927e7831119 in rocksdb::InstrumentedCondVar::TimedWaitInternal (this=this@entry=0x62b5a3f3a828, abs_time_us=abs_time_us@entry=1789755818970448) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/monitoring/instrumented_mutex.cc:87
+#7  0x00007927e783123b in rocksdb::InstrumentedCondVar::TimedWait (this=this@entry=0x62b5a3f3a828, abs_time_us=1789755818970448) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/monitoring/instrumented_mutex.cc:76
+#8  0x00007927e75a636b in rocksdb::DBImpl::DelayWrite (this=0x62b5a3f39c40, num_bytes=16896, write_thread=..., write_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:3073
+#9  0x00007927e75b5a41 in rocksdb::DBImpl::PreprocessWrite (this=0x62b5a3f39c40, write_options=..., wal_context=0x7927c01b90d0, write_context=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:2397
+#10 0x00007927e75ba276 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=<optimized out>, user_write_cb=<optimized out>, wal_used=<optimized out>, log_ref=<optimized out>, disable_memtable=<optimized out>, seq_used=<optimized out>, batch_cnt=<optimized out>, pre_release_callback=<optimized out>, post_memtable_callback=<optimized out>, wbwi=..., trace_batch_override=<optimized out>, skip_blob_direct_write_transform=<optimized out>, deferred_put_entities=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1258
+#11 0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c01bbd60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#12 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f67c00, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#13 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49810) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#14 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3fab720) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#15 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#16 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 28 (Thread 0x7927bf9bd640 (LWP 4060131) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x7927bf9bc1b0, op=393, expected=0, futex_word=0x62b5a3f40c34) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x7927bf9bc1b0, clockid=0, expected=0, futex_word=0x62b5a3f40c34) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f40c34, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x7927bf9bc1b0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893e5b in __pthread_cond_wait_common (abstime=0x7927bf9bc1b0, clockid=0, mutex=0x62b5a3f40bc8, cond=0x62b5a3f40c08) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_timedwait64 (cond=0x62b5a3f40c08, mutex=0x62b5a3f40bc8, abstime=0x7927bf9bc1b0) at ./nptl/pthread_cond_wait.c:652
+#5  0x00007927e7c2cb2d in rocksdb::port::CondVar::TimedWait (this=this@entry=0x62b5a3f40c08, abs_time_us=abs_time_us@entry=1789755828698444) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/port/port_posix.cc:133
+#6  0x00007927e7831119 in rocksdb::InstrumentedCondVar::TimedWaitInternal (this=this@entry=0x62b5a3f40c08, abs_time_us=abs_time_us@entry=1789755828698444) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/monitoring/instrumented_mutex.cc:87
+#7  0x00007927e783123b in rocksdb::InstrumentedCondVar::TimedWait (this=this@entry=0x62b5a3f40c08, abs_time_us=1789755828698444) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/monitoring/instrumented_mutex.cc:76
+#8  0x00007927e76cebe7 in rocksdb::Timer::Run (this=0x62b5a3f40bc0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/timer.h:252
+#9  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#10 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#11 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 27 (Thread 0x7927c11c0640 (LWP 4060115) "rocksdb:high"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a950, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a900, cond=0x62b5a3f1a928) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a928, mutex=0x62b5a3f1a900) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a880, thread_id=5) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f709a0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 26 (Thread 0x7927c09bf640 (LWP 4060114) "rocksdb:high"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a950, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a900, cond=0x62b5a3f1a928) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a928, mutex=0x62b5a3f1a900) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a880, thread_id=4) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3fb0bf0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 25 (Thread 0x7927c87f0640 (LWP 4060097) "rocksdb:high"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a950, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a900, cond=0x62b5a3f1a928) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a928, mutex=0x62b5a3f1a900) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a880, thread_id=3) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3e680) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 24 (Thread 0x7927c8ff1640 (LWP 4060096) "rocksdb:high"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a950, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a900, cond=0x62b5a3f1a928) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a928, mutex=0x62b5a3f1a900) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a880, thread_id=2) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f4a030) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 23 (Thread 0x7927c97f2640 (LWP 4060095) "rocksdb:high"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a950, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a900, cond=0x62b5a3f1a928) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a928, mutex=0x62b5a3f1a900) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a880, thread_id=1) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3e500) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 22 (Thread 0x7927c9ff3640 (LWP 4060094) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=19) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3e380) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 21 (Thread 0x7927ca7f4640 (LWP 4060093) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=18) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3ded0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 20 (Thread 0x7927caff5640 (LWP 4060092) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=17) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3dd50) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 19 (Thread 0x7927cb7f6640 (LWP 4060091) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a604) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a604) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a604, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=16) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3dbd0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 18 (Thread 0x7927cbff7640 (LWP 4060090) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=15) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3da50) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 17 (Thread 0x7927cc7f8640 (LWP 4060089) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=14) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3d8d0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 16 (Thread 0x7927ccff9640 (LWP 4060088) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=13) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3d750) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 15 (Thread 0x7927cd7fa640 (LWP 4060087) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=12) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3d2a0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 14 (Thread 0x7927cdffb640 (LWP 4060086) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=11) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3d120) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 13 (Thread 0x7927ce7fc640 (LWP 4060085) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=10) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3cfa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 12 (Thread 0x7927ceffd640 (LWP 4060084) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=9) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3ce20) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 11 (Thread 0x7927cf7fe640 (LWP 4060083) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a604) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a604) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a604, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3cca0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 10 (Thread 0x7927cffff640 (LWP 4060082) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a604) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a604) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a604, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=7) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3c7f0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 9 (Thread 0x7927dc995640 (LWP 4060081) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a604) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a604) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a604, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=6) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3c670) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 8 (Thread 0x7927dd196640 (LWP 4060080) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=5) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3c4f0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 7 (Thread 0x7927dd997640 (LWP 4060079) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=4) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3c040) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 6 (Thread 0x7927de198640 (LWP 4060078) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=3) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f3bd60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 5 (Thread 0x7927de999640 (LWP 4060077) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a604) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a604) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a604, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=2) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f49e90) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 4 (Thread 0x7927e05df640 (LWP 4060076) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=1) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f315d0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 3 (Thread 0x7927df19a640 (LWP 4060075) "rocksdb:high"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a950) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a950, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a900, cond=0x62b5a3f1a928) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a928, mutex=0x62b5a3f1a900) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a880, thread_id=0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f49eb0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 2 (Thread 0x7927df99b640 (LWP 4060074) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x62b5a3f1a600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f1a600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x62b5a3f1a5b0, cond=0x62b5a3f1a5d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x62b5a3f1a5d8, mutex=0x62b5a3f1a5b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7a6a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x62b5a3f1a530, thread_id=0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007927e7a6aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x62b5a3f49d10) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007927e6cdc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 1 (Thread 0x7927e7f0b280 (LWP 4060072) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7fffce362430) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7fffce362430) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7fffce362430, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7fffce3623e0, cond=0x7fffce362408) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7fffce362408, mutex=0x7fffce3623e0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007927e7c2d518 in rocksdb::port::CondVar::Wait (this=this@entry=0x7fffce362408) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/port/port_posix.cc:119
+#6  0x000062b5817b58b1 in rocksdb::Benchmark::RunBenchmark (this=this@entry=0x7fffce3630c0, n=n@entry=16, name=..., method=(void (rocksdb::Benchmark::*)(rocksdb::Benchmark * const, rocksdb::ThreadState *)) 0x62b5817d6e60 <rocksdb::Benchmark::WriteRandom(rocksdb::ThreadState*)>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4423
+#7  0x000062b5817b9e64 in rocksdb::Benchmark::Run (this=this@entry=0x7fffce3630c0, hooks=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4182
+#8  0x000062b58178e54b in rocksdb::db_bench_tool (argc=<optimized out>, argv=<optimized out>, hooks=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:9883
+#9  0x00007927e6829d90 in __libc_start_call_main (main=main@entry=0x62b58177fba0 <main(int, char**)>, argc=argc@entry=22, argv=argv@entry=0x7fffce363b98) at ../sysdeps/nptl/libc_start_call_main.h:58
+#10 0x00007927e6829e40 in __libc_start_main_impl (main=0x62b58177fba0 <main(int, char**)>, argc=22, argv=0x7fffce363b98, init=<optimized out>, fini=<optimized out>, rtld_fini=<optimized out>, stack_end=0x7fffce363b88) at ../csu/libc-start.c:392
+#11 0x000062b581786f05 in _start ()
+[Inferior 1 (process 4060072) detached]

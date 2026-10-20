@@ -1,0 +1,669 @@
+2026/09/19-03:19:04.000018 4085900 RocksDB version: 11.2.0
+2026/09/19-03:19:04.000083 4085900 Git sha 0
+2026/09/19-03:19:04.000086 4085900 Compile date 2026-09-18 18:04:48
+2026/09/19-03:19:04.000090 4085900 DB SUMMARY
+2026/09/19-03:19:04.000092 4085900 Host name (Env):  embed-System-Product-Name
+2026/09/19-03:19:04.000094 4085900 DB Session ID:  5C2ZDRC37ZW0MI2L7D30
+2026/09/19-03:19:04.000243 4085900 CURRENT file:  CURRENT
+2026/09/19-03:19:04.000247 4085900 IDENTITY file:  IDENTITY
+2026/09/19-03:19:04.000252 4085900 MANIFEST file:  MANIFEST-000005 size: 2075 Bytes
+2026/09/19-03:19:04.000255 4085900 SST files in /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db dir, Total Num: 128, files: 000009.sst 000010.sst 000011.sst 000012.sst 000015.sst 000016.sst 000017.sst 000018.sst 000019.sst 
+2026/09/19-03:19:04.000258 4085900 Write Ahead Log file in /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db: 000004.log size: 0 ; 
+2026/09/19-03:19:04.000279 4085900                         Options.error_if_exists: 0
+2026/09/19-03:19:04.000282 4085900                       Options.create_if_missing: 1
+2026/09/19-03:19:04.000283 4085900                         Options.paranoid_checks: 1
+2026/09/19-03:19:04.000285 4085900                        Options.open_files_async: 0
+2026/09/19-03:19:04.000287 4085900             Options.flush_verify_memtable_count: 1
+2026/09/19-03:19:04.000288 4085900          Options.compaction_verify_record_count: 1
+2026/09/19-03:19:04.000290 4085900                               Options.track_and_verify_wals_in_manifest: 0
+2026/09/19-03:19:04.000292 4085900                               Options.track_and_verify_wals: 0
+2026/09/19-03:19:04.000293 4085900        Options.verify_sst_unique_id_in_manifest: 1
+2026/09/19-03:19:04.000295 4085900                                     Options.env: 0x623a51269870
+2026/09/19-03:19:04.000297 4085900                                      Options.fs: PosixFileSystem
+2026/09/19-03:19:04.000299 4085900                                Options.info_log: 0x623a512c2b40
+2026/09/19-03:19:04.000300 4085900                Options.max_file_opening_threads: 16
+2026/09/19-03:19:04.000302 4085900                              Options.statistics: (nil)
+2026/09/19-03:19:04.000304 4085900                               Options.use_fsync: 0
+2026/09/19-03:19:04.000305 4085900                       Options.max_log_file_size: 0
+2026/09/19-03:19:04.000307 4085900                   Options.log_file_time_to_roll: 0
+2026/09/19-03:19:04.000309 4085900                       Options.keep_log_file_num: 1000
+2026/09/19-03:19:04.000310 4085900                    Options.recycle_log_file_num: 0
+2026/09/19-03:19:04.000312 4085900                         Options.allow_fallocate: 1
+2026/09/19-03:19:04.000313 4085900                        Options.allow_mmap_reads: 0
+2026/09/19-03:19:04.000315 4085900                       Options.allow_mmap_writes: 0
+2026/09/19-03:19:04.000317 4085900                        Options.use_direct_reads: 0
+2026/09/19-03:19:04.000318 4085900                        Options.use_direct_io_for_flush_and_compaction: 0
+2026/09/19-03:19:04.000320 4085900          Options.create_missing_column_families: 1
+2026/09/19-03:19:04.000321 4085900                              Options.db_log_dir: 
+2026/09/19-03:19:04.000323 4085900                                 Options.wal_dir: 
+2026/09/19-03:19:04.000325 4085900                Options.table_cache_numshardbits: 4
+2026/09/19-03:19:04.000326 4085900                         Options.WAL_ttl_seconds: 0
+2026/09/19-03:19:04.000328 4085900                       Options.WAL_size_limit_MB: 0
+2026/09/19-03:19:04.000329 4085900                        Options.max_write_batch_group_size_bytes: 1048576
+2026/09/19-03:19:04.000331 4085900                     Options.is_fd_close_on_exec: 1
+2026/09/19-03:19:04.000332 4085900                   Options.advise_random_on_open: 1
+2026/09/19-03:19:04.000334 4085900                    Options.db_write_buffer_size: 0
+2026/09/19-03:19:04.000336 4085900                    Options.write_buffer_manager: 0x623a512c2950
+2026/09/19-03:19:04.000337 4085900                      Options.use_adaptive_mutex: 0
+2026/09/19-03:19:04.000339 4085900                            Options.rate_limiter: (nil)
+2026/09/19-03:19:04.000341 4085900     Options.sst_file_manager.rate_bytes_per_sec: 0
+2026/09/19-03:19:04.000343 4085900                       Options.wal_recovery_mode: 2
+2026/09/19-03:19:04.000345 4085900                  Options.enable_thread_tracking: 0
+2026/09/19-03:19:04.000346 4085900                  Options.enable_pipelined_write: 0
+2026/09/19-03:19:04.000348 4085900                  Options.unordered_write: 0
+2026/09/19-03:19:04.000349 4085900         Options.allow_concurrent_memtable_write: 1
+2026/09/19-03:19:04.000351 4085900      Options.enable_write_thread_adaptive_yield: 1
+2026/09/19-03:19:04.000353 4085900             Options.write_thread_max_yield_usec: 100
+2026/09/19-03:19:04.000354 4085900            Options.write_thread_slow_yield_usec: 3
+2026/09/19-03:19:04.000356 4085900                               Options.row_cache: None
+2026/09/19-03:19:04.000358 4085900                              Options.wal_filter: None
+2026/09/19-03:19:04.000359 4085900             Options.avoid_flush_during_recovery: 0
+2026/09/19-03:19:04.000361 4085900         Options.enforce_write_buffer_manager_during_recovery: 1
+2026/09/19-03:19:04.000363 4085900             Options.allow_ingest_behind: 0
+2026/09/19-03:19:04.000364 4085900             Options.two_write_queues: 0
+2026/09/19-03:19:04.000366 4085900             Options.manual_wal_flush: 0
+2026/09/19-03:19:04.000367 4085900             Options.wal_compression: 0
+2026/09/19-03:19:04.000369 4085900             Options.background_close_inactive_wals: 0
+2026/09/19-03:19:04.000370 4085900             Options.atomic_flush: 0
+2026/09/19-03:19:04.000372 4085900             Options.avoid_unnecessary_blocking_io: 0
+2026/09/19-03:19:04.000374 4085900             Options.prefix_seek_opt_in_only: 0
+2026/09/19-03:19:04.000375 4085900                 Options.persist_stats_to_disk: 0
+2026/09/19-03:19:04.000377 4085900                 Options.write_dbid_to_manifest: 1
+2026/09/19-03:19:04.000378 4085900                 Options.write_identity_file: 1
+2026/09/19-03:19:04.000380 4085900                 Options.log_readahead_size: 0
+2026/09/19-03:19:04.000382 4085900                 Options.file_checksum_gen_factory: Unknown
+2026/09/19-03:19:04.000383 4085900                 Options.best_efforts_recovery: 0
+2026/09/19-03:19:04.000385 4085900                Options.max_bgerror_resume_count: 2147483647
+2026/09/19-03:19:04.000387 4085900            Options.bgerror_resume_retry_interval: 1000000
+2026/09/19-03:19:04.000388 4085900             Options.allow_data_in_errors: 0
+2026/09/19-03:19:04.000390 4085900             Options.db_host_id: __hostname__
+2026/09/19-03:19:04.000391 4085900             Options.enforce_single_del_contracts: true
+2026/09/19-03:19:04.000393 4085900             Options.metadata_write_temperature: kUnknown
+2026/09/19-03:19:04.000395 4085900             Options.wal_write_temperature: kUnknown
+2026/09/19-03:19:04.000397 4085900             Options.max_background_jobs: 24
+2026/09/19-03:19:04.000399 4085900             Options.max_background_compactions: 20
+2026/09/19-03:19:04.000400 4085900             Options.max_subcompactions: 16
+2026/09/19-03:19:04.000402 4085900             Options.avoid_flush_during_shutdown: 0
+2026/09/19-03:19:04.000404 4085900           Options.writable_file_max_buffer_size: 1048576
+2026/09/19-03:19:04.000406 4085900             Options.delayed_write_rate : 8388608
+2026/09/19-03:19:04.000407 4085900             Options.max_total_wal_size: 0
+2026/09/19-03:19:04.000409 4085900             Options.delete_obsolete_files_period_micros: 21600000000
+2026/09/19-03:19:04.000411 4085900                   Options.stats_dump_period_sec: 600
+2026/09/19-03:19:04.000412 4085900                 Options.stats_persist_period_sec: 600
+2026/09/19-03:19:04.000414 4085900                 Options.stats_history_buffer_size: 1048576
+2026/09/19-03:19:04.000416 4085900                          Options.max_open_files: -1
+2026/09/19-03:19:04.000417 4085900                          Options.bytes_per_sync: 0
+2026/09/19-03:19:04.000419 4085900                      Options.wal_bytes_per_sync: 0
+2026/09/19-03:19:04.000421 4085900                   Options.strict_bytes_per_sync: 0
+2026/09/19-03:19:04.000422 4085900       Options.compaction_readahead_size: 2097152
+2026/09/19-03:19:04.000424 4085900                  Options.max_background_flushes: 4
+2026/09/19-03:19:04.000426 4085900                  Options.max_manifest_file_size: 1073741824
+2026/09/19-03:19:04.000428 4085900                  Options.max_manifest_space_amp_pct: 500
+2026/09/19-03:19:04.000429 4085900             Options.manifest_preallocation_size: 4194304
+2026/09/19-03:19:04.000431 4085900       Options.verify_manifest_content_on_close: 0
+2026/09/19-03:19:04.000433 4085900 Options.daily_offpeak_time_utc: 
+2026/09/19-03:19:04.000434 4085900 Options.max_compaction_trigger_wakeup_seconds: 43200
+2026/09/19-03:19:04.000436 4085900                          Options.fast_sst_open: 0
+2026/09/19-03:19:04.000438 4085900 Compression algorithms supported:
+2026/09/19-03:19:04.000439 4085900 	kCustomCompressionFE supported: 0
+2026/09/19-03:19:04.000441 4085900 	kCustomCompressionFC supported: 0
+2026/09/19-03:19:04.000443 4085900 	kCustomCompressionF8 supported: 0
+2026/09/19-03:19:04.000445 4085900 	kCustomCompressionF7 supported: 0
+2026/09/19-03:19:04.000447 4085900 	kCustomCompressionB2 supported: 0
+2026/09/19-03:19:04.000448 4085900 	kLZ4Compression supported: 0
+2026/09/19-03:19:04.000450 4085900 	kCustomCompression88 supported: 0
+2026/09/19-03:19:04.000452 4085900 	kCustomCompressionD8 supported: 0
+2026/09/19-03:19:04.000453 4085900 	kCustomCompression9F supported: 0
+2026/09/19-03:19:04.000455 4085900 	kCustomCompressionD6 supported: 0
+2026/09/19-03:19:04.000457 4085900 	kCustomCompressionA9 supported: 0
+2026/09/19-03:19:04.000459 4085900 	kCustomCompressionEC supported: 0
+2026/09/19-03:19:04.000460 4085900 	kCustomCompressionA3 supported: 0
+2026/09/19-03:19:04.000462 4085900 	kCustomCompressionCB supported: 0
+2026/09/19-03:19:04.000464 4085900 	kCustomCompression90 supported: 0
+2026/09/19-03:19:04.000465 4085900 	kCustomCompressionA0 supported: 0
+2026/09/19-03:19:04.000467 4085900 	kCustomCompressionC6 supported: 0
+2026/09/19-03:19:04.000468 4085900 	kCustomCompression9D supported: 0
+2026/09/19-03:19:04.000470 4085900 	kCustomCompression8B supported: 0
+2026/09/19-03:19:04.000472 4085900 	kCustomCompressionA8 supported: 0
+2026/09/19-03:19:04.000473 4085900 	kCustomCompression8D supported: 0
+2026/09/19-03:19:04.000475 4085900 	kCustomCompression97 supported: 0
+2026/09/19-03:19:04.000476 4085900 	kCustomCompression98 supported: 0
+2026/09/19-03:19:04.000478 4085900 	kCustomCompressionAC supported: 0
+2026/09/19-03:19:04.000480 4085900 	kCustomCompressionE9 supported: 0
+2026/09/19-03:19:04.000481 4085900 	kCustomCompression96 supported: 0
+2026/09/19-03:19:04.000483 4085900 	kCustomCompressionB1 supported: 0
+2026/09/19-03:19:04.000484 4085900 	kCustomCompression95 supported: 0
+2026/09/19-03:19:04.000486 4085900 	kCustomCompression84 supported: 0
+2026/09/19-03:19:04.000488 4085900 	kCustomCompression91 supported: 0
+2026/09/19-03:19:04.000489 4085900 	kCustomCompressionAB supported: 0
+2026/09/19-03:19:04.000491 4085900 	kCustomCompressionB3 supported: 0
+2026/09/19-03:19:04.000492 4085900 	kCustomCompression81 supported: 0
+2026/09/19-03:19:04.000494 4085900 	kCustomCompressionDC supported: 0
+2026/09/19-03:19:04.000496 4085900 	kBZip2Compression supported: 0
+2026/09/19-03:19:04.000497 4085900 	kCustomCompressionBB supported: 0
+2026/09/19-03:19:04.000499 4085900 	kCustomCompression9C supported: 0
+2026/09/19-03:19:04.000501 4085900 	kCustomCompressionC9 supported: 0
+2026/09/19-03:19:04.000502 4085900 	kCustomCompressionCC supported: 0
+2026/09/19-03:19:04.000504 4085900 	kCustomCompression92 supported: 0
+2026/09/19-03:19:04.000505 4085900 	kCustomCompressionB9 supported: 0
+2026/09/19-03:19:04.000507 4085900 	kCustomCompression8F supported: 0
+2026/09/19-03:19:04.000509 4085900 	kCustomCompression8A supported: 0
+2026/09/19-03:19:04.000513 4085900 	kCustomCompression9B supported: 0
+2026/09/19-03:19:04.000514 4085900 	kZSTD supported: 0
+2026/09/19-03:19:04.000516 4085900 	kCustomCompressionAA supported: 0
+2026/09/19-03:19:04.000517 4085900 	kCustomCompressionA2 supported: 0
+2026/09/19-03:19:04.000519 4085900 	kZlibCompression supported: 0
+2026/09/19-03:19:04.000521 4085900 	kXpressCompression supported: 0
+2026/09/19-03:19:04.000522 4085900 	kCustomCompressionFD supported: 0
+2026/09/19-03:19:04.000524 4085900 	kCustomCompressionE2 supported: 0
+2026/09/19-03:19:04.000526 4085900 	kLZ4HCCompression supported: 0
+2026/09/19-03:19:04.000527 4085900 	kCustomCompressionA6 supported: 0
+2026/09/19-03:19:04.000529 4085900 	kCustomCompression85 supported: 0
+2026/09/19-03:19:04.000548 4085900 	kCustomCompressionA4 supported: 0
+2026/09/19-03:19:04.000550 4085900 	kCustomCompression86 supported: 0
+2026/09/19-03:19:04.000553 4085900 	kCustomCompression83 supported: 0
+2026/09/19-03:19:04.000555 4085900 	kCustomCompression87 supported: 0
+2026/09/19-03:19:04.000557 4085900 	kCustomCompression89 supported: 0
+2026/09/19-03:19:04.000559 4085900 	kCustomCompression8C supported: 0
+2026/09/19-03:19:04.000561 4085900 	kCustomCompressionDB supported: 0
+2026/09/19-03:19:04.000563 4085900 	kCustomCompressionF3 supported: 0
+2026/09/19-03:19:04.000566 4085900 	kCustomCompressionE6 supported: 0
+2026/09/19-03:19:04.000568 4085900 	kCustomCompression8E supported: 0
+2026/09/19-03:19:04.000570 4085900 	kCustomCompressionDA supported: 0
+2026/09/19-03:19:04.000572 4085900 	kCustomCompression93 supported: 0
+2026/09/19-03:19:04.000574 4085900 	kCustomCompression94 supported: 0
+2026/09/19-03:19:04.000576 4085900 	kCustomCompression9E supported: 0
+2026/09/19-03:19:04.000579 4085900 	kCustomCompressionB4 supported: 0
+2026/09/19-03:19:04.000581 4085900 	kCustomCompressionFB supported: 0
+2026/09/19-03:19:04.000583 4085900 	kCustomCompressionB5 supported: 0
+2026/09/19-03:19:04.000585 4085900 	kCustomCompressionD5 supported: 0
+2026/09/19-03:19:04.000587 4085900 	kCustomCompressionB8 supported: 0
+2026/09/19-03:19:04.000590 4085900 	kCustomCompressionD1 supported: 0
+2026/09/19-03:19:04.000592 4085900 	kCustomCompressionBA supported: 0
+2026/09/19-03:19:04.000594 4085900 	kCustomCompressionBC supported: 0
+2026/09/19-03:19:04.000596 4085900 	kCustomCompressionCE supported: 0
+2026/09/19-03:19:04.000598 4085900 	kCustomCompressionBD supported: 0
+2026/09/19-03:19:04.000600 4085900 	kCustomCompressionC4 supported: 0
+2026/09/19-03:19:04.000603 4085900 	kCustomCompression9A supported: 0
+2026/09/19-03:19:04.000605 4085900 	kCustomCompression99 supported: 0
+2026/09/19-03:19:04.000607 4085900 	kCustomCompressionBE supported: 0
+2026/09/19-03:19:04.000609 4085900 	kCustomCompressionE5 supported: 0
+2026/09/19-03:19:04.000611 4085900 	kCustomCompressionD9 supported: 0
+2026/09/19-03:19:04.000613 4085900 	kCustomCompressionC1 supported: 0
+2026/09/19-03:19:04.000616 4085900 	kCustomCompressionC5 supported: 0
+2026/09/19-03:19:04.000618 4085900 	kCustomCompressionC2 supported: 0
+2026/09/19-03:19:04.000620 4085900 	kCustomCompressionA5 supported: 0
+2026/09/19-03:19:04.000622 4085900 	kCustomCompressionC7 supported: 0
+2026/09/19-03:19:04.000624 4085900 	kCustomCompressionBF supported: 0
+2026/09/19-03:19:04.000626 4085900 	kCustomCompressionE8 supported: 0
+2026/09/19-03:19:04.000629 4085900 	kCustomCompressionC8 supported: 0
+2026/09/19-03:19:04.000631 4085900 	kCustomCompressionAF supported: 0
+2026/09/19-03:19:04.000633 4085900 	kCustomCompressionCA supported: 0
+2026/09/19-03:19:04.000635 4085900 	kCustomCompressionCD supported: 0
+2026/09/19-03:19:04.000637 4085900 	kCustomCompressionC0 supported: 0
+2026/09/19-03:19:04.000639 4085900 	kCustomCompressionCF supported: 0
+2026/09/19-03:19:04.000641 4085900 	kCustomCompressionF9 supported: 0
+2026/09/19-03:19:04.000644 4085900 	kCustomCompressionD0 supported: 0
+2026/09/19-03:19:04.000646 4085900 	kCustomCompressionD2 supported: 0
+2026/09/19-03:19:04.000648 4085900 	kCustomCompressionAD supported: 0
+2026/09/19-03:19:04.000650 4085900 	kCustomCompressionD3 supported: 0
+2026/09/19-03:19:04.000655 4085900 	kCustomCompressionD4 supported: 0
+2026/09/19-03:19:04.000657 4085900 	kCustomCompressionD7 supported: 0
+2026/09/19-03:19:04.000659 4085900 	kCustomCompression82 supported: 0
+2026/09/19-03:19:04.000661 4085900 	kCustomCompressionDD supported: 0
+2026/09/19-03:19:04.000663 4085900 	kCustomCompressionC3 supported: 0
+2026/09/19-03:19:04.000665 4085900 	kCustomCompressionEE supported: 0
+2026/09/19-03:19:04.000668 4085900 	kCustomCompressionDE supported: 0
+2026/09/19-03:19:04.000670 4085900 	kCustomCompressionDF supported: 0
+2026/09/19-03:19:04.000672 4085900 	kCustomCompressionA7 supported: 0
+2026/09/19-03:19:04.000674 4085900 	kCustomCompressionE0 supported: 0
+2026/09/19-03:19:04.000676 4085900 	kCustomCompressionF1 supported: 0
+2026/09/19-03:19:04.000678 4085900 	kCustomCompressionE1 supported: 0
+2026/09/19-03:19:04.000680 4085900 	kCustomCompressionF5 supported: 0
+2026/09/19-03:19:04.000683 4085900 	kCustomCompression80 supported: 0
+2026/09/19-03:19:04.000685 4085900 	kCustomCompressionE3 supported: 0
+2026/09/19-03:19:04.000687 4085900 	kCustomCompressionE4 supported: 0
+2026/09/19-03:19:04.000689 4085900 	kCustomCompressionB0 supported: 0
+2026/09/19-03:19:04.000691 4085900 	kCustomCompressionEA supported: 0
+2026/09/19-03:19:04.000693 4085900 	kCustomCompressionFA supported: 0
+2026/09/19-03:19:04.000696 4085900 	kCustomCompressionE7 supported: 0
+2026/09/19-03:19:04.000698 4085900 	kCustomCompressionAE supported: 0
+2026/09/19-03:19:04.000700 4085900 	kCustomCompressionEB supported: 0
+2026/09/19-03:19:04.000702 4085900 	kCustomCompressionED supported: 0
+2026/09/19-03:19:04.000704 4085900 	kCustomCompressionB6 supported: 0
+2026/09/19-03:19:04.000707 4085900 	kCustomCompressionEF supported: 0
+2026/09/19-03:19:04.000709 4085900 	kCustomCompressionF0 supported: 0
+2026/09/19-03:19:04.000711 4085900 	kCustomCompressionB7 supported: 0
+2026/09/19-03:19:04.000713 4085900 	kCustomCompressionF2 supported: 0
+2026/09/19-03:19:04.000715 4085900 	kCustomCompressionA1 supported: 0
+2026/09/19-03:19:04.000717 4085900 	kCustomCompressionF4 supported: 0
+2026/09/19-03:19:04.000719 4085900 	kSnappyCompression supported: 0
+2026/09/19-03:19:04.000722 4085900 	kCustomCompressionF6 supported: 0
+2026/09/19-03:19:04.000726 4085900 Fast CRC32 supported: Supported on x86
+2026/09/19-03:19:04.000729 4085900 DMutex implementation: pthread_mutex_t
+2026/09/19-03:19:04.000731 4085900 Jemalloc supported: 0
+2026/09/19-03:19:04.000856 4085900 [db/version_set.cc:6792] Recovering from manifest file: /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/MANIFEST-000005
+2026/09/19-03:19:04.001079 4085900 [db/column_family.cc:708] --------------- Options for column family [default]:
+2026/09/19-03:19:04.001085 4085900               Options.comparator: leveldb.BytewiseComparator
+2026/09/19-03:19:04.001088 4085900           Options.merge_operator: None
+2026/09/19-03:19:04.001091 4085900        Options.compaction_filter: None
+2026/09/19-03:19:04.001093 4085900        Options.compaction_filter_factory: None
+2026/09/19-03:19:04.001096 4085900  Options.sst_partitioner_factory: None
+2026/09/19-03:19:04.001098 4085900         Options.memtable_factory: SlimMemTableRepFactory
+2026/09/19-03:19:04.001100 4085900            Options.table_factory: BlockBasedTable
+2026/09/19-03:19:04.001150 4085900            table_factory options:   flush_block_policy_factory: FlushBlockBySizePolicyFactory (0x623a512c26a0)
+  cache_index_and_filter_blocks: 0
+  cache_index_and_filter_blocks_with_high_priority: 1
+  pin_l0_filter_and_index_blocks_in_cache: 0
+  pin_top_level_index_and_filter: 0
+  index_type: 0
+  data_block_index_type: 0
+  index_shortening: 2
+  data_block_hash_table_util_ratio: 0.750000
+  checksum: 4
+  no_block_cache: 0
+  block_cache: 0x623a5126a2d0
+  block_cache_name: AutoHyperClockCache
+  block_cache_options:
+    capacity : 536870912
+    num_shard_bits : 4
+    strict_capacity_limit : 0
+    memory_allocator : None
+  persistent_cache: (nil)
+  block_size: 4096
+  block_size_deviation: 10
+  block_restart_interval: 16
+  index_block_restart_interval: 1
+  metadata_block_size: 4096
+  partition_filters: 0
+  use_delta_encoding: 1
+  filter_policy: nullptr
+  user_defined_index_factory: nullptr
+  use_udi_as_primary_index: 0
+  fail_if_no_udi_on_open: 0
+  whole_key_filtering: 1
+  verify_compression: 0
+  read_amp_bytes_per_bit: 0
+  format_version: 7
+  uniform_cv_threshold: -1.000000
+  enable_index_compression: 1
+  block_align: 0
+  super_block_alignment_size: 0
+  super_block_alignment_space_overhead_ratio: 128
+  max_auto_readahead_size: 262144
+  prepopulate_block_cache: 0
+  initial_auto_readahead_size: 8192
+  num_file_reads_for_auto_readahead: 2
+2026/09/19-03:19:04.001169 4085900        Options.write_buffer_size: 268435456
+2026/09/19-03:19:04.001172 4085900  Options.max_write_buffer_number: 9
+2026/09/19-03:19:04.001176 4085900          Options.compression: NoCompression
+2026/09/19-03:19:04.001178 4085900                  Options.bottommost_compression: Disabled
+2026/09/19-03:19:04.001181 4085900       Options.prefix_extractor: nullptr
+2026/09/19-03:19:04.001183 4085900   Options.memtable_insert_with_hint_prefix_extractor: nullptr
+2026/09/19-03:19:04.001185 4085900             Options.num_levels: 7
+2026/09/19-03:19:04.001188 4085900        Options.min_write_buffer_number_to_merge: 1
+2026/09/19-03:19:04.001190 4085900     Options.max_write_buffer_size_to_maintain: 0
+2026/09/19-03:19:04.001193 4085900            Options.bottommost_compression_opts.window_bits: -14
+2026/09/19-03:19:04.001195 4085900                  Options.bottommost_compression_opts.level: 32767
+2026/09/19-03:19:04.001198 4085900               Options.bottommost_compression_opts.strategy: 0
+2026/09/19-03:19:04.001200 4085900         Options.bottommost_compression_opts.max_dict_bytes: 0
+2026/09/19-03:19:04.001202 4085900         Options.bottommost_compression_opts.zstd_max_train_bytes: 0
+2026/09/19-03:19:04.001204 4085900         Options.bottommost_compression_opts.parallel_threads: 1
+2026/09/19-03:19:04.001207 4085900                  Options.bottommost_compression_opts.enabled: false
+2026/09/19-03:19:04.001209 4085900         Options.bottommost_compression_opts.max_dict_buffer_bytes: 0
+2026/09/19-03:19:04.001211 4085900         Options.bottommost_compression_opts.use_zstd_dict_trainer: true
+2026/09/19-03:19:04.001213 4085900            Options.compression_opts.window_bits: -14
+2026/09/19-03:19:04.001216 4085900                  Options.compression_opts.level: 32767
+2026/09/19-03:19:04.001218 4085900               Options.compression_opts.strategy: 0
+2026/09/19-03:19:04.001220 4085900         Options.compression_opts.max_dict_bytes: 0
+2026/09/19-03:19:04.001223 4085900         Options.compression_opts.zstd_max_train_bytes: 0
+2026/09/19-03:19:04.001225 4085900         Options.compression_opts.use_zstd_dict_trainer: true
+2026/09/19-03:19:04.001227 4085900         Options.compression_opts.parallel_threads: 1
+2026/09/19-03:19:04.001229 4085900                  Options.compression_opts.enabled: false
+2026/09/19-03:19:04.001232 4085900         Options.compression_opts.max_dict_buffer_bytes: 0
+2026/09/19-03:19:04.001234 4085900      Options.level0_file_num_compaction_trigger: 100000000
+2026/09/19-03:19:04.001236 4085900          Options.level0_slowdown_writes_trigger: 100000000
+2026/09/19-03:19:04.001239 4085900              Options.level0_stop_writes_trigger: 100000000
+2026/09/19-03:19:04.001241 4085900                   Options.target_file_size_base: 67108864
+2026/09/19-03:19:04.001243 4085900             Options.target_file_size_multiplier: 1
+2026/09/19-03:19:04.001245 4085900            Options.target_file_size_is_upper_bound: 0
+2026/09/19-03:19:04.001248 4085900                Options.max_bytes_for_level_base: 1073741824
+2026/09/19-03:19:04.001250 4085900 Options.level_compaction_dynamic_level_bytes: 0
+2026/09/19-03:19:04.001252 4085900          Options.max_bytes_for_level_multiplier: 10.000000
+2026/09/19-03:19:04.001256 4085900 Options.max_bytes_for_level_multiplier_addtl[0]: 1
+2026/09/19-03:19:04.001266 4085900 Options.max_bytes_for_level_multiplier_addtl[1]: 1
+2026/09/19-03:19:04.001268 4085900 Options.max_bytes_for_level_multiplier_addtl[2]: 1
+2026/09/19-03:19:04.001273 4085900 Options.max_bytes_for_level_multiplier_addtl[3]: 1
+2026/09/19-03:19:04.001275 4085900 Options.max_bytes_for_level_multiplier_addtl[4]: 1
+2026/09/19-03:19:04.001278 4085900 Options.max_bytes_for_level_multiplier_addtl[5]: 1
+2026/09/19-03:19:04.001280 4085900 Options.max_bytes_for_level_multiplier_addtl[6]: 1
+2026/09/19-03:19:04.001282 4085900       Options.max_sequential_skip_in_iterations: 8
+2026/09/19-03:19:04.001284 4085900          Options.memtable_op_scan_flush_trigger: 0
+2026/09/19-03:19:04.001287 4085900      Options.memtable_avg_op_scan_flush_trigger: 0
+2026/09/19-03:19:04.001289 4085900      Options.min_tombstones_for_range_conversion: 0
+2026/09/19-03:19:04.001291 4085900                    Options.max_compaction_bytes: 1677721600
+2026/09/19-03:19:04.001293 4085900                        Options.arena_block_size: 1048576
+2026/09/19-03:19:04.001296 4085900   Options.soft_pending_compaction_bytes_limit: 68719476736
+2026/09/19-03:19:04.001298 4085900   Options.hard_pending_compaction_bytes_limit: 137438953472
+2026/09/19-03:19:04.001300 4085900                Options.disable_auto_compactions: 0
+2026/09/19-03:19:04.001303 4085900                        Options.compaction_style: kCompactionStyleLevel
+2026/09/19-03:19:04.001306 4085900                          Options.compaction_pri: kMinOverlappingRatio
+2026/09/19-03:19:04.001308 4085900 Options.compaction_options_universal.size_ratio: 1
+2026/09/19-03:19:04.001310 4085900 Options.compaction_options_universal.min_merge_width: 2
+2026/09/19-03:19:04.001312 4085900 Options.compaction_options_universal.max_merge_width: 4294967295
+2026/09/19-03:19:04.001315 4085900 Options.compaction_options_universal.max_size_amplification_percent: 200
+2026/09/19-03:19:04.001317 4085900 Options.compaction_options_universal.compression_size_percent: -1
+2026/09/19-03:19:04.001320 4085900 Options.compaction_options_universal.stop_style: kCompactionStopStyleTotalSize
+2026/09/19-03:19:04.001322 4085900 Options.compaction_options_universal.max_read_amp: -1
+2026/09/19-03:19:04.001324 4085900 Options.compaction_options_universal.reduce_file_locking: 1
+2026/09/19-03:19:04.001326 4085900 Options.compaction_options_fifo.max_table_files_size: 0
+2026/09/19-03:19:04.001329 4085900 Options.compaction_options_fifo.allow_compaction: 1
+2026/09/19-03:19:04.001333 4085900                   Options.table_properties_collectors: 
+2026/09/19-03:19:04.001336 4085900                   Options.inplace_update_support: 0
+2026/09/19-03:19:04.001338 4085900                 Options.inplace_update_num_locks: 10000
+2026/09/19-03:19:04.001340 4085900               Options.memtable_prefix_bloom_size_ratio: 0.000000
+2026/09/19-03:19:04.001343 4085900               Options.memtable_whole_key_filtering: 0
+2026/09/19-03:19:04.001346 4085900   Options.memtable_huge_page_size: 0
+2026/09/19-03:19:04.001348 4085900                           Options.bloom_locality: 0
+2026/09/19-03:19:04.001350 4085900                    Options.max_successive_merges: 0
+2026/09/19-03:19:04.001353 4085900             Options.strict_max_successive_merges: 0
+2026/09/19-03:19:04.001355 4085900                Options.optimize_filters_for_hits: 0
+2026/09/19-03:19:04.001357 4085900                Options.paranoid_file_checks: 0
+2026/09/19-03:19:04.001359 4085900                Options.force_consistency_checks: 1
+2026/09/19-03:19:04.001362 4085900                Options.report_bg_io_stats: 0
+2026/09/19-03:19:04.001364 4085900                Options.disallow_memtable_writes: 0
+2026/09/19-03:19:04.001366 4085900                               Options.ttl: 2592000
+2026/09/19-03:19:04.001368 4085900          Options.periodic_compaction_seconds: 0
+2026/09/19-03:19:04.001371 4085900                        Options.default_temperature: kUnknown
+2026/09/19-03:19:04.001373 4085900  Options.preclude_last_level_data_seconds: 0
+2026/09/19-03:19:04.001376 4085900    Options.preserve_internal_time_seconds: 0
+2026/09/19-03:19:04.001378 4085900                       Options.enable_blob_files: false
+2026/09/19-03:19:04.001380 4085900                           Options.min_blob_size: 0
+2026/09/19-03:19:04.001382 4085900                          Options.blob_file_size: 268435456
+2026/09/19-03:19:04.001385 4085900                   Options.blob_compression_type: NoCompression
+2026/09/19-03:19:04.001387 4085900             Options.blob_compression_opts.level: 32767
+2026/09/19-03:19:04.001389 4085900          Options.enable_blob_garbage_collection: false
+2026/09/19-03:19:04.001392 4085900      Options.blob_garbage_collection_age_cutoff: 0.250000
+2026/09/19-03:19:04.001394 4085900 Options.blob_garbage_collection_force_threshold: 1.000000
+2026/09/19-03:19:04.001397 4085900          Options.blob_compaction_readahead_size: 0
+2026/09/19-03:19:04.001399 4085900                Options.blob_file_starting_level: 0
+2026/09/19-03:19:04.001401 4085900         Options.experimental_mempurge_threshold: 0.000000
+2026/09/19-03:19:04.001404 4085900            Options.memtable_max_range_deletions: 0
+2026/09/19-03:19:04.001406 4085900                  Options.cf_allow_ingest_behind: false
+2026/09/19-03:19:04.001408 4085900   Options.memtable_batch_lookup_optimization: false
+2026/09/19-03:19:04.001411 4085900              Options.enable_blob_direct_write: false
+2026/09/19-03:19:04.001413 4085900            Options.blob_direct_write_partitions: 1
+2026/09/19-03:19:04.003665 4085900 [db/version_set.cc:6843] Recovered from manifest file:/home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/MANIFEST-000005 succeeded,manifest_file_number is 5, next_file_number is 148, last_sequence is 703211, log_number is 4,prev_log_number is 0,max_column_family is 0,min_log_number_to_keep is 4
+2026/09/19-03:19:04.003681 4085900 [db/version_set.cc:6858] Column family [default] (ID 0), log number is 4
+2026/09/19-03:19:04.003904 4085900 [db/db_impl/db_impl_open.cc:689] DB ID: f7eacd7e-57b1-45d8-8859-1d74643b2da5
+2026/09/19-03:19:04.004394 4085900 EVENT_LOG_v1 {"time_micros": 1789759144004375, "job": 1, "event": "recovery_started", "wal_files": [4]}
+2026/09/19-03:19:04.004411 4085900 [db/db_impl/db_impl_open.cc:1371] Recovering log #4 mode 2
+2026/09/19-03:19:04.004453 4085900 [db/db_impl/db_impl_open.cc:1345] Recovered to log #4 next seq #72057594037927935
+2026/09/19-03:19:04.004561 4085900 EVENT_LOG_v1 {"time_micros": 1789759144004555, "job": 1, "event": "recovery_finished", "status": "OK"}
+2026/09/19-03:19:04.008092 4085900 [db/version_set.cc:6402] Created manifest 150, compacted+appended from 2075 to 1707
+2026/09/19-03:19:04.012407 4085900 [db/db_impl/db_impl_open.cc:2666] SstFileManager instance 0x623a512c84a0
+2026/09/19-03:19:04.013662 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000004.log immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1388373022, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.013952 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000027.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1388373022, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.013978 4085900 EVENT_LOG_v1 {"time_micros": 1789759144013972, "job": 2, "event": "table_file_deletion", "file_number": 27, "status": "OK"}
+2026/09/19-03:19:04.014233 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000028.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1384622257, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.014246 4085900 EVENT_LOG_v1 {"time_micros": 1789759144014243, "job": 2, "event": "table_file_deletion", "file_number": 28, "status": "OK"}
+2026/09/19-03:19:04.014520 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000029.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1380737485, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.014533 4085900 EVENT_LOG_v1 {"time_micros": 1789759144014530, "job": 2, "event": "table_file_deletion", "file_number": 29, "status": "OK"}
+2026/09/19-03:19:04.014828 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000030.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1377037391, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.014840 4085900 EVENT_LOG_v1 {"time_micros": 1789759144014837, "job": 2, "event": "table_file_deletion", "file_number": 30, "status": "OK"}
+2026/09/19-03:19:04.015073 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000031.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1372453931, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.015084 4085900 EVENT_LOG_v1 {"time_micros": 1789759144015082, "job": 2, "event": "table_file_deletion", "file_number": 31, "status": "OK"}
+2026/09/19-03:19:04.015742 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000032.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1368855155, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.015783 4085900 EVENT_LOG_v1 {"time_micros": 1789759144015776, "job": 2, "event": "table_file_deletion", "file_number": 32, "status": "OK"}
+2026/09/19-03:19:04.016100 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000033.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1359967132, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.016115 4085900 EVENT_LOG_v1 {"time_micros": 1789759144016111, "job": 2, "event": "table_file_deletion", "file_number": 33, "status": "OK"}
+2026/09/19-03:19:04.016414 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000034.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1355512477, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.016427 4085900 EVENT_LOG_v1 {"time_micros": 1789759144016424, "job": 2, "event": "table_file_deletion", "file_number": 34, "status": "OK"}
+2026/09/19-03:19:04.016695 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000035.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1351288902, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.016706 4085900 EVENT_LOG_v1 {"time_micros": 1789759144016703, "job": 2, "event": "table_file_deletion", "file_number": 35, "status": "OK"}
+2026/09/19-03:19:04.017201 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000036.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1347232121, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.017212 4085900 EVENT_LOG_v1 {"time_micros": 1789759144017209, "job": 2, "event": "table_file_deletion", "file_number": 36, "status": "OK"}
+2026/09/19-03:19:04.017500 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000037.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1338912950, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.017511 4085900 EVENT_LOG_v1 {"time_micros": 1789759144017508, "job": 2, "event": "table_file_deletion", "file_number": 37, "status": "OK"}
+2026/09/19-03:19:04.017778 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000038.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1334657745, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.017789 4085900 EVENT_LOG_v1 {"time_micros": 1789759144017787, "job": 2, "event": "table_file_deletion", "file_number": 38, "status": "OK"}
+2026/09/19-03:19:04.018065 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000039.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1330654795, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.018076 4085900 EVENT_LOG_v1 {"time_micros": 1789759144018073, "job": 2, "event": "table_file_deletion", "file_number": 39, "status": "OK"}
+2026/09/19-03:19:04.018363 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000040.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1326451272, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.018374 4085900 EVENT_LOG_v1 {"time_micros": 1789759144018372, "job": 2, "event": "table_file_deletion", "file_number": 40, "status": "OK"}
+2026/09/19-03:19:04.018905 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000041.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1322157000, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.018917 4085900 EVENT_LOG_v1 {"time_micros": 1789759144018914, "job": 2, "event": "table_file_deletion", "file_number": 41, "status": "OK"}
+2026/09/19-03:19:04.019418 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000042.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1313301698, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.019429 4085900 EVENT_LOG_v1 {"time_micros": 1789759144019426, "job": 2, "event": "table_file_deletion", "file_number": 42, "status": "OK"}
+2026/09/19-03:19:04.019823 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000044.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1304827359, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.019838 4085900 EVENT_LOG_v1 {"time_micros": 1789759144019835, "job": 2, "event": "table_file_deletion", "file_number": 44, "status": "OK"}
+2026/09/19-03:19:04.020090 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000045.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1301163189, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.020101 4085900 EVENT_LOG_v1 {"time_micros": 1789759144020098, "job": 2, "event": "table_file_deletion", "file_number": 45, "status": "OK"}
+2026/09/19-03:19:04.020367 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000046.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1297328006, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.020378 4085900 EVENT_LOG_v1 {"time_micros": 1789759144020375, "job": 2, "event": "table_file_deletion", "file_number": 46, "status": "OK"}
+2026/09/19-03:19:04.020745 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000047.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1293481239, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.020759 4085900 EVENT_LOG_v1 {"time_micros": 1789759144020756, "job": 2, "event": "table_file_deletion", "file_number": 47, "status": "OK"}
+2026/09/19-03:19:04.021002 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000049.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1288877768, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.021013 4085900 EVENT_LOG_v1 {"time_micros": 1789759144021010, "job": 2, "event": "table_file_deletion", "file_number": 49, "status": "OK"}
+2026/09/19-03:19:04.021299 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000050.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1285249465, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.021310 4085900 EVENT_LOG_v1 {"time_micros": 1789759144021308, "job": 2, "event": "table_file_deletion", "file_number": 50, "status": "OK"}
+2026/09/19-03:19:04.021587 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000051.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1280832750, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.021598 4085900 EVENT_LOG_v1 {"time_micros": 1789759144021595, "job": 2, "event": "table_file_deletion", "file_number": 51, "status": "OK"}
+2026/09/19-03:19:04.022394 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000052.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1276382261, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.022407 4085900 EVENT_LOG_v1 {"time_micros": 1789759144022404, "job": 2, "event": "table_file_deletion", "file_number": 52, "status": "OK"}
+2026/09/19-03:19:04.022669 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000053.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1262579252, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.022679 4085900 EVENT_LOG_v1 {"time_micros": 1789759144022677, "job": 2, "event": "table_file_deletion", "file_number": 53, "status": "OK"}
+2026/09/19-03:19:04.022944 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000054.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1258618514, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.022955 4085900 EVENT_LOG_v1 {"time_micros": 1789759144022952, "job": 2, "event": "table_file_deletion", "file_number": 54, "status": "OK"}
+2026/09/19-03:19:04.023728 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000055.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1254510019, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.023740 4085900 EVENT_LOG_v1 {"time_micros": 1789759144023737, "job": 2, "event": "table_file_deletion", "file_number": 55, "status": "OK"}
+2026/09/19-03:19:04.024500 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000056.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1240788115, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.024512 4085900 EVENT_LOG_v1 {"time_micros": 1789759144024509, "job": 2, "event": "table_file_deletion", "file_number": 56, "status": "OK"}
+2026/09/19-03:19:04.024779 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000057.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1227513704, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.024790 4085900 EVENT_LOG_v1 {"time_micros": 1789759144024787, "job": 2, "event": "table_file_deletion", "file_number": 57, "status": "OK"}
+2026/09/19-03:19:04.025567 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000058.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1223289088, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.025579 4085900 EVENT_LOG_v1 {"time_micros": 1789759144025576, "job": 2, "event": "table_file_deletion", "file_number": 58, "status": "OK"}
+2026/09/19-03:19:04.025861 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000059.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1209618871, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.025872 4085900 EVENT_LOG_v1 {"time_micros": 1789759144025869, "job": 2, "event": "table_file_deletion", "file_number": 59, "status": "OK"}
+2026/09/19-03:19:04.026275 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000060.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1205265479, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.026290 4085900 EVENT_LOG_v1 {"time_micros": 1789759144026287, "job": 2, "event": "table_file_deletion", "file_number": 60, "status": "OK"}
+2026/09/19-03:19:04.027546 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000062.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1200993413, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.027569 4085900 EVENT_LOG_v1 {"time_micros": 1789759144027564, "job": 2, "event": "table_file_deletion", "file_number": 62, "status": "OK"}
+2026/09/19-03:19:04.028701 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000063.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1182898235, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.028716 4085900 EVENT_LOG_v1 {"time_micros": 1789759144028712, "job": 2, "event": "table_file_deletion", "file_number": 63, "status": "OK"}
+2026/09/19-03:19:04.029961 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000064.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1164472763, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.029978 4085900 EVENT_LOG_v1 {"time_micros": 1789759144029974, "job": 2, "event": "table_file_deletion", "file_number": 64, "status": "OK"}
+2026/09/19-03:19:04.030287 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000066.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1146226820, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.030301 4085900 EVENT_LOG_v1 {"time_micros": 1789759144030298, "job": 2, "event": "table_file_deletion", "file_number": 66, "status": "OK"}
+2026/09/19-03:19:04.030536 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000067.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1141635971, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.030547 4085900 EVENT_LOG_v1 {"time_micros": 1789759144030545, "job": 2, "event": "table_file_deletion", "file_number": 67, "status": "OK"}
+2026/09/19-03:19:04.030828 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000068.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1138099515, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.030839 4085900 EVENT_LOG_v1 {"time_micros": 1789759144030836, "job": 2, "event": "table_file_deletion", "file_number": 68, "status": "OK"}
+2026/09/19-03:19:04.031118 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000069.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1133640616, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.031129 4085900 EVENT_LOG_v1 {"time_micros": 1789759144031127, "job": 2, "event": "table_file_deletion", "file_number": 69, "status": "OK"}
+2026/09/19-03:19:04.031529 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000070.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1129151079, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.031543 4085900 EVENT_LOG_v1 {"time_micros": 1789759144031541, "job": 2, "event": "table_file_deletion", "file_number": 70, "status": "OK"}
+2026/09/19-03:19:04.032413 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000071.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1124979268, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.032423 4085900 EVENT_LOG_v1 {"time_micros": 1789759144032421, "job": 2, "event": "table_file_deletion", "file_number": 71, "status": "OK"}
+2026/09/19-03:19:04.032605 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000072.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1105653772, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.032612 4085900 EVENT_LOG_v1 {"time_micros": 1789759144032610, "job": 2, "event": "table_file_deletion", "file_number": 72, "status": "OK"}
+2026/09/19-03:19:04.032795 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000073.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1101492501, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.032802 4085900 EVENT_LOG_v1 {"time_micros": 1789759144032800, "job": 2, "event": "table_file_deletion", "file_number": 73, "status": "OK"}
+2026/09/19-03:19:04.032980 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000074.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1097240495, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.032987 4085900 EVENT_LOG_v1 {"time_micros": 1789759144032985, "job": 2, "event": "table_file_deletion", "file_number": 74, "status": "OK"}
+2026/09/19-03:19:04.033165 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000075.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1093240664, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.033173 4085900 EVENT_LOG_v1 {"time_micros": 1789759144033171, "job": 2, "event": "table_file_deletion", "file_number": 75, "status": "OK"}
+2026/09/19-03:19:04.033361 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000076.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1089083585, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.033370 4085900 EVENT_LOG_v1 {"time_micros": 1789759144033368, "job": 2, "event": "table_file_deletion", "file_number": 76, "status": "OK"}
+2026/09/19-03:19:04.033571 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000077.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1084858963, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.033579 4085900 EVENT_LOG_v1 {"time_micros": 1789759144033577, "job": 2, "event": "table_file_deletion", "file_number": 77, "status": "OK"}
+2026/09/19-03:19:04.033838 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000078.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1080539363, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.033848 4085900 EVENT_LOG_v1 {"time_micros": 1789759144033846, "job": 2, "event": "table_file_deletion", "file_number": 78, "status": "OK"}
+2026/09/19-03:19:04.034025 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000080.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1076305293, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.034032 4085900 EVENT_LOG_v1 {"time_micros": 1789759144034030, "job": 2, "event": "table_file_deletion", "file_number": 80, "status": "OK"}
+2026/09/19-03:19:04.034202 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000081.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1072554528, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.034209 4085900 EVENT_LOG_v1 {"time_micros": 1789759144034207, "job": 2, "event": "table_file_deletion", "file_number": 81, "status": "OK"}
+2026/09/19-03:19:04.034382 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000082.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1068669756, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.034391 4085900 EVENT_LOG_v1 {"time_micros": 1789759144034389, "job": 2, "event": "table_file_deletion", "file_number": 82, "status": "OK"}
+2026/09/19-03:19:04.035693 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000083.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1064969662, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.035704 4085900 EVENT_LOG_v1 {"time_micros": 1789759144035702, "job": 2, "event": "table_file_deletion", "file_number": 83, "status": "OK"}
+2026/09/19-03:19:04.035868 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000084.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1034428248, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.035875 4085900 EVENT_LOG_v1 {"time_micros": 1789759144035873, "job": 2, "event": "table_file_deletion", "file_number": 84, "status": "OK"}
+2026/09/19-03:19:04.037502 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000085.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1030829472, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.037538 4085900 EVENT_LOG_v1 {"time_micros": 1789759144037532, "job": 2, "event": "table_file_deletion", "file_number": 85, "status": "OK"}
+2026/09/19-03:19:04.039478 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000086.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 1000986551, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.039501 4085900 EVENT_LOG_v1 {"time_micros": 1789759144039496, "job": 2, "event": "table_file_deletion", "file_number": 86, "status": "OK"}
+2026/09/19-03:19:04.039861 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000087.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 971296596, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.039877 4085900 EVENT_LOG_v1 {"time_micros": 1789759144039874, "job": 2, "event": "table_file_deletion", "file_number": 87, "status": "OK"}
+2026/09/19-03:19:04.040147 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000088.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 967073021, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.040158 4085900 EVENT_LOG_v1 {"time_micros": 1789759144040155, "job": 2, "event": "table_file_deletion", "file_number": 88, "status": "OK"}
+2026/09/19-03:19:04.040659 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000089.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 963016240, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.040671 4085900 EVENT_LOG_v1 {"time_micros": 1789759144040668, "job": 2, "event": "table_file_deletion", "file_number": 89, "status": "OK"}
+2026/09/19-03:19:04.040943 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000090.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 954697069, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.040954 4085900 EVENT_LOG_v1 {"time_micros": 1789759144040951, "job": 2, "event": "table_file_deletion", "file_number": 90, "status": "OK"}
+2026/09/19-03:19:04.041214 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000091.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 950441864, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.041225 4085900 EVENT_LOG_v1 {"time_micros": 1789759144041222, "job": 2, "event": "table_file_deletion", "file_number": 91, "status": "OK"}
+2026/09/19-03:19:04.042921 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000092.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 946438914, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.042935 4085900 EVENT_LOG_v1 {"time_micros": 1789759144042932, "job": 2, "event": "table_file_deletion", "file_number": 92, "status": "OK"}
+2026/09/19-03:19:04.043206 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000093.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 917890648, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.043217 4085900 EVENT_LOG_v1 {"time_micros": 1789759144043214, "job": 2, "event": "table_file_deletion", "file_number": 93, "status": "OK"}
+2026/09/19-03:19:04.043733 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000094.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 913596376, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.043745 4085900 EVENT_LOG_v1 {"time_micros": 1789759144043742, "job": 2, "event": "table_file_deletion", "file_number": 94, "status": "OK"}
+2026/09/19-03:19:04.044243 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000095.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 904741074, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.044254 4085900 EVENT_LOG_v1 {"time_micros": 1789759144044251, "job": 2, "event": "table_file_deletion", "file_number": 95, "status": "OK"}
+2026/09/19-03:19:04.044647 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000099.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 896266735, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.044662 4085900 EVENT_LOG_v1 {"time_micros": 1789759144044659, "job": 2, "event": "table_file_deletion", "file_number": 99, "status": "OK"}
+2026/09/19-03:19:04.044915 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000100.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 892602565, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.044927 4085900 EVENT_LOG_v1 {"time_micros": 1789759144044924, "job": 2, "event": "table_file_deletion", "file_number": 100, "status": "OK"}
+2026/09/19-03:19:04.045179 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000101.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 888767382, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.045189 4085900 EVENT_LOG_v1 {"time_micros": 1789759144045187, "job": 2, "event": "table_file_deletion", "file_number": 101, "status": "OK"}
+2026/09/19-03:19:04.045608 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000102.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 884920615, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.045621 4085900 EVENT_LOG_v1 {"time_micros": 1789759144045618, "job": 2, "event": "table_file_deletion", "file_number": 102, "status": "OK"}
+2026/09/19-03:19:04.045865 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000103.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 880317144, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.045876 4085900 EVENT_LOG_v1 {"time_micros": 1789759144045873, "job": 2, "event": "table_file_deletion", "file_number": 103, "status": "OK"}
+2026/09/19-03:19:04.046155 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000104.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 876688841, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.046166 4085900 EVENT_LOG_v1 {"time_micros": 1789759144046163, "job": 2, "event": "table_file_deletion", "file_number": 104, "status": "OK"}
+2026/09/19-03:19:04.046450 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000105.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 872272126, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.046462 4085900 EVENT_LOG_v1 {"time_micros": 1789759144046459, "job": 2, "event": "table_file_deletion", "file_number": 105, "status": "OK"}
+2026/09/19-03:19:04.048889 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000106.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 867821637, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.048902 4085900 EVENT_LOG_v1 {"time_micros": 1789759144048899, "job": 2, "event": "table_file_deletion", "file_number": 106, "status": "OK"}
+2026/09/19-03:19:04.049162 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000107.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 826544475, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.049173 4085900 EVENT_LOG_v1 {"time_micros": 1789759144049170, "job": 2, "event": "table_file_deletion", "file_number": 107, "status": "OK"}
+2026/09/19-03:19:04.049565 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000108.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 822583737, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.049578 4085900 EVENT_LOG_v1 {"time_micros": 1789759144049575, "job": 2, "event": "table_file_deletion", "file_number": 108, "status": "OK"}
+2026/09/19-03:19:04.051753 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000109.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 818475242, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.051762 4085900 EVENT_LOG_v1 {"time_micros": 1789759144051760, "job": 2, "event": "table_file_deletion", "file_number": 109, "status": "OK"}
+2026/09/19-03:19:04.053349 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000110.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 777500948, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.053359 4085900 EVENT_LOG_v1 {"time_micros": 1789759144053357, "job": 2, "event": "table_file_deletion", "file_number": 110, "status": "OK"}
+2026/09/19-03:19:04.053558 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000111.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 738337387, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.053566 4085900 EVENT_LOG_v1 {"time_micros": 1789759144053564, "job": 2, "event": "table_file_deletion", "file_number": 111, "status": "OK"}
+2026/09/19-03:19:04.055178 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000112.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 734112771, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.055187 4085900 EVENT_LOG_v1 {"time_micros": 1789759144055185, "job": 2, "event": "table_file_deletion", "file_number": 112, "status": "OK"}
+2026/09/19-03:19:04.055393 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000113.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 693355753, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.055400 4085900 EVENT_LOG_v1 {"time_micros": 1789759144055398, "job": 2, "event": "table_file_deletion", "file_number": 113, "status": "OK"}
+2026/09/19-03:19:04.055582 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000114.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 689002361, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.055589 4085900 EVENT_LOG_v1 {"time_micros": 1789759144055587, "job": 2, "event": "table_file_deletion", "file_number": 114, "status": "OK"}
+2026/09/19-03:19:04.056314 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000115.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 684730295, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.056322 4085900 EVENT_LOG_v1 {"time_micros": 1789759144056320, "job": 2, "event": "table_file_deletion", "file_number": 115, "status": "OK"}
+2026/09/19-03:19:04.057054 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000116.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 666635117, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.057062 4085900 EVENT_LOG_v1 {"time_micros": 1789759144057060, "job": 2, "event": "table_file_deletion", "file_number": 116, "status": "OK"}
+2026/09/19-03:19:04.057928 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000117.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 648209645, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.057939 4085900 EVENT_LOG_v1 {"time_micros": 1789759144057937, "job": 2, "event": "table_file_deletion", "file_number": 117, "status": "OK"}
+2026/09/19-03:19:04.059226 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000118.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 629963702, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.059234 4085900 EVENT_LOG_v1 {"time_micros": 1789759144059232, "job": 2, "event": "table_file_deletion", "file_number": 118, "status": "OK"}
+2026/09/19-03:19:04.059488 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000119.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 597430238, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.059502 4085900 EVENT_LOG_v1 {"time_micros": 1789759144059500, "job": 2, "event": "table_file_deletion", "file_number": 119, "status": "OK"}
+2026/09/19-03:19:04.060784 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000120.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 593893782, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.060792 4085900 EVENT_LOG_v1 {"time_micros": 1789759144060790, "job": 2, "event": "table_file_deletion", "file_number": 120, "status": "OK"}
+2026/09/19-03:19:04.062113 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000121.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 561210654, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.062120 4085900 EVENT_LOG_v1 {"time_micros": 1789759144062119, "job": 2, "event": "table_file_deletion", "file_number": 121, "status": "OK"}
+2026/09/19-03:19:04.062247 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000122.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 529357881, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.062251 4085900 EVENT_LOG_v1 {"time_micros": 1789759144062250, "job": 2, "event": "table_file_deletion", "file_number": 122, "status": "OK"}
+2026/09/19-03:19:04.062803 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000123.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 525186070, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.062809 4085900 EVENT_LOG_v1 {"time_micros": 1789759144062808, "job": 2, "event": "table_file_deletion", "file_number": 123, "status": "OK"}
+2026/09/19-03:19:04.062933 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000124.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 505860574, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.062938 4085900 EVENT_LOG_v1 {"time_micros": 1789759144062936, "job": 2, "event": "table_file_deletion", "file_number": 124, "status": "OK"}
+2026/09/19-03:19:04.063060 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000125.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 501699303, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.063064 4085900 EVENT_LOG_v1 {"time_micros": 1789759144063063, "job": 2, "event": "table_file_deletion", "file_number": 125, "status": "OK"}
+2026/09/19-03:19:04.063183 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000126.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 497447297, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.063188 4085900 EVENT_LOG_v1 {"time_micros": 1789759144063187, "job": 2, "event": "table_file_deletion", "file_number": 126, "status": "OK"}
+2026/09/19-03:19:04.064214 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000127.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 493447466, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.064221 4085900 EVENT_LOG_v1 {"time_micros": 1789759144064220, "job": 2, "event": "table_file_deletion", "file_number": 127, "status": "OK"}
+2026/09/19-03:19:04.064356 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000128.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 462971666, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.064362 4085900 EVENT_LOG_v1 {"time_micros": 1789759144064360, "job": 2, "event": "table_file_deletion", "file_number": 128, "status": "OK"}
+2026/09/19-03:19:04.064491 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000129.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 458747043, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.064496 4085900 EVENT_LOG_v1 {"time_micros": 1789759144064495, "job": 2, "event": "table_file_deletion", "file_number": 129, "status": "OK"}
+2026/09/19-03:19:04.064618 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000130.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 454427442, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.064623 4085900 EVENT_LOG_v1 {"time_micros": 1789759144064622, "job": 2, "event": "table_file_deletion", "file_number": 130, "status": "OK"}
+2026/09/19-03:19:04.065369 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000131.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 450193371, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.065375 4085900 EVENT_LOG_v1 {"time_micros": 1789759144065373, "job": 2, "event": "table_file_deletion", "file_number": 131, "status": "OK"}
+2026/09/19-03:19:04.066144 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000132.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 422309332, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.066149 4085900 EVENT_LOG_v1 {"time_micros": 1789759144066147, "job": 2, "event": "table_file_deletion", "file_number": 132, "status": "OK"}
+2026/09/19-03:19:04.066892 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000133.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 393631780, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.066897 4085900 EVENT_LOG_v1 {"time_micros": 1789759144066896, "job": 2, "event": "table_file_deletion", "file_number": 133, "status": "OK"}
+2026/09/19-03:19:04.067756 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000134.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 365978766, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.067762 4085900 EVENT_LOG_v1 {"time_micros": 1789759144067760, "job": 2, "event": "table_file_deletion", "file_number": 134, "status": "OK"}
+2026/09/19-03:19:04.067870 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000135.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 335437351, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.067875 4085900 EVENT_LOG_v1 {"time_micros": 1789759144067874, "job": 2, "event": "table_file_deletion", "file_number": 135, "status": "OK"}
+2026/09/19-03:19:04.068824 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000136.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 331838574, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.068831 4085900 EVENT_LOG_v1 {"time_micros": 1789759144068830, "job": 2, "event": "table_file_deletion", "file_number": 136, "status": "OK"}
+2026/09/19-03:19:04.069628 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000137.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 301995652, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.069633 4085900 EVENT_LOG_v1 {"time_micros": 1789759144069632, "job": 2, "event": "table_file_deletion", "file_number": 137, "status": "OK"}
+2026/09/19-03:19:04.069757 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000138.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 272305696, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.069766 4085900 EVENT_LOG_v1 {"time_micros": 1789759144069765, "job": 2, "event": "table_file_deletion", "file_number": 138, "status": "OK"}
+2026/09/19-03:19:04.070564 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000139.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 268082120, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.070569 4085900 EVENT_LOG_v1 {"time_micros": 1789759144070568, "job": 2, "event": "table_file_deletion", "file_number": 139, "status": "OK"}
+2026/09/19-03:19:04.071590 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000140.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 238322893, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.071596 4085900 EVENT_LOG_v1 {"time_micros": 1789759144071595, "job": 2, "event": "table_file_deletion", "file_number": 140, "status": "OK"}
+2026/09/19-03:19:04.071720 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000141.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 204058533, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.071724 4085900 EVENT_LOG_v1 {"time_micros": 1789759144071723, "job": 2, "event": "table_file_deletion", "file_number": 141, "status": "OK"}
+2026/09/19-03:19:04.071834 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000142.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 199803327, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.071837 4085900 EVENT_LOG_v1 {"time_micros": 1789759144071837, "job": 2, "event": "table_file_deletion", "file_number": 142, "status": "OK"}
+2026/09/19-03:19:04.072361 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000143.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 195800376, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.072364 4085900 EVENT_LOG_v1 {"time_micros": 1789759144072363, "job": 2, "event": "table_file_deletion", "file_number": 143, "status": "OK"}
+2026/09/19-03:19:04.072452 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000144.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 167252109, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.072456 4085900 EVENT_LOG_v1 {"time_micros": 1789759144072455, "job": 2, "event": "table_file_deletion", "file_number": 144, "status": "OK"}
+2026/09/19-03:19:04.073109 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000145.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 162957836, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.073113 4085900 EVENT_LOG_v1 {"time_micros": 1789759144073112, "job": 2, "event": "table_file_deletion", "file_number": 145, "status": "OK"}
+2026/09/19-03:19:04.073861 4085900 [file/delete_scheduler.cc:71] Deleted file /home/embed/hyl/metadata_offload/output/zeroflush_m5_perf/b4b17b3_50gb_1kb/db/000146.sst immediately, rate_bytes_per_sec 0, total_trash_size 0, total_size 126891292, max_trash_db_ratio 0.250000
+2026/09/19-03:19:04.073866 4085900 EVENT_LOG_v1 {"time_micros": 1789759144073865, "job": 2, "event": "table_file_deletion", "file_number": 146, "status": "OK"}
+2026/09/19-03:19:04.073937 4085900 DB pointer 0x623a512c38c0
+2026/09/19-03:19:04.074418 4085942 [db/db_impl/db_impl.cc:1431] ------- DUMPING STATS -------
+2026/09/19-03:19:04.074476 4085942 [db/db_impl/db_impl.cc:1433] 
+** DB Stats **
+Uptime(secs): 0.1 total, 0.1 interval
+Cumulative writes: 0 writes, 0 keys, 0 commit groups, 0.0 writes per commit group, ingest: 0.00 GB, 0.00 MB/s
+Cumulative WAL: 0 writes, 0 syncs, 0.00 writes per sync, written: 0.00 GB, 0.00 MB/s
+Cumulative stall: 00:00:0.000 H:M:S, 0.0 percent
+Interval writes: 0 writes, 0 keys, 0 commit groups, 0.0 writes per commit group, ingest: 0.00 MB, 0.00 MB/s
+Interval WAL: 0 writes, 0 syncs, 0.00 writes per sync, written: 0.00 GB, 0.00 MB/s
+Interval stall: 00:00:0.000 H:M:S, 0.0 percent
+Write Stall (count): write-buffer-manager-limit-stops: 0
+
+** Compaction Stats [default] **
+Level    Files   Size     Score Read(GB)  Rn(GB) Rnp1(GB) Write(GB) WPreComp(GB) Wnew(GB) Moved(GB) W-Amp Rd(MB/s) Wr(MB/s) Comp(sec) CompMergeCPU(sec) Comp(cnt) Avg(sec) KeyIn KeyDrop Rblob(GB) Wblob(GB)
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  L1     16/0     88.33 MB   0.1      0.0     0.0      0.0       0.0       0.0      0.0       0.0   0.0      0.0      0.0      0.00              0.00         0    0.000       0      0       0.0       0.0
+ Sum     16/0     88.33 MB   0.0      0.0     0.0      0.0       0.0       0.0      0.0       0.0   0.0      0.0      0.0      0.00              0.00         0    0.000       0      0       0.0       0.0
+ Int      0/0      0.00 KB   0.0      0.0     0.0      0.0       0.0       0.0      0.0       0.0   0.0      0.0      0.0      0.00              0.00         0    0.000       0      0       0.0       0.0
+
+** Compaction Stats [default] **
+Priority    Files   Size     Score Read(GB)  Rn(GB) Rnp1(GB) Write(GB) WPreComp(GB) Wnew(GB) Moved(GB) W-Amp Rd(MB/s) Wr(MB/s) Comp(sec) CompMergeCPU(sec) Comp(cnt) Avg(sec) KeyIn KeyDrop Rblob(GB) Wblob(GB)
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Blob file count: 0, total size: 0.0 GB, garbage size: 0.0 GB, space amp: 0.0
+
+Uptime(secs): 0.1 total, 0.1 interval
+Flush(GB): cumulative 0.000, interval 0.000
+AddFile(GB): cumulative 0.000, interval 0.000
+AddFile(Total Files): cumulative 0, interval 0
+AddFile(L0 Files): cumulative 0, interval 0
+AddFile(Keys): cumulative 0, interval 0
+Cumulative compaction: 0.00 GB write, 0.00 MB/s write, 0.00 GB read, 0.00 MB/s read, 0.0 seconds
+Interval compaction: 0.00 GB write, 0.00 MB/s write, 0.00 GB read, 0.00 MB/s read, 0.0 seconds
+Estimated pending compaction bytes: 0
+Write Stall (count): cf-l0-file-count-limit-delays-with-ongoing-compaction: 0, cf-l0-file-count-limit-stops-with-ongoing-compaction: 0, l0-file-count-limit-delays: 0, l0-file-count-limit-stops: 0, memtable-limit-delays: 0, memtable-limit-stops: 0, pending-compaction-bytes-delays: 0, pending-compaction-bytes-stops: 0, total-delays: 0, total-stops: 0
+Block cache AutoHyperClockCache@0x623a5126a2d0#4085900 capacity: 512.00 MB seed: 20260914 usage: 64.00 KB table_size: 1024 occupancy: 1 collections: 1 last_copies: 0 last_secs: 6.5e-05 secs_since: 0
+Block cache entry stats(count,size,portion): Misc(1,0.00 KB,0%)
+
+** File Read Latency Histogram By Level [default] **

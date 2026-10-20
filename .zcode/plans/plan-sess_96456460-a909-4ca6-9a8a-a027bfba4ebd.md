@@ -20,7 +20,7 @@
 2. benchmark 结束后若 zeroflush 开启，循环打印全部 15 个 `rocksdb.zeroflush.*` 属性（仿 `tools/zf_test.cc:125-129` 的 ZfProp）——epochs_sealed/materialized/reclaimed、install_direct_base/fallback_l0、materialize_sort_micros、sealed_read_count 等。
 3. `make -j db_bench` 增量编译；用 30 秒微型 run 冒烟验证新 flag 与属性打印。
 
-## B. 驱动脚本 `output/zeroflush_m3_perf/profiling/zf_profile.py`（新建）
+## B. 驱动脚本 `archive/zeroflush_m3_perf/profiling/zf_profile.py`（新建）
 - 顺序执行 W0→W1→W2→W3，DB 目录 `/tmp/zf_prof_db_<variant>`（**不删**，解析完 LOG 后再清理）；
 - 公共 flag 与 50GB 基准一致（compression=none, disable_wal=false, cache 8MB, write_buffer 256MB, max_background_jobs 16, histogram, statistics），另加 `--stats_interval_seconds=30 --stats_per_interval=true`（stats dump 的 **Stalls 段**给出按原因的停写秒数——精确归因主通道）；
 - 采样器线程：每秒读 `/proc/<pid>/stat`（utime/stime/线程数）+ `/proc/diskstats` → CSV（iostat/pidstat 未安装的替代）；
@@ -37,7 +37,7 @@
 
 汇总输出每变体：wall time 分解（有效写入 / 停写等待 / 物化 / compaction，注意重叠关系按时间线对齐而非简单相加）、物化平均批次时长与字节率、L0 波动周期。
 
-## D. 报告 `output/zeroflush_m3_perf/profiling/profiling_report.md`
+## D. 报告 `archive/zeroflush_m3_perf/profiling/profiling_report.md`
 - wall-time 分解表（4 变体对照）+ L0/物化/compaction 时间线图（文本表或简易 HTML）；
 - 对报告根因 ②③ 的明确判定（已实现 or 仍瓶颈），及根因 ① 的定量占比；
 - 修订版 P3 建议：若停写占主导 → 优先消费端（compaction/融合归并启用、范围路由验证）；若物化占主导 → 深挖 BuildTable fsync/单 flush 线程串行等新嫌疑；

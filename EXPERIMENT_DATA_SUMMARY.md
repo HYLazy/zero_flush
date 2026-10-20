@@ -2,7 +2,7 @@
 
 > 盘点时间：2026-09-12（覆盖 2026-08-04 前期探针 → 2026-09-12 merge-off 中止）
 > 数据来源：`output/**` 报告与原始日志、`exp_design/**` 报告与 JSON、`zeroflush/*_DESIGN.md`
-> 与 `ZEROFLUSHV0_ROADMAP.md`、`git log` 里程碑。**所有数字均来自文件原文**；来源
+> 与 `archive/report/study/ZEROFLUSHV0_ROADMAP.md`、`git log` 里程碑。**所有数字均来自文件原文**；来源
 > 路径逐条给出；冲突项在 §9 并列。可信度分级见 §10。
 
 ---
@@ -14,15 +14,15 @@
 | exp0 flush 成本分解 | 08-05 | 80M ops/8T；100B·1K·4K × value-seq/uniform | — | 838,964 / 312,675 / 76,133 / 25,905 / 9,558 / 3,106 ops/s | `[已归档 /home/embed/hyl/metadata_offload-archive/pre-v0-experiments/]exp_design/pre_experiment/report/exp0_stage_report.md` |
 | exp1 L0 overlap 干预 | 08-05 | 10M 写×8T/1KB，flush 按 L1 边界分区 | overlap 6.0→1.98（zipf）/7.0→0.23（unif）；吞吐 −62.7%/−68.8% | baseline 58,522（zipf） | `.../exp1_stage_report.md` |
 | exp2 分区开销门 | 08-04 | range lookup P∈{64,128,256}；multi-WAL P∈{1,16,64}×{A,B} | lookup p99 ≤90ns；P=64 组提交回退 76.8%（A）/19.5%（B） | P=1 A sync 306,743 ops/s | `.../exp2_stage_report.md` |
-| M3 早期 50GB 基准 | 08-20/21 | 50GB/16T，P=64 | 3,387（256B）/ 1,919（1KB）ops/s | 124,125 / 30,255 | `source/rocksdb-zeroflush/benchmark_analysis_report.md` |
-| M3 写路径剖析 W0–W3 | 08-21 | 2.2GB/256B/16T | W1 10,898（后重跑 21,594） | W0 1,031,788 ops/s | `output/zeroflush_m3_perf/profiling/profiling_report.md` |
+| M3 早期 50GB 基准 | 08-20/21 | 50GB/16T，P=64 | 3,387（256B）/ 1,919（1KB）ops/s | 124,125 / 30,255 | `archive/report/benchmark/benchmark_analysis_report.md` |
+| M3 写路径剖析 W0–W3 | 08-21 | 2.2GB/256B/16T | W1 10,898（后重跑 21,594） | W0 1,031,788 ops/s | `archive/zeroflush_m3_perf/profiling/profiling_report.md` |
 | M3 L0→L1 重要性 | — | 100GB/1KB/16T，L1=256M/1G/4G | 28,374 / 27,694 / 35,402 ops/s | — | `.../l0_l1_importance/l0l1_report.md` |
 | M3 原生 100GB 停顿基线 | — | 100GiB/1KB，T=2/4/8/16 | — | 13,978 / 12,558 / 11,424 / 10,539 ops/s | `.../native_wa_stall_100gb*/` |
 | M3 E6 矩阵 24 配置 | 08-27/29 | 10/50/100GB × 128B–2KB | 写落后 1.04–5.53×；100GB 读 0.45–0.96×（**反超**） | — | `.../bench_matrix_report.md` |
 | M4.1 去串行化 | 08-21 | 2.2GB | 21,594（2.0×）；R3 38,129（3.2×） | — | `M4_DESIGN.md` §M4.1 |
 | M4.2b→M4.6d 演进 | 08-22/25 | 50GB/16T | 22,751 → **28,812（1.9h 闭环）** | — | `M4_DESIGN.md` §M4.2b–§M4.6 |
 | M4.6–M4.11 优化 | 08-25/29 | 50GB/16T | R43/R44 **60.0K/66.9K**；切片 78.6K | 88.8K（差距 11%） | `M4_DESIGN.md` §6.6–§6.15 |
-| **M4 DG 50GB 验收** | 09-10 | gov_bench：51.2M 写×1KB=50GiB **写流量**；universe 100M、hot 85%/span 12M（活数据仅 19.0M 条） | **ON 40,196 / OFF 29,801 ops/s（+34.9%）**，命中 83.88%/83.89%，0 corruption | — | `output/zeroflush_m4_perf/REPORT.md` |
+| **M4 DG 50GB 验收** | 09-10 | gov_bench：51.2M 写×1KB=50GiB **写流量**；universe 100M、hot 85%/span 12M（活数据仅 19.0M 条） | **ON 40,196 / OFF 29,801 ops/s（+34.9%）**，命中 83.88%/83.89%，0 corruption | — | `archive/zeroflush_m4_perf/REPORT.md` |
 | **M4 DG 100GB 验收** | 09-10 | 104.86M 写≈100GiB | **ON 22,545 ops/s**，命中 86.04%，0 corruption；OFF 两次卡滞（~69% 处） | — | 同上 |
 | M5 50GB（丢失修复后） | 09-07 | 50M/1KB/16T，base_merge | fill 15,452（0.74×）；read **188,086**；命中 63.26% | fill 20,752；read 137,972 | `.../m5_50gb_fix/RESULTS.md` |
 | **cmp_1kb50 同窗对照** | 09-02 | 50GB/1KB/16T | **27,066 ops/s**（1,773s）；read 63,284 | 26,409（1,818s）；read 356,717 | `.../cmp_1kb50/RESULTS.md` |
@@ -185,7 +185,7 @@ L0→L1 单 job avg 15.7–18.1s，深层累计为 wall 的 1080–1116%。
   run 目录缺失）；M3 profiling W0–W3/W2b（stdout+result.json+samples.csv）；cmp_1kb50/100、
   zf09_100gb、cmp_50gb_{planA,tr32,skipbatch}（fill/read 原始 log）；native_wa_stall 100GB 四线程
   （JSON，stdout/LOG 已删）；l0_l1_importance / l0_bottleneck（summary JSON/CSV）；E6 matrix.json；
-  vanilla smoke；M4 DG 50/100GB 与 OFF 卡滞现场（`output/zeroflush_m4_perf/logs/*.log.gz` 5 份）；
+  vanilla smoke；M4 DG 50/100GB 与 OFF 卡滞现场（`archive/zeroflush_m4_perf/logs/*.log.gz` 5 份）；
   M5 merge-off（zf_fill.log / native_fill.log / run2_telemetry.log / DNF evidence / ENV_DIAGNOSIS.md）。
 - **仅有结论/汇总数字**：M1（回归 PASS）、M2（设计）、M4 旧架构 R3/R7/R8/R15–R44 全部、
   M4.6/4.8/4.9 多数实验、M5 50GB 修复验收、崩溃矩阵与带宽限流。

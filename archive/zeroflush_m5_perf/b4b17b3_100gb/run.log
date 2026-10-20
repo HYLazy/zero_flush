@@ -1,0 +1,30 @@
+start 2026-09-19 02:11:48
+bin=b29d439da6359757aa99d7df96badf49 so=609c747930a331a4f163472efa30ae38
+b4b17b3 chore(zeroflush): 候选线清洗——实验性积压排空/收益攒批移出候选（含全部 env 开关）
+fill_pid=4060072
+watch[fill] 02:12:19 size=5557052276 log=1099361 stall=0 freeGB=659
+watch[fill] 02:12:49 size=9241126139 log=2041250 stall=0 freeGB=655
+watch[fill] 02:13:19 size=10485674293 log=2459372 stall=0 freeGB=654
+watch[fill] 02:13:49 size=11240515241 log=2736722 stall=0 freeGB=653
+watch[fill] 02:14:19 size=14640922579 log=2894552 stall=0 freeGB=649
+watch[fill] 02:14:49 size=10621616508 log=3307175 stall=0 freeGB=654
+watch[fill] 02:15:32 size=14013001276 log=3578991 stall=0 freeGB=651
+watch[fill] 02:16:08 size=12604397458 log=3942006 stall=0 freeGB=652
+watch[fill] 02:16:38 size=13513333708 log=4176528 stall=0 freeGB=651
+watch[fill] 02:17:08 size=15623414213 log=4364305 stall=0 freeGB=649
+watch[fill] 02:17:38 size=15615650739 log=4539292 stall=0 freeGB=649
+watch[fill] 02:18:08 size=12528914598 log=4849876 stall=0 freeGB=652
+watch[fill] 02:18:38 size=15868432069 log=5004238 stall=0 freeGB=649
+watch[fill] 02:19:08 size=16430206822 log=5164153 stall=0 freeGB=648
+watch[fill] 02:19:38 size=13849470053 log=5434633 stall=0 freeGB=651
+watch[fill] 02:20:08 size=15191982542 log=5567527 stall=0 freeGB=650
+watch[fill] 02:20:38 size=13798057555 log=5744776 stall=0 freeGB=651
+watch[fill] 02:21:08 size=14114773971 log=5758286 stall=0 freeGB=651
+watch[fill] 02:21:38 size=14412410150 log=5961673 stall=0 freeGB=651
+watch[fill] 02:22:08 size=14412414484 log=5966007 stall=0 freeGB=651
+watch[fill] 02:22:38 size=14412414484 log=5966007 stall=1 freeGB=651
+watch[fill] 02:23:08 size=14412414484 log=5966007 stall=2 freeGB=651
+watch[fill] 02:23:38 size=14412414484 log=5966007 stall=3 freeGB=651
+STALL detected 2026-09-19 02:23:38 size=14412414484 log=5966007
+leader thread=29 frame=8
+STALL_CAPTURED

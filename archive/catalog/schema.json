@@ -1,0 +1,57 @@
+{
+ "schema_version": "1.0",
+ "dataset_entry": {
+  "generation": "str，v1|v2：该数据集属于哪一代实验（v2=perf_v2 战役，直方图编码 lower_bound_v2、逐运行 §6 有效性门；缺省/\"v1\"=早期战役，其延迟百分位为 v1 编码占位值，引用前须按桶下界重标）",
+  "id": "str，稳定标识 <milestone>/<dataset>",
+  "title_zh": "str，中文短标题",
+  "engine": "list[str]，取值 native / zeroflush",
+  "category": [
+   "benchmark",
+   "capacity_sweep",
+   "diagnosis",
+   "integration",
+   "isolation",
+   "mechanism",
+   "protocol"
+  ],
+  "purpose_zh": "str，实验目的（该实验回答什么问题）",
+  "environment": {
+   "host": "str|null",
+   "cpu": "str|null",
+   "cores_threads": "str|null",
+   "ram": "str|null",
+   "device": "str|null",
+   "filesystem": "str|null",
+   "engine_version": "str|null",
+   "binary_path": "str|null",
+   "workload": "str|null",
+   "rocksdb_options": "str|null",
+   "other": "str|null"
+  },
+  "results": [
+   {
+    "metric": "str",
+    "value": "str（原文写法）",
+    "unit": "str",
+    "condition": "str（哪条臂/哪次运行）",
+    "source": "str path:LINE"
+   }
+  ],
+  "evaluation_zh": "str，报告自身裁决",
+  "caveats_zh": "list[str]，报告自述限制/方差/作废",
+  "sources": "list[str] path:LINE",
+  "artifacts": {
+   "dirs": "list[str]",
+   "n_files": "int",
+   "bytes": "int",
+   "by_format": "dict[str,int]"
+  }
+ },
+ "conventions": [
+  "path 一律为仓库根相对路径。",
+  "source 一律 'path:LINE'，LINE 为 1 基行号；允许 'path:A-B' 与 'path:A,B-C'。",
+  "未在来源中写明的字段填 null 或省略，禁止推断。",
+  "数值保持报告原文（含单位与千分位），目录不做单位换算。",
+  "tracked=true 表示该产物已入库；false 表示被 .gitignore 排除、只在本机保留。"
+ ]
+}

@@ -1,0 +1,23 @@
+start 2026-09-18 23:44:57
+bin=e59c7db6a05f1d23fc47bf5da28df6fa so=19ca3c65c209567502f376d5af952873
+fill_pid=3997321
+watch 23:45:28 size=7099475929 log=960579 stall=0
+watch 23:45:58 size=12450171725 log=1789129 stall=0
+watch 23:46:28 size=12418376229 log=2244360 stall=0
+watch 23:46:58 size=11461788539 log=2541170 stall=0
+watch 23:47:28 size=10638177089 log=2844382 stall=0
+watch 23:47:58 size=13144487444 log=3082015 stall=0
+watch 23:48:28 size=9642875980 log=3334246 stall=0
+watch 23:48:58 size=13761659928 log=3649971 stall=0
+watch 23:49:28 size=11450612622 log=3898804 stall=0
+watch 23:49:58 size=10981508254 log=4146870 stall=0
+watch 23:50:29 size=12693481208 log=4404441 stall=0
+watch 23:50:59 size=13218236685 log=4681894 stall=0
+watch 23:51:29 size=12003119030 log=4821851 stall=0
+watch 23:51:59 size=12003119030 log=4821851 stall=1
+watch 23:52:29 size=12003119030 log=4821851 stall=2
+watch 23:52:59 size=12003119030 log=4821851 stall=3
+STALL detected 2026-09-18 23:52:59 size=12003119030 log=4821851
+leader thread=42 frame=8
+captured thread=42
+STALL_CAPTURED

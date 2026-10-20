@@ -1,0 +1,69 @@
+[New LWP 4014415]
+[New LWP 4014416]
+[New LWP 4014417]
+[New LWP 4014418]
+[New LWP 4014419]
+[New LWP 4014420]
+[New LWP 4014421]
+[New LWP 4014422]
+[New LWP 4014423]
+[New LWP 4014424]
+[New LWP 4014425]
+[New LWP 4014426]
+[New LWP 4014427]
+[New LWP 4014428]
+[New LWP 4014429]
+[New LWP 4014430]
+[New LWP 4014431]
+[New LWP 4014432]
+[New LWP 4014433]
+[New LWP 4014434]
+[New LWP 4014435]
+[New LWP 4014436]
+[New LWP 4014437]
+[New LWP 4014438]
+[New LWP 4014455]
+[New LWP 4014456]
+[New LWP 4014472]
+[New LWP 4014473]
+[New LWP 4014474]
+[New LWP 4014475]
+[New LWP 4014476]
+[New LWP 4014477]
+[New LWP 4014478]
+[New LWP 4014479]
+[New LWP 4014480]
+[New LWP 4014481]
+[New LWP 4014482]
+[New LWP 4014483]
+[New LWP 4014484]
+[New LWP 4014485]
+[New LWP 4014486]
+[New LWP 4014487]
+[New LWP 4014488]
+[New LWP 4014489]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+__futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7ffec0e9fda0) at ./nptl/futex-internal.c:57
+57	./nptl/futex-internal.c: No such file or directory.
+[Switching to thread 42 (Thread 0x71ab001be640 (LWP 4014486))]
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x71ab001b9518) at ./nptl/futex-internal.c:57
+57	in ./nptl/futex-internal.c
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x71ab001b9518) at ./nptl/futex-internal.c:57
+57	in ./nptl/futex-internal.c
+Stack level 0, frame at 0x71ab001b8c50:
+ rip = 0x71ab250910d7 in __futex_abstimed_wait_common64 (./nptl/futex-internal.c:57); saved rip = 0x71ab25093a01
+ inlined into frame 1
+ source language c.
+ Arglist at unknown address.
+ Locals at unknown address, Previous frame's sp in rsp
+No symbol "this" in current context.
+No symbol "this" in current context.
+No symbol "this" in current context.
+No symbol "this" in current context.
+No symbol "this" in current context.
+No symbol "this" in current context.
+No symbol "this" in current context.
+No symbol "this" in current context.
+No symbol "this" in current context.
+[Inferior 1 (process 4014413) detached]

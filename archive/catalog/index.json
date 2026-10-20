@@ -1,0 +1,178 @@
+{
+ "schema_version": "1.0",
+ "scope": "archived",
+ "generation": {
+  "v2": 0,
+  "v1": 78,
+  "note": "v2 = perf_v2/*（2026-09-25 起的 runbook 战役，直方图编码 lower_bound_v2，逐运行有效性门与工具 sha256）；v1 = 早期战役（其延迟百分位为 v1 编码占位值，引用前须按桶下界重标）。逐数据集的 generation 字段见 experiments.json，缺省表示 v1。"
+ },
+ "generated_by": "output/report/catalog/build_catalog.py",
+ "regenerate": "python3 output/report/catalog/build_catalog.py",
+ "purpose": "把仓库里的实验数据编成一份自描述的 JSON 目录：每个数据集带实验环境、实验目的、结果条目、结果评估与限制，并且每条事实都带 file:LINE 出处。",
+ "other_scope": {
+  "active": "output/report/catalog/index.json",
+  "note": "存档作用域；默认不参与导出，需要时用 export_bundle.py --scope archived。"
+ },
+ "files": {
+  "index.json": "本文件：总索引 + 校验报告",
+  "experiments.json": "注解层：每个数据集的 环境/目的/结果/评估/限制/出处/产物概览",
+  "environment.json": "共享环境参考：主机、设备、两套引擎与构建、仪器、测量注意",
+  "runs.json": "逐运行身份索引（bench 各 stage 的 manifest.jsonl + 报告 JSON 的 runs[]）",
+  "artifacts.json": "每个数据集的原始产物清单（格式、字节、是否入库）",
+  "documents.json": "报告/协议/设计/说明类文档索引",
+  "schema.json": "字段定义与填写约定"
+ },
+ "counts": {
+  "datasets": 78,
+  "result_rows": 862,
+  "citations": 1456,
+  "machine_runs_bench": 1133,
+  "documents": 43,
+  "artifact_files_indexed": 808
+ },
+ "by_milestone": {
+  "m3": 21,
+  "m4": 16,
+  "m5": 41
+ },
+ "by_category": {
+  "benchmark": 21,
+  "capacity_sweep": 4,
+  "diagnosis": 25,
+  "integration": 7,
+  "mechanism": 21
+ },
+ "annotation_coverage": {
+  "entries_with_evaluation": 76,
+  "entries_with_caveats": 76,
+  "entries_with_nonempty_environment": 78,
+  "citation_checks": 1456,
+  "citation_failures": 0
+ },
+ "validation": {
+  "schema_problems": [],
+  "citation_problems": [],
+  "note": "schema_problems 为空且 citation_problems 为空即表示：所有必填键齐全、所有出处都能解析到存在的文件与行、且该行非空。"
+ },
+ "annotation_gaps": [
+  {
+   "id": "m3/bench_matrix_v2",
+   "missing": [
+    "evaluation_zh"
+   ],
+   "source_kinds": [
+    ".json"
+   ],
+   "reason": "来源为机器写出的裸测量文件（.json），文件内没有结论文本与假设判定，故留空而不补写。"
+  },
+  {
+   "id": "m3/benchmark_native_zeroflush",
+   "missing": [
+    "evaluation_zh",
+    "caveats_zh"
+   ],
+   "source_kinds": [
+    ".json"
+   ],
+   "reason": "来源为机器写出的裸测量文件（.json），文件内没有结论文本与假设判定，故留空而不补写。"
+  },
+  {
+   "id": "m4/gov_100gb_off_p256",
+   "missing": [
+    "caveats_zh"
+   ],
+   "source_kinds": [
+    ".md"
+   ],
+   "reason": "来源报告未陈述该项（限制/方差/裁决），故留空而不补写。"
+  }
+ ],
+ "dataset_ids": [
+  "m3/bench_matrix",
+  "m3/bench_matrix_v2",
+  "m3/benchmark_native_zeroflush",
+  "m3/cmp_1kb100",
+  "m3/cmp_1kb50",
+  "m3/cmp_50gb_planA",
+  "m3/cmp_50gb_skipbatch",
+  "m3/cmp_50gb_tr32",
+  "m3/integrated_report",
+  "m3/l0_bottleneck",
+  "m3/l0_l1_importance",
+  "m3/m5_50gb_fix",
+  "m3/native_wa_stall_100gb",
+  "m3/native_wa_stall_100gb#comp_time",
+  "m3/native_wa_stall_100gb_t2",
+  "m3/native_wa_stall_100gb_t4",
+  "m3/native_wa_stall_100gb_t8",
+  "m3/profiling",
+  "m3/profiling#verification",
+  "m3/rocksdb_vs_zeroflush_comparison",
+  "m3/zf09_100gb_1kb",
+  "m4/acceptance",
+  "m4/active_tail_split",
+  "m4/gov_100gb",
+  "m4/gov_100gb_off",
+  "m4/gov_100gb_off_max_l1",
+  "m4/gov_100gb_off_p256",
+  "m4/gov_50gb",
+  "m4/gov_big_8t",
+  "m4/inflight_leak",
+  "m4/l0_consume",
+  "m4/m49_guards",
+  "m4/m49_logandapply",
+  "m4/m49_merge0",
+  "m4/m49_overlap",
+  "m4/m49_threshold",
+  "m4/split_predrain",
+  "m5/50gb_1kb_merge_off#ENV_DIAGNOSIS",
+  "m5/B4B17B3_50GB_100GB_REPORT",
+  "m5/b4b17b3_50gb_1kb",
+  "m5/b4b17b3_followups",
+  "m5/baseline",
+  "m5/bench100g",
+  "m5/c59fc41_50gb_1kb",
+  "m5/candidate_a14",
+  "m5/exp_a10",
+  "m5/exp_a11",
+  "m5/exp_a12",
+  "m5/exp_a13",
+  "m5/exp_a6a7",
+  "m5/exp_a8",
+  "m5/exp_a9",
+  "m5/fix_50gb_static",
+  "m5/l0_closure",
+  "m5/ledger",
+  "m5/ledger#REPORT_0B",
+  "m5/ledger_a1a3",
+  "m5/ledger_aprobe",
+  "m5/ledger_b_step1",
+  "m5/ledger_b_step2b",
+  "m5/ledger_b_step3_4",
+  "m5/ledger_fixed_routing_perf",
+  "m5/ledger_repair_d",
+  "m5/ledger_snapfix",
+  "m5/ledger_v06_c1c2",
+  "m5/ledger_v06_cand",
+  "m5/ledger_v06_p0",
+  "m5/materialize_lag#protocol_fix_attempt",
+  "m5/materialize_lag#report",
+  "m5/merge_on_accept",
+  "m5/merge_on_accept_v2#attempt_log",
+  "m5/merge_on_accept_v2#report",
+  "m5/native_50gb_samewindow",
+  "m5/p1_backlogdrain_exp",
+  "m5/release_c59fc41",
+  "m5/sink_tuning",
+  "m5/sink_tuning#report",
+  "m5/sink_tuning#report_0a"
+ ],
+ "reading_guide": {
+  "稳定标识": "id 形如 <milestone>/<dataset>，如 m3/cmp_1kb50、bench/I#noc；与文件名/目录名对应。",
+  "environment": "只写与 environment.json 基线不同处；未记录则 null（不猜）。",
+  "results": "每条含 metric/value/unit/condition/source；value 为报告原文写法，未做换算。",
+  "evaluation_zh": "报告自身的裁决（支持/否证/作废/已修正），不是本目录的再判断。",
+  "caveats_zh": "报告自述的限制、方差、作废与更正；跨数据集的方法学限制见 environment.measurement_caveats。",
+  "artifacts": "概览（目录/文件数/字节/格式分布）在 experiments.json；完整文件清单在 artifacts.json。derived_from=directory 表示产物来自该数据集的目录；=citations 表示该条目是某文档的章节，产物即其引用到的文件。"
+ }
+}

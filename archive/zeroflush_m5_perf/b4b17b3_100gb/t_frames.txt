@@ -1,0 +1,68 @@
+[New LWP 4060074]
+[New LWP 4060075]
+[New LWP 4060076]
+[New LWP 4060077]
+[New LWP 4060078]
+[New LWP 4060079]
+[New LWP 4060080]
+[New LWP 4060081]
+[New LWP 4060082]
+[New LWP 4060083]
+[New LWP 4060084]
+[New LWP 4060085]
+[New LWP 4060086]
+[New LWP 4060087]
+[New LWP 4060088]
+[New LWP 4060089]
+[New LWP 4060090]
+[New LWP 4060091]
+[New LWP 4060092]
+[New LWP 4060093]
+[New LWP 4060094]
+[New LWP 4060095]
+[New LWP 4060096]
+[New LWP 4060097]
+[New LWP 4060114]
+[New LWP 4060115]
+[New LWP 4060131]
+[New LWP 4060132]
+[New LWP 4060133]
+[New LWP 4060134]
+[New LWP 4060135]
+[New LWP 4060136]
+[New LWP 4060137]
+[New LWP 4060138]
+[New LWP 4060139]
+[New LWP 4060140]
+[New LWP 4060141]
+[New LWP 4060142]
+[New LWP 4060143]
+[New LWP 4060144]
+[New LWP 4060145]
+[New LWP 4060146]
+[New LWP 4060147]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+__futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7fffce362430) at ./nptl/futex-internal.c:57
+57	./nptl/futex-internal.c: No such file or directory.
+[Switching to thread 29 (Thread 0x7927c01be640 (LWP 4060132))]
+#0  __futex_abstimed_wait_common64 (private=-1544281536, cancel=true, abstime=0x7927c01b8b00, op=393, expected=0, futex_word=0x62b5a3f3a854) at ./nptl/futex-internal.c:57
+57	in ./nptl/futex-internal.c
+#0  __futex_abstimed_wait_common64 (private=-1544281536, cancel=true, abstime=0x7927c01b8b00, op=393, expected=0, futex_word=0x62b5a3f3a854) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=-1544281536, abstime=0x7927c01b8b00, clockid=-1071936928, expected=0, futex_word=0x62b5a3f3a854) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x62b5a3f3a854, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x7927c01b8b00, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007927e6893e5b in __pthread_cond_wait_common (abstime=0x7927c01b8b00, clockid=0, mutex=0x62b5a3f3a400, cond=0x62b5a3f3a828) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_timedwait64 (cond=0x62b5a3f3a828, mutex=0x62b5a3f3a400, abstime=0x7927c01b8b00) at ./nptl/pthread_cond_wait.c:652
+#5  0x00007927e7c2cb2d in rocksdb::port::CondVar::TimedWait (this=this@entry=0x62b5a3f3a828, abs_time_us=abs_time_us@entry=1789755829223384) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/port/port_posix.cc:133
+#6  0x00007927e7831119 in rocksdb::InstrumentedCondVar::TimedWaitInternal (this=this@entry=0x62b5a3f3a828, abs_time_us=abs_time_us@entry=1789755829223384) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/monitoring/instrumented_mutex.cc:87
+#7  0x00007927e783123b in rocksdb::InstrumentedCondVar::TimedWait (this=this@entry=0x62b5a3f3a828, abs_time_us=1789755829223384) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/monitoring/instrumented_mutex.cc:76
+#8  0x00007927e75a636b in rocksdb::DBImpl::DelayWrite (this=0x62b5a3f39c40, num_bytes=16896, write_thread=..., write_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:3073
+#9  0x00007927e75b5a41 in rocksdb::DBImpl::PreprocessWrite (this=0x62b5a3f39c40, write_options=..., wal_context=0x7927c01b90d0, write_context=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:2397
+#10 0x00007927e75ba276 in rocksdb::DBImpl::WriteImpl (this=0x62b5a3f39c40, write_options=..., my_batch=<optimized out>, callback=<optimized out>, user_write_cb=<optimized out>, wal_used=<optimized out>, log_ref=<optimized out>, disable_memtable=<optimized out>, seq_used=<optimized out>, batch_cnt=<optimized out>, pre_release_callback=<optimized out>, post_memtable_callback=<optimized out>, wbwi=..., trace_batch_override=<optimized out>, skip_blob_direct_write_transform=<optimized out>, deferred_put_entities=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1258
+#11 0x00007927e75bc216 in rocksdb::DBImpl::Write (this=0x62b5a3f39c40, write_options=..., my_batch=0x7927c01bbd60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#12 0x000062b5817d51f2 in rocksdb::Benchmark::DoWrite (this=0x7fffce3630c0, thread=0x62b5a3f67c00, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6338
+#13 0x000062b5817a6742 in rocksdb::Benchmark::ThreadBody (v=0x62b5a3f49810) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#14 0x00007927e7c2d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x62b5a3fab720) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#15 0x00007927e6894a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#16 0x00007927e69268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+[Inferior 1 (process 4060072) detached]

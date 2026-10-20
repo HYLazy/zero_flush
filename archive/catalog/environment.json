@@ -1,0 +1,91 @@
+{
+ "schema_note": "共享实验环境参考；各数据集的 environment 字段只在与本文不同处重复或补充。字段来源：bench/CAMPAIGN.md（原生战役）与 archive/zeroflush_m3_perf/*.json 的 hardware/config 块（ZeroFlush 里程碑测量）。",
+ "host": {
+  "cpu": "Intel i9-10980XE, 18 cores / 36 threads, 1 socket, NUMA node0 = all CPUs, 3.0 GHz base",
+  "cores_threads": "18 cores / 36 threads",
+  "ram": "62 GiB total; available ≥ 50 GiB; swap 1 GiB",
+  "device": "WD_BLACK SN750 2 TB NVMe (single device, no RAID), /dev/nvme0n1p3",
+  "filesystem": "ext4, rw,relatime,commit=60, ext4 default allocation",
+  "kernel": "6.8.0-124-generic",
+  "note": "单机单设备单列族单进程；设备为消费级 NVMe（SMART：Percentage Used 13%、已写 221TB、通电 30705h，见 m5/50gb_1kb_merge_off#ENV_DIAGNOSIS）；盘温在重度负载下长期 79–86°C 并被判定为最可疑的剩余约束。"
+ },
+ "engines": {
+  "native_rocksdb": {
+   "tree": "source/rocksdb",
+   "version": "11.2.0",
+   "build_flags": "-O3 -DNDEBUG -march=native -fno-rtti -std=gnu++20",
+   "artifacts": [
+    "source/rocksdb/build/librocksdb.so.11",
+    "source/rocksdb/build/db_bench"
+   ],
+   "used_by": [
+    "bench/*（原生战役全部运行）"
+   ],
+   "note": "本机预编译库 WITH_LZ4/SNAPPY/ZLIB/ZSTD=OFF，故全部 byte-level 实验为 compression=none。"
+  },
+  "zeroflush": {
+   "tree": "source/rocksdb-zeroflush",
+   "worktrees": [
+    "source/rocksdb-zeroflush（主）",
+    "/home/embed/hyl/wt_b4b17b3（b4b17b3 独立 worktree）"
+   ],
+   "build": "build_rel（cmake，RelWithDebInfo，PORTABLE=0，make -j20）",
+   "artifacts": [
+    "build_rel/db_bench",
+    "build_rel/zf_valcheck",
+    "tools/zf_govern_bench"
+   ],
+   "used_by": [
+    "m3/m4/m5 的 ZeroFlush 臂"
+   ]
+  },
+  "driver": {
+   "l0bench": {
+    "src": "bench/l0bench.cc",
+    "built": "bench/tools/l0bench",
+    "role": "原生战役的事件/指标采集驱动（无源码补丁）"
+   },
+   "devbench": {
+    "src": "bench/tools/devbench.c",
+    "built": "bench/tools/devbench",
+    "role": "O_DIRECT 随机 IO 设备上限探针与争用负载"
+   },
+   "logparser": {
+    "src": "bench/logparser.py",
+    "role": "独立解析 DB LOG 事件流的交叉校验路径"
+   },
+   "analyzers": [
+    "bench/analyze.py",
+    "bench/bn_analyze.py"
+   ]
+  }
+ },
+ "instrumentation": {
+  "zeroflush_flags": [
+   "ZF_DBG_*（探针门控）",
+   "ZF_INSTALL_LOCK",
+   "ZF_L0_TRIGGER",
+   "ZF_MAX_L1_BYTES",
+   "ZF_L1_BUDGET_MB",
+   "ZF_SINK_*",
+   "ZF_TRACE_IMM",
+   "ZF_FORCE_EMPTY_EDIT",
+   "ZF_BENCH_VERBOSE"
+  ],
+  "native_flags": [
+   "--statistics",
+   "--histogram",
+   "stats_dump_period_sec=60",
+   "EventListener（flush/compaction/subcompaction/stall/file 创建）",
+   "PerfContext（采样 op）",
+   "/proc/diskstats（sectors、io_ticks busy%）"
+  ],
+  "note": "ZeroFlush 臂普遍以 env/job 探针计数（ZFDBG-*、zf.* 属性）而非重编译插桩；原生臂以公共 API 为主。"
+ },
+ "measurement_caveats": [
+  "回放方差大：原生战役同一配置两次独立运行可差 1.86×（工作量不变、设备交付带宽 1.7×）；ZeroFlush 侧同样记录 7%–20% 的运行间方差与 native 跨轮 ±50% 波动。",
+  "系统常驻负载 5–45 波动（grafana/prometheus/ceph），故跨时间窗的绝对值不可直接比较，只有同窗背靠背运行内部可比。",
+  "一次机器重启（2026-09-24）重置了设备内部状态，之后的重复系统性更快，列为未受控验证的候选原因。"
+ ],
+ "scope_note": "scope=archived；本目录为存档作用域（ZeroFlush V0 的 m3/m4/m5 里程碑），数据位于 archive/zeroflush_m*_perf/。"
+}

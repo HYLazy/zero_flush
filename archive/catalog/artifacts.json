@@ -1,0 +1,5959 @@
+{
+ "m3/bench_matrix": {
+  "dirs": [
+   "archive/zeroflush_m3_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 2,
+  "bytes": 16349,
+  "by_format": {
+   "md": 1,
+   "json": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/bench_matrix_report.md",
+    "format": "md",
+    "bytes": 5420,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/bench_matrix.json",
+    "format": "json",
+    "bytes": 10929,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/bench_matrix_v2": {
+  "dirs": [
+   "archive/zeroflush_m3_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 8189,
+  "by_format": {
+   "json": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/bench_matrix_v2.json",
+    "format": "json",
+    "bytes": 8189,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/benchmark_native_zeroflush": {
+  "dirs": [
+   "archive/zeroflush_m3_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 2,
+  "bytes": 4487,
+  "by_format": {
+   "json": 2
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/benchmark_native.json",
+    "format": "json",
+    "bytes": 2237,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/benchmark_zeroflush.json",
+    "format": "json",
+    "bytes": 2250,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/cmp_1kb100": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/cmp_1kb100"
+  ],
+  "derived_from": "directory",
+  "n_files": 5,
+  "bytes": 425687,
+  "by_format": {
+   "log": 4,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_1kb100/zf_fill.log",
+    "format": "log",
+    "bytes": 261315,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_1kb100/zf_read.log",
+    "format": "log",
+    "bytes": 38467,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md",
+    "format": "md",
+    "bytes": 1644,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_1kb100/native_fill.log",
+    "format": "log",
+    "bytes": 86359,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_1kb100/native_read.log",
+    "format": "log",
+    "bytes": 37902,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/cmp_1kb50": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/cmp_1kb50"
+  ],
+  "derived_from": "directory",
+  "n_files": 5,
+  "bytes": 276984,
+  "by_format": {
+   "log": 4,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_1kb50/zf_fill.log",
+    "format": "log",
+    "bytes": 139042,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_1kb50/zf_read.log",
+    "format": "log",
+    "bytes": 38469,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md",
+    "format": "md",
+    "bytes": 1614,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_1kb50/native_fill.log",
+    "format": "log",
+    "bytes": 59958,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_1kb50/native_read.log",
+    "format": "log",
+    "bytes": 37901,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/cmp_50gb_planA": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/cmp_50gb_planA"
+  ],
+  "derived_from": "directory",
+  "n_files": 3,
+  "bytes": 504063,
+  "by_format": {
+   "txt": 2,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_50gb_planA/zf_read.txt",
+    "format": "txt",
+    "bytes": 44195,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_50gb_planA/zf_fill.txt",
+    "format": "txt",
+    "bytes": 458520,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md",
+    "format": "md",
+    "bytes": 1348,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/cmp_50gb_skipbatch": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/cmp_50gb_skipbatch"
+  ],
+  "derived_from": "directory",
+  "n_files": 3,
+  "bytes": 441832,
+  "by_format": {
+   "txt": 2,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/zf_read.txt",
+    "format": "txt",
+    "bytes": 44296,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/zf_fill.txt",
+    "format": "txt",
+    "bytes": 396357,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md",
+    "format": "md",
+    "bytes": 1179,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/cmp_50gb_tr32": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/cmp_50gb_tr32"
+  ],
+  "derived_from": "directory",
+  "n_files": 5,
+  "bytes": 908516,
+  "by_format": {
+   "txt": 4,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_50gb_tr32/native_read.txt",
+    "format": "txt",
+    "bytes": 46042,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_50gb_tr32/zf_read.txt",
+    "format": "txt",
+    "bytes": 44390,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_50gb_tr32/zf_fill.txt",
+    "format": "txt",
+    "bytes": 487419,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md",
+    "format": "md",
+    "bytes": 1354,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/cmp_50gb_tr32/native_fill.txt",
+    "format": "txt",
+    "bytes": 329311,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/integrated_report": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/integrated_report"
+  ],
+  "derived_from": "directory",
+  "n_files": 7,
+  "bytes": 40671,
+  "by_format": {
+   "csv": 4,
+   "md": 1,
+   "py": 1,
+   "json": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/integrated_report/REPORT.md",
+    "format": "md",
+    "bytes": 10523,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/integrated_report/make_integrated_report.py",
+    "format": "py",
+    "bytes": 23743,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/integrated_report/data/l1_scaling.csv",
+    "format": "csv",
+    "bytes": 318,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/integrated_report/data/summary_all_experiments.json",
+    "format": "json",
+    "bytes": 5235,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/integrated_report/data/thread_scaling.csv",
+    "format": "csv",
+    "bytes": 198,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/integrated_report/data/engine_matrix_fill.csv",
+    "format": "csv",
+    "bytes": 341,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/integrated_report/data/trigger_sweep.csv",
+    "format": "csv",
+    "bytes": 313,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/l0_bottleneck": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/l0_bottleneck"
+  ],
+  "derived_from": "directory",
+  "n_files": 16,
+  "bytes": 205440,
+  "by_format": {
+   "json": 11,
+   "py": 4,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/lane_default16.json",
+    "format": "json",
+    "bytes": 1196,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/lane_trig4.json",
+    "format": "json",
+    "bytes": 886,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/l0_timeline_base4g.json",
+    "format": "json",
+    "bytes": 40947,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/lane_trig16.json",
+    "format": "json",
+    "bytes": 890,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/lane_base1g.json",
+    "format": "json",
+    "bytes": 1046,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/lane_base4g.json",
+    "format": "json",
+    "bytes": 902,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/run_trigger_sweep.py",
+    "format": "py",
+    "bytes": 2146,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/lane_analysis.py",
+    "format": "py",
+    "bytes": 3766,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md",
+    "format": "md",
+    "bytes": 5614,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/l0_timeline_trig4.json",
+    "format": "json",
+    "bytes": 41079,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/make_report.py",
+    "format": "py",
+    "bytes": 7055,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/lane_base256m.json",
+    "format": "json",
+    "bytes": 1185,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/lane_trig2.json",
+    "format": "json",
+    "bytes": 892,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/l0_timeline_analysis.py",
+    "format": "py",
+    "bytes": 2310,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/l0_timeline_base256m.json",
+    "format": "json",
+    "bytes": 94634,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_bottleneck/lane_trig8.json",
+    "format": "json",
+    "bytes": 892,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/l0_l1_importance": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/l0_l1_importance"
+  ],
+  "derived_from": "directory",
+  "n_files": 4,
+  "bytes": 17449,
+  "by_format": {
+   "md": 2,
+   "py": 2
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md",
+    "format": "md",
+    "bytes": 4810,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_l1_importance/DESIGN.md",
+    "format": "md",
+    "bytes": 2382,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_l1_importance/run_l0l1.py",
+    "format": "py",
+    "bytes": 2299,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/l0_l1_importance/make_final_report.py",
+    "format": "py",
+    "bytes": 7958,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/m5_50gb_fix": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/m5_50gb_fix"
+  ],
+  "derived_from": "directory",
+  "n_files": 1,
+  "bytes": 2384,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md",
+    "format": "md",
+    "bytes": 2384,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/native_wa_stall_100gb": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb"
+  ],
+  "derived_from": "directory",
+  "n_files": 10,
+  "bytes": 5597957,
+  "by_format": {
+   "py": 4,
+   "md": 3,
+   "json": 2,
+   "tar.gz": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md",
+    "format": "md",
+    "bytes": 3336,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb.json",
+    "format": "json",
+    "bytes": 20612,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_analysis.py",
+    "format": "py",
+    "bytes": 5165,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/wa_exp_LOG.tar.gz",
+    "format": "tar.gz",
+    "bytes": 5542073,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_comp_time.json",
+    "format": "json",
+    "bytes": 2118,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md",
+    "format": "md",
+    "bytes": 4211,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md",
+    "format": "md",
+    "bytes": 2369,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/make_report.py",
+    "format": "py",
+    "bytes": 6791,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/parse_wa.py",
+    "format": "py",
+    "bytes": 6179,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/make_comp_time_report.py",
+    "format": "py",
+    "bytes": 5103,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/native_wa_stall_100gb#comp_time": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb"
+  ],
+  "derived_from": "directory",
+  "n_files": 10,
+  "bytes": 5597957,
+  "by_format": {
+   "py": 4,
+   "md": 3,
+   "json": 2,
+   "tar.gz": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md",
+    "format": "md",
+    "bytes": 3336,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb.json",
+    "format": "json",
+    "bytes": 20612,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_analysis.py",
+    "format": "py",
+    "bytes": 5165,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/wa_exp_LOG.tar.gz",
+    "format": "tar.gz",
+    "bytes": 5542073,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_comp_time.json",
+    "format": "json",
+    "bytes": 2118,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md",
+    "format": "md",
+    "bytes": 4211,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md",
+    "format": "md",
+    "bytes": 2369,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/make_report.py",
+    "format": "py",
+    "bytes": 6791,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/parse_wa.py",
+    "format": "py",
+    "bytes": 6179,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb/make_comp_time_report.py",
+    "format": "py",
+    "bytes": 5103,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/native_wa_stall_100gb_t2": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2"
+  ],
+  "derived_from": "directory",
+  "n_files": 5,
+  "bytes": 44196,
+  "by_format": {
+   "json": 2,
+   "py": 2,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_100gb_t2_comp_time.json",
+    "format": "json",
+    "bytes": 2120,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_100gb_t2.json",
+    "format": "json",
+    "bytes": 26266,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/make_thread_scaling_report.py",
+    "format": "py",
+    "bytes": 5732,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/parse_wa.py",
+    "format": "py",
+    "bytes": 6266,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md",
+    "format": "md",
+    "bytes": 3812,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/native_wa_stall_100gb_t4": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t4"
+  ],
+  "derived_from": "directory",
+  "n_files": 3,
+  "bytes": 32839,
+  "by_format": {
+   "json": 2,
+   "py": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t4/native_wa_stall_100gb_t4_comp_time.json",
+    "format": "json",
+    "bytes": 2124,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t4/native_wa_stall_100gb_t4.json",
+    "format": "json",
+    "bytes": 24449,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t4/parse_wa.py",
+    "format": "py",
+    "bytes": 6266,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/native_wa_stall_100gb_t8": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8"
+  ],
+  "derived_from": "directory",
+  "n_files": 6,
+  "bytes": 41315,
+  "by_format": {
+   "json": 2,
+   "md": 2,
+   "py": 2
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_comp_time.json",
+    "format": "json",
+    "bytes": 2117,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8.json",
+    "format": "json",
+    "bytes": 22494,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md",
+    "format": "md",
+    "bytes": 3697,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/DESIGN.md",
+    "format": "md",
+    "bytes": 547,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/make_report.py",
+    "format": "py",
+    "bytes": 6194,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/parse_wa.py",
+    "format": "py",
+    "bytes": 6266,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/profiling": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/profiling"
+  ],
+  "derived_from": "directory",
+  "n_files": 57,
+  "bytes": 981014,
+  "by_format": {
+   "py": 30,
+   "json": 10,
+   "sh": 5,
+   "txt": 5,
+   "csv": 5,
+   "md": 2
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r36_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r19_50gb.py",
+    "format": "py",
+    "bytes": 573,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r33_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r47_cmp_100gb.sh",
+    "format": "sh",
+    "bytes": 1654,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r40_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/verify_integrity.py",
+    "format": "py",
+    "bytes": 5701,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r47e_cmp_100gb_total.sh",
+    "format": "sh",
+    "bytes": 2504,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r47b_cmp_50gb.sh",
+    "format": "sh",
+    "bytes": 1714,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r42_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r16_m45.py",
+    "format": "py",
+    "bytes": 480,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/zf_profile.py",
+    "format": "py",
+    "bytes": 9906,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/zf_parse_log.py",
+    "format": "py",
+    "bytes": 9225,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r28_50gb.py",
+    "format": "py",
+    "bytes": 761,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/verification_report.md",
+    "format": "md",
+    "bytes": 4123,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r43_50gb.py",
+    "format": "py",
+    "bytes": 931,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r5_50gb.py",
+    "format": "py",
+    "bytes": 699,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r11_m43c.py",
+    "format": "py",
+    "bytes": 548,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r20_50gb.py",
+    "format": "py",
+    "bytes": 729,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r44_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r17_50gb.py",
+    "format": "py",
+    "bytes": 553,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r45_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r12_m43d.py",
+    "format": "py",
+    "bytes": 557,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r14_m43.py",
+    "format": "py",
+    "bytes": 485,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r26_50gb.py",
+    "format": "py",
+    "bytes": 761,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r46_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r6_subcomp.py",
+    "format": "py",
+    "bytes": 493,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r21_50gb.py",
+    "format": "py",
+    "bytes": 909,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r15_50gb.py",
+    "format": "py",
+    "bytes": 582,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r9_50gb.py",
+    "format": "py",
+    "bytes": 672,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r24_50gb.py",
+    "format": "py",
+    "bytes": 761,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r47c_cmp_20gb.sh",
+    "format": "sh",
+    "bytes": 1714,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r47d_cmp_100gb.sh",
+    "format": "sh",
+    "bytes": 1761,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r8_50gb.py",
+    "format": "py",
+    "bytes": 541,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r13_m43.py",
+    "format": "py",
+    "bytes": 476,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/profiling_report.md",
+    "format": "md",
+    "bytes": 12724,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r22_50gb.py",
+    "format": "py",
+    "bytes": 994,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r23_50gb.py",
+    "format": "py",
+    "bytes": 1050,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W3/result.json",
+    "format": "json",
+    "bytes": 1534,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W3/parsed.json",
+    "format": "json",
+    "bytes": 8399,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W3/stdout.txt",
+    "format": "txt",
+    "bytes": 193524,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W3/samples.csv",
+    "format": "csv",
+    "bytes": 42079,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2/result.json",
+    "format": "json",
+    "bytes": 1541,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2/parsed.json",
+    "format": "json",
+    "bytes": 8158,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2/stdout.txt",
+    "format": "txt",
+    "bytes": 198125,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2/samples.csv",
+    "format": "csv",
+    "bytes": 42049,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W1/result.json",
+    "format": "json",
+    "bytes": 1530,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W1/parsed.json",
+    "format": "json",
+    "bytes": 5372,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W1/stdout.txt",
+    "format": "txt",
+    "bytes": 108705,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W1/samples.csv",
+    "format": "csv",
+    "bytes": 21593,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W0/result.json",
+    "format": "json",
+    "bytes": 944,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W0/parsed.json",
+    "format": "json",
+    "bytes": 2238,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W0/stdout.txt",
+    "format": "txt",
+    "bytes": 20990,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W0/samples.csv",
+    "format": "csv",
+    "bytes": 547,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2b/result.json",
+    "format": "json",
+    "bytes": 1591,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2b/parsed.json",
+    "format": "json",
+    "bytes": 5831,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2b/stdout.txt",
+    "format": "txt",
+    "bytes": 201281,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2b/samples.csv",
+    "format": "csv",
+    "bytes": 44074,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/profiling#verification": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/profiling"
+  ],
+  "derived_from": "directory",
+  "n_files": 57,
+  "bytes": 981014,
+  "by_format": {
+   "py": 30,
+   "json": 10,
+   "sh": 5,
+   "txt": 5,
+   "csv": 5,
+   "md": 2
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r36_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r19_50gb.py",
+    "format": "py",
+    "bytes": 573,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r33_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r47_cmp_100gb.sh",
+    "format": "sh",
+    "bytes": 1654,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r40_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/verify_integrity.py",
+    "format": "py",
+    "bytes": 5701,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r47e_cmp_100gb_total.sh",
+    "format": "sh",
+    "bytes": 2504,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r47b_cmp_50gb.sh",
+    "format": "sh",
+    "bytes": 1714,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r42_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r16_m45.py",
+    "format": "py",
+    "bytes": 480,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/zf_profile.py",
+    "format": "py",
+    "bytes": 9906,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/zf_parse_log.py",
+    "format": "py",
+    "bytes": 9225,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r28_50gb.py",
+    "format": "py",
+    "bytes": 761,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/verification_report.md",
+    "format": "md",
+    "bytes": 4123,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r43_50gb.py",
+    "format": "py",
+    "bytes": 931,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r5_50gb.py",
+    "format": "py",
+    "bytes": 699,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r11_m43c.py",
+    "format": "py",
+    "bytes": 548,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r20_50gb.py",
+    "format": "py",
+    "bytes": 729,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r44_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r17_50gb.py",
+    "format": "py",
+    "bytes": 553,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r45_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r12_m43d.py",
+    "format": "py",
+    "bytes": 557,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r14_m43.py",
+    "format": "py",
+    "bytes": 485,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r26_50gb.py",
+    "format": "py",
+    "bytes": 761,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r46_50gb.py",
+    "format": "py",
+    "bytes": 904,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r6_subcomp.py",
+    "format": "py",
+    "bytes": 493,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r21_50gb.py",
+    "format": "py",
+    "bytes": 909,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r15_50gb.py",
+    "format": "py",
+    "bytes": 582,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r9_50gb.py",
+    "format": "py",
+    "bytes": 672,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r24_50gb.py",
+    "format": "py",
+    "bytes": 761,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r47c_cmp_20gb.sh",
+    "format": "sh",
+    "bytes": 1714,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r47d_cmp_100gb.sh",
+    "format": "sh",
+    "bytes": 1761,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r8_50gb.py",
+    "format": "py",
+    "bytes": 541,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r13_m43.py",
+    "format": "py",
+    "bytes": 476,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/profiling_report.md",
+    "format": "md",
+    "bytes": 12724,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r22_50gb.py",
+    "format": "py",
+    "bytes": 994,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/r23_50gb.py",
+    "format": "py",
+    "bytes": 1050,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W3/result.json",
+    "format": "json",
+    "bytes": 1534,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W3/parsed.json",
+    "format": "json",
+    "bytes": 8399,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W3/stdout.txt",
+    "format": "txt",
+    "bytes": 193524,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W3/samples.csv",
+    "format": "csv",
+    "bytes": 42079,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2/result.json",
+    "format": "json",
+    "bytes": 1541,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2/parsed.json",
+    "format": "json",
+    "bytes": 8158,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2/stdout.txt",
+    "format": "txt",
+    "bytes": 198125,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2/samples.csv",
+    "format": "csv",
+    "bytes": 42049,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W1/result.json",
+    "format": "json",
+    "bytes": 1530,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W1/parsed.json",
+    "format": "json",
+    "bytes": 5372,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W1/stdout.txt",
+    "format": "txt",
+    "bytes": 108705,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W1/samples.csv",
+    "format": "csv",
+    "bytes": 21593,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W0/result.json",
+    "format": "json",
+    "bytes": 944,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W0/parsed.json",
+    "format": "json",
+    "bytes": 2238,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W0/stdout.txt",
+    "format": "txt",
+    "bytes": 20990,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W0/samples.csv",
+    "format": "csv",
+    "bytes": 547,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2b/result.json",
+    "format": "json",
+    "bytes": 1591,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2b/parsed.json",
+    "format": "json",
+    "bytes": 5831,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2b/stdout.txt",
+    "format": "txt",
+    "bytes": 201281,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/profiling/W2b/samples.csv",
+    "format": "csv",
+    "bytes": 44074,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/rocksdb_vs_zeroflush_comparison": {
+  "dirs": [
+   "archive/zeroflush_m3_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 13213,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md",
+    "format": "md",
+    "bytes": 13213,
+    "tracked": true
+   }
+  ]
+ },
+ "m3/zf09_100gb_1kb": {
+  "dirs": [
+   "archive/zeroflush_m3_perf/zf09_100gb_1kb"
+  ],
+  "derived_from": "directory",
+  "n_files": 7,
+  "bytes": 1714983,
+  "by_format": {
+   "log": 6,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m3_perf/zf09_100gb_1kb/run.log",
+    "format": "log",
+    "bytes": 141,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/zf09_100gb_1kb/run2.log",
+    "format": "log",
+    "bytes": 146,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/zf09_100gb_1kb/zf_fill2.log",
+    "format": "log",
+    "bytes": 859502,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md",
+    "format": "md",
+    "bytes": 3546,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/zf09_100gb_1kb/native_fill.log",
+    "format": "log",
+    "bytes": 723290,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/zf09_100gb_1kb/zf_read2.log",
+    "format": "log",
+    "bytes": 63490,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m3_perf/zf09_100gb_1kb/native_read.log",
+    "format": "log",
+    "bytes": 64868,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/acceptance": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/active_tail_split": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/gov_100gb": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/gov_100gb_off": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/gov_100gb_off_max_l1": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/gov_100gb_off_p256": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/gov_50gb": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/gov_big_8t": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/inflight_leak": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/l0_consume": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/m49_guards": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/m49_logandapply": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/m49_merge0": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/m49_overlap": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/m49_threshold": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m4/split_predrain": {
+  "dirs": [
+   "archive/zeroflush_m4_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 22170,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m4_perf/REPORT.md",
+    "format": "md",
+    "bytes": 22170,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/50gb_1kb_merge_off#ENV_DIAGNOSIS": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off"
+  ],
+  "derived_from": "directory",
+  "n_files": 20,
+  "bytes": 10628882,
+  "by_format": {
+   "log": 10,
+   "sh": 4,
+   "py": 2,
+   "md": 2,
+   "txt": 2
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/run.log",
+    "format": "log",
+    "bytes": 3574,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/parse_results.py",
+    "format": "py",
+    "bytes": 2227,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/run.sh",
+    "format": "sh",
+    "bytes": 2046,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/chain_after_native.sh",
+    "format": "sh",
+    "bytes": 839,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md",
+    "format": "md",
+    "bytes": 9745,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/zf_fill_DNF_evidence.txt",
+    "format": "txt",
+    "bytes": 330,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/zf_fill.log",
+    "format": "log",
+    "bytes": 2728266,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/chain.log",
+    "format": "log",
+    "bytes": 6295,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/zf_read.log",
+    "format": "log",
+    "bytes": 523,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/native_fill.log",
+    "format": "log",
+    "bytes": 3745696,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/native_run.log",
+    "format": "log",
+    "bytes": 41,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/run_zf_fair.sh",
+    "format": "sh",
+    "bytes": 1247,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/native_fill_DNF_evidence.txt",
+    "format": "txt",
+    "bytes": 906,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/native_read.log",
+    "format": "log",
+    "bytes": 105011,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/run2_telemetry.log",
+    "format": "log",
+    "bytes": 20116,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/parse_results.py",
+    "format": "py",
+    "bytes": 2726,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/run2.log",
+    "format": "log",
+    "bytes": 221,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/run.sh",
+    "format": "sh",
+    "bytes": 5002,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/ABORTED_RUN_AMPLIFICATION.md",
+    "format": "md",
+    "bytes": 3872,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/zf_fill.log",
+    "format": "log",
+    "bytes": 3990199,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/B4B17B3_50GB_100GB_REPORT": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "directory",
+  "n_files": 266,
+  "bytes": 205133132,
+  "by_format": {
+   "log": 83,
+   "LOG": 42,
+   "sh": 39,
+   "txt": 38,
+   "stderr": 30,
+   "md": 16,
+   "meta": 9,
+   "py": 5,
+   "gz": 3,
+   "patch": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/WIP_install_set.patch",
+    "format": "patch",
+    "bytes": 759873,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_stats.py",
+    "format": "py",
+    "bytes": 2821,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md",
+    "format": "md",
+    "bytes": 13360,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/B4B17B3_50GB_TASK_PROGRESS.md",
+    "format": "md",
+    "bytes": 5779,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med3/t_frames.txt",
+    "format": "txt",
+    "bytes": 4323,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med3/run.log",
+    "format": "log",
+    "bytes": 1692,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med3/run.sh",
+    "format": "sh",
+    "bytes": 3585,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med3/hang_bt.txt",
+    "format": "txt",
+    "bytes": 92827,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med3/hang.LOG",
+    "format": "LOG",
+    "bytes": 6577702,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med3/fill.log",
+    "format": "log",
+    "bytes": 482035,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med3/bt_all.txt",
+    "format": "txt",
+    "bytes": 92827,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med3/stall_cond.txt",
+    "format": "txt",
+    "bytes": 2193,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1e_b3.txt",
+    "format": "txt",
+    "bytes": 13382,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1c2_db_fence4.txt",
+    "format": "txt",
+    "bytes": 14811,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1.txt",
+    "format": "txt",
+    "bytes": 10689,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md",
+    "format": "md",
+    "bytes": 22060,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_b1.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_b3.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_b2.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1e_db_fence4.txt",
+    "format": "txt",
+    "bytes": 13382,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1e_b2.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/wrepeat.hang.LOG",
+    "format": "LOG",
+    "bytes": 240250,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial50.watch.log",
+    "format": "log",
+    "bytes": 359,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/fill_smoke.log",
+    "format": "log",
+    "bytes": 60803,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/run.log",
+    "format": "log",
+    "bytes": 966,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/read_partial_100.log",
+    "format": "log",
+    "bytes": 44433,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/run.sh",
+    "format": "sh",
+    "bytes": 4353,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/repeat.LOG",
+    "format": "LOG",
+    "bytes": 240250,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/wrepeat.watch.log",
+    "format": "log",
+    "bytes": 333,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial100.bt_all.txt",
+    "format": "txt",
+    "bytes": 117559,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/wsmoke.watch.log",
+    "format": "log",
+    "bytes": 69,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md",
+    "format": "md",
+    "bytes": 1214,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial100.hang.LOG",
+    "format": "LOG",
+    "bytes": 37345,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/read_retest.sh",
+    "format": "sh",
+    "bytes": 3146,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial100.watch.log",
+    "format": "log",
+    "bytes": 368,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial50.hang.LOG",
+    "format": "LOG",
+    "bytes": 83588,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/read_partial_50.log",
+    "format": "log",
+    "bytes": 44926,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/reads100_retest.log",
+    "format": "log",
+    "bytes": 66844,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/smoke.LOG",
+    "format": "LOG",
+    "bytes": 281677,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/reads50_retest.log",
+    "format": "log",
+    "bytes": 109855,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/reads100_retest.watch.log",
+    "format": "log",
+    "bytes": 474,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/wrepeat.bt_all.txt",
+    "format": "txt",
+    "bytes": 92161,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial50.bt_all.txt",
+    "format": "txt",
+    "bytes": 108803,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/fill_repeat.log",
+    "format": "log",
+    "bytes": 59513,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/reads50_retest.watch.log",
+    "format": "log",
+    "bytes": 1713,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/run.log",
+    "format": "log",
+    "bytes": 3574,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/parse_results.py",
+    "format": "py",
+    "bytes": 2227,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/run.sh",
+    "format": "sh",
+    "bytes": 2046,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/chain_after_native.sh",
+    "format": "sh",
+    "bytes": 839,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md",
+    "format": "md",
+    "bytes": 9745,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/zf_fill_DNF_evidence.txt",
+    "format": "txt",
+    "bytes": 330,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/zf_fill.log",
+    "format": "log",
+    "bytes": 2728266,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/chain.log",
+    "format": "log",
+    "bytes": 6295,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/zf_read.log",
+    "format": "log",
+    "bytes": 523,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/native_fill.log",
+    "format": "log",
+    "bytes": 3745696,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/native_run.log",
+    "format": "log",
+    "bytes": 41,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/run_zf_fair.sh",
+    "format": "sh",
+    "bytes": 1247,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/native_fill_DNF_evidence.txt",
+    "format": "txt",
+    "bytes": 906,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/native_read.log",
+    "format": "log",
+    "bytes": 105011,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/run2_telemetry.log",
+    "format": "log",
+    "bytes": 20116,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/parse_results.py",
+    "format": "py",
+    "bytes": 2726,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/run2.log",
+    "format": "log",
+    "bytes": 221,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/run.sh",
+    "format": "sh",
+    "bytes": 5002,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/ABORTED_RUN_AMPLIFICATION.md",
+    "format": "md",
+    "bytes": 3872,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/rerun_20260912/zf_fill.log",
+    "format": "log",
+    "bytes": 3990199,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bpcase/run.log",
+    "format": "log",
+    "bytes": 238,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bpcase/run.sh",
+    "format": "sh",
+    "bytes": 2303,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bpcase/read.log",
+    "format": "log",
+    "bytes": 37076,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bpcase/fill.log",
+    "format": "log",
+    "bytes": 70360,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bpcase/fill.LOG",
+    "format": "LOG",
+    "bytes": 153398,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med/run.log",
+    "format": "log",
+    "bytes": 1077,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med/run.sh",
+    "format": "sh",
+    "bytes": 3046,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med/hang_bt.txt",
+    "format": "txt",
+    "bytes": 61961,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med/hang.LOG",
+    "format": "LOG",
+    "bytes": 5188939,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med/fill.log",
+    "format": "log",
+    "bytes": 240781,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med/bt_all.txt",
+    "format": "txt",
+    "bytes": 61961,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med2/t_frames.txt",
+    "format": "txt",
+    "bytes": 4950,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med2/run.log",
+    "format": "log",
+    "bytes": 1068,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med2/run.sh",
+    "format": "sh",
+    "bytes": 3560,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med2/hang_bt.txt",
+    "format": "txt",
+    "bytes": 91462,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med2/hang.LOG",
+    "format": "LOG",
+    "bytes": 4821851,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med2/fill.log",
+    "format": "log",
+    "bytes": 224739,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med2/bt_all.txt",
+    "format": "txt",
+    "bytes": 91462,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_med2/stall_cond.txt",
+    "format": "txt",
+    "bytes": 3219,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_c59fc41/run.log",
+    "format": "log",
+    "bytes": 241,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_c59fc41/run.sh",
+    "format": "sh",
+    "bytes": 1431,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_c59fc41/read.log",
+    "format": "log",
+    "bytes": 110139,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_c59fc41/read.LOG",
+    "format": "LOG",
+    "bytes": 705633,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_c59fc41/fill.log",
+    "format": "log",
+    "bytes": 328127,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_c59fc41/fill.LOG",
+    "format": "LOG",
+    "bytes": 21116470,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/REPORT.md",
+    "format": "md",
+    "bytes": 16482,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_parts.log",
+    "format": "log",
+    "bytes": 442,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_h16.sh",
+    "format": "sh",
+    "bytes": 1496,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_parts.sh",
+    "format": "sh",
+    "bytes": 1321,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/parse_closure.py",
+    "format": "py",
+    "bytes": 9747,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_p4.sh",
+    "format": "sh",
+    "bytes": 1031,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_mid.sh",
+    "format": "sh",
+    "bytes": 1212,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_h2t4.sh",
+    "format": "sh",
+    "bytes": 1292,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_budget_iso.sh",
+    "format": "sh",
+    "bytes": 1350,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_h2.sh",
+    "format": "sh",
+    "bytes": 1271,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_small.sh",
+    "format": "sh",
+    "bytes": 1398,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_budget.sh",
+    "format": "sh",
+    "bytes": 1447,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/ANALYSIS.txt",
+    "format": "txt",
+    "bytes": 59100,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/B_trig4.stderr",
+    "format": "stderr",
+    "bytes": 166258,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget256.meta",
+    "format": "meta",
+    "bytes": 23,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_iso256.meta",
+    "format": "meta",
+    "bytes": 22,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/M_trig4.stderr",
+    "format": "stderr",
+    "bytes": 270414,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget256.LOG",
+    "format": "LOG",
+    "bytes": 2543753,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/M_trig4.LOG",
+    "format": "LOG",
+    "bytes": 5190871,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H16.LOG",
+    "format": "LOG",
+    "bytes": 1901659,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2.meta",
+    "format": "meta",
+    "bytes": 227,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/summary.txt",
+    "format": "txt",
+    "bytes": 322,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget64.meta",
+    "format": "meta",
+    "bytes": 23,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_iso256.LOG",
+    "format": "LOG",
+    "bytes": 2555219,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P256_parts.LOG.gz",
+    "format": "gz",
+    "bytes": 2920109,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P256_parts.meta",
+    "format": "meta",
+    "bytes": 27,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P4_part4.LOG",
+    "format": "LOG",
+    "bytes": 5880112,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P16_parts.stderr",
+    "format": "stderr",
+    "bytes": 243220,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2.stderr",
+    "format": "stderr",
+    "bytes": 147793,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P64_parts.meta",
+    "format": "meta",
+    "bytes": 25,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget256.stderr",
+    "format": "stderr",
+    "bytes": 142941,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/B_trig4.LOG",
+    "format": "LOG",
+    "bytes": 2225336,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2t4.LOG",
+    "format": "LOG",
+    "bytes": 1967664,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H16.meta",
+    "format": "meta",
+    "bytes": 670,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_iso256.stderr",
+    "format": "stderr",
+    "bytes": 146224,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget64.LOG",
+    "format": "LOG",
+    "bytes": 5841567,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/M_trig1e8.LOG",
+    "format": "LOG",
+    "bytes": 4051992,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/A_trig1e8.LOG",
+    "format": "LOG",
+    "bytes": 1729507,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P256_parts.stderr",
+    "format": "stderr",
+    "bytes": 3165917,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P4_part4.stderr",
+    "format": "stderr",
+    "bytes": 259275,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P16_parts.LOG.gz",
+    "format": "gz",
+    "bytes": 275260,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/M_trig1e8.stderr",
+    "format": "stderr",
+    "bytes": 244127,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget64.stderr",
+    "format": "stderr",
+    "bytes": 129670,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/A_trig1e8.stderr",
+    "format": "stderr",
+    "bytes": 171536,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2t4.meta",
+    "format": "meta",
+    "bytes": 227,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H16.stderr",
+    "format": "stderr",
+    "bytes": 144070,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P64_parts.stderr",
+    "format": "stderr",
+    "bytes": 591140,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P16_parts.meta",
+    "format": "meta",
+    "bytes": 24,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2.LOG",
+    "format": "LOG",
+    "bytes": 1273697,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2t4.stderr",
+    "format": "stderr",
+    "bytes": 154477,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P64_parts.LOG.gz",
+    "format": "gz",
+    "bytes": 770573,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md",
+    "format": "md",
+    "bytes": 6010,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/run_off.sh",
+    "format": "sh",
+    "bytes": 966,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/run.log",
+    "format": "log",
+    "bytes": 105,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/run.sh",
+    "format": "sh",
+    "bytes": 1456,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/zf_fill_lockoff.log",
+    "format": "log",
+    "bytes": 522065,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/zf_fill.log",
+    "format": "log",
+    "bytes": 128622,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/pair_0.log",
+    "format": "log",
+    "bytes": 459102,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/zf_read.log",
+    "format": "log",
+    "bytes": 105678,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/pair_1.log",
+    "format": "log",
+    "bytes": 126828,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/run_all.log",
+    "format": "log",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md",
+    "format": "md",
+    "bytes": 3450,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/run.log",
+    "format": "log",
+    "bytes": 241,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/run.sh",
+    "format": "sh",
+    "bytes": 1789,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md",
+    "format": "md",
+    "bytes": 2352,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/read.log",
+    "format": "log",
+    "bytes": 112210,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/run.log",
+    "format": "log",
+    "bytes": 315,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/run.sh",
+    "format": "sh",
+    "bytes": 1923,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/hang_static13gb.LOG",
+    "format": "LOG",
+    "bytes": 5662522,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/read.log",
+    "format": "log",
+    "bytes": 35708,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/read.LOG",
+    "format": "LOG",
+    "bytes": 36929,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/fill.log",
+    "format": "log",
+    "bytes": 232065,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/fill.LOG",
+    "format": "LOG",
+    "bytes": 5662522,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_smoke10gb/run.log",
+    "format": "log",
+    "bytes": 272,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_smoke10gb/run.sh",
+    "format": "sh",
+    "bytes": 1668,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_smoke10gb/read.log",
+    "format": "log",
+    "bytes": 50323,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_smoke10gb/read.LOG",
+    "format": "LOG",
+    "bytes": 158280,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_smoke10gb/fill.log",
+    "format": "log",
+    "bytes": 172569,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_smoke10gb/fill.LOG",
+    "format": "LOG",
+    "bytes": 2524434,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_full/hang_threads.txt",
+    "format": "txt",
+    "bytes": 91460,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_full/run.log",
+    "format": "log",
+    "bytes": 270,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_full/run.sh",
+    "format": "sh",
+    "bytes": 1668,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_full/read.log",
+    "format": "log",
+    "bytes": 40026,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_full/hang_12_8GB.LOG",
+    "format": "LOG",
+    "bytes": 5600454,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_full/read.LOG",
+    "format": "LOG",
+    "bytes": 36921,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_full/fill.log",
+    "format": "log",
+    "bytes": 222290,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/bench100g_full/fill.LOG",
+    "format": "LOG",
+    "bytes": 5600454,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md",
+    "format": "md",
+    "bytes": 6273,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/run_diag.sh",
+    "format": "sh",
+    "bytes": 1885,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md",
+    "format": "md",
+    "bytes": 12869,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p3.stderr",
+    "format": "stderr",
+    "bytes": 77125,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fix2.stderr",
+    "format": "stderr",
+    "bytes": 76820,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fix.stderr",
+    "format": "stderr",
+    "bytes": 90115,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p5.stderr",
+    "format": "stderr",
+    "bytes": 77550,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p4.stderr",
+    "format": "stderr",
+    "bytes": 77394,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/stage.stderr",
+    "format": "stderr",
+    "bytes": 89689,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p8.stderr",
+    "format": "stderr",
+    "bytes": 77225,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p6.stderr",
+    "format": "stderr",
+    "bytes": 77003,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/pair.stderr",
+    "format": "stderr",
+    "bytes": 930521,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p9.stderr",
+    "format": "stderr",
+    "bytes": 969986,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p7.stderr",
+    "format": "stderr",
+    "bytes": 76685,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/run.txt",
+    "format": "txt",
+    "bytes": 241,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/probe2.stderr",
+    "format": "stderr",
+    "bytes": 94763,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fill.stderr",
+    "format": "stderr",
+    "bytes": 67234,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/probe.stderr",
+    "format": "stderr",
+    "bytes": 92978,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/wait.stderr",
+    "format": "stderr",
+    "bytes": 76100,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fill.LOG",
+    "format": "LOG",
+    "bytes": 227990,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fix60.stderr",
+    "format": "stderr",
+    "bytes": 83580,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/zf_50gb_noprobe/run.log",
+    "format": "log",
+    "bytes": 238,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/zf_50gb_noprobe/run.sh",
+    "format": "sh",
+    "bytes": 1759,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/zf_50gb_noprobe/read.log",
+    "format": "log",
+    "bytes": 114838,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/c59fc41_50gb_1kb/run.sh",
+    "format": "sh",
+    "bytes": 1944,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/c59fc41_50gb_1kb/hang.LOG",
+    "format": "LOG",
+    "bytes": 268825,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_100gb/t_frames.txt",
+    "format": "txt",
+    "bytes": 4993,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_100gb/run.log",
+    "format": "log",
+    "bytes": 1925,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_100gb/run.sh",
+    "format": "sh",
+    "bytes": 5434,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_100gb/hang_bt.txt",
+    "format": "txt",
+    "bytes": 92164,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_100gb/fill.hang.LOG",
+    "format": "LOG",
+    "bytes": 5966007,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_100gb/stall_marker.txt",
+    "format": "txt",
+    "bytes": 20,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_100gb/fill.log",
+    "format": "log",
+    "bytes": 235923,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_100gb/bt_all.txt",
+    "format": "txt",
+    "bytes": 92164,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_100gb/stall_cond.txt",
+    "format": "txt",
+    "bytes": 3081,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_native_ctrl/run.log",
+    "format": "log",
+    "bytes": 7270,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_native_ctrl/run.sh",
+    "format": "sh",
+    "bytes": 3441,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_native_ctrl/read.log",
+    "format": "log",
+    "bytes": 111973,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_native_ctrl/read.LOG",
+    "format": "LOG",
+    "bytes": 1360408,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_native_ctrl/fill.log",
+    "format": "log",
+    "bytes": 327481,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_native_ctrl/fill.LOG",
+    "format": "LOG",
+    "bytes": 20566323,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md",
+    "format": "md",
+    "bytes": 20177,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/matrix.log",
+    "format": "log",
+    "bytes": 303,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md",
+    "format": "md",
+    "bytes": 4539,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1b.log",
+    "format": "log",
+    "bytes": 225125,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1.log",
+    "format": "log",
+    "bytes": 224501,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_smoke_base.log",
+    "format": "log",
+    "bytes": 222229,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0a2.sh",
+    "format": "sh",
+    "bytes": 562,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0a.log",
+    "format": "log",
+    "bytes": 226361,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0d.log",
+    "format": "log",
+    "bytes": 226001,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base.log",
+    "format": "log",
+    "bytes": 222315,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2.log",
+    "format": "log",
+    "bytes": 219476,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2c.log",
+    "format": "log",
+    "bytes": 220934,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_smoke_base.LOG",
+    "format": "LOG",
+    "bytes": 6836100,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0b1.sh",
+    "format": "sh",
+    "bytes": 334,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2.LOG",
+    "format": "LOG",
+    "bytes": 6727258,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base3.log",
+    "format": "log",
+    "bytes": 221283,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A.log",
+    "format": "log",
+    "bytes": 167638,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0b.LOG",
+    "format": "LOG",
+    "bytes": 7278400,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0b.log",
+    "format": "log",
+    "bytes": 223561,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0c.LOG",
+    "format": "LOG",
+    "bytes": 7478506,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0a2b.sh",
+    "format": "sh",
+    "bytes": 277,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_AB.log",
+    "format": "log",
+    "bytes": 167899,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1.LOG",
+    "format": "LOG",
+    "bytes": 6727496,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix.sh",
+    "format": "sh",
+    "bytes": 370,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2b.log",
+    "format": "log",
+    "bytes": 234559,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/analyze_0a2.py",
+    "format": "py",
+    "bytes": 3814,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B.log",
+    "format": "log",
+    "bytes": 220897,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0c.log",
+    "format": "log",
+    "bytes": 225743,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_arm.sh",
+    "format": "sh",
+    "bytes": 1227,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0a.LOG",
+    "format": "LOG",
+    "bytes": 6968616,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/run_all.log",
+    "format": "log",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/run.log",
+    "format": "log",
+    "bytes": 251,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/run_repeat.log",
+    "format": "log",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md",
+    "format": "md",
+    "bytes": 4772,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/run.sh",
+    "format": "sh",
+    "bytes": 1434,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/read.log",
+    "format": "log",
+    "bytes": 109717,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/run_repeat.sh",
+    "format": "sh",
+    "bytes": 1441,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/t_frames.txt",
+    "format": "txt",
+    "bytes": 4333,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/run.log",
+    "format": "log",
+    "bytes": 606,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/run.sh",
+    "format": "sh",
+    "bytes": 5370,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/hang_bt.txt",
+    "format": "txt",
+    "bytes": 92161,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/fill.hang.LOG",
+    "format": "LOG",
+    "bytes": 268846,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/stall_marker.txt",
+    "format": "txt",
+    "bytes": 20,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/fill.log",
+    "format": "log",
+    "bytes": 62275,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/bt_all.txt",
+    "format": "txt",
+    "bytes": 92161,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/stall_cond.txt",
+    "format": "txt",
+    "bytes": 2064,
+    "tracked": false
+   }
+  ]
+ },
+ "m5/b4b17b3_50gb_1kb": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb"
+  ],
+  "derived_from": "directory",
+  "n_files": 9,
+  "bytes": 527836,
+  "by_format": {
+   "txt": 5,
+   "log": 2,
+   "sh": 1,
+   "LOG": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/t_frames.txt",
+    "format": "txt",
+    "bytes": 4333,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/run.log",
+    "format": "log",
+    "bytes": 606,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/run.sh",
+    "format": "sh",
+    "bytes": 5370,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/hang_bt.txt",
+    "format": "txt",
+    "bytes": 92161,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/fill.hang.LOG",
+    "format": "LOG",
+    "bytes": 268846,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/stall_marker.txt",
+    "format": "txt",
+    "bytes": 20,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/fill.log",
+    "format": "log",
+    "bytes": 62275,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/bt_all.txt",
+    "format": "txt",
+    "bytes": 92161,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/stall_cond.txt",
+    "format": "txt",
+    "bytes": 2064,
+    "tracked": false
+   }
+  ]
+ },
+ "m5/b4b17b3_followups": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/b4b17b3_followups"
+  ],
+  "derived_from": "directory",
+  "n_files": 24,
+  "bytes": 1601002,
+  "by_format": {
+   "log": 13,
+   "LOG": 5,
+   "txt": 3,
+   "sh": 2,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/wrepeat.hang.LOG",
+    "format": "LOG",
+    "bytes": 240250,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial50.watch.log",
+    "format": "log",
+    "bytes": 359,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/fill_smoke.log",
+    "format": "log",
+    "bytes": 60803,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/run.log",
+    "format": "log",
+    "bytes": 966,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/read_partial_100.log",
+    "format": "log",
+    "bytes": 44433,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/run.sh",
+    "format": "sh",
+    "bytes": 4353,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/repeat.LOG",
+    "format": "LOG",
+    "bytes": 240250,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/wrepeat.watch.log",
+    "format": "log",
+    "bytes": 333,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial100.bt_all.txt",
+    "format": "txt",
+    "bytes": 117559,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/wsmoke.watch.log",
+    "format": "log",
+    "bytes": 69,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md",
+    "format": "md",
+    "bytes": 1214,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial100.hang.LOG",
+    "format": "LOG",
+    "bytes": 37345,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/read_retest.sh",
+    "format": "sh",
+    "bytes": 3146,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial100.watch.log",
+    "format": "log",
+    "bytes": 368,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial50.hang.LOG",
+    "format": "LOG",
+    "bytes": 83588,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/read_partial_50.log",
+    "format": "log",
+    "bytes": 44926,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/reads100_retest.log",
+    "format": "log",
+    "bytes": 66844,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/smoke.LOG",
+    "format": "LOG",
+    "bytes": 281677,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/reads50_retest.log",
+    "format": "log",
+    "bytes": 109855,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/reads100_retest.watch.log",
+    "format": "log",
+    "bytes": 474,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/wrepeat.bt_all.txt",
+    "format": "txt",
+    "bytes": 92161,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/readpartial50.bt_all.txt",
+    "format": "txt",
+    "bytes": 108803,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/fill_repeat.log",
+    "format": "log",
+    "bytes": 59513,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/b4b17b3_followups/reads50_retest.watch.log",
+    "format": "log",
+    "bytes": 1713,
+    "tracked": false
+   }
+  ]
+ },
+ "m5/baseline": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/bench100g": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/c59fc41_50gb_1kb": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/c59fc41_50gb_1kb"
+  ],
+  "derived_from": "directory",
+  "n_files": 2,
+  "bytes": 270769,
+  "by_format": {
+   "sh": 1,
+   "LOG": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/c59fc41_50gb_1kb/run.sh",
+    "format": "sh",
+    "bytes": 1944,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/c59fc41_50gb_1kb/hang.LOG",
+    "format": "LOG",
+    "bytes": 268825,
+    "tracked": false
+   }
+  ]
+ },
+ "m5/candidate_a14": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/exp_a10": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/exp_a11": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/exp_a12": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/exp_a13": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/exp_a6a7": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/exp_a8": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/exp_a9": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/fix_50gb_static": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/fix_50gb_static"
+  ],
+  "derived_from": "directory",
+  "n_files": 7,
+  "bytes": 11631984,
+  "by_format": {
+   "log": 3,
+   "LOG": 3,
+   "sh": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/run.log",
+    "format": "log",
+    "bytes": 315,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/run.sh",
+    "format": "sh",
+    "bytes": 1923,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/hang_static13gb.LOG",
+    "format": "LOG",
+    "bytes": 5662522,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/read.log",
+    "format": "log",
+    "bytes": 35708,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/read.LOG",
+    "format": "LOG",
+    "bytes": 36929,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/fill.log",
+    "format": "log",
+    "bytes": 232065,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/fix_50gb_static/fill.LOG",
+    "format": "LOG",
+    "bytes": 5662522,
+    "tracked": false
+   }
+  ]
+ },
+ "m5/l0_closure": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/l0_closure"
+  ],
+  "derived_from": "directory",
+  "n_files": 51,
+  "bytes": 45203560,
+  "by_format": {
+   "stderr": 14,
+   "LOG": 11,
+   "sh": 9,
+   "meta": 9,
+   "gz": 3,
+   "txt": 2,
+   "md": 1,
+   "log": 1,
+   "py": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/REPORT.md",
+    "format": "md",
+    "bytes": 16482,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_parts.log",
+    "format": "log",
+    "bytes": 442,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_h16.sh",
+    "format": "sh",
+    "bytes": 1496,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_parts.sh",
+    "format": "sh",
+    "bytes": 1321,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/parse_closure.py",
+    "format": "py",
+    "bytes": 9747,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_p4.sh",
+    "format": "sh",
+    "bytes": 1031,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_mid.sh",
+    "format": "sh",
+    "bytes": 1212,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_h2t4.sh",
+    "format": "sh",
+    "bytes": 1292,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_budget_iso.sh",
+    "format": "sh",
+    "bytes": 1350,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_h2.sh",
+    "format": "sh",
+    "bytes": 1271,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_small.sh",
+    "format": "sh",
+    "bytes": 1398,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/run_budget.sh",
+    "format": "sh",
+    "bytes": 1447,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/ANALYSIS.txt",
+    "format": "txt",
+    "bytes": 59100,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/B_trig4.stderr",
+    "format": "stderr",
+    "bytes": 166258,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget256.meta",
+    "format": "meta",
+    "bytes": 23,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_iso256.meta",
+    "format": "meta",
+    "bytes": 22,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/M_trig4.stderr",
+    "format": "stderr",
+    "bytes": 270414,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget256.LOG",
+    "format": "LOG",
+    "bytes": 2543753,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/M_trig4.LOG",
+    "format": "LOG",
+    "bytes": 5190871,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H16.LOG",
+    "format": "LOG",
+    "bytes": 1901659,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2.meta",
+    "format": "meta",
+    "bytes": 227,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/summary.txt",
+    "format": "txt",
+    "bytes": 322,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget64.meta",
+    "format": "meta",
+    "bytes": 23,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_iso256.LOG",
+    "format": "LOG",
+    "bytes": 2555219,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P256_parts.LOG.gz",
+    "format": "gz",
+    "bytes": 2920109,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P256_parts.meta",
+    "format": "meta",
+    "bytes": 27,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P4_part4.LOG",
+    "format": "LOG",
+    "bytes": 5880112,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P16_parts.stderr",
+    "format": "stderr",
+    "bytes": 243220,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2.stderr",
+    "format": "stderr",
+    "bytes": 147793,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P64_parts.meta",
+    "format": "meta",
+    "bytes": 25,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget256.stderr",
+    "format": "stderr",
+    "bytes": 142941,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/B_trig4.LOG",
+    "format": "LOG",
+    "bytes": 2225336,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2t4.LOG",
+    "format": "LOG",
+    "bytes": 1967664,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H16.meta",
+    "format": "meta",
+    "bytes": 670,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_iso256.stderr",
+    "format": "stderr",
+    "bytes": 146224,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget64.LOG",
+    "format": "LOG",
+    "bytes": 5841567,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/M_trig1e8.LOG",
+    "format": "LOG",
+    "bytes": 4051992,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/A_trig1e8.LOG",
+    "format": "LOG",
+    "bytes": 1729507,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P256_parts.stderr",
+    "format": "stderr",
+    "bytes": 3165917,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P4_part4.stderr",
+    "format": "stderr",
+    "bytes": 259275,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P16_parts.LOG.gz",
+    "format": "gz",
+    "bytes": 275260,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/M_trig1e8.stderr",
+    "format": "stderr",
+    "bytes": 244127,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/R_budget64.stderr",
+    "format": "stderr",
+    "bytes": 129670,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/A_trig1e8.stderr",
+    "format": "stderr",
+    "bytes": 171536,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2t4.meta",
+    "format": "meta",
+    "bytes": 227,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H16.stderr",
+    "format": "stderr",
+    "bytes": 144070,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P64_parts.stderr",
+    "format": "stderr",
+    "bytes": 591140,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P16_parts.meta",
+    "format": "meta",
+    "bytes": 24,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2.LOG",
+    "format": "LOG",
+    "bytes": 1273697,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/H2t4.stderr",
+    "format": "stderr",
+    "bytes": 154477,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/l0_closure/results/P64_parts.LOG.gz",
+    "format": "gz",
+    "bytes": 770573,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/ledger"
+  ],
+  "derived_from": "directory",
+  "n_files": 10,
+  "bytes": 74324,
+  "by_format": {
+   "txt": 9,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1e_b3.txt",
+    "format": "txt",
+    "bytes": 13382,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1c2_db_fence4.txt",
+    "format": "txt",
+    "bytes": 14811,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1.txt",
+    "format": "txt",
+    "bytes": 10689,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md",
+    "format": "md",
+    "bytes": 22060,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_b1.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_b3.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_b2.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1e_db_fence4.txt",
+    "format": "txt",
+    "bytes": 13382,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1e_b2.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger#REPORT_0B": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/ledger"
+  ],
+  "derived_from": "directory",
+  "n_files": 10,
+  "bytes": 74324,
+  "by_format": {
+   "txt": 9,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1e_b3.txt",
+    "format": "txt",
+    "bytes": 13382,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1c2_db_fence4.txt",
+    "format": "txt",
+    "bytes": 14811,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1.txt",
+    "format": "txt",
+    "bytes": 10689,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md",
+    "format": "md",
+    "bytes": 22060,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_b1.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_b3.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_b2.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1e_db_fence4.txt",
+    "format": "txt",
+    "bytes": 13382,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/ledger/triage_fail_keys_step1e_b2.txt",
+    "format": "txt",
+    "bytes": 0,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger_a1a3": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger_aprobe": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger_b_step1": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger_b_step2b": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger_b_step3_4": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger_fixed_routing_perf": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger_repair_d": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger_snapfix": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger_v06_c1c2": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger_v06_cand": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/ledger_v06_p0": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/materialize_lag#protocol_fix_attempt": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/materialize_lag"
+  ],
+  "derived_from": "directory",
+  "n_files": 21,
+  "bytes": 3284026,
+  "by_format": {
+   "stderr": 16,
+   "md": 2,
+   "sh": 1,
+   "txt": 1,
+   "LOG": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md",
+    "format": "md",
+    "bytes": 6273,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/run_diag.sh",
+    "format": "sh",
+    "bytes": 1885,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md",
+    "format": "md",
+    "bytes": 12869,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p3.stderr",
+    "format": "stderr",
+    "bytes": 77125,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fix2.stderr",
+    "format": "stderr",
+    "bytes": 76820,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fix.stderr",
+    "format": "stderr",
+    "bytes": 90115,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p5.stderr",
+    "format": "stderr",
+    "bytes": 77550,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p4.stderr",
+    "format": "stderr",
+    "bytes": 77394,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/stage.stderr",
+    "format": "stderr",
+    "bytes": 89689,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p8.stderr",
+    "format": "stderr",
+    "bytes": 77225,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p6.stderr",
+    "format": "stderr",
+    "bytes": 77003,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/pair.stderr",
+    "format": "stderr",
+    "bytes": 930521,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p9.stderr",
+    "format": "stderr",
+    "bytes": 969986,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p7.stderr",
+    "format": "stderr",
+    "bytes": 76685,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/run.txt",
+    "format": "txt",
+    "bytes": 241,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/probe2.stderr",
+    "format": "stderr",
+    "bytes": 94763,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fill.stderr",
+    "format": "stderr",
+    "bytes": 67234,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/probe.stderr",
+    "format": "stderr",
+    "bytes": 92978,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/wait.stderr",
+    "format": "stderr",
+    "bytes": 76100,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fill.LOG",
+    "format": "LOG",
+    "bytes": 227990,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fix60.stderr",
+    "format": "stderr",
+    "bytes": 83580,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/materialize_lag#report": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/materialize_lag"
+  ],
+  "derived_from": "directory",
+  "n_files": 21,
+  "bytes": 3284026,
+  "by_format": {
+   "stderr": 16,
+   "md": 2,
+   "sh": 1,
+   "txt": 1,
+   "LOG": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md",
+    "format": "md",
+    "bytes": 6273,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/run_diag.sh",
+    "format": "sh",
+    "bytes": 1885,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md",
+    "format": "md",
+    "bytes": 12869,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p3.stderr",
+    "format": "stderr",
+    "bytes": 77125,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fix2.stderr",
+    "format": "stderr",
+    "bytes": 76820,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fix.stderr",
+    "format": "stderr",
+    "bytes": 90115,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p5.stderr",
+    "format": "stderr",
+    "bytes": 77550,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p4.stderr",
+    "format": "stderr",
+    "bytes": 77394,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/stage.stderr",
+    "format": "stderr",
+    "bytes": 89689,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p8.stderr",
+    "format": "stderr",
+    "bytes": 77225,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p6.stderr",
+    "format": "stderr",
+    "bytes": 77003,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/pair.stderr",
+    "format": "stderr",
+    "bytes": 930521,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p9.stderr",
+    "format": "stderr",
+    "bytes": 969986,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/p7.stderr",
+    "format": "stderr",
+    "bytes": 76685,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/run.txt",
+    "format": "txt",
+    "bytes": 241,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/probe2.stderr",
+    "format": "stderr",
+    "bytes": 94763,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fill.stderr",
+    "format": "stderr",
+    "bytes": 67234,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/probe.stderr",
+    "format": "stderr",
+    "bytes": 92978,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/wait.stderr",
+    "format": "stderr",
+    "bytes": 76100,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fill.LOG",
+    "format": "LOG",
+    "bytes": 227990,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/materialize_lag/diag/fix60.stderr",
+    "format": "stderr",
+    "bytes": 83580,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/merge_on_accept": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/merge_on_accept"
+  ],
+  "derived_from": "directory",
+  "n_files": 9,
+  "bytes": 1350832,
+  "by_format": {
+   "log": 6,
+   "sh": 2,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md",
+    "format": "md",
+    "bytes": 6010,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/run_off.sh",
+    "format": "sh",
+    "bytes": 966,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/run.log",
+    "format": "log",
+    "bytes": 105,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/run.sh",
+    "format": "sh",
+    "bytes": 1456,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/zf_fill_lockoff.log",
+    "format": "log",
+    "bytes": 522065,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/zf_fill.log",
+    "format": "log",
+    "bytes": 128622,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/pair_0.log",
+    "format": "log",
+    "bytes": 459102,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/zf_read.log",
+    "format": "log",
+    "bytes": 105678,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept/pair_1.log",
+    "format": "log",
+    "bytes": 126828,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/merge_on_accept_v2#attempt_log": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/merge_on_accept_v2"
+  ],
+  "derived_from": "directory",
+  "n_files": 6,
+  "bytes": 120042,
+  "by_format": {
+   "log": 3,
+   "md": 2,
+   "sh": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/run_all.log",
+    "format": "log",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md",
+    "format": "md",
+    "bytes": 3450,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/run.log",
+    "format": "log",
+    "bytes": 241,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/run.sh",
+    "format": "sh",
+    "bytes": 1789,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md",
+    "format": "md",
+    "bytes": 2352,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/read.log",
+    "format": "log",
+    "bytes": 112210,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/merge_on_accept_v2#report": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/merge_on_accept_v2"
+  ],
+  "derived_from": "directory",
+  "n_files": 6,
+  "bytes": 120042,
+  "by_format": {
+   "log": 3,
+   "md": 2,
+   "sh": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/run_all.log",
+    "format": "log",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md",
+    "format": "md",
+    "bytes": 3450,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/run.log",
+    "format": "log",
+    "bytes": 241,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/run.sh",
+    "format": "sh",
+    "bytes": 1789,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md",
+    "format": "md",
+    "bytes": 2352,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/merge_on_accept_v2/read.log",
+    "format": "log",
+    "bytes": 112210,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/native_50gb_samewindow": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/native_50gb_samewindow"
+  ],
+  "derived_from": "directory",
+  "n_files": 7,
+  "bytes": 117615,
+  "by_format": {
+   "log": 4,
+   "sh": 2,
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/run_all.log",
+    "format": "log",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/run.log",
+    "format": "log",
+    "bytes": 251,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/run_repeat.log",
+    "format": "log",
+    "bytes": 0,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md",
+    "format": "md",
+    "bytes": 4772,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/run.sh",
+    "format": "sh",
+    "bytes": 1434,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/read.log",
+    "format": "log",
+    "bytes": 109717,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/native_50gb_samewindow/run_repeat.sh",
+    "format": "sh",
+    "bytes": 1441,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/p1_backlogdrain_exp": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/release_c59fc41": {
+  "dirs": [
+   "archive/zeroflush_m5_perf"
+  ],
+  "derived_from": "citations",
+  "n_files": 1,
+  "bytes": 264719,
+  "by_format": {
+   "md": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/RUN_MANIFEST.md",
+    "format": "md",
+    "bytes": 264719,
+    "tracked": true
+   }
+  ]
+ },
+ "m5/sink_tuning": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/sink_tuning"
+  ],
+  "derived_from": "directory",
+  "n_files": 30,
+  "bytes": 45296501,
+  "by_format": {
+   "log": 16,
+   "LOG": 6,
+   "sh": 5,
+   "md": 2,
+   "py": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md",
+    "format": "md",
+    "bytes": 20177,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/matrix.log",
+    "format": "log",
+    "bytes": 303,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md",
+    "format": "md",
+    "bytes": 4539,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1b.log",
+    "format": "log",
+    "bytes": 225125,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1.log",
+    "format": "log",
+    "bytes": 224501,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_smoke_base.log",
+    "format": "log",
+    "bytes": 222229,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0a2.sh",
+    "format": "sh",
+    "bytes": 562,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0a.log",
+    "format": "log",
+    "bytes": 226361,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0d.log",
+    "format": "log",
+    "bytes": 226001,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base.log",
+    "format": "log",
+    "bytes": 222315,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2.log",
+    "format": "log",
+    "bytes": 219476,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2c.log",
+    "format": "log",
+    "bytes": 220934,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_smoke_base.LOG",
+    "format": "LOG",
+    "bytes": 6836100,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0b1.sh",
+    "format": "sh",
+    "bytes": 334,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2.LOG",
+    "format": "LOG",
+    "bytes": 6727258,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base3.log",
+    "format": "log",
+    "bytes": 221283,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A.log",
+    "format": "log",
+    "bytes": 167638,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0b.LOG",
+    "format": "LOG",
+    "bytes": 7278400,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0b.log",
+    "format": "log",
+    "bytes": 223561,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0c.LOG",
+    "format": "LOG",
+    "bytes": 7478506,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0a2b.sh",
+    "format": "sh",
+    "bytes": 277,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_AB.log",
+    "format": "log",
+    "bytes": 167899,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1.LOG",
+    "format": "LOG",
+    "bytes": 6727496,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix.sh",
+    "format": "sh",
+    "bytes": 370,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2b.log",
+    "format": "log",
+    "bytes": 234559,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/analyze_0a2.py",
+    "format": "py",
+    "bytes": 3814,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B.log",
+    "format": "log",
+    "bytes": 220897,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0c.log",
+    "format": "log",
+    "bytes": 225743,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_arm.sh",
+    "format": "sh",
+    "bytes": 1227,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0a.LOG",
+    "format": "LOG",
+    "bytes": 6968616,
+    "tracked": false
+   }
+  ]
+ },
+ "m5/sink_tuning#report": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/sink_tuning"
+  ],
+  "derived_from": "directory",
+  "n_files": 30,
+  "bytes": 45296501,
+  "by_format": {
+   "log": 16,
+   "LOG": 6,
+   "sh": 5,
+   "md": 2,
+   "py": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md",
+    "format": "md",
+    "bytes": 20177,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/matrix.log",
+    "format": "log",
+    "bytes": 303,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md",
+    "format": "md",
+    "bytes": 4539,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1b.log",
+    "format": "log",
+    "bytes": 225125,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1.log",
+    "format": "log",
+    "bytes": 224501,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_smoke_base.log",
+    "format": "log",
+    "bytes": 222229,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0a2.sh",
+    "format": "sh",
+    "bytes": 562,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0a.log",
+    "format": "log",
+    "bytes": 226361,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0d.log",
+    "format": "log",
+    "bytes": 226001,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base.log",
+    "format": "log",
+    "bytes": 222315,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2.log",
+    "format": "log",
+    "bytes": 219476,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2c.log",
+    "format": "log",
+    "bytes": 220934,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_smoke_base.LOG",
+    "format": "LOG",
+    "bytes": 6836100,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0b1.sh",
+    "format": "sh",
+    "bytes": 334,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2.LOG",
+    "format": "LOG",
+    "bytes": 6727258,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base3.log",
+    "format": "log",
+    "bytes": 221283,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A.log",
+    "format": "log",
+    "bytes": 167638,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0b.LOG",
+    "format": "LOG",
+    "bytes": 7278400,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0b.log",
+    "format": "log",
+    "bytes": 223561,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0c.LOG",
+    "format": "LOG",
+    "bytes": 7478506,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0a2b.sh",
+    "format": "sh",
+    "bytes": 277,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_AB.log",
+    "format": "log",
+    "bytes": 167899,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1.LOG",
+    "format": "LOG",
+    "bytes": 6727496,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix.sh",
+    "format": "sh",
+    "bytes": 370,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2b.log",
+    "format": "log",
+    "bytes": 234559,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/analyze_0a2.py",
+    "format": "py",
+    "bytes": 3814,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B.log",
+    "format": "log",
+    "bytes": 220897,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0c.log",
+    "format": "log",
+    "bytes": 225743,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_arm.sh",
+    "format": "sh",
+    "bytes": 1227,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0a.LOG",
+    "format": "LOG",
+    "bytes": 6968616,
+    "tracked": false
+   }
+  ]
+ },
+ "m5/sink_tuning#report_0a": {
+  "dirs": [
+   "archive/zeroflush_m5_perf/sink_tuning"
+  ],
+  "derived_from": "directory",
+  "n_files": 30,
+  "bytes": 45296501,
+  "by_format": {
+   "log": 16,
+   "LOG": 6,
+   "sh": 5,
+   "md": 2,
+   "py": 1
+  },
+  "files": [
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md",
+    "format": "md",
+    "bytes": 20177,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/matrix.log",
+    "format": "log",
+    "bytes": 303,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md",
+    "format": "md",
+    "bytes": 4539,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1b.log",
+    "format": "log",
+    "bytes": 225125,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1.log",
+    "format": "log",
+    "bytes": 224501,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_smoke_base.log",
+    "format": "log",
+    "bytes": 222229,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0a2.sh",
+    "format": "sh",
+    "bytes": 562,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0a.log",
+    "format": "log",
+    "bytes": 226361,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0d.log",
+    "format": "log",
+    "bytes": 226001,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base.log",
+    "format": "log",
+    "bytes": 222315,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2.log",
+    "format": "log",
+    "bytes": 219476,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2c.log",
+    "format": "log",
+    "bytes": 220934,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_smoke_base.LOG",
+    "format": "LOG",
+    "bytes": 6836100,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0b1.sh",
+    "format": "sh",
+    "bytes": 334,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2.LOG",
+    "format": "LOG",
+    "bytes": 6727258,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base3.log",
+    "format": "log",
+    "bytes": 221283,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A.log",
+    "format": "log",
+    "bytes": 167638,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0b.LOG",
+    "format": "LOG",
+    "bytes": 7278400,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0b.log",
+    "format": "log",
+    "bytes": 223561,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0c.LOG",
+    "format": "LOG",
+    "bytes": 7478506,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix_0a2b.sh",
+    "format": "sh",
+    "bytes": 277,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_AB.log",
+    "format": "log",
+    "bytes": 167899,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B1.LOG",
+    "format": "LOG",
+    "bytes": 6727496,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_matrix.sh",
+    "format": "sh",
+    "bytes": 370,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_base2b.log",
+    "format": "log",
+    "bytes": 234559,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/analyze_0a2.py",
+    "format": "py",
+    "bytes": 3814,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_B.log",
+    "format": "log",
+    "bytes": 220897,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0c.log",
+    "format": "log",
+    "bytes": 225743,
+    "tracked": false
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/run_arm.sh",
+    "format": "sh",
+    "bytes": 1227,
+    "tracked": true
+   },
+   {
+    "path": "archive/zeroflush_m5_perf/sink_tuning/fill_A0a.LOG",
+    "format": "LOG",
+    "bytes": 6968616,
+    "tracked": false
+   }
+  ]
+ }
+}

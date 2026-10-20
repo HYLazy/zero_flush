@@ -1,0 +1,67 @@
+[New LWP 4014415]
+[New LWP 4014416]
+[New LWP 4014417]
+[New LWP 4014418]
+[New LWP 4014419]
+[New LWP 4014420]
+[New LWP 4014421]
+[New LWP 4014422]
+[New LWP 4014423]
+[New LWP 4014424]
+[New LWP 4014425]
+[New LWP 4014426]
+[New LWP 4014427]
+[New LWP 4014428]
+[New LWP 4014429]
+[New LWP 4014430]
+[New LWP 4014431]
+[New LWP 4014432]
+[New LWP 4014433]
+[New LWP 4014434]
+[New LWP 4014435]
+[New LWP 4014436]
+[New LWP 4014437]
+[New LWP 4014438]
+[New LWP 4014455]
+[New LWP 4014456]
+[New LWP 4014472]
+[New LWP 4014473]
+[New LWP 4014474]
+[New LWP 4014475]
+[New LWP 4014476]
+[New LWP 4014477]
+[New LWP 4014478]
+[New LWP 4014479]
+[New LWP 4014480]
+[New LWP 4014481]
+[New LWP 4014482]
+[New LWP 4014483]
+[New LWP 4014484]
+[New LWP 4014485]
+[New LWP 4014486]
+[New LWP 4014487]
+[New LWP 4014488]
+[New LWP 4014489]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+__futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7ffec0e9fda0) at ./nptl/futex-internal.c:57
+57	./nptl/futex-internal.c: No such file or directory.
+[Switching to thread 42 (Thread 0x71ab001be640 (LWP 4014486))]
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x71ab001b9518) at ./nptl/futex-internal.c:57
+57	in ./nptl/futex-internal.c
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x71ab001b9518) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x71ab001b9518) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x71ab001b9518, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x000071ab25093a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x71ab001b94c8, cond=0x71ab001b94f0) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x71ab001b94f0, mutex=0x71ab001b94c8) at ./nptl/pthread_cond_wait.c:627
+#5  0x000071ab25f9e68b in std::condition_variable::wait<rocksdb::WriteThread::BlockingAwaitState(rocksdb::WriteThread::Writer*, uint8_t)::<lambda()> > (__p=..., __lock=..., this=0x71ab001b94f0) at /usr/include/c++/11/condition_variable:103
+#6  rocksdb::WriteThread::BlockingAwaitState (this=this@entry=0x596e70005bf0, w=w@entry=0x71ab001b9430, goal_mask=goal_mask@entry=94 '^') at /home/embed/hyl/zf_fix/source/rocksdb-zeroflush/db/write_thread.cc:50
+#7  0x000071ab25f9e7e6 in rocksdb::WriteThread::AwaitState (this=0x596e70005bf0, w=<optimized out>, goal_mask=94 '^', ctx=0x71ab266727a0 <rocksdb::jbg_ctx>) at /home/embed/hyl/zf_fix/source/rocksdb-zeroflush/db/write_thread.cc:189
+#8  0x000071ab25dbd055 in rocksdb::DBImpl::WriteImpl (this=0x596e70004c80, write_options=..., my_batch=<optimized out>, callback=0x0, user_write_cb=<optimized out>, wal_used=0x0, log_ref=0, disable_memtable=false, seq_used=0x0, batch_cnt=0, pre_release_callback=0x0, post_memtable_callback=0x0, wbwi=std::shared_ptr<rocksdb::WriteBatchWithIndex> (empty) = {...}, trace_batch_override=0x0, skip_blob_direct_write_transform=false, deferred_put_entities=0x0) at /home/embed/hyl/zf_fix/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:1135
+#9  0x000071ab25dbf5f6 in rocksdb::DBImpl::Write (this=0x596e70004c80, write_options=..., my_batch=0x71ab001bbd60) at /home/embed/hyl/zf_fix/source/rocksdb-zeroflush/db/db_impl/db_impl_write.cc:233
+#10 0x0000596e6d2a1312 in rocksdb::Benchmark::DoWrite (this=0x7ffec0ea0a30, thread=0x596e7008a680, write_mode=rocksdb::Benchmark::RANDOM) at /home/embed/hyl/zf_fix/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6364
+#11 0x0000596e6d272892 in rocksdb::Benchmark::ThreadBody (v=0x596e70080d18) at /home/embed/hyl/zf_fix/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4348
+#12 0x000071ab2643b8c9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x596e7001fef0) at /home/embed/hyl/zf_fix/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x000071ab25094a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x000071ab251268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+[Inferior 1 (process 4014413) detached]

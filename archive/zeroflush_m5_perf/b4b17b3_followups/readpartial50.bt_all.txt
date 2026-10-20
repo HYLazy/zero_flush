@@ -1,0 +1,667 @@
+[New LWP 4085903]
+[New LWP 4085904]
+[New LWP 4085905]
+[New LWP 4085906]
+[New LWP 4085907]
+[New LWP 4085908]
+[New LWP 4085909]
+[New LWP 4085910]
+[New LWP 4085911]
+[New LWP 4085912]
+[New LWP 4085913]
+[New LWP 4085914]
+[New LWP 4085915]
+[New LWP 4085916]
+[New LWP 4085917]
+[New LWP 4085918]
+[New LWP 4085919]
+[New LWP 4085920]
+[New LWP 4085921]
+[New LWP 4085922]
+[New LWP 4085923]
+[New LWP 4085924]
+[New LWP 4085925]
+[New LWP 4085926]
+[New LWP 4085942]
+[New LWP 4085988]
+[New LWP 4085989]
+[New LWP 4085990]
+[New LWP 4085991]
+[New LWP 4085992]
+[New LWP 4085993]
+[New LWP 4085994]
+[New LWP 4085995]
+[New LWP 4085996]
+[New LWP 4085997]
+[New LWP 4085998]
+[New LWP 4085999]
+[New LWP 4086000]
+[New LWP 4086001]
+[New LWP 4086002]
+[New LWP 4086003]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+__futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7fffe24816e0) at ./nptl/futex-internal.c:57
+57	./nptl/futex-internal.c: No such file or directory.
+
+Thread 42 (Thread 0x7c4f347e8640 (LWP 4086003) "db_bench"):
+#0  0x00007c4f5cb95886 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const (this=0x623a54bd4d60, key=<optimized out>, node=0x7c4f347e5fa8, allow_data_in_errors=<optimized out>, detect_key_out_of_order=false, key_validation_callback=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:610
+#1  0x00007c4f5d2193d8 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Iterator::Seek (target=<optimized out>, this=0x7c4f347e5fa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:513
+#2  zeroflush::PartitionIndex::Get (this=this@entry=0x623a54bd4390, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f347e6130, type_out=type_out@entry=0x7c4f347e6107, seq_out=seq_out@entry=0x7c4f347e6108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:264
+#3  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f347e6320, type_out=type_out@entry=0x7c4f347e62d4, seq_out=0x7c4f347e62d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#4  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f347e6340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f347e6380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#5  zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#6  0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f347e69c0, value=0x7c4f347e70a0, merge_context=merge_context@entry=0x7c4f347e6a20, merge_op=0x0, retry_requested=0x7c4f347e69d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#7  0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#8  0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f347e7070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#9  0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f347e7070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#10 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a5708f440) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#11 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f3398) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a524685f0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 41 (Thread 0x7c4f34fe9640 (LWP 4086002) "db_bench"):
+#0  0x0000623a3d4081ad in std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_append (this=0x7c4f34fe6fc0, __s=0x7c4f34fe6fb0 "\001\022\371\023", __n=8) at /usr/include/c++/11/bits/basic_string.tcc:387
+#1  0x00007c4f5d2192ff in std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::append (__n=8, __s=0x7c4f34fe6fb0 "\001\022\371\023", this=0x7c4f34fe6fc0) at /usr/include/c++/11/bits/basic_string.h:1246
+#2  rocksdb::PutFixed64 (value=335090177, dst=0x7c4f34fe6fc0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/coding.h:143
+#3  zeroflush::PartitionIndex::Get (this=this@entry=0x623a5371fa40, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f34fe7130, type_out=type_out@entry=0x7c4f34fe7107, seq_out=seq_out@entry=0x7c4f34fe7108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:254
+#4  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f34fe7320, type_out=type_out@entry=0x7c4f34fe72d4, seq_out=0x7c4f34fe72d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#5  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f34fe7340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f34fe7380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#6  zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#7  0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f34fe79c0, value=0x7c4f34fe80a0, merge_context=merge_context@entry=0x7c4f34fe7a20, merge_op=0x0, retry_requested=0x7c4f34fe79d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#8  0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#9  0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f34fe8070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#10 0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f34fe8070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#11 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a5708e850) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#12 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f3370) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#13 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a52a3ac90) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#14 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#15 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 40 (Thread 0x7c4f377ee640 (LWP 4086001) "db_bench"):
+#0  0x00007c4f5cb95889 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const (this=0x623a52169d30, key=<optimized out>, node=0x7c4f377ebfa8, allow_data_in_errors=<optimized out>, detect_key_out_of_order=false, key_validation_callback=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:611
+#1  0x00007c4f5d2193d8 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Iterator::Seek (target=<optimized out>, this=0x7c4f377ebfa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:513
+#2  zeroflush::PartitionIndex::Get (this=this@entry=0x623a52169360, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f377ec130, type_out=type_out@entry=0x7c4f377ec107, seq_out=seq_out@entry=0x7c4f377ec108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:264
+#3  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f377ec320, type_out=type_out@entry=0x7c4f377ec2d4, seq_out=0x7c4f377ec2d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#4  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f377ec340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f377ec380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#5  zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#6  0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f377ec9c0, value=0x7c4f377ed0a0, merge_context=merge_context@entry=0x7c4f377eca20, merge_op=0x0, retry_requested=0x7c4f377ec9d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#7  0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#8  0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f377ed070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#9  0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f377ed070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#10 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a5708dc60) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#11 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f3348) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a52d6bfa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 39 (Thread 0x7c4f37fef640 (LWP 4086000) "db_bench"):
+#0  0x00007c4f5bea27ad in _int_free (av=0x7c4f40000030, p=<optimized out>, have_lock=<optimized out>) at ./malloc/malloc.c:4702
+#1  0x00007c4f5bea5413 in __GI___libc_free (mem=<optimized out>) at ./malloc/malloc.c:3391
+#2  0x00007c4f5d2194dd in __gnu_cxx::new_allocator<char>::deallocate (this=0x7c4f37fecfc0, __t=<optimized out>, __p=<optimized out>) at /usr/include/c++/11/ext/new_allocator.h:145
+#3  std::allocator<char>::deallocate (__n=<optimized out>, __p=<optimized out>, this=0x7c4f37fecfc0) at /usr/include/c++/11/bits/allocator.h:199
+#4  std::allocator_traits<std::allocator<char> >::deallocate (__n=<optimized out>, __p=<optimized out>, __a=...) at /usr/include/c++/11/bits/alloc_traits.h:496
+#5  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_destroy (__size=<optimized out>, this=0x7c4f37fecfc0) at /usr/include/c++/11/bits/basic_string.h:245
+#6  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_dispose (this=0x7c4f37fecfc0) at /usr/include/c++/11/bits/basic_string.h:240
+#7  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::~basic_string (this=0x7c4f37fecfc0, __in_chrg=<optimized out>) at /usr/include/c++/11/bits/basic_string.h:672
+#8  zeroflush::PartitionIndex::Get (this=this@entry=0x623a5371bc90, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f37fed130, type_out=type_out@entry=0x7c4f37fed107, seq_out=seq_out@entry=0x7c4f37fed108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:296
+#9  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f37fed320, type_out=type_out@entry=0x7c4f37fed2d4, seq_out=0x7c4f37fed2d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#10 0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f37fed340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f37fed380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#11 zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#12 0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f37fed9c0, value=0x7c4f37fee0a0, merge_context=merge_context@entry=0x7c4f37feda20, merge_op=0x0, retry_requested=0x7c4f37fed9d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#13 0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#14 0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f37fee070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#15 0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f37fee070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#16 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a5708d1b0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#17 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f3320) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#18 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a5318f210) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#19 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#20 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 38 (Thread 0x7c4f387f0640 (LWP 4085999) "db_bench"):
+#0  zeroflush::get_trace::DynamicKey[abi:cxx11]() () at /usr/include/c++/11/bits/stl_iterator.h:1027
+#1  zeroflush::get_trace::Enabled () at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/get_trace.h:80
+#2  zeroflush::get_trace::Enabled () at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/get_trace.h:80
+#3  zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f387ee320, type_out=type_out@entry=0x7c4f387ee2d4, seq_out=0x7c4f387ee2d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:929
+#4  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f387ee340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f387ee380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#5  zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#6  0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f387ee9c0, value=0x7c4f387ef0a0, merge_context=merge_context@entry=0x7c4f387eea20, merge_op=0x0, retry_requested=0x7c4f387ee9d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#7  0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#8  0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f387ef070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#9  0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f387ef070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#10 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a5708c700) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#11 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f32f8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a52462890) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 37 (Thread 0x7c4f38ff1640 (LWP 4085998) "db_bench"):
+#0  0x00007c4f5be9af54 in __pthread_rwlock_rdunlock (rwlock=0x623a513250a8) at ./nptl/pthread_rwlock_common.c:254
+#1  ___pthread_rwlock_unlock (rwlock=0x623a513250a8) at ./nptl/pthread_rwlock_unlock.c:42
+#2  0x00007c4f5d21d765 in std::__glibcxx_rwlock_unlock (__rwlock=0x623a513250a8) at /usr/include/c++/11/shared_mutex:82
+#3  std::__shared_mutex_pthread::unlock (this=0x623a513250a8) at /usr/include/c++/11/shared_mutex:213
+#4  std::__shared_mutex_pthread::unlock_shared (this=0x623a513250a8) at /usr/include/c++/11/shared_mutex:253
+#5  std::shared_mutex::unlock_shared (this=0x623a513250a8) at /usr/include/c++/11/shared_mutex:428
+#6  std::shared_lock<std::shared_mutex>::~shared_lock (this=<synthetic pointer>, __in_chrg=<optimized out>) at /usr/include/c++/11/shared_mutex:753
+#7  zeroflush::PartitionIndexSet::Get (this=0x623a51325090, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f38fef320, type_out=type_out@entry=0x7c4f38fef2d4, seq_out=0x7c4f38fef2d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:901
+#8  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f38fef340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f38fef380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#9  zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#10 0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f38fef9c0, value=0x7c4f38ff00a0, merge_context=merge_context@entry=0x7c4f38fefa20, merge_op=0x0, retry_requested=0x7c4f38fef9d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#11 0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#12 0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f38ff0070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#13 0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f38ff0070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#14 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a5708bc50) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#15 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f32d0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#16 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a5246a510) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#17 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#18 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 36 (Thread 0x7c4f397f2640 (LWP 4085997) "db_bench"):
+#0  __memcmp_evex_movbe () at ../sysdeps/x86_64/multiarch/memcmp-evex-movbe.S:141
+#1  0x00007c4f5d03d24e in non-virtual thunk to rocksdb::(anonymous namespace)::BytewiseComparatorImpl::Compare(rocksdb::Slice const&, rocksdb::Slice const&) const () at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/include/rocksdb/slice.h:293
+#2  0x00007c4f5cb95b46 in rocksdb::UserComparatorWrapper::Compare (b=..., a=..., this=0x623a53726130) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/user_comparator_wrapper.h:33
+#3  rocksdb::InternalKeyComparator::CompareKeySeq (bkey=<synthetic pointer>..., akey=..., this=0x623a53726128) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/dbformat.h:1185
+#4  zeroflush::ZfKeyComparator::operator() (key=<synthetic pointer>..., prefix_len_key=0x623a54626ef0 "\030", this=0x623a53726120) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:56
+#5  rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const (this=0x623a53726110, key=<optimized out>, node=0x7c4f397effa8, allow_data_in_errors=<optimized out>, detect_key_out_of_order=false, key_validation_callback=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:629
+#6  0x00007c4f5d2193d8 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Iterator::Seek (target=<optimized out>, this=0x7c4f397effa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:513
+#7  zeroflush::PartitionIndex::Get (this=this@entry=0x623a53725740, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f397f0130, type_out=type_out@entry=0x7c4f397f0107, seq_out=seq_out@entry=0x7c4f397f0108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:264
+#8  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f397f0320, type_out=type_out@entry=0x7c4f397f02d4, seq_out=0x7c4f397f02d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#9  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f397f0340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f397f0380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#10 zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#11 0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f397f09c0, value=0x7c4f397f10a0, merge_context=merge_context@entry=0x7c4f397f0a20, merge_op=0x0, retry_requested=0x7c4f397f09d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#12 0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#13 0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f397f1070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#14 0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f397f1070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#15 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a5708b1a0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#16 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f32a8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#17 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a51301fe0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#18 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#19 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 35 (Thread 0x7c4f39ff3640 (LWP 4085996) "db_bench"):
+#0  rocksdb::UserComparatorWrapper::Compare (b=..., a=..., this=0x623a56541db0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/user_comparator_wrapper.h:33
+#1  rocksdb::InternalKeyComparator::CompareKeySeq (bkey=<synthetic pointer>..., akey=..., this=0x623a56541da8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/dbformat.h:1185
+#2  zeroflush::ZfKeyComparator::operator() (key=<synthetic pointer>..., prefix_len_key=0x623a56cb8210 "\030", this=0x623a56541da0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:56
+#3  rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const (this=0x623a56541d90, key=<optimized out>, node=0x7c4f39ff0fa8, allow_data_in_errors=<optimized out>, detect_key_out_of_order=false, key_validation_callback=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:629
+#4  0x00007c4f5d2193d8 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Iterator::Seek (target=<optimized out>, this=0x7c4f39ff0fa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:513
+#5  zeroflush::PartitionIndex::Get (this=this@entry=0x623a565413c0, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f39ff1130, type_out=type_out@entry=0x7c4f39ff1107, seq_out=seq_out@entry=0x7c4f39ff1108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:264
+#6  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f39ff1320, type_out=type_out@entry=0x7c4f39ff12d4, seq_out=0x7c4f39ff12d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#7  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f39ff1340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f39ff1380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#8  zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#9  0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f39ff19c0, value=0x7c4f39ff20a0, merge_context=merge_context@entry=0x7c4f39ff1a20, merge_op=0x0, retry_requested=0x7c4f39ff19d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#10 0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#11 0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f39ff2070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#12 0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f39ff2070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#13 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a5708a6f0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#14 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f3280) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#15 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a51364f40) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#16 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#17 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 34 (Thread 0x7c4f3a7f4640 (LWP 4085995) "db_bench"):
+#0  tcache_put (tc_idx=1, chunk=0x7c4f48006990) at ./malloc/malloc.c:3181
+#1  _int_free (av=0x7c4f48000030, p=0x7c4f48006990, have_lock=0) at ./malloc/malloc.c:4481
+#2  0x00007c4f5bea5413 in __GI___libc_free (mem=<optimized out>) at ./malloc/malloc.c:3391
+#3  0x00007c4f5d2194dd in __gnu_cxx::new_allocator<char>::deallocate (this=0x7c4f3a7f1fc0, __t=<optimized out>, __p=<optimized out>) at /usr/include/c++/11/ext/new_allocator.h:145
+#4  std::allocator<char>::deallocate (__n=<optimized out>, __p=<optimized out>, this=0x7c4f3a7f1fc0) at /usr/include/c++/11/bits/allocator.h:199
+#5  std::allocator_traits<std::allocator<char> >::deallocate (__n=<optimized out>, __p=<optimized out>, __a=...) at /usr/include/c++/11/bits/alloc_traits.h:496
+#6  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_destroy (__size=<optimized out>, this=0x7c4f3a7f1fc0) at /usr/include/c++/11/bits/basic_string.h:245
+#7  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_dispose (this=0x7c4f3a7f1fc0) at /usr/include/c++/11/bits/basic_string.h:240
+#8  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::~basic_string (this=0x7c4f3a7f1fc0, __in_chrg=<optimized out>) at /usr/include/c++/11/bits/basic_string.h:672
+#9  zeroflush::PartitionIndex::Get (this=this@entry=0x623a5134fe50, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f3a7f2130, type_out=type_out@entry=0x7c4f3a7f2107, seq_out=seq_out@entry=0x7c4f3a7f2108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:296
+#10 0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f3a7f2320, type_out=type_out@entry=0x7c4f3a7f22d4, seq_out=0x7c4f3a7f22d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#11 0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f3a7f2340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f3a7f2380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#12 zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#13 0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f3a7f29c0, value=0x7c4f3a7f30a0, merge_context=merge_context@entry=0x7c4f3a7f2a20, merge_op=0x0, retry_requested=0x7c4f3a7f29d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#14 0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#15 0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f3a7f3070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#16 0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f3a7f3070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#17 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a57089c40) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#18 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f3258) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#19 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a5257f3a0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#20 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#21 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 33 (Thread 0x7c4f3aff5640 (LWP 4085994) "db_bench"):
+#0  __memcmp_evex_movbe () at ../sysdeps/x86_64/multiarch/memcmp-evex-movbe.S:120
+#1  0x00007c4f5d03d24e in non-virtual thunk to rocksdb::(anonymous namespace)::BytewiseComparatorImpl::Compare(rocksdb::Slice const&, rocksdb::Slice const&) const () at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/include/rocksdb/slice.h:293
+#2  0x00007c4f5cb95b46 in rocksdb::UserComparatorWrapper::Compare (b=..., a=..., this=0x623a53726130) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/user_comparator_wrapper.h:33
+#3  rocksdb::InternalKeyComparator::CompareKeySeq (bkey=<synthetic pointer>..., akey=..., this=0x623a53726128) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/dbformat.h:1185
+#4  zeroflush::ZfKeyComparator::operator() (key=<synthetic pointer>..., prefix_len_key=0x623a543052e8 "\030", this=0x623a53726120) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:56
+#5  rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const (this=0x623a53726110, key=<optimized out>, node=0x7c4f3aff2fa8, allow_data_in_errors=<optimized out>, detect_key_out_of_order=false, key_validation_callback=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:629
+#6  0x00007c4f5d2193d8 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Iterator::Seek (target=<optimized out>, this=0x7c4f3aff2fa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:513
+#7  zeroflush::PartitionIndex::Get (this=this@entry=0x623a53725740, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f3aff3130, type_out=type_out@entry=0x7c4f3aff3107, seq_out=seq_out@entry=0x7c4f3aff3108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:264
+#8  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f3aff3320, type_out=type_out@entry=0x7c4f3aff32d4, seq_out=0x7c4f3aff32d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#9  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f3aff3340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f3aff3380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#10 zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#11 0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f3aff39c0, value=0x7c4f3aff40a0, merge_context=merge_context@entry=0x7c4f3aff3a20, merge_op=0x0, retry_requested=0x7c4f3aff39d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#12 0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#13 0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f3aff4070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#14 0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f3aff4070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#15 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a57089190) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#16 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f3230) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#17 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a52460970) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#18 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#19 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 32 (Thread 0x7c4f3b7f6640 (LWP 4085993) "db_bench"):
+#0  0x00007c4f5cb95886 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const (this=0x623a54bd8a60, key=<optimized out>, node=0x7c4f3b7f3fa8, allow_data_in_errors=<optimized out>, detect_key_out_of_order=false, key_validation_callback=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:610
+#1  0x00007c4f5d2193d8 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Iterator::Seek (target=<optimized out>, this=0x7c4f3b7f3fa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:513
+#2  zeroflush::PartitionIndex::Get (this=this@entry=0x623a54bd8090, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f3b7f4130, type_out=type_out@entry=0x7c4f3b7f4107, seq_out=seq_out@entry=0x7c4f3b7f4108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:264
+#3  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f3b7f4320, type_out=type_out@entry=0x7c4f3b7f42d4, seq_out=0x7c4f3b7f42d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#4  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f3b7f4340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f3b7f4380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#5  zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#6  0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f3b7f49c0, value=0x7c4f3b7f50a0, merge_context=merge_context@entry=0x7c4f3b7f4a20, merge_op=0x0, retry_requested=0x7c4f3b7f49d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#7  0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#8  0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f3b7f5070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#9  0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f3b7f5070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#10 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a570886e0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#11 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f3208) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a5135fe70) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 31 (Thread 0x7c4f3bff7640 (LWP 4085992) "db_bench"):
+#0  0x00007c4f5cb95baa in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const (this=0x623a56526f70, key=<optimized out>, node=0x7c4f3bff4fa8, allow_data_in_errors=<optimized out>, detect_key_out_of_order=false, key_validation_callback=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/dbformat.h:1198
+#1  0x00007c4f5d2193d8 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Iterator::Seek (target=<optimized out>, this=0x7c4f3bff4fa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:513
+#2  zeroflush::PartitionIndex::Get (this=this@entry=0x623a565265a0, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f3bff5130, type_out=type_out@entry=0x7c4f3bff5107, seq_out=seq_out@entry=0x7c4f3bff5108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:264
+#3  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f3bff5320, type_out=type_out@entry=0x7c4f3bff52d4, seq_out=0x7c4f3bff52d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#4  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f3bff5340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f3bff5380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#5  zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#6  0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f3bff59c0, value=0x7c4f3bff60a0, merge_context=merge_context@entry=0x7c4f3bff5a20, merge_op=0x0, retry_requested=0x7c4f3bff59d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#7  0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#8  0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f3bff6070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#9  0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f3bff6070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#10 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a57087c30) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#11 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f31e0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a524647b0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 30 (Thread 0x7c4f3c7f8640 (LWP 4085991) "db_bench"):
+#0  0x00007c4f5cb95886 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const (this=0x623a565364b0, key=<optimized out>, node=0x7c4f3c7f5fa8, allow_data_in_errors=<optimized out>, detect_key_out_of_order=false, key_validation_callback=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:610
+#1  0x00007c4f5d2193d8 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Iterator::Seek (target=<optimized out>, this=0x7c4f3c7f5fa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:513
+#2  zeroflush::PartitionIndex::Get (this=this@entry=0x623a56535ae0, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f3c7f6130, type_out=type_out@entry=0x7c4f3c7f6107, seq_out=seq_out@entry=0x7c4f3c7f6108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:264
+#3  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f3c7f6320, type_out=type_out@entry=0x7c4f3c7f62d4, seq_out=0x7c4f3c7f62d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#4  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f3c7f6340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f3c7f6380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#5  zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#6  0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f3c7f69c0, value=0x7c4f3c7f70a0, merge_context=merge_context@entry=0x7c4f3c7f6a20, merge_op=0x0, retry_requested=0x7c4f3c7f69d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#7  0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#8  0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f3c7f7070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#9  0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f3c7f7070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#10 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a57087180) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#11 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f31b8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a51300570) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 29 (Thread 0x7c4f36fed640 (LWP 4085990) "db_bench"):
+#0  0x00007c4f5cb95886 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const (this=0x623a52458b00, key=<optimized out>, node=0x7c4f36feafa8, allow_data_in_errors=<optimized out>, detect_key_out_of_order=false, key_validation_callback=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:610
+#1  0x00007c4f5d2193d8 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Iterator::Seek (target=<optimized out>, this=0x7c4f36feafa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:513
+#2  zeroflush::PartitionIndex::Get (this=this@entry=0x623a52458130, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f36feb130, type_out=type_out@entry=0x7c4f36feb107, seq_out=seq_out@entry=0x7c4f36feb108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:264
+#3  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f36feb320, type_out=type_out@entry=0x7c4f36feb2d4, seq_out=0x7c4f36feb2d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#4  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f36feb340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f36feb380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#5  zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#6  0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f36feb9c0, value=0x7c4f36fec0a0, merge_context=merge_context@entry=0x7c4f36feba20, merge_op=0x0, retry_requested=0x7c4f36feb9d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#7  0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#8  0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f36fec070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#9  0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f36fec070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#10 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a570866d0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#11 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f3190) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a513652a0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 28 (Thread 0x7c4f367ec640 (LWP 4085989) "db_bench"):
+#0  0x00007c4f5cb95889 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::FindGreaterOrEqual(char const*, rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Node**, bool, bool, std::function<rocksdb::Status (char const*, bool)> const&) const (this=0x623a5652ac70, key=<optimized out>, node=0x7c4f367e9fa8, allow_data_in_errors=<optimized out>, detect_key_out_of_order=false, key_validation_callback=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:611
+#1  0x00007c4f5d2193d8 in rocksdb::InlineSkipList<zeroflush::ZfKeyComparator>::Iterator::Seek (target=<optimized out>, this=0x7c4f367e9fa0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/memtable/inlineskiplist.h:513
+#2  zeroflush::PartitionIndex::Get (this=this@entry=0x623a5652a2a0, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f367ea130, type_out=type_out@entry=0x7c4f367ea107, seq_out=seq_out@entry=0x7c4f367ea108) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:264
+#3  0x00007c4f5d21deca in zeroflush::PartitionIndexSet::Get (this=<optimized out>, part_id=<optimized out>, user_key=..., snapshot=snapshot@entry=1308946, locator_out=locator_out@entry=0x7c4f367ea320, type_out=type_out@entry=0x7c4f367ea2d4, seq_out=0x7c4f367ea2d8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:964
+#4  0x00007c4f5d205ab5 in zeroflush::PartitionIndexSet::GetCopy (pin_ctx=0x7c4f367ea340, pin_fn=0x7c4f5d1f4060 <zeroflush::ZfPinThunk(void*, uint32_t, uint32_t)>, seq_out=<synthetic pointer>, type_out=<synthetic pointer>, locator_buf=0x7c4f367ea380, snapshot=1308946, user_key=..., part_id=<optimized out>, this=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/partition_index.h:1101
+#5  zeroflush::ZeroFlushContext::SelectBestIndexRecord (this=<optimized out>, user_key=..., snapshot=<optimized out>, candidates=<optimized out>, out_logical_part=<optimized out>, out_phys_part=<optimized out>, out_gen=<optimized out>, out_offset=<optimized out>, out_type=<optimized out>, out_seq=<optimized out>, pin_slot=<optimized out>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:1905
+#6  0x00007c4f5d2071bd in zeroflush::ZeroFlushContext::GetFromPartitionIndex (this=this@entry=0x623a512e7610, user_key=..., snapshot=snapshot@entry=1308946, s=s@entry=0x7c4f367ea9c0, value=0x7c4f367eb0a0, merge_context=merge_context@entry=0x7c4f367eaa20, merge_op=0x0, retry_requested=0x7c4f367ea9d0, read_view_refreshed=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/zeroflush/zeroflush_db.cc:2106
+#7  0x00007c4f5cb790c3 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3120
+#8  0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f367eb070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#9  0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f367eb070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#10 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a57085c20) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#11 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f3168) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#12 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a51317da0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#13 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#14 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 27 (Thread 0x7c4f35feb640 (LWP 4085988) "db_bench"):
+#0  0x00007c4f5ce920b1 in rocksdb::BlockIter<rocksdb::IndexValue>::ParseNextKey<rocksdb::DecodeEntryV4, false> (this=this@entry=0x7c4f35fe8e40, is_shared=is_shared@entry=0x7c4f35fe8860) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/table/block_based/block.cc:568
+#1  0x00007c4f5ce8dfa3 in rocksdb::IndexBlockIter::ParseNextIndexKey (this=0x7c4f35fe8e40) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/table/block_based/block.cc:651
+#2  rocksdb::IndexBlockIter::NextImpl (this=0x7c4f35fe8e40) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/table/block_based/block.cc:47
+#3  rocksdb::BlockIter<rocksdb::IndexValue>::FindKeyAfterBinarySeek (skip_linear_scan=<optimized out>, index=<optimized out>, target=..., this=0x7c4f35fe8e40) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/table/block_based/block.cc:724
+#4  rocksdb::IndexBlockIter::SeekImpl (this=<optimized out>, target=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/table/block_based/block.cc:388
+#5  0x00007c4f5ce97d5a in rocksdb::BlockIter<rocksdb::IndexValue>::Seek (this=0x7c4f35fe8e40, target=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/table/block_based/block.h:380
+#6  0x00007c4f5ced8486 in rocksdb::BlockBasedTable::Get (this=0x7c4f400037f0, read_options=..., key=..., get_context=0x7c4f35fe9650, prefix_extractor=0x0, skip_filters=false) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/table/block_based/block_based_table_reader.cc:2542
+#7  0x00007c4f5ccf90c8 in rocksdb::TableCache::Get (this=this@entry=0x623a512bebd0, options=..., internal_comparator=..., file_meta=..., k=..., get_context=0x7c4f35fe9650, mutable_cf_options=..., file_read_hist=0x623a512ec428, skip_filters=false, level=1, max_file_size_for_l0_meta_pin=402653184) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/table_cache.cc:560
+#8  0x00007c4f5cd47d78 in rocksdb::Version::Get (this=<optimized out>, read_options=..., k=..., value=0x7c4f35fea070, columns=0x0, timestamp=<optimized out>, status=0x7c4f35fe99c0, merge_context=0x7c4f35fe9a20, max_covering_tombstone_seq=0x7c4f35fe99a0, pinned_iters_mgr=0x7c4f35fe9b50, value_found=0x0, key_exists=0x0, seq=0x0, callback=0x0, is_blob=0x0, do_merge=true) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/version_set.cc:2831
+#9  0x00007c4f5cb79665 in rocksdb::DBImpl::GetImpl (this=0x623a512c38c0, read_options=..., key=..., get_impl_options=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:3199
+#10 0x00007c4f5cb563df in rocksdb::DBImpl::GetImpl (this=this@entry=0x623a512c38c0, read_options=..., column_family=column_family@entry=0x623a512df960, key=..., value=value@entry=0x7c4f35fea070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2592
+#11 0x00007c4f5cb565d4 in rocksdb::DBImpl::Get (this=0x623a512c38c0, _read_options=..., column_family=0x623a512df960, key=..., value=0x7c4f35fea070, timestamp=0x0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/db/db_impl/db_impl.cc:2580
+#12 0x0000623a3d435623 in rocksdb::Benchmark::ReadRandom (this=0x7fffe2482370, thread=0x623a5246c730) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:6997
+#13 0x0000623a3d40c742 in rocksdb::Benchmark::ThreadBody (v=0x623a512f3140) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4346
+#14 0x00007c4f5d22d9f9 in rocksdb::(anonymous namespace)::StartThreadWrapper (arg=0x623a513128e0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/env/env_posix.cc:471
+#15 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#16 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 26 (Thread 0x7c4f357ea640 (LWP 4085942) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x7c4f357e91b0, op=393, expected=0, futex_word=0x623a512c37a0) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x7c4f357e91b0, clockid=0, expected=0, futex_word=0x623a512c37a0) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512c37a0, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x7c4f357e91b0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93e5b in __pthread_cond_wait_common (abstime=0x7c4f357e91b0, clockid=0, mutex=0x623a512c3738, cond=0x623a512c3778) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_timedwait64 (cond=0x623a512c3778, mutex=0x623a512c3738, abstime=0x7c4f357e91b0) at ./nptl/pthread_cond_wait.c:652
+#5  0x00007c4f5d22cb2d in rocksdb::port::CondVar::TimedWait (this=this@entry=0x623a512c3778, abs_time_us=abs_time_us@entry=1789759266075448) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/port/port_posix.cc:133
+#6  0x00007c4f5ce31119 in rocksdb::InstrumentedCondVar::TimedWaitInternal (this=this@entry=0x623a512c3778, abs_time_us=abs_time_us@entry=1789759266075448) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/monitoring/instrumented_mutex.cc:87
+#7  0x00007c4f5ce3123b in rocksdb::InstrumentedCondVar::TimedWait (this=this@entry=0x623a512c3778, abs_time_us=1789759266075448) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/monitoring/instrumented_mutex.cc:76
+#8  0x00007c4f5cccebe7 in rocksdb::Timer::Run (this=0x623a512c3730) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/timer.h:252
+#9  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#10 0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#11 0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 25 (Thread 0x7c4f3cff9640 (LWP 4085926) "rocksdb:high"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3950) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3950) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3950, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a3900, cond=0x623a512a3928) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a3928, mutex=0x623a512a3900) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3880, thread_id=3) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c7e10) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 24 (Thread 0x7c4f3d7fa640 (LWP 4085925) "rocksdb:high"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3950) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3950) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3950, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a3900, cond=0x623a512a3928) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a3928, mutex=0x623a512a3900) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3880, thread_id=2) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c7c70) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 23 (Thread 0x7c4f3dffb640 (LWP 4085924) "rocksdb:high"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3950) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3950) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3950, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a3900, cond=0x623a512a3928) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a3928, mutex=0x623a512a3900) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3880, thread_id=1) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c7c90) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 22 (Thread 0x7c4f3e7fc640 (LWP 4085923) "rocksdb:high"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3950) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3950) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3950, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a3900, cond=0x623a512a3928) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a3928, mutex=0x623a512a3900) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3880, thread_id=0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c7af0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 21 (Thread 0x7c4f3effd640 (LWP 4085922) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=19) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c7640) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 20 (Thread 0x7c4f3f7fe640 (LWP 4085921) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=18) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c74c0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 19 (Thread 0x7c4f3ffff640 (LWP 4085920) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=17) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c7340) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 18 (Thread 0x7c4f44ff9640 (LWP 4085919) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=16) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c6e90) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 17 (Thread 0x7c4f457fa640 (LWP 4085918) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=15) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c6d10) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 16 (Thread 0x7c4f45ffb640 (LWP 4085917) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=14) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c6b90) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 15 (Thread 0x7c4f467fc640 (LWP 4085916) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=13) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c6a10) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 14 (Thread 0x7c4f46ffd640 (LWP 4085915) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=12) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c6560) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 13 (Thread 0x7c4f477fe640 (LWP 4085914) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=11) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c63e0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 12 (Thread 0x7c4f4cff9640 (LWP 4085913) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=10) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c6260) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 11 (Thread 0x7c4f4d7fa640 (LWP 4085912) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=9) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c60e0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 10 (Thread 0x7c4f4dffb640 (LWP 4085911) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c5c30) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 9 (Thread 0x7c4f4e7fc640 (LWP 4085910) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=7) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c5ab0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 8 (Thread 0x7c4f4effd640 (LWP 4085909) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=6) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c3650) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 7 (Thread 0x7c4f4f7fe640 (LWP 4085908) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=5) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c34d0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 6 (Thread 0x7c4f47fff640 (LWP 4085907) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=4) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c3350) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 5 (Thread 0x7c4f4ffff640 (LWP 4085906) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=3) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c3070) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 4 (Thread 0x7c4f54bdd640 (LWP 4085905) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=2) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c2ed0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 3 (Thread 0x7c4f553de640 (LWP 4085904) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=1) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c2ef0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 2 (Thread 0x7c4f55bdf640 (LWP 4085903) "rocksdb:low"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x623a512a3600) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x623a512a3600, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x623a512a35b0, cond=0x623a512a35d8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x623a512a35d8, mutex=0x623a512a35b0) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d06a813 in rocksdb::ThreadPoolImpl::Impl::BGThread (this=0x623a512a3530, thread_id=0) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:236
+#6  0x00007c4f5d06aba3 in rocksdb::ThreadPoolImpl::Impl::BGThreadWrapper (arg=0x623a512c2430) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/util/threadpool_imp.cc:352
+#7  0x00007c4f5c2dc253 in ?? () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#8  0x00007c4f5be94a83 in start_thread (arg=<optimized out>) at ./nptl/pthread_create.c:442
+#9  0x00007c4f5bf268e0 in clone3 () at ../sysdeps/unix/sysv/linux/x86_64/clone3.S:81
+
+Thread 1 (Thread 0x7c4f5d4f4280 (LWP 4085900) "db_bench"):
+#0  __futex_abstimed_wait_common64 (private=0, cancel=true, abstime=0x0, op=393, expected=0, futex_word=0x7fffe24816e0) at ./nptl/futex-internal.c:57
+#1  __futex_abstimed_wait_common (cancel=true, private=0, abstime=0x0, clockid=0, expected=0, futex_word=0x7fffe24816e0) at ./nptl/futex-internal.c:87
+#2  __GI___futex_abstimed_wait_cancelable64 (futex_word=futex_word@entry=0x7fffe24816e0, expected=expected@entry=0, clockid=clockid@entry=0, abstime=abstime@entry=0x0, private=private@entry=0) at ./nptl/futex-internal.c:139
+#3  0x00007c4f5be93a01 in __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x7fffe2481690, cond=0x7fffe24816b8) at ./nptl/pthread_cond_wait.c:503
+#4  ___pthread_cond_wait (cond=0x7fffe24816b8, mutex=0x7fffe2481690) at ./nptl/pthread_cond_wait.c:627
+#5  0x00007c4f5d22d518 in rocksdb::port::CondVar::Wait (this=this@entry=0x7fffe24816b8) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/port/port_posix.cc:119
+#6  0x0000623a3d41b8b1 in rocksdb::Benchmark::RunBenchmark (this=this@entry=0x7fffe2482370, n=n@entry=16, name=..., method=(void (rocksdb::Benchmark::*)(rocksdb::Benchmark * const, rocksdb::ThreadState *)) 0x623a3d434e30 <rocksdb::Benchmark::ReadRandom(rocksdb::ThreadState*)>) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4423
+#7  0x0000623a3d41fe64 in rocksdb::Benchmark::Run (this=this@entry=0x7fffe2482370, hooks=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:4182
+#8  0x0000623a3d3f454b in rocksdb::db_bench_tool (argc=<optimized out>, argv=<optimized out>, hooks=...) at /home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush/tools/db_bench_tool.cc:9883
+#9  0x00007c4f5be29d90 in __libc_start_call_main (main=main@entry=0x623a3d3e5ba0 <main(int, char**)>, argc=argc@entry=21, argv=argv@entry=0x7fffe2482e48) at ../sysdeps/nptl/libc_start_call_main.h:58
+#10 0x00007c4f5be29e40 in __libc_start_main_impl (main=0x623a3d3e5ba0 <main(int, char**)>, argc=21, argv=0x7fffe2482e48, init=<optimized out>, fini=<optimized out>, rtld_fini=<optimized out>, stack_end=0x7fffe2482e38) at ../csu/libc-start.c:392
+#11 0x0000623a3d3ecf05 in _start ()
+[Inferior 1 (process 4085900) detached]
