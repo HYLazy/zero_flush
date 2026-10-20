@@ -1,0 +1,21 @@
+== zipf_bench: engine=zeroflush-v2 keyspace=48000000 ops=48000000 reads=8000000 threads=16 value=1024B alpha=0.990 seed=20261017 ==
+write: 48000016 ops in 761.818s = 63007 ops/s (64.5 MB/s)
+write percentiles (us): P50=54 P75=63 P99=171 P99.9=2367 P99.99=266176
+read: 8000016 ops in 450.808s = 17746 ops/s | found=8000016 notfound=0 mismatch=0 errors=0
+read percentiles (us): P50=660 P75=1223 P99=2901 P99.9=6208
+VERIFY: PASS (same-key-stream 全命中且值正确)
+--- zeroflush props ---
+zf.engine_profile : v2
+zf.pending_materialize_bytes : 0
+zf.registered_gens : 119
+zf.reclaimed_bytes : 50703202812
+zf.prof_output_bytes : 124642136095
+zf.prof_tasks : 415
+zf.prof_merge_us : 3490702430
+zf.csd_device_tasks : 0
+zf.csd_fallbacks : 0
+zf.lsm_L0_files : 0
+zf.lsm_L1_files : 176
+zf.lsm_L2_files : 0
+zf.lsm_L3_files : 0
+ZIPF_ZF_EXIT=0

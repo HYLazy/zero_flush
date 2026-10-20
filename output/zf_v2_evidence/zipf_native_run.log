@@ -1,0 +1,30 @@
+== zipf_bench: engine=native keyspace=48000000 ops=48000000 reads=8000000 threads=16 value=1024B alpha=0.990 seed=20261017 ==
+write: 48000016 ops in 1254.126s = 38274 ops/s (39.2 MB/s)
+write percentiles (us): P50=28 P75=33 P99=82 P99.9=224 P99.99=266176
+read: 8000016 ops in 8.859s = 903040 ops/s | found=8000016 notfound=0 mismatch=0 errors=0
+read percentiles (us): P50=13 P75=29 P99=47 P99.9=65
+VERIFY: PASS (same-key-stream 全命中且值正确)
+	Command being timed: "/tmp/native_zipf_bench --db=/tmp/zipf_native --keyspace=48000000 --ops=48000000 --reads=8000000 --threads=16 --value_size=1024 --zipf_alpha=0.99 --seed=20261017 --cache_size=536870912 --max_background_jobs=24 --subcompactions=16"
+	User time (seconds): 1257.75
+	System time (seconds): 1192.68
+	Percent of CPU this job got: 193%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 21:04.08
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 1019964
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 3
+	Minor (reclaiming a frame) page faults: 2804422
+	Voluntary context switches: 1698687
+	Involuntary context switches: 85478
+	Swaps: 0
+	File system inputs: 3280
+	File system outputs: 537340936
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+ZIPF_NATIVE_EXIT=0

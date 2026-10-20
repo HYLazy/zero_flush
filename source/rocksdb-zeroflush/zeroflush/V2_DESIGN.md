@@ -300,9 +300,10 @@ ZfCsdPluginV1* zf_csd_plugin_create(void);   // 插件必须导出的工厂符�
 - 6 次 50GB 运行中出现 **1 次 SIGSEGV**（13 秒处，最后一条日志为
   `ZFDBG-adopt skip_gens=16`，即封存期收养 skip 代的路径）；该路径属实验分支
   未提交改动（工作树），非 V2 代码。现场与复现命令见下。
-- 日志留档：`/tmp/zf_v2_50gb_run.log`（stdout+诊断）、`/tmp/zf_v2_50gb/LOG`（DB info log）、
-  死锁栈 `/tmp/zf_deadlock_stacks_ledger_vs_threshold.txt`、逐 2 分钟进度
-  `/tmp/zf_v2_progress.log`。
+- 日志留档（2026-10-20 收档至 `output/zf_v2_evidence/`，含 R1/R2 由来与 opt 战役全套）：
+  `zf_v2_50gb_run.log`（stdout+诊断）、`zf_v2_50gb_db.LOG`（DB info log）、
+  死锁栈 `zf_deadlock_stacks_ledger_vs_threshold.txt`、逐 2 分钟进度
+  `zf_v2_progress.log`。
 
 ### 5.5 50GB 性能验收：**超过同机原生基线**（2026-10-17）
 
@@ -353,7 +354,8 @@ DB 4.9GB vs 12GB，写放大 2.49×；读热态 209k vs 原生 903k（4.3× 落�
 `Corruption: ZF merge scan: gen neither registered nor provably installed`
 失败，输入 L1 已删而输出未装 ⇒ 86% 键丢失（2/2 复现；50GB Zipfian 库同样命中）。
 详见 `archive/zeroflush_m5_perf/RUN_MANIFEST.md` D-142…D-144，
-复现目录 `/tmp/zipf_repro2`。**该问题优先级高于吞吐结果**。
+复现目录 `/tmp/zipf_repro2`（2026-10-20 已随 /tmp 清理删除；重建步骤与全部运行
+日志见 `output/zf_v2_evidence/`）。**该问题优先级高于吞吐结果**。
 
 ## 6. 与 V0 的关系、限制、下一步
 
