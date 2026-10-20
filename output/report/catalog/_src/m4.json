@@ -1,0 +1,1274 @@
+[
+ {
+  "id": "m4/acceptance",
+  "title_zh": "小规模验收：单/4 写线程 governance OFF vs ON 同参对照",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在 4M key 空间、偏态 hot-band 覆盖写加突发/排空间隙轮次的小规模协议下，对同一参数做 governance OFF/ON 对照，验证开启动态治理后写吞吐是否回归、分区数 P 是否有界、数据是否完整（REPORT.md:3-5,16-27）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "单写线程与 4 写线程两臂（REPORT.md:18,29）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": "key 空间 4M（\"k%012d\"）；hot band [0, 480k) 占 85% 写（初始在分区 0）；10 轮 × 10,000/线程，值 512B（REPORT.md:11-12）",
+   "rocksdb_options": "kStatic P0=8；split_min=4MB；θ 默认；tick 20ms；冷却 ~0（快测）（REPORT.md:13）",
+   "other": "协议 = 偏态 hot-band 覆盖写 + 突发/排空间隙轮次（治理在 quiescent 检查点执行）+ P 轨迹采样 + 收尾读验证/reopen；规模：单线程 ≈47MB；4 线程 ≈151MB（小规模验证，非 50GB）（REPORT.md:3-5,14）"
+  },
+  "results": [
+   {
+    "metric": "写吞吐",
+    "value": "2,434.8（OFF）vs 2,436.6（ON），差 +0.07%（噪声内，无回归）",
+    "unit": "ops/s",
+    "condition": "单写线程（~47MB）：静态基线 (OFF) vs 动态治理 (ON)",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:22"
+   },
+   {
+    "metric": "终态 P",
+    "value": "8（OFF）vs 6（ON）",
+    "unit": "分区数",
+    "condition": "单写线程；∈ [P_min=4, P_max=256]",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:23"
+   },
+   {
+    "metric": "gov_splits / gov_merges",
+    "value": "0 / 0（OFF）vs 1 / 3（ON）",
+    "unit": "次",
+    "condition": "单写线程；治理动作已执行",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:24"
+   },
+   {
+    "metric": "rewrite_bytes",
+    "value": "0（OFF）vs 23.8MB（ON）",
+    "unit": "MB",
+    "condition": "单写线程；1 次热拆分 type-3",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:25"
+   },
+   {
+    "metric": "读命中 found/200k",
+    "value": "0.1382（OFF）vs 0.1382（ON）",
+    "unit": "比例",
+    "condition": "单写线程；相等（无数据丢失）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:26"
+   },
+   {
+    "metric": "iter_entries",
+    "value": "92,834（OFF）vs 92,834（ON）",
+    "unit": "条目",
+    "condition": "单写线程；相等（reopen 一致）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:27"
+   },
+   {
+    "metric": "写吞吐",
+    "value": "8,984",
+    "unit": "ops/s",
+    "condition": "4 写线程（~151MB，修复在途计数泄漏后）：动态治理 (ON)",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:33"
+   },
+   {
+    "metric": "终态 P",
+    "value": "6 ∈ [4,256]",
+    "unit": "分区数",
+    "condition": "4 写线程（ON）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:34"
+   },
+   {
+    "metric": "gov_splits / gov_merges",
+    "value": "1 / 3",
+    "unit": "次",
+    "condition": "4 写线程（ON）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:35"
+   },
+   {
+    "metric": "inflight_groups",
+    "value": "0（计数平衡）",
+    "unit": "组",
+    "condition": "4 写线程（ON，写中采样）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:36"
+   },
+   {
+    "metric": "读命中 / reopen",
+    "value": "0.4339（与写入覆盖一致）/ 一致",
+    "unit": "比例",
+    "condition": "4 写线程（ON）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:37"
+   }
+  ],
+  "evaluation_zh": "报告结论：吞吐无回归（单线程 +0.07%，同参对照）；数据完整（读命中/迭代数/reopen 与基线逐位一致）；P 有界，治理把 P 从 8 收敛到 6 ∈ [4,256]，无越界、无失控（REPORT.md:62-64）。",
+  "caveats_zh": [
+   "小规模验证（单线程 ≈47MB、4 线程 ≈151MB），非 50GB（REPORT.md:14）",
+   "4 线程臂为修复并行写在途写组计数泄漏之后的结果（REPORT.md:29）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:3-5",
+   "archive/zeroflush_m4_perf/REPORT.md:11-14",
+   "archive/zeroflush_m4_perf/REPORT.md:22-27",
+   "archive/zeroflush_m4_perf/REPORT.md:29",
+   "archive/zeroflush_m4_perf/REPORT.md:31-37",
+   "archive/zeroflush_m4_perf/REPORT.md:62-64"
+  ]
+ },
+ {
+  "id": "m4/gov_big_8t",
+  "title_zh": "8 写线程 2.88M 写 / ≈1.1GB live：治理 ON vs OFF",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "8 写线程、key 空间 32M、≈2.88M 写 / ≈1.1GB live 规模下，对照 governance OFF/ON 的吞吐开销、终态 P、split/merge、inflight 计数与数据完整性（REPORT.md:43-58）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "8 写线程（REPORT.md:43）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": "8 写线程 ~2.88M 写 / ≈1.1GB live / key 空间 32M；热键带 3.84M 键、写入 2.45M 次（有覆盖）→ live ≈1.8M 热键 + 冷区（REPORT.md:43,56）",
+   "rocksdb_options": "同参 governance OFF / ON；kStatic P0=8 / split_min=4MB / θ 默认 / tick 20ms / 冷却 ~0（REPORT.md:13,16）",
+   "other": "修复并行写在途写组计数泄漏后（REPORT.md:43）；P 稳定在 6：首次热拆分后 H=2 个等热子分区，rate/mean ≈ P/2 = 3 恰达 θ_split 边界 → 不再拆，全程无振荡（REPORT.md:57-58）"
+  },
+  "results": [
+   {
+    "metric": "写吞吐",
+    "value": "46,649.4（OFF）vs 46,467.2（ON），差 -0.39%（治理开销）",
+    "unit": "ops/s",
+    "condition": "8 写线程（~2.88M 写 / ≈1.1GB live）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:47"
+   },
+   {
+    "metric": "终态 P",
+    "value": "8（OFF）vs 6（ON）",
+    "unit": "分区数",
+    "condition": "8 写线程；∈ [P_min,P_max]",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:48"
+   },
+   {
+    "metric": "gov_splits / gov_merges",
+    "value": "0 / 0（OFF）vs 1 / 3（ON）",
+    "unit": "次",
+    "condition": "8 写线程",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:49"
+   },
+   {
+    "metric": "rewrite_bytes",
+    "value": "0（OFF）vs 466.9MB（ON）",
+    "unit": "MB",
+    "condition": "8 写线程；1 次热拆分",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:50"
+   },
+   {
+    "metric": "inflight_groups",
+    "value": "0（OFF）vs 0（ON，写中采样）",
+    "unit": "组",
+    "condition": "8 写线程；无泄漏",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:51"
+   },
+   {
+    "metric": "读命中 found/200k",
+    "value": "0.4011（OFF）vs 0.4011（ON）",
+    "unit": "比例",
+    "condition": "8 写线程；相等",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:52"
+   },
+   {
+    "metric": "iter_entries",
+    "value": "2,239,018（OFF）vs 2,239,015（ON），差 3",
+    "unit": "条目",
+    "condition": "8 写线程；覆盖随机性，非丢失",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:53"
+   },
+   {
+    "metric": "reopen",
+    "value": "ok（OFF）/ ok（ON）",
+    "unit": "状态",
+    "condition": "8 写线程",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:54"
+   }
+  ],
+  "evaluation_zh": "报告结论：8 线程吞吐 46,467 vs 基线 46,649 ops/s（-0.39%，含一次 466MB 热拆分 rewrite 的开销），读命中与 live 键数与基线一致；单线程、4 线程、8 线程下 split/merge 均在排空检查点正常执行（REPORT.md:65-67）。",
+  "caveats_zh": [
+   "iter_entries 差 3 归因于覆盖随机性，非数据丢失（REPORT.md:53,56）",
+   "P 稳定在 6 是策略平衡点：首次热拆分后 rate/mean ≈ P/2 = 3 恰达 θ_split 边界，不再拆（REPORT.md:57-58）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:13",
+   "archive/zeroflush_m4_perf/REPORT.md:16",
+   "archive/zeroflush_m4_perf/REPORT.md:43-58",
+   "archive/zeroflush_m4_perf/REPORT.md:65-67"
+  ]
+ },
+ {
+  "id": "m4/active_tail_split",
+  "title_zh": "活跃尾 split：冻结父活跃尾 + 融合替换（已修复，默认开）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "验证活跃尾 split 的修复实现：切路由后把父活跃尾冻结为父区间覆盖的孤儿尾 epoch，该 epoch 物化走融合替换（父区间内全部文件含子分区切路由后并发产出的 L1 与尾数据按 seq 归并后单批替换安装），子分区索引 miss 经 split_orphans_ 别名回查父链，排空后 type-3 rewrite 按新边界两分；并在连续写负载下验证吞吐、splits/merges、Corruption 与 reopen 一致性（REPORT.md:89-104）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "8 线程（REPORT.md:97）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": "8 线程连续写、2.88M 写、gap_ms=0（REPORT.md:97）",
+   "rocksdb_options": "active_tail=1 单次臂 / 默认开（含治理）复跑两次（REPORT.md:98-101）",
+   "other": "回归用例：SplitConcurrentWriters / GovernanceDynamicEndToEnd / PolicyUnit / SplitQuiescent / Growth / MergeConcurrentWriters / MergeCold / MergeActiveTail / CrashMidDrainReopen（REPORT.md:102-104）"
+  },
+  "results": [
+   {
+    "metric": "写吞吐",
+    "value": "283k",
+    "unit": "ops/s",
+    "condition": "active_tail=1 单次（8 线程连续写、2.88M 写、gap_ms=0）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:98"
+   },
+   {
+    "metric": "splits / merges",
+    "value": "1 / 3",
+    "unit": "次",
+    "condition": "active_tail=1 单次",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:98"
+   },
+   {
+    "metric": "Corruption",
+    "value": "0",
+    "unit": "次",
+    "condition": "active_tail=1 单次",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:98"
+   },
+   {
+    "metric": "写吞吐",
+    "value": "226–230k",
+    "unit": "ops/s",
+    "condition": "默认开（含治理）复跑两次",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:100-101"
+   },
+   {
+    "metric": "Corruption",
+    "value": "0；P 界内；reopen 一致",
+    "unit": "次",
+    "condition": "默认开（含治理）复跑两次",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:100-101"
+   },
+   {
+    "metric": "回归结果",
+    "value": "全 PASS（9 项）",
+    "unit": "状态",
+    "condition": "SplitConcurrentWriters / GovernanceDynamicEndToEnd / PolicyUnit / SplitQuiescent / Growth / MergeConcurrentWriters / MergeCold / MergeActiveTail / CrashMidDrainReopen",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:102-104"
+   }
+  ],
+  "evaluation_zh": "报告标题与结论：活跃尾 split 已修复，默认开、连续负载可用；两轮验证均 0 Corruption、P 界内、reopen 一致、读命中/live 键数与基线一致，回归用例全 PASS（REPORT.md:89,98-104）。",
+  "caveats_zh": [
+   "默认开复跑两次时 splits 依本轮流合并时序在本轮 0–1 间波动（REPORT.md:101）",
+   "此前 kDirect 宽文件直装会与子分区 L1 重叠 → force_consistency_checks 崩溃，已修（REPORT.md:92-95）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:89-104"
+  ]
+ },
+ {
+  "id": "m4/inflight_leak",
+  "title_zh": "并行写在途写组计数泄漏：根因定位与修复",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "诊断并行写（T≥2）时 inflight_groups 计数单调滞留、merge/split 路由切换屏障等待归零永久超时的缺陷，定位根因（parallel 组的最后完成者可能是 follower）并修复，随后验证计数归零与治理动作生效（REPORT.md:71-87）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "T=1 / T=2 / T=4 探针与验证（REPORT.md:73,84）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": "T=2 线程 6000 写；T=4 线程 32768 写（探针）；写后与写中采样 inflight_groups（REPORT.md:73-74,84）",
+   "rocksdb_options": null,
+   "other": "修复文件：db/db_impl/db_impl_write.cc；新增回归用例 MergeConcurrentWriters(M4)（REPORT.md:80,86-87）"
+  },
+  "results": [
+   {
+    "metric": "inflight_groups",
+    "value": "恒 0",
+    "unit": "组",
+    "condition": "T=1 写后",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:73"
+   },
+   {
+    "metric": "inflight_groups",
+    "value": "543",
+    "unit": "组",
+    "condition": "探针：2 线程 6000 写后（计数单调滞留）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:73-74"
+   },
+   {
+    "metric": "inflight_groups",
+    "value": "10650",
+    "unit": "组",
+    "condition": "探针：4 线程 32768 写后（计数单调滞留）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:73-74"
+   },
+   {
+    "metric": "屏障错误",
+    "value": "Operation timed out: inflight writer groups did not drain",
+    "unit": "错误信息",
+    "condition": "T≥2 并发写时 merge/split 的路由切换屏障等待归零永久超时",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:75-76"
+   },
+   {
+    "metric": "inflight_groups",
+    "value": "写后归零；写中采样平衡（0/瞬 1）",
+    "unit": "组",
+    "condition": "修复后 T=2/4 验证",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:84"
+   },
+   {
+    "metric": "回归用例 MergeConcurrentWriters(M4)",
+    "value": "3/3 通过",
+    "unit": "通过率",
+    "condition": "并发写在场 + 冷分区 merge 重试；修复前该屏障永不归零必失败",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:86-87"
+   }
+  ],
+  "evaluation_zh": "报告判定该问题为验收中发现并已修复（✅）：根因是 parallel 组的最后完成者可能是 follower，而原实现只在 leader 的 should_exit 块调用 ExitInflightGroup，leader 非最后完成者时该组计数永不退出；修复后 T=2/4 计数归零、写中采样平衡，回归用例 3/3 通过（REPORT.md:71-79,84-87）。",
+  "caveats_zh": [
+   "修复要求 Exit 必须在收尾块最前（先于取 DB mutex 的 Unref），否则收尾者先抢 mutex 再 Exit 仍会互等超时（REPORT.md:81-83）",
+   "T=1 写后计数恒 0（现象之一），T≥2 才可见泄漏（REPORT.md:73）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:69-87"
+  ]
+ },
+ {
+  "id": "m4/gov_50gb",
+  "title_zh": "50GB 级全量验收：治理 ON vs OFF（16T/1KB/连续写）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在 51,200,000 ops × 1KB ≈ 50GiB、key 空间 100M、hot band 85% 的规模下，对照 governance ON/OFF 的写墙钟、吞吐、终态 P、split/merge、rewrite 与数据完整性（REPORT.md:107-122）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（REPORT.md:107）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": "写入量 51,200,000 ops × 1KB ≈ 50GiB；key 空间 100M，hot band 85%；连续写 / gap_ms=0（REPORT.md:107-109）",
+   "rocksdb_options": "governance ON（治理）vs OFF（基线），同参对照；kStatic P0=8；split_min=4MB；θ 默认；tick 20ms（REPORT.md:13,111）",
+   "other": null
+  },
+  "results": [
+   {
+    "metric": "写墙钟",
+    "value": "1,506（ON）vs 1,718（OFF），ON 快 12.3%",
+    "unit": "s",
+    "condition": "50GB 全量验收（ON=治理 / OFF=基线）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:113"
+   },
+   {
+    "metric": "写吞吐",
+    "value": "40,196（ON）vs 29,801（OFF），+34.9%",
+    "unit": "ops/s",
+    "condition": "50GB 全量验收；ON 收益来自回收空分区 + 活跃尾热拆分",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:114"
+   },
+   {
+    "metric": "终态 P",
+    "value": "5（ON）vs 8（OFF）",
+    "unit": "分区数",
+    "condition": "50GB 全量验收；界内（8→4 回收 + 1 次热拆分）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:115"
+   },
+   {
+    "metric": "gov splits / merges",
+    "value": "1 / 4（ON）vs 0 / 0（OFF）",
+    "unit": "次",
+    "condition": "50GB 全量验收；活跃尾热拆分成功（跨批互斥修复后）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:116"
+   },
+   {
+    "metric": "rewrite_bytes",
+    "value": "14.35MB（ON）vs 0（OFF）",
+    "unit": "MB",
+    "condition": "50GB 全量验收；1 次 type-3 边界 rewrite",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:117"
+   },
+   {
+    "metric": "读命中 found/200k",
+    "value": "167,769 (83.88%)（ON）vs 167,774 (83.89%)（OFF）",
+    "unit": "命中数（比例）",
+    "condition": "50GB 全量验收；一致",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:118"
+   },
+   {
+    "metric": "iter_entries",
+    "value": "19,037,195（ON）vs 19,037,151（OFF），±44",
+    "unit": "条目",
+    "condition": "50GB 全量验收；覆盖随机性，无丢失",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:119"
+   },
+   {
+    "metric": "reopen",
+    "value": "P=5 一致（ON）vs P=8 一致（OFF），通过",
+    "unit": "状态",
+    "condition": "50GB 全量验收",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:120"
+   },
+   {
+    "metric": "Corruption",
+    "value": "0（ON）/ 0（OFF）",
+    "unit": "次",
+    "condition": "50GB 全量验收",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:121"
+   }
+  ],
+  "evaluation_zh": "报告结论：50GB 规模下治理 ON 吞吐 +34.9%（40,196 vs 29,801 ops/s），收益来自回收空分区 + 活跃尾热拆分；终态 P 界内、读命中/迭代数与基线一致、0 Corruption（REPORT.md:114-121）。基线（governance=0）50GB 可完成（1718s/29.8k ops/s）（REPORT.md:217-218）。",
+  "caveats_zh": [
+   "iter_entries 差 ±44 归因于覆盖随机性，无丢失（REPORT.md:119）",
+   "50GB 长跑初期热拆分未触发，根因是驱动 Bug 与活跃尾跨批竞态，均已修（见 m4/split_predrain）（REPORT.md:123-137）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:13",
+   "archive/zeroflush_m4_perf/REPORT.md:107-122",
+   "archive/zeroflush_m4_perf/REPORT.md:217-218"
+  ]
+ },
+ {
+  "id": "m4/split_predrain",
+  "title_zh": "50GB 长跑热拆分未触发：根因定位（驱动 Bug + 跨批竞态）与预排空计数",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "解释 50GB 长跑中热分区拆分未触发的两个独立问题——zf_govern_bench 早期版本把 governance_active_tail_split 显式置 false 使治理走旧\"分区必须排空\"路径、连续写下热分区永远 Busy 导致 split 在门控后静默 NoteRetry；以及活跃尾路径跨批竞态导致 force_consistency_checks L1 重叠崩溃——并落地 gov_split_predrain 等诊断字段（REPORT.md:123-141）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（验证臂）（REPORT.md:136）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（REPORT.md:3,125）",
+   "workload": "16T / 1KB / 12.8M 写（修复后验证臂）（REPORT.md:136）",
+   "rocksdb_options": "governance_active_tail_split；已补 gov_split_predrain 计数并将 bench 默认对齐 ZeroFlushOptions（REPORT.md:125-129）",
+   "other": "诊断字段：gov_split_attempts/gate_base/median_nofiles/success/busy/timeout/other/median_notfound/pos_gone/total0/predrain、gov_last_split_base/l0、gov_rewrite_gated（REPORT.md:139-141）"
+  },
+  "results": [
+   {
+    "metric": "split 门控诊断",
+    "value": "split_attempts>0、base/L0 充足、gate_base/median/busy/timeout 全 0",
+    "unit": "计数",
+    "condition": "驱动 Bug：governance_active_tail_split 显式置 false，走旧\"分区必须排空\"路径",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:126-129"
+   },
+   {
+    "metric": "崩溃现象",
+    "value": "force_consistency_checks: L1 has overlapping ranges",
+    "unit": "错误信息",
+    "condition": "活跃尾路径跨批竞态：尾 epoch 融合替换扫描后子分区并发安装 L1",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:133-134"
+   },
+   {
+    "metric": "Corruption",
+    "value": "0；splits=1 成功",
+    "unit": "次",
+    "condition": "修复后 16T/1KB/12.8M 写验证",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:136-137"
+   },
+   {
+    "metric": "rewrite",
+    "value": "23MB",
+    "unit": "MB",
+    "condition": "修复后 16T/1KB/12.8M 写验证",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:137"
+   },
+   {
+    "metric": "reopen",
+    "value": "P=6 一致",
+    "unit": "状态",
+    "condition": "修复后 16T/1KB/12.8M 写验证",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:137"
+   },
+   {
+    "metric": "写吞吐",
+    "value": "118.7k",
+    "unit": "ops/s",
+    "condition": "修复后 16T/1KB/12.8M 写验证",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:137"
+   }
+  ],
+  "evaluation_zh": "报告判定两个问题根因已定位且均已修复：驱动 Bug（已修，补 gov_split_predrain 计数并对齐 ZeroFlushOptions）与活跃尾路径跨批竞态（已修，默认开——拆分前以独立 hold token 占住两子分区，在飞则 Busy 退避，物化/rewrite 后释放，期间子分区批次让位 kSkip→recovery）；修复后验证 0 Corruption、splits=1、rewrite 23MB、reopen P=6 一致、118.7k ops/s（REPORT.md:123-137）。",
+  "caveats_zh": [
+   "驱动 Bug 表现为 split 在门控后静默 NoteRetry，旧诊断口径无法区分，需补 gov_split_predrain 计数（REPORT.md:125-131）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:123-141"
+  ]
+ },
+ {
+  "id": "m4/gov_100gb",
+  "title_zh": "100GB 级验收：治理 ON（16T/1KB/连续，104.86M 写）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在 104.86M 写 ≈100GiB（16T/1KB/连续）规模下验证治理 ON（active-tail 默认开）能否全程完成，并检查写墙钟、吞吐、终态 P、split/merge、Corruption 与数据完整性（REPORT.md:144-158）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16T（REPORT.md:144）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": "104.86M 写 ≈100GiB；16T/1KB/连续（REPORT.md:144）",
+   "rocksdb_options": "治理 ON，active-tail 默认开（REPORT.md:146）",
+   "other": "实测库 43GB（REPORT.md:196）"
+  },
+  "results": [
+   {
+    "metric": "写墙钟",
+    "value": "4,651（77.5min）",
+    "unit": "s",
+    "condition": "100GB 验收，治理 ON（active-tail 默认开）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:148"
+   },
+   {
+    "metric": "写吞吐",
+    "value": "22,545",
+    "unit": "ops/s",
+    "condition": "100GB 验收，治理 ON",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:149"
+   },
+   {
+    "metric": "终态 P",
+    "value": "6",
+    "unit": "分区数",
+    "condition": "100GB 验收；∈ [P_min,P_max]",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:150"
+   },
+   {
+    "metric": "gov splits / merges",
+    "value": "1 / 4? → 实测 1 / 3",
+    "unit": "次",
+    "condition": "100GB 验收；活跃尾热拆分 1 次（rewrite 23.6MB）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:151"
+   },
+   {
+    "metric": "Corruption",
+    "value": "0",
+    "unit": "次",
+    "condition": "100GB 验收；修复前同配置 7 次 L1 重叠，hold 加宽后消除",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:152"
+   },
+   {
+    "metric": "读命中 found/200k",
+    "value": "172,076（86.04%）",
+    "unit": "命中数（比例）",
+    "condition": "100GB 验收，治理 ON",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:153"
+   },
+   {
+    "metric": "iter_entries",
+    "value": "32,698,553",
+    "unit": "条目",
+    "condition": "100GB 验收，治理 ON",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:154"
+   },
+   {
+    "metric": "reopen",
+    "value": "P=6 一致",
+    "unit": "状态",
+    "condition": "100GB 验收，治理 ON",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:155"
+   },
+   {
+    "metric": "split 诊断",
+    "value": "split_attempts=1、success=1、gate_base/median/busy/timeout/other 全 0；last_base=7.6MB、last_l0=16.6MB",
+    "unit": "计数/字节",
+    "condition": "100GB 验收，治理 ON",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:157-158"
+   }
+  ],
+  "evaluation_zh": "报告判定治理 ON 在 100GB 规模下全程完成：22,545 ops/s、终态 P=6 界内、0 Corruption（修复前同配置 7 次 L1 重叠，hold 加宽后消除），终态 P/reopen 一致（REPORT.md:144-158）。",
+  "caveats_zh": [
+   "吞吐低于 50GB 臂的绝对量，因 live 数据/压缩开销下降（REPORT.md:149）",
+   "gov splits/merges 表格标注曾为 \"1 / 4?\"，实测为 1 / 3（REPORT.md:151）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:144-158",
+   "archive/zeroflush_m4_perf/REPORT.md:196"
+  ]
+ },
+ {
+  "id": "m4/gov_100gb_off",
+  "title_zh": "100GB OFF 基线臂：卡滞归因（现场数据 + 机制）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "定位 governance=0 基线在 100GB 规模下于 ~72.4M 写（69%）处停滞（~100 写/5s）的原因：排除写停控制器，用 ZF_BENCH_VERBOSE=1 采样 L0/L1/sealed_wal/压缩状态，给出\"热分区 L1 无界 → 原生 L1→L2 与 ZF 物化冲突 → 物化冻结 → 写卡 epoch 水位\"叠加\"空间放大失控\"的机制解释（REPORT.md:160-182）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16T（REPORT.md:144,162-163）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": "governance=0 同参两跑；100GB 规模（104.86M 写 ≈100GiB，16T/1KB/连续）；卡点在 ~72.4M 写（69%），~100 写/5s（REPORT.md:144,162）",
+   "rocksdb_options": "governance=0；ZF_BENCH_VERBOSE=1 现场采样；max_bytes_for_level_base=1GB（REPORT.md:163,178）",
+   "other": "基线（governance=0）在本机无法完成 100GB；50GB 可完成（1718s/29.8k ops/s）（REPORT.md:217-218）"
+  },
+  "results": [
+   {
+    "metric": "卡点",
+    "value": "~72.4M 写（69%）；~100 写/5s；磁盘空闲、0 Corruption、无 error/stall 日志",
+    "unit": "写数（比例）",
+    "condition": "governance=0 同参两跑",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:162"
+   },
+   {
+    "metric": "is-write-stopped / delayed",
+    "value": "0 / 0",
+    "unit": "计数",
+    "condition": "卡点现场采样；非写停控制器（排除 StopWriteToken/DelayWrite）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:167"
+   },
+   {
+    "metric": "L0",
+    "value": "23,162 文件 / 11.25GB",
+    "unit": "文件数 / GB",
+    "condition": "卡点现场采样；物化回落 L0 长期累积（ZF 设计禁 L0 压缩，永不消费）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:168"
+   },
+   {
+    "metric": "L1",
+    "value": "105 文件 / 10.73GB（score≈10）",
+    "unit": "文件数 / GB",
+    "condition": "卡点现场采样；热点范围 L1 无界增长 → 持续触发原生 L1→L2",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:169"
+   },
+   {
+    "metric": "L2 / L3",
+    "value": "4.0GB / 7.0GB",
+    "unit": "GB",
+    "condition": "卡点现场采样；原生压缩在下沉",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:170"
+   },
+   {
+    "metric": "num-running-compactions",
+    "value": "恒 1",
+    "unit": "个数",
+    "condition": "卡点现场采样；大 L1→L2 持续在跑（占 being_compacted）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:171"
+   },
+   {
+    "metric": "sealed_wal（未回收封存）",
+    "value": "37.93GB（冻结不再回收）",
+    "unit": "GB",
+    "condition": "卡点现场采样；ZF 物化侧停摆",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:172"
+   },
+   {
+    "metric": "prof_tasks / skip_count",
+    "value": "27,079 / 6,625（冻结）",
+    "unit": "计数",
+    "condition": "卡点现场采样；物化计划/任务停止推进",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:173"
+   },
+   {
+    "metric": "live_wal",
+    "value": "缓慢增长（~500 写/5s）",
+    "unit": "写/s",
+    "condition": "卡点现场采样；写路径仅微幅推进后阻塞",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:174"
+   },
+   {
+    "metric": "基线 50GB 完成",
+    "value": "1,718s / 29,801 ops/s",
+    "unit": "s / ops/s",
+    "condition": "对照：基线 50GB 可完成（100GB 不能）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:217-218"
+   }
+  ],
+  "evaluation_zh": "报告结论：OFF 基线在 100GB 规模下的卡滞 = \"热点范围数据无界（L1 无界→原生 L1→L2 与物化抢文件冲突→物化冻结→写卡 epoch 水位）\"与\"空间放大失控\"两条结构性问题叠加；治理 ON（拆分热点、每分区有界，实测 43GB 库）100GB 全程完成，治理即对策（REPORT.md:194-199）。",
+  "caveats_zh": [
+   "报告明确指出卡滞非写停控制器所致（is-write-stopped/delayed 均为 0）（REPORT.md:167）",
+   "基线若要在 100GB 稳定运行，需（i）按 S1/S3 收紧每 range 文件规模（= 治理路径）、（ii）修物化与原生 L1→L2 的互斥、（iii）为 L0 建立消费路径（现设计只增不消）（REPORT.md:197-199）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:160-182",
+   "archive/zeroflush_m4_perf/REPORT.md:196",
+   "archive/zeroflush_m4_perf/REPORT.md:217-218"
+  ]
+ },
+ {
+  "id": "m4/gov_100gb_off_max_l1",
+  "title_zh": "OFF 100GB 验证：ZF_MAX_L1_BYTES=1TB 禁用原生 L1→L2",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "用 ZF_MAX_L1_BYTES=1TB 禁用原生 L1→L2 触发后复跑 OFF 100GB，验证\"原生 L1→L2 与 ZF 物化冲突\"是否为卡滞的直接触发条件，并暴露基线是否存在第二重结构问题（空间放大失控）（REPORT.md:184-193）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16T/1KB/连续（复跑 OFF 100GB，配置同 100GB 臂）（REPORT.md:144）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": "复跑 OFF 100GB；跑到 69M 写（66%）时磁盘耗尽（REPORT.md:184-189）",
+   "rocksdb_options": "ZF_MAX_L1_BYTES=1TB（禁用原生 L1→L2 触发）（REPORT.md:184）",
+   "other": "实验开关 ZF_L0_TRIGGER / ZF_MAX_L1_BYTES 保留为诊断用（默认零行为改动）（REPORT.md:250-251）"
+  },
+  "results": [
+   {
+    "metric": "卡滞",
+    "value": "消失",
+    "unit": "状态",
+    "condition": "ZF_MAX_L1_BYTES=1TB 复跑 OFF 100GB（L1→L2 一关，写路径立即通畅）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:186"
+   },
+   {
+    "metric": "写吞吐",
+    "value": "~100k（同点前值 ~34k）",
+    "unit": "ops/s",
+    "condition": "ZF_MAX_L1_BYTES=1TB 复跑 OFF 100GB",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:186"
+   },
+   {
+    "metric": "磁盘耗尽",
+    "value": "No space left on device，69M 写（66%）",
+    "unit": "错误/写数",
+    "condition": "ZF_MAX_L1_BYTES=1TB 复跑 OFF 100GB；L0 只增不消 + sealed 积压导致",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:188-189"
+   },
+   {
+    "metric": "L0",
+    "value": "22k 文件 / 58.7GB",
+    "unit": "文件数 / GB",
+    "condition": "磁盘耗尽时",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:189"
+   },
+   {
+    "metric": "sealed 积压",
+    "value": "34GB",
+    "unit": "GB",
+    "condition": "磁盘耗尽时（另有 WAL/下层占用）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:189"
+   },
+   {
+    "metric": "Corruption",
+    "value": "0",
+    "unit": "次",
+    "condition": "ZF_MAX_L1_BYTES=1TB 复跑 OFF 100GB",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:192"
+   }
+  ],
+  "evaluation_zh": "报告判定该实验坐实\"原生 L1→L2 与 ZF 物化冲突\"是卡滞的直接触发条件（L1→L2 一关，写路径立即通畅），但暴露基线第二个结构性问题：空间放大失控（L0 只增不消 + 物化回流 L0），写 100GB 需远超磁盘空间（REPORT.md:186-191）。",
+  "caveats_zh": [
+   "跑到 69M 写（66%）时磁盘耗尽，未完成 100GB（REPORT.md:188-189）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:144",
+   "archive/zeroflush_m4_perf/REPORT.md:184-193",
+   "archive/zeroflush_m4_perf/REPORT.md:250-251"
+  ]
+ },
+ {
+  "id": "m4/gov_100gb_off_p256",
+  "title_zh": "基线变体：--partitions=256 静态分区数不是解",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "检验\"更多静态分区可避免热点 L1 无界\"的假设：用 --partitions=256 跑 OFF 100GB（16T/1KB/连续/verbose），观察 L0/L1/sealed_wal 增长，判断 L0 只增不消是否与分区数无关（REPORT.md:201-219）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16T（REPORT.md:203）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": "OFF 100GB，16T/1KB/连续/verbose；在 44.3M 写/42% 处停止（REPORT.md:203,206）",
+   "rocksdb_options": "--partitions=256；governance=0（REPORT.md:203）",
+   "other": null
+  },
+  "results": [
+   {
+    "metric": "L0",
+    "value": "78,926 文件 / 41.8GB",
+    "unit": "文件数 / GB",
+    "condition": "--partitions=256 OFF 100GB，44.3M 写/42% 处停止；≈ 写入字节 1:1 累积",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:208"
+   },
+   {
+    "metric": "L1",
+    "value": "270 文件 / 1.19GB",
+    "unit": "文件数 / GB",
+    "condition": "--partitions=256 OFF 100GB，44.3M 写处停止",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:209"
+   },
+   {
+    "metric": "sealed_wal（未回收封存）",
+    "value": "~44GB 且持续增长",
+    "unit": "GB",
+    "condition": "--partitions=256 OFF 100GB，44.3M 写处停止",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:210"
+   },
+   {
+    "metric": "skip_count / prof_tasks",
+    "value": "29,428 / 83,464（仍在跑）",
+    "unit": "计数",
+    "condition": "--partitions=256 OFF 100GB，44.3M 写处停止",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:211"
+   },
+   {
+    "metric": "is-write-stopped",
+    "value": "0（未到写停）",
+    "unit": "计数",
+    "condition": "--partitions=256 OFF 100GB，44.3M 写处停止",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:212"
+   }
+  ],
+  "evaluation_zh": "报告结论：L0 只增不消是基线的主导性空间放大（物化输出大比例落 L0，ZF 设计 L0 无消费路径），与分区数无关；44M 写即 42GB L0，外推 100GB 写需 ~100GB L0 + ~100GB sealed → 必然磁盘耗尽（或先卡滞）。因此基线（governance=0）在本机无法完成 100GB，而治理 ON 100GB 完成（43GB 库），治理（热拆分 + 回收 + 每分区有界）同时缓解 L0/空间放大，是该结构问题的实际对策（REPORT.md:214-219）。",
+  "caveats_zh": [],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:201-219"
+  ]
+ },
+ {
+  "id": "m4/l0_consume",
+  "title_zh": "基线结构修复实验：L0 消费（原生触发 / 门控解耦 / M4.9 融合三条验证）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "为基线 L0 只增不消尝试建立消费路径并判断哪条可行：(1) 原生 L0→L1 compaction（新增 env 覆盖 ZF_L0_TRIGGER=N）；(2) 门控解耦 ZF_L0_ABSORB（让 l0_overlap 非空即走吸收路径）；(3) 既有 M4.9 merge_into_base_level=true 融合路径（256 分区/16T/3.2M 写）（REPORT.md:221-251）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16T（256 分区臂）；另有小规模复核（REPORT.md:224,243）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": "OFF + 256 分区；ZF_L0_TRIGGER=8 跑到 12.8M 写；ZF_L0_TRIGGER=1 小规模复核跑到 3.2M 写；M4.9 臂 256 分区/16T/3.2M 写（REPORT.md:224-227,243）",
+   "rocksdb_options": "ZF_L0_TRIGGER=N（新增 env 覆盖）；ZF_L0_ABSORB（已撤销）；merge_into_base_level=true（REPORT.md:223,240,243）",
+   "other": "修复方向（下一步）：把\"L0 吸收\"与融合开关解耦（l0_overlap 非空即走吸收路径），从源头把 L0 控在 O(批次)（REPORT.md:231-234）"
+  },
+  "results": [
+   {
+    "metric": "L0",
+    "value": "22,961 文件 / 11.8GB",
+    "unit": "文件数 / GB",
+    "condition": "OFF + 256 分区 + ZF_L0_TRIGGER=8，12.8M 写处；≈1.8k 文件/百万写，与未开触发完全一致",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:224-225"
+   },
+   {
+    "metric": "L0",
+    "value": "5,137 文件 / 2.66GB",
+    "unit": "文件数 / GB",
+    "condition": "ZF_L0_TRIGGER=1 小规模复核，3.2M 写处；≈1.6k 文件/百万写",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:226-227"
+   },
+   {
+    "metric": "原生 compaction 结论",
+    "value": "完全追不上 ZF 的 L0 到达率（每批物化产生多个 ~0.5MB 小文件，数百文件/秒到达；comp=1 长期打满）",
+    "unit": "结论",
+    "condition": "尝试 1：ZF_L0_TRIGGER",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:227-228"
+   },
+   {
+    "metric": "ZF_L0_ABSORB（门控解耦）",
+    "value": "相交判定 → 融合输出越界 → L1 重叠崩溃；收紧为\"完全包含\"仍崩（7 次）",
+    "unit": "崩溃次数",
+    "condition": "尝试 2：已撤销（简单门控不安全，实现需完整 M4.9 前置 busy/批内/遮蔽判定）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:240-241"
+   },
+   {
+    "metric": "M4.9 merge_into_base_level=true",
+    "value": "L0 被吸收（0 文件）但 8 次 L1 overlapping ranges 崩溃",
+    "unit": "崩溃次数",
+    "condition": "尝试 3：256 分区/16T/3.2M 写",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:243-244"
+   }
+  ],
+  "evaluation_zh": "报告结论：调触发阈值不是解，属源头问题；简单门控不安全，实现需完整 M4.9 前置（busy/批内/遮蔽判定）；基线 L0 消费需专项修复 M4.9 融合路径的安装范围/跨批互斥（候选：L0 吸收批登记受影响邻分区、输出范围钳制在分区区间），而非调参；治理 ON（每分区有界 + 拆分/回收）仍是当前唯一可用的结构对策（REPORT.md:229,246-251）。",
+  "caveats_zh": [
+   "ZF_L0_ABSORB 已撤销（REPORT.md:240）",
+   "实验开关 ZF_L0_TRIGGER / ZF_MAX_L1_BYTES 保留为诊断用（默认零行为改动）（REPORT.md:250-251）",
+   "M4.9 融合路径在规模并发下的 8 次崩溃属既存缺陷（宽范围/跨批类，与已修的 E_D×absorb、split 子分区同类），非开关问题（REPORT.md:244-245）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:221-234",
+   "archive/zeroflush_m4_perf/REPORT.md:236-251"
+  ]
+ },
+ {
+  "id": "m4/m49_overlap",
+  "title_zh": "M4.9 规模并发重叠：深挖与安全网",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "用 ZF_DBG_MM 追踪 M4.9 融合路径在规模并发下的 L1 overlapping ranges 崩溃，定位重叠对来源（两个不同 FlushJob 批次对同一分区产出的 kMergeBase L1 文件，plan 期扫描视图互不可见），并落地\"安装期复检 + 整批让位\"安全网（REPORT.md:254-266）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": null,
+   "rocksdb_options": null,
+   "other": "探针：ZF_DBG_MM；尝试拦截开关：ZF_MERGE_NEIGHBOR（REPORT.md:256,259）"
+  },
+  "results": [
+   {
+    "metric": "重叠对来源",
+    "value": "两个不同 FlushJob 批次对同一分区产出的 kMergeBase L1 文件；plan 期扫描视图互不可见（ov 列表缺对方文件号）→ 并行规划 + 安装期 LogAndApply 冲突（VersionBuilder L1 overlapping）",
+    "unit": "结论",
+    "condition": "ZF_DBG_MM 追踪",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:256-258"
+   },
+   {
+    "metric": "ZF_MERGE_NEIGHBOR 拦截",
+    "value": "未生效",
+    "unit": "状态",
+    "condition": "相邻分区互斥扩展尝试",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:259"
+   },
+   {
+    "metric": "安装期复检拦截",
+    "value": "未生效（复检落在对方 LogAndApply 未落地窗口内，实测 0 yield）",
+    "unit": "状态",
+    "condition": "安装期复检尝试",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:259-260"
+   },
+   {
+    "metric": "安全网",
+    "value": "阶段 2 安装前按当前版本复检\"同层既有文件重叠且不在本批删除集 / 批内 Add-Add 同层重叠\"，命中则整批让位（删除已产出文件 + 全部 gens 移交 recovery + 回滚 last，与 kSkip 同语义）",
+    "unit": "机制",
+    "condition": "已落地（默认生效，无回归）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:261-264"
+   },
+   {
+    "metric": "回归",
+    "value": "6 项关键用例全 PASS",
+    "unit": "状态",
+    "condition": "安全网落地后回归",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:264"
+   }
+  ],
+  "evaluation_zh": "报告判定已落地安全网（默认生效，无回归）把崩溃降级为可重试让位；但该工作属\"下一步（未完成）\"——需查 AddMaterializePart 为何两批均登记成功，或引入分区粒度 install 锁把 plan→LogAndApply 串行化（REPORT.md:261-266）。",
+  "caveats_zh": [
+   "尝试的两种拦截（相邻分区互斥扩展 ZF_MERGE_NEIGHBOR、安装期复检）均未生效（REPORT.md:259-260）",
+   "下一步（未完成）：查 AddMaterializePart 为何两批均登记成功，或引入分区粒度 install 锁（REPORT.md:265-266）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:254-266"
+  ]
+ },
+ {
+  "id": "m4/m49_logandapply",
+  "title_zh": "M4.9 重叠根因实锤：LogAndApply 让锁窗口内的跨批规划",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "用登记探针 ZFDBG-mm-reg 实锤重叠根因：后批在对方 LogAndApply 的 MANIFEST IO 让锁窗口内完成规划（扫描视图不含对方尚未落地的输出），双方 edit 相继 apply 导致 VersionBuilder L1 重叠崩溃；并给出确定性修复方案（REPORT.md:269-280）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": null,
+   "rocksdb_options": null,
+   "other": "探针：ZFDBG-mm-reg（REPORT.md:271）；拟修复：DB 级 zf_install_mu_（try_lock）（REPORT.md:277-279）"
+  },
+  "results": [
+   {
+    "metric": "登记探针结果",
+    "value": "冲突分区在窗口内出现不同 token 的登记成功（pid5: token 159/167/175/177 均 ok=1）",
+    "unit": "token 记录",
+    "condition": "ZFDBG-mm-reg",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:271-272"
+   },
+   {
+    "metric": "根因",
+    "value": "后批在对方 LogAndApply 的 MANIFEST IO 让锁窗口内完成规划：其扫描视图不含对方\"尚未落地\"的输出，双方 edit 相继 apply → VersionBuilder L1 重叠崩溃",
+    "unit": "结论",
+    "condition": "登记探针",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:272-274"
+   },
+   {
+    "metric": "归属",
+    "value": "M2 遗留项\"与并发 flush 的 LogAndApply 让锁窗口竞态未做 being_compacted 防护\"的实锤；既有 token 守卫未覆盖该窗口",
+    "unit": "结论",
+    "condition": "根因对照",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:274-275"
+   },
+   {
+    "metric": "安全网触发",
+    "value": "本轮回 0 触发",
+    "unit": "次数",
+    "condition": "现有\"安装期复检 + 整批让位\"安全网",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:280"
+   }
+  ],
+  "evaluation_zh": "报告实锤根因并给出确定性修复方案：DB 级 zf_install_mu_——ZF 批自阶段 0 规划前 try_lock、持至安装（LogAndApply）完成释放，规划期 try_lock 失败即整批 kSkip 让位；跨批 plan→apply 串行化后让锁窗口不可能再插入规划，重叠从源头消除。现有\"安装期复检 + 整批让位\"安全网保留为第二道防线（本轮回 0 触发）（REPORT.md:272-280）。",
+  "caveats_zh": [
+   "修复方案标注为\"下一步（确定性）\"，尚未落地（REPORT.md:277-279）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:269-280"
+  ]
+ },
+ {
+  "id": "m4/m49_guards",
+  "title_zh": "M4.9 修复尝试三连负结果 + 决定性时序",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "记录三次守卫尝试（相邻分区互斥扩展 / 安装期复检 + 整批让位 / 安装窗口标记 + 规划期整批让位）的负结果，并用 job↔token 探针给出决定性时序，指出存在\"edit 尚未落地即释放 token\"的路径（REPORT.md:283-298）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": null,
+   "rocksdb_options": "ZF_MERGE_NEIGHBOR（尝试 1）（REPORT.md:286）",
+   "other": "探针：job↔token（REPORT.md:290）"
+  },
+  "results": [
+   {
+    "metric": "尝试 1 相邻分区互斥扩展（ZF_MERGE_NEIGHBOR）",
+    "value": "崩溃 8→11",
+    "unit": "崩溃次数",
+    "condition": "均撤销，主路径恢复原行为",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:286"
+   },
+   {
+    "metric": "尝试 2 安装期复检 + 整批让位",
+    "value": "复现中 0 触发（复检落在对方 edit 未落地窗口内）",
+    "unit": "触发次数",
+    "condition": "均撤销，主路径恢复原行为",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:287"
+   },
+   {
+    "metric": "尝试 3 安装窗口标记 + 规划期整批让位",
+    "value": "仍 8/10 崩溃",
+    "unit": "崩溃次数",
+    "condition": "均撤销，主路径恢复原行为",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:288"
+   },
+   {
+    "metric": "job↔token 决定性时序",
+    "value": "崩溃对 file376(job74/epoch76/token71) 与 file384(job69/epoch68/token73) 同分区同层；job74 的 edit 已构建打印但未 apply 时，job69 已在规划（扫描视图 ov 不含 376）；且 job69 的 token73 登记成功 ⇒ token71 已 End",
+    "unit": "文件/作业/token",
+    "condition": "job↔token 探针；⇒ 存在\"edit 尚未落地即释放 token\"的路径",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:290-294"
+   }
+  ],
+  "evaluation_zh": "报告判定三次守卫尝试均为负结果并已撤销（主路径恢复原行为，回归全绿）；job↔token 探针证明存在\"edit 尚未落地即释放 token\"的路径（End 名义上在 TryInstall 之后，疑似失败/重试或某出口提前 End）（REPORT.md:285,293-294）。",
+  "caveats_zh": [
+   "三次守卫尝试均撤销，主路径恢复原行为（REPORT.md:285）",
+   "下一步：全部 EndMaterializeBatch 调用点打点（token/job/s.ok()/apply 状态）+ PlanLocked 入口断言 mc_.base == cfd_->current()，定位后一处修复（REPORT.md:295-298）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:283-298"
+  ]
+ },
+ {
+  "id": "m4/m49_threshold",
+  "title_zh": "M4.9 触发条件与规模阈值（量化）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "量化 M4.9 L0 吸收路径（merge_into_base_level=true）在规模并发下的崩溃触发条件与阈值：扫 --partitions/线程数/写入量/值大小，判定触发条件与分区数、值大小是否相关，并确认其确定性（REPORT.md:301-327）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（多数臂）与 1、4 线程对照（REPORT.md:308-316）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（REPORT.md:303）",
+   "workload": "配置：zf_govern_bench --governance=0 --merge_base=1（M4.9 L0 吸收路径），1KB 值（另注 256B 一档），universe 150M，连续写（REPORT.md:303-304）",
+   "rocksdb_options": "--governance=0 --merge_base=1；256 分区（另有 8 分区对照）；merge_base=0 对照臂（REPORT.md:303,308-316）",
+   "other": null
+  },
+  "results": [
+   {
+    "metric": "0.4M、0.5M、0.6M、0.7M 写（0.4–0.7GB）",
+    "value": "全部干净（rc=0、0 Corruption）",
+    "unit": "状态",
+    "condition": "256 分区 / 16 线程",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:308"
+   },
+   {
+    "metric": "0.8M 写（0.8GB）",
+    "value": "崩溃（6 次 L1 重叠，段错误）",
+    "unit": "状态",
+    "condition": "256 分区 / 16 线程",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:309"
+   },
+   {
+    "metric": "3.2M 写（3.2GB）",
+    "value": "崩溃（7–15 次）",
+    "unit": "状态",
+    "condition": "256 分区 / 16 线程",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:310"
+   },
+   {
+    "metric": "0.8M 写",
+    "value": "崩溃（15 次）→ 与分区数无关",
+    "unit": "状态",
+    "condition": "8 分区 / 16 线程",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:311"
+   },
+   {
+    "metric": "256B 值 × 3.2M 写（≈0.8GB）",
+    "value": "崩溃（7 次）→ 按写入字节归一，非条数",
+    "unit": "状态",
+    "condition": "256 分区 / 16 线程",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:312"
+   },
+   {
+    "metric": "3.2M 写",
+    "value": "崩溃（4 次）",
+    "unit": "状态",
+    "condition": "256 分区 / 4 线程",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:313"
+   },
+   {
+    "metric": "1.0M 写（1GB）",
+    "value": "干净（rc=0，94.5s）",
+    "unit": "状态",
+    "condition": "256 分区 / 1 线程",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:314"
+   },
+   {
+    "metric": "3.2M 写",
+    "value": "仅 1 次重叠错误（表现为 Put 返回 Corruption，非段错误）",
+    "unit": "状态",
+    "condition": "256 分区 / 1 线程",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:315"
+   },
+   {
+    "metric": "0.8M 写",
+    "value": "干净",
+    "unit": "状态",
+    "condition": "256 分区 / 16 线程 / merge_base=0（对照）",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:316"
+   }
+  ],
+  "evaluation_zh": "报告结论：触发条件 = merge_into_base_level=true（L0 吸收）× 并发 flush/write × ≈≥0.8GB 写入量（≈100 次封存批次），与分区数、值大小无关；触发配置下 8/8 轮复现（无一跑完 3.2M 写），是结构性竞态而非偶发抖动，阈值下（≤0.7GB）多轮干净。默认配置（merge_base=false，含全部 50GB/100GB 验收）不触发；但若为\"基线 L0 消费\"启用融合，在 ≥1GB 的真实负载下几乎必然命中 → 必须先修再用。表现形态：多线程=段错误（VersionBuilder 致命），单线程=Put 返回 force_consistency_checks: L1 overlapping ranges（REPORT.md:318-327）。",
+  "caveats_zh": [
+   "在 0.8GB 阈值以下（≤0.7GB）多轮干净，阈值判定基于写入量而非条数（REPORT.md:312,318-320）",
+   "默认配置 merge_base=false（含全部 50GB/100GB 验收）不触发，撞击的是 L0 空间放大/卡滞（REPORT.md:323-325）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:301-327"
+  ]
+ },
+ {
+  "id": "m4/m49_merge0",
+  "title_zh": "更正：merge=0 对照组与 L0 文件 key range 语义",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "更正上一轮\"崩溃对手方是原生 compaction 的 L1 输出\"的推断（该推断所依据日志未开 ZF_DBG_MM 探针），用开探针的 merge_base=0/1 对照组量化 ZF 安装 L1/L0 文件数，并说明 merge=0 时 L0 文件 key range 的确定语义（REPORT.md:330-361）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16T（对照组）（REPORT.md:335）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/tools/zf_govern_bench（新增）（REPORT.md:3）",
+   "workload": "256 分区/16T/3.2M 写/1KB，探针开（REPORT.md:335）",
+   "rocksdb_options": "merge_base=0 vs merge_base=1；level0_file_num_compaction_trigger=1e8（REPORT.md:335,345）",
+   "other": null
+  },
+  "results": [
+   {
+    "metric": "merge_base=0",
+    "value": "rc=0、0 Corruption；ZF 安装 L1 数 256；ZF 安装 L0 数 5,692",
+    "unit": "状态/文件数",
+    "condition": "256 分区/16T/3.2M 写/1KB，探针开",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:339"
+   },
+   {
+    "metric": "merge_base=1",
+    "value": "段错误、7 次 L1 重叠；ZF 安装 L1 数 380；ZF 安装 L0 数 0",
+    "unit": "状态/文件数",
+    "condition": "256 分区/16T/3.2M 写/1KB，探针开",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:340"
+   },
+   {
+    "metric": "merge=1 语义",
+    "value": "ZF 输出全部进 L1（L0 被完全吸收）→ 同分区 L1 反复被替换；崩溃对两条都是 ZF 的 L1 输出（此前的 pair 均有 mm-add 记录）",
+    "unit": "结论",
+    "condition": "merge_base=1",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:342-343"
+   },
+   {
+    "metric": "merge=0 语义",
+    "value": "ZF 仅 4% 安装进 L1（256/5948），其余回落 L0；L0→L1 原生 compaction 因 level0_file_num_compaction_trigger=1e8 不调度 → L1 几乎只被那 256 次直装触碰，同分区 L1 替换循环不存在 → 未观测到崩溃（代价是 L0 只增不消：5,692 文件/3.2M 写）",
+    "unit": "结论",
+    "condition": "merge_base=0",
+    "source": "archive/zeroflush_m4_perf/REPORT.md:344-347"
+   }
+  ],
+  "evaluation_zh": "报告更正了此前推断（不成立：未开 ZF_DBG_MM 探针时\"mm-add 无记录 ≠ 非 ZF 输出\"），并给出 merge=0 时 L0 文件 key range 的确定语义四条：①物化任务按分区产出单文件，文件内部键范围 = 实际数据足迹（smallest/largest internal key），范围断言保证 ⊆ 该分区路由区间 [lo,hi)；②定层 PickInstallLevel：与 L0..base_level 任一文件无重叠则直装 base（L1），有重叠则回落 L0（kFallback），故 L0 文件通常只覆盖某分区区间内的一个子段，同分区不同代文件在 L0 可互相重叠；③特例：kHash 路由无边界 → lo/hi 空 → 输出可为全范围单文件，split 孤儿尾 epoch 用父区间覆盖、学习期越界数据回落 L0 并计数；④skip_batching=true（选项默认）时比例不足的分区走 kSkip，不产生 L0 文件（REPORT.md:332-333,349-361）。",
+  "caveats_zh": [
+   "此前\"崩溃对手方是原生 compaction 的 L1 输出\"的推断不成立，所依据日志未开 ZF_DBG_MM 探针（REPORT.md:332-333）",
+   "bench 为 drain 确定性设 skip=false，故对照组 L0 文件数偏多（REPORT.md:360-361）"
+  ],
+  "sources": [
+   "archive/zeroflush_m4_perf/REPORT.md:330-361"
+  ]
+ }
+]

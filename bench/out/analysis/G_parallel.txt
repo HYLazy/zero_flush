@@ -1,0 +1,7 @@
+== E4 background parallelism ==
+run,n_jobs,peak_concurrent_jobs,mean_concurrent_jobs,sum_job_wall_s,wall_span_s,effective_parallelism,n_l0_jobs,l0_job_wall_s,n_deep_jobs,deep_job_wall_s,l0_deep_time_overlap_s,n_deep_while_l0_active,n_subcompaction_begin,n_subcompaction_end
+g_hotspot,452,6,4.631,2970.408,670.855,4.428,452,3106.412,0,0,0.000,0,482,482
+g_locality,404,6,5.112,3519.885,713.351,4.934,404,3646.704,0,0,0.000,0,375,375
+g_monotonic,260,2,0.005,0.000,111.054,0.000,260,0.517,0,0,0.000,0,0,0
+g_zipf,172,5,1.605,301.734,190.330,1.585,172,305.467,0,0,0.000,0,445,445
+

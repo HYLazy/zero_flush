@@ -1,0 +1,32 @@
+bench/out/perf_v2/m4/REPORT.md: 72 arm rows, 12 groups by ['K', 'layout', 'mode']
+
+| K | layout | mode | n | ops_s median | min..max | spread | effect |
+|---|---|---|---|---|---|---|---|
+| 1 | narrow | frozen | 6 | 1815474.79 | 1711495.95..1915376.02 | 1.12x | |
+| 1 | narrow | online | 6 | 1828649.96 | 1731441.58..1930816.37 | 1.12x | |
+| 1 | wide | frozen | 6 | 1811582.34 | 1708495.43..1917709.17 | 1.12x | |
+| 1 | wide | online | 6 | 1815525.67 | 1720314.32..1919719.21 | 1.12x | |
+| 16 | narrow | frozen | 6 | 1792242.35 | 1681311.67..1918187.43 | 1.14x | |
+| 16 | narrow | online | 6 | 1827179.25 | 1689419.11..1930495.52 | 1.14x | |
+| 16 | wide | frozen | 6 | 1782547.66 | 1675117.11..1904115.40 | 1.14x | |
+| 16 | wide | online | 6 | 1819948.41 | 1702728.48..1934164.84 | 1.14x | |
+| 8 | narrow | frozen | 6 | 1805470.59 | 1692835.72..1930076.69 | 1.14x | |
+| 8 | narrow | online | 6 | 1821453.19 | 1731452.43..1910521.95 | 1.10x | |
+| 8 | wide | frozen | 6 | 1800069.40 | 1688173.73..1932396.77 | 1.14x | |
+| 8 | wide | online | 6 | 1829260.94 | 1653567.90..1930962.72 | 1.17x | |
+
+across-axis spread: 1782547.66 .. 1829260.94 = 1.03x; largest within-bucket spread 1.17x -> unresolved
+
+secondary metric get_hit_p99_us:
+  1/narrow/frozen: median 10.25 (7.20..13.30)
+  1/narrow/online: median 10.50 (7.20..13.30)
+  1/wide/frozen: median 10.50 (7.20..14.30)
+  1/wide/online: median 10.50 (7.20..13.30)
+  16/narrow/frozen: median 11.00 (7.20..14.30)
+  16/narrow/online: median 10.25 (7.20..13.30)
+  16/wide/frozen: median 11.25 (9.20..13.30)
+  16/wide/online: median 10.75 (8.20..13.30)
+  8/narrow/frozen: median 10.50 (7.20..14.30)
+  8/narrow/online: median 10.50 (7.20..13.30)
+  8/wide/frozen: median 10.75 (8.20..14.30)
+  8/wide/online: median 10.75 (7.70..13.30)

@@ -1,0 +1,57 @@
+=== BN1: 队列先后分析（默认配置画像，A 阶段既有数据）===
+
+--- 修正后的分阶段写流量账本（槽位→真实层级映射修正后）---
+run                      U(GiB)     WA   flush intraL0 L0->base    deep  totSST   jobs   triv
+50gb_fill_r1              46.49   5.47   1.004   0.600   1.459   2.405  254.21    655    152
+50gb_fill_r11             46.49   5.88   1.002   0.438   1.653   2.792  273.59    694    146
+50gb_fill_r12             46.49   5.88   1.002   0.532   1.625   2.723  273.45    702    143
+50gb_fill_static          46.49   6.00   1.004   0.676   1.459   2.857  278.76    674    212
+50gb_overwrite            46.49   8.38   1.001   0.099   1.752   5.528  389.61   1899    237
+100gb_fill_r5             92.98   7.78   1.004   0.261   1.809   4.701  723.02   2752    373
+100gb_overwrite           92.98  11.01   1.003   0.010   1.729   8.267 1023.69   4857    283
+
+== 50gb_fill_r1  pools F=2/C=6  T=653s ops=48000000 thr=73552 ops/s (steady 39796)
+-- onset ordering (elapsed s; None = never crossed sustained):
+   imm>=2 (10s)           never
+   imm>=3 (10s)           never
+   L0>=trigger8 (10s)     18.8
+   pending>=16G           23.4
+   pending>=32G           37.1
+   pending>=64G(soft)     193.5
+-- pending slope 0.22 GiB/s over window (9.740301847457886, 179.63493299484253); lambda 0.17 GiB/s
+-- steady state (last 70%): median imm=1.00 L0=11.0 pending=64.5 GiB; runcomp=6.00 runflush=0.88
+-- service (arrival phase, ends t=454s): flush 41 MB/s (pool busy 45%) | comp wr 297 rd 297 MB/s (pool busy 93%, cpu/wall 0.23) | dev wr 341 rd 39 MB/s busy n/a
+-- jobs (corrected slot->level mapping): comp n=655 wall=2974s cpu=689s | intraL0 n=26(27.9G out) L0->base n=13(67.8G out, base-side in 21.3G) deep n=616(111.8G out) trivial n=152 | L0 in 74.5G | flush n=192 wall=468s (102 MB/s/stream)
+-- stalls: lines {'imm': 77, 'l0files': 24, 'pending': 273} | union 43.8% | device WA 5.52x
+-- latency (us): p50_e2e_us=59.4 p50_eng_us=59.4 p999_e2e_us=7864.3 p999_eng_us=7864.3 p99_e2e_us=6553.6 p99_eng_us=6553.6
+
+== 50gb_overwrite  pools F=2/C=6  T=1293s ops=48000000 thr=37117 ops/s (steady 27844)
+-- onset ordering (elapsed s; None = never crossed sustained):
+   imm>=2 (10s)           never
+   imm>=3 (10s)           never
+   L0>=trigger8 (10s)     22.4
+   pending>=16G           4.3
+   pending>=32G           12.2
+   pending>=64G(soft)     36.5
+-- pending slope 1.56 GiB/s over window (2.6503281593322754, 33.4379141330719); lambda 0.27 GiB/s
+-- steady state (last 70%): median imm=0.00 L0=4.0 pending=65.7 GiB; runcomp=6.00 runflush=0.35
+-- service (arrival phase, ends t=1106s): flush 28 MB/s (pool busy 17%) | comp wr 255 rd 294 MB/s (pool busy 97%, cpu/wall 0.21) | dev wr 285 rd 102 MB/s busy n/a
+-- jobs (corrected slot->level mapping): comp n=1899 wall=7404s cpu=1579s | intraL0 n=4(4.6G out) L0->base n=31(81.5G out, base-side in 34.8G) deep n=1864(257.0G out) trivial n=237 | L0 in 51.3G | flush n=192 wall=451s (106 MB/s/stream)
+-- stalls: lines {'imm': 41, 'pending': 1612} | union 70.2% | device WA 8.48x
+-- latency (us): p50_e2e_us=63.5 p50_eng_us=63.5 p999_e2e_us=8126.5 p999_eng_us=8126.5 p99_e2e_us=6553.6 p99_eng_us=6553.6
+
+== 100gb_overwrite  pools F=2/C=6  T=5902s ops=96000000 thr=16265 ops/s (steady 13532)
+-- onset ordering (elapsed s; None = never crossed sustained):
+   imm>=2 (10s)           never
+   imm>=3 (10s)           never
+   L0>=trigger8 (10s)     never
+   pending>=16G           4.5
+   pending>=32G           9.0
+   pending>=64G(soft)     24.2
+-- pending slope 2.63 GiB/s over window (2.0678610801696777, 21.322002172470093); lambda 0.27 GiB/s
+-- steady state (last 70%): median imm=0.00 L0=2.0 pending=69.0 GiB; runcomp=6.00 runflush=0.24
+-- service (arrival phase, ends t=4568s): flush 14 MB/s (pool busy 13%) | comp wr 145 rd 160 MB/s (pool busy 97%, cpu/wall 0.17) | dev wr 160 rd 67 MB/s busy n/a
+-- jobs (corrected slot->level mapping): comp n=4857 wall=27729s cpu=4686s | intraL0 n=1(1.0G out) L0->base n=99(160.8G out, base-side in 67.7G) deep n=4757(768.7G out) trivial n=283 | L0 in 94.0G | flush n=385 wall=1191s (80 MB/s/stream)
+-- stalls: lines {'imm': 64, 'pending': 5134} | union 65.9% | device WA 11.15x
+-- latency (us): p50_e2e_us=409.6 p50_eng_us=409.6 p999_e2e_us=65011.7 p999_eng_us=65011.7 p99_e2e_us=6815.7 p99_eng_us=6815.7
+

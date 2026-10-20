@@ -1,0 +1,44 @@
+# ---------------------------------------------------------------------------
+# Stage H -- E5 targeted interventions (causality, not correlation)
+#   H1: throttle the background service mid-run. max_background_jobs lives in DBOptions,
+#       so it must go through SetDBOptions; the driver tries that first and records which
+#       API succeeded in the `set_option` event.
+#   H2: lift soft_pending_compaction_bytes_limit to 1 TiB at t=60 on a 50 GB fill. This is
+#       the decisive test of H5: if the measured 16 MiB/s write cap (§3.2) is what binds,
+#       removing the limit should restore the write rate; if the rate stays put, the cap was
+#       not binding and the service rate is the real limit. Control arms are the three
+#       unmodified 50 GB fills (50gb_fill_r1/r11/r12, same configuration).
+# ---------------------------------------------------------------------------
+stage_H() {
+  local U10=9600000 U50=48000000
+  local C; C=$(fill_common)
+  local i=0
+  for spec in "bg1:60:max_background_jobs=1" \
+              "bg1_restore:60:max_background_jobs=1,180:max_background_jobs=8"; do
+    i=$((i+1)); wants "$i" || continue
+    local name=${spec%%:*}; local iv=${spec#*:}
+    local rid="h_${name}"; local db=$BENCH/db/$rid; local rdir=$OUT/$rid
+    rm -rf "$db" "$rdir"; mkdir -p "$rdir"
+    launch "$rdir" "$db" 3600 300 -- --db=$db --out=$rdir/$rid --mode=fill --universe=$U10 \
+      --num_ops=$U10 --dist=uniform --order=shuffle --threads=$THREADS --value_size=1024 \
+      --write_buffer_size=64M --max_write_buffer_number=4 --level0_trigger=4 \
+      --target_file_size_base=64M --max_background_jobs=8 --max_subcompactions=8 \
+      --dynamic_level_bytes=1 --cache_size=4G --bloom_bits=10 --compression=none \
+      --set_opt="$iv" --sample_ms=500 --layout_ms=2000 --dirscan_ms=10000 --progress_ms=5000 \
+      --stats_dump_period_sec=30 --drain_observe_s=90
+    local rc=$?; finish_run "$rdir" "$db" 0
+    record "$rid" "\"exp\":\"E5-intervention\",\"scenario\":\"$name\",\"intervention\":\"$iv\",\"rc\":$rc"
+  done
+  i=$((i+1))
+  if wants "$i"; then
+    local rid="h_lift_pending_limit"
+    local db=$BENCH/db/$rid; local rdir=$OUT/$rid
+    rm -rf "$db" "$rdir"; mkdir -p "$rdir"
+    launch "$rdir" "$db" 21600 300 -- --db=$db --out=$rdir/$rid --mode=fill --universe=$U50 \
+      --num_ops=$U50 --dist=uniform --order=shuffle \
+      --set_opt=60:soft_pending_compaction_bytes_limit=1099511627776 $C \
+      --drain_observe_s=120 --wait_for_drain=1 --wait_for_drain_max_s=900
+    local rc=$?; finish_run "$rdir" "$db" 0
+    record "$rid" "\"exp\":\"E5-intervention\",\"scenario\":\"lift-soft-pending-limit\",\"scale\":\"50gb\",\"rc\":$rc"
+  fi
+}

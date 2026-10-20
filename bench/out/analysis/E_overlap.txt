@@ -1,0 +1,29 @@
+== E2 L0 range overlap O(k) over time (k = number of L0 files whose range covers a key) ==
+-- e_kcomp.reopen
+ts,n_l0,l0_GiB,mean_ok,max_ok,p95_ok,frac_ok_ge_2
+1790006002,4,0.085,1.00,1,1,0.000
+1790006003,4,0.085,1.00,1,1,0.000
+-- e_kflush.reopen
+ts,n_l0,l0_GiB,mean_ok,max_ok,p95_ok,frac_ok_ge_2
+1790005933,2,0.050,1.00,1,1,0.000
+1790005933,2,0.050,1.00,1,1,0.000
+-- e_kflush_sync.reopen
+ts,n_l0,l0_GiB,mean_ok,max_ok,p95_ok,frac_ok_ge_2
+1790005968,2,0.015,1.00,1,1,0.000
+1790005968,2,0.015,1.00,1,1,0.000
+-- e_kseal.reopen
+ts,n_l0,l0_GiB,mean_ok,max_ok,p95_ok,frac_ok_ge_2
+1790005896,3,0.045,1.00,1,1,0.000
+1790005896,3,0.045,1.00,1,1,0.000
+-- e_ktime.reopen
+ts,n_l0,l0_GiB,mean_ok,max_ok,p95_ok,frac_ok_ge_2
+1790006032,1,0.010,1.00,1,1,0.000
+1790006033,1,0.010,1.00,1,1,0.000
+-- e_ktime_sync.reopen
+ts,n_l0,l0_GiB,mean_ok,max_ok,p95_ok,frac_ok_ge_2
+1790006072,1,0.009,1.00,1,1,0.000
+1790006072,1,0.009,1.00,1,1,0.000
+
+== E2/E3 analytic O(k) for the keys actually read (nearest layout snapshot) ==
+run,component,status,O(k)=capped20,count
+

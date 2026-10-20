@@ -1,0 +1,7 @@
+== E4 background parallelism ==
+run,n_jobs,peak_concurrent_jobs,mean_concurrent_jobs,sum_job_wall_s,wall_span_s,effective_parallelism,n_l0_jobs,l0_job_wall_s,n_deep_jobs,deep_job_wall_s,l0_deep_time_overlap_s,n_deep_while_l0_active,n_subcompaction_begin,n_subcompaction_end
+b_k16_narrow.read_online,15,5,1.244,3.544,3.072,1.154,15,3.822,0,0,0.000,0,16,10
+b_k4_narrow.read_online,9,4,1.272,2.439,1.939,1.257,9,2.467,0,0,0.000,0,12,10
+b_k4_wide.read_online,7,4,1.008,1.596,1.614,0.989,7,1.626,0,0,0.000,0,9,5
+b_k8_narrow.read_online,21,6,3.001,10.010,3.397,2.946,21,10.194,0,0,0.000,0,18,17
+

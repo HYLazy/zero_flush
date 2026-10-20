@@ -1,0 +1,8 @@
+== E9 space accounting ==
+run,mode,U_GiB,peak_sst_GiB,peak_sst_alloc_GiB,peak_wal_GiB,peak_db_total_GiB,final_live_sst_GiB,space_amp_peak_over_live,wal_over_sst_at_peak,peak_n_sst,rsst_peak_mib
+c_trig16,overwrite,12.398,65.703,66.000,0.809,65.795,51.939,1.271,0.012,1166.000,2338.219
+c_trig2,overwrite,12.398,66.388,66.923,0.730,66.581,51.836,1.291,0.011,1148.000,2353.848
+c_trig32,overwrite,12.398,70.062,70.554,0.773,70.330,52.109,1.354,0.011,1157.000,2285.875
+c_trig4,overwrite,12.398,71.205,71.390,0.888,71.299,52.168,1.368,0.012,1178.000,2373.707
+c_trig8,overwrite,12.398,73.859,74.311,0.730,73.955,52.283,1.421,0.010,1182.000,2400.227
+

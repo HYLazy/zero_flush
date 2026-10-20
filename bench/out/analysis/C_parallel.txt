@@ -1,0 +1,8 @@
+== E4 background parallelism ==
+run,n_jobs,peak_concurrent_jobs,mean_concurrent_jobs,sum_job_wall_s,wall_span_s,effective_parallelism,n_l0_jobs,l0_job_wall_s,n_deep_jobs,deep_job_wall_s,l0_deep_time_overlap_s,n_deep_while_l0_active,n_subcompaction_begin,n_subcompaction_end
+c_trig16,470,6,5.800,2385.057,426.996,5.586,470,2476.721,0,0,0.000,0,466,466
+c_trig2,518,6,5.790,2594.144,462.311,5.611,518,2676.966,0,0,0.000,0,518,518
+c_trig32,454,6,5.848,3080.004,543.333,5.669,454,3177.529,0,0,0.000,0,443,443
+c_trig4,459,6,5.818,2904.081,508.455,5.712,459,2958.216,0,0,0.000,0,454,454
+c_trig8,434,6,5.723,2280.503,406.879,5.605,434,2328.530,0,0,0.000,0,419,419
+

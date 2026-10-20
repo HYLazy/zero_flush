@@ -1,0 +1,6 @@
+== E8 L0->base batching: cost per unit of newly arrived L0 byte ==
+run,trigger,n_L0base_jobs,files_per_job_mean,in_L0_GiB,in_base_GiB,out_GiB,base_rewrite_per_L0_input,out_per_L0_input,records_in,records_out,records_replaced,version_drop_rate,cpu_s
+
+== E8b within-run batch effect (base bytes rewritten per L0 input byte, by batch size) ==
+run,batch_L0_files,n_jobs,base_per_L0,out_per_L0,version_drop
+

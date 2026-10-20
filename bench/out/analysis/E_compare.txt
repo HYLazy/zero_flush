@@ -1,0 +1,9 @@
+== run comparison ==
+run,mode,throughput_ops_s,duration_s,writes,reads,read_hit_rate,U_GiB,device_write_GiB,p50_us,p99_us,p999_us,max_us,e2e_p99_us
+e_kcomp.reopen,open,0.0000,0.6684,0.0000,0.0000,n/a,0.0000,0.0003,n/a,n/a,n/a,n/a,n/a
+e_kflush.reopen,open,0.0000,0.6529,0.0000,0.0000,n/a,0.0000,0.0002,n/a,n/a,n/a,n/a,n/a
+e_kflush_sync.reopen,open,0.0000,0.5143,0.0000,0.0000,n/a,0.0000,0.0000,n/a,n/a,n/a,n/a,n/a
+e_kseal.reopen,open,0.0000,0.5804,0.0000,0.0000,n/a,0.0000,0.0000,n/a,n/a,n/a,n/a,n/a
+e_ktime.reopen,open,0.0000,0.5679,0.0000,0.0000,n/a,0.0000,0.0001,n/a,n/a,n/a,n/a,n/a
+e_ktime_sync.reopen,open,0.0000,0.5510,0.0000,0.0000,n/a,0.0000,0.0000,n/a,n/a,n/a,n/a,n/a
+

@@ -1,0 +1,7 @@
+== E5 timeline summary ==
+run,mode,duration_s,throughput,stall_us_total,stall_thread_time_over_wall,stall_union_s,stall_union_frac_of_wall,stall_intervals,stall_us_per_write,stall_begin_events,n_delayed_events,n_stopped_events,l0_trigger,p50_l0_files,frac_ticks_l0_ge_trigger,frac_ticks_l0_ge_slowdown,peak_l0_files,peak_immutable,peak_pending_gib,peak_memtable_gib,run_p50_us,run_p99_us,run_p999_us,run_p9999_us,run_max_us
+g_hotspot,fill,672.443,71381.516,177406726.000,0.264,381.480,0.567,79,3.696,80.000,79,1,8,10.000,0.655,0.029,22.000,4.000,54.367,0.998,59.392,3801.088,6815.744,125829.120,7359767.304
+g_locality,fill,715.283,67106.265,199468910.000,0.279,435.312,0.609,84,4.156,86.000,85,1,8,8.000,0.511,0.000,18.000,4.000,66.164,0.999,57.344,6553.600,6815.744,125829.120,8061208.579
+g_monotonic,fill,180.021,266635.106,6141688.000,0.034,16.370,0.091,16,0.128,16.000,16,0,8,0.000,0.000,0.000,2.000,3.000,0.488,0.818,55.296,118.784,3538.944,6815.744,3954714.526
+g_zipf,fill,1157.411,41471.880,27435366.000,0.024,70.367,0.061,19,0.572,20.000,20,0,8,1.000,0.002,0.000,9.000,3.000,2.358,0.839,57.344,786.432,6553.600,56623.104,6463158.229
+

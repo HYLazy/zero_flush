@@ -1,0 +1,101 @@
+{
+ "schema_version": "1.0",
+ "scope": "active",
+ "generation": {
+  "v2": 9,
+  "v1": 24,
+  "note": "v2 = perf_v2/*（2026-09-25 起的 runbook 战役，直方图编码 lower_bound_v2，逐运行有效性门与工具 sha256）；v1 = 早期战役（其延迟百分位为 v1 编码占位值，引用前须按桶下界重标）。逐数据集的 generation 字段见 experiments.json，缺省表示 v1。"
+ },
+ "generated_by": "output/report/catalog/build_catalog.py",
+ "regenerate": "python3 output/report/catalog/build_catalog.py",
+ "purpose": "把仓库里的实验数据编成一份自描述的 JSON 目录：每个数据集带实验环境、实验目的、结果条目、结果评估与限制，并且每条事实都带 file:LINE 出处。",
+ "other_scope": {
+  "archived": "archive/catalog/index.json",
+  "note": "m3/m4/m5（ZeroFlush V0）已归档，不在主线目录与默认导出中。"
+ },
+ "files": {
+  "index.json": "本文件：总索引 + 校验报告",
+  "experiments.json": "注解层：每个数据集的 环境/目的/结果/评估/限制/出处/产物概览",
+  "environment.json": "共享环境参考：主机、设备、两套引擎与构建、仪器、测量注意",
+  "runs.json": "逐运行身份索引（bench 各 stage 的 manifest.jsonl + 报告 JSON 的 runs[]）",
+  "artifacts.json": "每个数据集的原始产物清单（格式、字节、是否入库）",
+  "documents.json": "报告/协议/设计/说明类文档索引",
+  "schema.json": "字段定义与填写约定"
+ },
+ "counts": {
+  "datasets": 33,
+  "result_rows": 227,
+  "citations": 702,
+  "machine_runs_bench": 1133,
+  "documents": 39,
+  "artifact_files_indexed": 70307
+ },
+ "by_milestone": {
+  "bench": 24,
+  "perf_v2": 9
+ },
+ "by_category": {
+  "benchmark": 6,
+  "capacity_sweep": 5,
+  "diagnosis": 6,
+  "isolation": 1,
+  "mechanism": 12,
+  "protocol": 3
+ },
+ "annotation_coverage": {
+  "entries_with_evaluation": 33,
+  "entries_with_caveats": 33,
+  "entries_with_nonempty_environment": 33,
+  "citation_checks": 702,
+  "citation_failures": 0
+ },
+ "validation": {
+  "schema_problems": [],
+  "citation_problems": [],
+  "note": "schema_problems 为空且 citation_problems 为空即表示：所有必填键齐全、所有出处都能解析到存在的文件与行、且该行非空。"
+ },
+ "annotation_gaps": [],
+ "dataset_ids": [
+  "bench/CAMPAIGN",
+  "bench/CAMPAIGN_BN",
+  "bench/E1",
+  "bench/E10",
+  "bench/E2",
+  "bench/E3",
+  "bench/E4",
+  "bench/E5",
+  "bench/E6",
+  "bench/E7",
+  "bench/E8",
+  "bench/E9",
+  "bench/G#arrival",
+  "bench/H#intervention",
+  "bench/I#comp_scan",
+  "bench/I#devceil",
+  "bench/I#devload",
+  "bench/I#flush_scan",
+  "bench/I#geom",
+  "bench/I#iso",
+  "bench/I#ledger",
+  "bench/I#noc",
+  "bench/I#profile",
+  "bench/I#zipf",
+  "perf_v2/BACKLOG",
+  "perf_v2/KSWEEP",
+  "perf_v2/LAYOUT_BLOOM",
+  "perf_v2/M1",
+  "perf_v2/M2",
+  "perf_v2/M3",
+  "perf_v2/M4",
+  "perf_v2/M5",
+  "perf_v2/P0"
+ ],
+ "reading_guide": {
+  "稳定标识": "id 形如 <milestone>/<dataset>，如 m3/cmp_1kb50、bench/I#noc；与文件名/目录名对应。",
+  "environment": "只写与 environment.json 基线不同处；未记录则 null（不猜）。",
+  "results": "每条含 metric/value/unit/condition/source；value 为报告原文写法，未做换算。",
+  "evaluation_zh": "报告自身的裁决（支持/否证/作废/已修正），不是本目录的再判断。",
+  "caveats_zh": "报告自述的限制、方差、作废与更正；跨数据集的方法学限制见 environment.measurement_caveats。",
+  "artifacts": "概览（目录/文件数/字节/格式分布）在 experiments.json；完整文件清单在 artifacts.json。derived_from=directory 表示产物来自该数据集的目录；=citations 表示该条目是某文档的章节，产物即其引用到的文件。"
+ }
+}

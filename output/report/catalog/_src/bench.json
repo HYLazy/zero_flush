@@ -1,0 +1,2551 @@
+[
+ {
+  "id": "bench/CAMPAIGN",
+  "title_zh": "L0 调查实验协议（原生 RocksDB 11.2）",
+  "engine": [
+   "native"
+  ],
+  "category": "protocol",
+  "purpose_zh": "固定 L0 调查实验的可复现协议：环境、负载、主配置 P、指标定义、运行矩阵，并明确列出这些运行不测量的内容。适用于 E1–E10 的 RocksDB 部分。",
+  "environment": {
+   "host": null,
+   "cpu": "Intel i9-10980XE, 18 cores / 36 threads, 1 socket, NUMA node0 = all CPUs, 3.0 GHz base",
+   "cores_threads": "18 cores / 36 threads",
+   "ram": "62 GiB total; available ≥ 50 GiB; swap 1 GiB",
+   "device": "WD_BLACK SN750 2 TB NVMe (single device, no RAID), /dev/nvme0n1p3",
+   "filesystem": "ext4, rw,relatime,commit=60, ext4 default allocation",
+   "engine_version": "11.2.0",
+   "binary_path": "source/rocksdb/build/librocksdb.so.11",
+   "workload": "16 B key (8 B space tag ‖ 8 B big-endian key id) + 1 KiB deterministic incompressible value; --dist=uniform --order=shuffle（固定种子置换，一趟写入恰好覆盖每个键一次）",
+   "rocksdb_options": "threads=16 value_size=1024 write_buffer_size=256M max_write_buffer_number=4 level0_file_num_compaction_trigger=8 slowdown=20 stop=36 target_file_size_base=64M max_background_jobs=8 max_subcompactions=8 level_compaction_dynamic_level_bytes=1 block cache=8 GiB bloom=10 bits compression=none stats_dump_period_sec=60",
+   "other": "Kernel 6.8.0-124-generic; driver bench/tools/l0bench（md5 记录于 manifest.jsonl）; db_bench 交叉校验 source/rocksdb/build/db_bench; 独立日志路径 bench/logparser.py"
+  },
+  "results": [
+   {
+    "metric": "50 GB 尺度键宇宙",
+    "value": "universe = 48,000,000 keys → 48.0 M × 1040 B = 49.9 GB logical",
+    "unit": "keys",
+    "condition": "§2 负载 / 50 GB 尺度",
+    "source": "bench/CAMPAIGN.md:40"
+   },
+   {
+    "metric": "100 GB 尺度键宇宙",
+    "value": "universe = 96,000,000 keys → 99.8 GB logical",
+    "unit": "keys",
+    "condition": "§2 负载 / 100 GB 尺度",
+    "source": "bench/CAMPAIGN.md:41"
+   },
+   {
+    "metric": "默认读混合",
+    "value": "recent:0.4,deep:0.4,neg:0.2",
+    "unit": "—",
+    "condition": "§2 读组件",
+    "source": "bench/CAMPAIGN.md:51"
+   },
+   {
+    "metric": "level0 trigger / slowdown / stop",
+    "value": "level0_file_num_compaction_trigger=8 slowdown=20 stop=36",
+    "unit": "—",
+    "condition": "主配置 P",
+    "source": "bench/CAMPAIGN.md:60"
+   },
+   {
+    "metric": "block cache / bloom",
+    "value": "block cache=8 GiB  bloom=10 bits",
+    "unit": "—",
+    "condition": "主配置 P",
+    "source": "bench/CAMPAIGN.md:62"
+   },
+   {
+    "metric": "运行矩阵各 stage 臂",
+    "value": "A: 50gb_fill_r1/50gb_read/base50_snapshot/50gb_overwrite/50gb_mix/100gb_fill_r5/100gb_read/100gb_overwrite + repeats 50gb_fill_r11/r12 + variants 50gb_fill_static/50gb_fill_lz4; B: b_k{1,4,8,16}_{wide,narrow}; C: c_trig{2,4,8,16,32}; D: d_e4_sc{1,4,8,16}/d_e4_job{2,4,8,16}/d_e6_r*/d_e5_*; E: e_kflush/e_kflush_sync/e_kcomp/e_ktime/e_ktime_sync",
+    "unit": "—",
+    "condition": "§5 运行矩阵",
+    "source": "bench/CAMPAIGN.md:129"
+   },
+   {
+    "metric": "运行方式",
+    "value": "16 线程闭环饱和（--arrival=closed）或开环定速（--arrival=open --rate=R）；每次运行 nice -n 5；Runs are sequential（同一 NVMe 不被多个测量运行共享）",
+    "unit": "—",
+    "condition": "§1 环境 / §2 负载",
+    "source": "bench/CAMPAIGN.md:28"
+   },
+   {
+    "metric": "默认 durability 语义",
+    "value": "--sync=0（async WAL，默认）用于吞吐工作；--sync=1 仅用于 E10 恢复臂，两者从不混在同一比较中",
+    "unit": "—",
+    "condition": "§2 负载",
+    "source": "bench/CAMPAIGN.md:52"
+   }
+  ],
+  "evaluation_zh": "本文件是协议而非结果：它规定“每一条数字是什么、来自哪里”，并声明所有运行只使用协议中定义过的量，未测量的量一律标 n/a。范围限定为 vanilla RocksDB only——无 ZeroFlush 代码、无补丁树，全部数字来自公共 RocksDB API 与 OS。一次运行的 config、二进制 md5、rc 记录在 bench/out/<stage>/manifest.jsonl。",
+  "caveats_zh": [
+   "已知限制 1：单一平台、单设备、单列族、单进程，不做跨设备通用性声称（bench/CAMPAIGN.md:151）",
+   "已知限制 2：无 NAND/设备内部写计量；无掉电故障注入（只有 SIGKILL）（bench/CAMPAIGN.md:152）",
+   "已知限制 3：Get 内部的按层 probe 计数在不打补丁的情况下不可观测，读成本的层级视图是解析式 O(k) 与每请求 PerfContext 聚合值的联合（bench/CAMPAIGN.md:153）",
+   "已知限制 4：块缓存驻留与否由 cache 大小控制而非丢弃 OS 页缓存，“cold”指 RocksDB 块缓存装不下近期层（bench/CAMPAIGN.md:154）",
+   "已知限制 5：后台 job 的调度等待（eligible→scheduled）公共 API 不暴露，改报 job 挂钟、并发度与逐 subcompaction 时间线（bench/CAMPAIGN.md:155）",
+   "已知限制 6：仪器开销——sampler、布局采样与 per-job listener 日志耗 CPU；账本覆盖 100% flush/compaction 字节，但吞吐数字包含仪器开销，用 --detail_rate=0 与采样运行对比来界定（bench/CAMPAIGN.md:156）",
+   "已知限制 7：rocksdb.estimate-table-readers-mem 在本构建中缺失（引用处标 n/a）（bench/CAMPAIGN.md:157）"
+  ],
+  "sources": [
+   "bench/CAMPAIGN.md:8",
+   "bench/CAMPAIGN.md:11",
+   "bench/CAMPAIGN.md:17",
+   "bench/CAMPAIGN.md:18",
+   "bench/CAMPAIGN.md:19",
+   "bench/CAMPAIGN.md:20",
+   "bench/CAMPAIGN.md:21",
+   "bench/CAMPAIGN.md:22",
+   "bench/CAMPAIGN.md:23",
+   "bench/CAMPAIGN.md:24",
+   "bench/CAMPAIGN.md:25",
+   "bench/CAMPAIGN.md:28",
+   "bench/CAMPAIGN.md:35",
+   "bench/CAMPAIGN.md:40",
+   "bench/CAMPAIGN.md:41",
+   "bench/CAMPAIGN.md:51",
+   "bench/CAMPAIGN.md:52",
+   "bench/CAMPAIGN.md:59",
+   "bench/CAMPAIGN.md:60",
+   "bench/CAMPAIGN.md:62",
+   "bench/CAMPAIGN.md:87",
+   "bench/CAMPAIGN.md:129",
+   "bench/CAMPAIGN.md:151",
+   "bench/CAMPAIGN.md:152",
+   "bench/CAMPAIGN.md:153",
+   "bench/CAMPAIGN.md:154",
+   "bench/CAMPAIGN.md:155",
+   "bench/CAMPAIGN.md:156",
+   "bench/CAMPAIGN.md:157"
+  ]
+ },
+ {
+  "id": "bench/CAMPAIGN_BN",
+  "title_zh": "瓶颈判定实验协议（bn_*，继承 CAMPAIGN.md）",
+  "engine": [
+   "native"
+  ],
+  "category": "protocol",
+  "purpose_zh": "固定瓶颈判定实验（bn_*）的协议：只记录相对 bench/CAMPAIGN.md 的差异与新增——驱动新增选项、干预到达过程、容量臂表、决定性干预臂、敏感性臂、隔离实验与新增限制。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "--mode=overwrite --dist=uniform --order=shuffle --num_ops=12,800,000（固定种子置换的前 12.8 M 项 = 12.40 GiB 应用确认字节）; 前台 16 线程闭环饱和写 sync=0 compression=none; 初始布局 bench/base/base50（mkreplica.sh 硬链 .sst 的字节级同布局副本）",
+   "rocksdb_options": "继承主配置 P（bench/CAMPAIGN.md §3）；驱动新增 --max_background_flushes=N --max_background_compactions=N（默认 -1，任一显式 ≥1 即切换到 HIGH/LOW 独立池分支）",
+   "other": "环境、负载、主配置 P、指标定义全部继承 bench/CAMPAIGN.md：同一台机器、同一 RocksDB 构建产物、同一 l0bench 驱动、同一 16 B 键 / 1 KiB 不可压缩值、同一 50 GB = 48 M 键宇宙；采样列新增 dev_io_ticks_ms 与 flush_time_*/comp_time_*；devbench 源码 bench/tools/devbench.c（编译产物 benchmark/tools/devbench，不随仓库入库）"
+  },
+  "results": [
+   {
+    "metric": "容量干预臂表",
+    "value": "default(F=2/C=6/SC=8)、x_f2c6(2/6/8)、f1(1/6/8)、f4(4/6/8)、c2(2/2/8)、c12(2/12/8)、f1c12(1/12/8)、f4c2(4/2/8)、f4c12s16(4/12/16)、f1c2(1/2/8)、s1(2/6/1，3 次)、s16(2/6/16，3 次)",
+    "unit": "—",
+    "condition": "§3 臂表（容量干预）",
+    "source": "bench/CAMPAIGN_BN.md:29"
+   },
+   {
+    "metric": "每臂重复次数与运行顺序",
+    "value": "每臂 5 次独立重复（次要臂 3 次），rep-major 轮转交错；运行结束等自然排空 --wait_for_drain=1 上限 900 s，不强制 CompactRange",
+    "unit": "—",
+    "condition": "§2 工作负载",
+    "source": "bench/CAMPAIGN_BN.md:24"
+   },
+   {
+    "metric": "决定性干预臂",
+    "value": "noc（disable_auto_compactions=1、level0_trigger/slowdown/stop=100000、max_write_buffer_number=8，5 次）；deep nl5/nl4（num_levels=5/4，3+3）；devload（tools/devbench FILE 8 16 0，O_DIRECT 4 KiB 随机写，16 线程，3 次）",
+    "unit": "—",
+    "condition": "§3b 决定性干预臂",
+    "source": "bench/CAMPAIGN_BN.md:52"
+   },
+   {
+    "metric": "回放噪声（同配置）",
+    "value": "同配置 1.86×",
+    "unit": "×",
+    "condition": "§3b 判定依据（§BN2）",
+    "source": "bench/CAMPAIGN_BN.md:49"
+   },
+   {
+    "metric": "敏感性臂 zipf",
+    "value": "--dist=zipf --zipf_theta=0.99、同轨迹长度（12.8 M 次写）、默认容量、5 次重复",
+    "unit": "—",
+    "condition": "§3c 敏感性臂",
+    "source": "bench/CAMPAIGN_BN.md:62"
+   },
+   {
+    "metric": "实际执行臂清单（最终）",
+    "value": "基准 bn_base_fill/bn_base_snapshot 1+1; 容量扫描 54 次; noc 消融 5; zipf 5; 深层几何 mc8g/mult20 6; 设备争用 devload/devload2 3+3; 隔离 9; 设备探针 3×30 s",
+    "unit": "runs",
+    "condition": "§3d 实际执行的臂清单",
+    "source": "bench/CAMPAIGN_BN.md:68"
+   },
+   {
+    "metric": "隔离实验臂",
+    "value": "iso_flush: 单写线程、disable_auto_compactions=1、trigger=1000、write_buffer_size ∈ {64M,256M,1G,8G}; iso_l0base: K=8 narrow/wide × subcomp{1,8}、K=16 wide × subcomp{1,8}",
+    "unit": "—",
+    "condition": "§4 隔离实验",
+    "source": "bench/CAMPAIGN_BN.md:92"
+   }
+  ],
+  "evaluation_zh": "本文件为协议：判定按计划 §四.1/§四.2/§四.3 的支持条件逐条对照，判据为“队列先在哪里增长、停顿类别、吞吐随干预的变化、平台期与瓶颈转移”。因回放噪声实测 1.86×，±20% 量级的容量旋钮效应无法在有限重复下分辨，故另设期望效应为数量级的三条决定性干预（noc / deep / devload）用于因果判定。",
+  "caveats_zh": [
+   "所有 compaction 共用 LOW 池，“L0→base 专用容量”不可在线分离，只能以显式 F×C 矩阵 + 固定输入重放（iso_l0base）回应弱因果标注要求（bench/CAMPAIGN_BN.md:110）",
+   "每臂运行约 8–40 分钟、闭环饱和；到达率 λ 不是外生固定的（吞吐是响应变量），队列判据用“阶段池利用率≈100% + 队列不排空”表述（bench/CAMPAIGN_BN.md:112）",
+   "设备 busy% 依赖 io_ticks，仅新运行有；旧 A 阶段运行无此列（标 n/a）（bench/CAMPAIGN_BN.md:114）",
+   "devload（v1，3 次）作废：devbench 当时只在退出时打印速率且被 harness 提前 kill，注入量无法核验；该记录保留在 manifest 中但不在报告中引用（bench/CAMPAIGN_BN.md:80）",
+   "被引擎拒绝的干预：num_levels=5/4 施加于已存在的 7 层库被拒绝（Invalid argument: db has more levels than options.num_levels），层数只能在建库时决定（bench/CAMPAIGN_BN.md:82）",
+   "一次执行事故：bn_extra.sh 在其一次调用执行期间被编辑，导致该调用语法错退出（dry 阶段之后、zipf 之前）；另有一次机器重启中断，已完成的运行由 manifest 的 done_rc 判据自动跳过续跑（bench/CAMPAIGN_BN.md:85）",
+   "zipf 到达改变分母含义（内存表在 flush 时即消除大量旧版本），分析时必须同时报告 flush 后条目数与 U（bench/CAMPAIGN_BN.md:63），继承 CAMPAIGN.md §6 全部限制"
+  ],
+  "sources": [
+   "bench/CAMPAIGN_BN.md:4",
+   "bench/CAMPAIGN_BN.md:9",
+   "bench/CAMPAIGN_BN.md:15",
+   "bench/CAMPAIGN_BN.md:21",
+   "bench/CAMPAIGN_BN.md:23",
+   "bench/CAMPAIGN_BN.md:24",
+   "bench/CAMPAIGN_BN.md:29",
+   "bench/CAMPAIGN_BN.md:44",
+   "bench/CAMPAIGN_BN.md:49",
+   "bench/CAMPAIGN_BN.md:52",
+   "bench/CAMPAIGN_BN.md:54",
+   "bench/CAMPAIGN_BN.md:58",
+   "bench/CAMPAIGN_BN.md:62",
+   "bench/CAMPAIGN_BN.md:63",
+   "bench/CAMPAIGN_BN.md:68",
+   "bench/CAMPAIGN_BN.md:74",
+   "bench/CAMPAIGN_BN.md:80",
+   "bench/CAMPAIGN_BN.md:82",
+   "bench/CAMPAIGN_BN.md:85",
+   "bench/CAMPAIGN_BN.md:92",
+   "bench/CAMPAIGN_BN.md:98",
+   "bench/CAMPAIGN_BN.md:110",
+   "bench/CAMPAIGN_BN.md:112",
+   "bench/CAMPAIGN_BN.md:114"
+  ]
+ },
+ {
+  "id": "bench/E1",
+  "title_zh": "E1 独立 L0 物化的写流量分来源账本",
+  "engine": [
+   "native"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "独立 L0 物化是否有可观成本？用“来源×层级”互斥归因的写流量账本，把 flush、intra-L0、L0→base 与深层重写分开记账。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "18 核",
+   "ram": "62 GiB 内存",
+   "device": "单 NVMe",
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "16 B 键 / 1 KiB 值、固定的 48 M（50 GB）与 96 M（100 GB）键空间；模式 fill / overwrite；值不可压缩（compression=none，字节数可直接解读）",
+   "rocksdb_options": "主配置 P：threads=16, write_buffer_size=256M, max_write_buffer_number=4, level0_trigger=8, slowdown=20, stop=36, target_file_size_base=64M, max_background_jobs=8, max_subcompactions=8, dynamic_level_bytes=1, cache=8 GiB, bloom=10 bit, compression=none, stats_dump_period_sec=60",
+   "other": "base level 取运行中实际的输出层（本配置下实测输出层为 L3–L6，不是 L1）；50 GB 填库的 781 个 L0→base job 输出到 L6 436 个、L5 293 个、L4 50 个、L3 2 个"
+  },
+  "results": [
+   {
+    "metric": "SST_WA（50 GB 填库三次独立重复）",
+    "value": "SST_WA = 5.511 / 5.931 / 5.928（离散度 7.6%）",
+    "unit": "×",
+    "condition": "50gb_fill_r1 / r11 / r12",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:83"
+   },
+   {
+    "metric": "SST_WA / device_WA / W_flush / W_intraL0 / W_L0base",
+    "value": "SST_WA 5.511；device_WA 5.525；W_wal 1.005；W_flush 1.012；W_intraL0 0.605；W_L0base 3.894；W_deep 0.000；L0→base 份额 70.7%；峰值 L0 文件 22",
+    "unit": "×",
+    "condition": "50gb_fill_r1（fill，U = 46.49 GiB）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:96"
+   },
+   {
+    "metric": "稳定覆盖写 SST_WA 与 L0→base 份额",
+    "value": "50gb_overwrite SST_WA 8.446，W_L0base 7.337，L0→base 份额 86.9%，峰值 L0 文件 15",
+    "unit": "×",
+    "condition": "50gb_overwrite（overwrite，U = 46.49 GiB）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:100"
+   },
+   {
+    "metric": "100 GB 填库 SST_WA 与 L0→base 份额",
+    "value": "SST_WA 7.837，device_WA 7.865，W_L0base 6.562，L0→base 份额 83.7%",
+    "unit": "×",
+    "condition": "100gb_fill_r5（fill，U = 92.98 GiB）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:101"
+   },
+   {
+    "metric": "100 GB 覆盖写 SST_WA 与 L0→base 份额",
+    "value": "SST_WA 11.096，device_WA 11.147，W_L0base 10.075，L0→base 份额 90.8%，W_intraL0 0.011",
+    "unit": "×",
+    "condition": "100gb_overwrite（overwrite，U = 92.98 GiB）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:102"
+   },
+   {
+    "metric": "每条新到 L0 字节引发的存量重写（base 重写/L0 输入）",
+    "value": "50gb_fill_r1 0.561；50gb_fill_r11 0.722；50gb_fill_r12 0.656；50gb_overwrite 1.129；100gb_fill_r5 1.014；100gb_overwrite 1.754",
+    "unit": "—",
+    "condition": "逐 job 汇总（base 重写/L0 输入）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:112"
+   },
+   {
+    "metric": "判定：flush 与 L0→base 各占 SST 写放大的比例",
+    "value": "flush 本身只占 SST 写放大的 9–18%，而 L0 触发的 L0→base 重写占 71–91%",
+    "unit": "%",
+    "condition": "H1 支持条件",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:119"
+   },
+   {
+    "metric": "三源交叉验证（50 GB 填库）",
+    "value": "flush 47.052 GiB（listener）对 47.052 GiB（statistics），相对差 0.0000；compaction 209.167 GiB 对 209.167 GiB，相对差 0.0000",
+    "unit": "GiB",
+    "condition": "50gb_fill（三重独立来源）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:78"
+   },
+   {
+    "metric": "trivial move 计数与字节",
+    "value": "50 GB 填库 152 次（28.0 GiB 被“移动”而非重写）；100 GB 填库 373 次（28.5 GiB）",
+    "unit": "次 / GiB",
+    "condition": "50gb_fill / 100gb_fill_r5",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:60"
+   }
+  ],
+  "evaluation_zh": "判定（H1 支持条件）：成立且量级很大——flush 本身只占 SST 写放大的 9–18%，而 L0 触发的 L0→base 重写占 71–91%；收缩条件不成立（成本既不小也不是非稀缺资源）。L0 确实带来可观的物化成本，但其大头不是 flush，而是 L0 触发的目标层重写。边界：这些数字是“L0 存在时的实际账本”，不是“去掉 L0 可节省的字节”，净收益需 E11 原型才能量化。",
+  "caveats_zh": [
+   "边界：账本是“L0 存在时的实际账本”，不是“去掉 L0 可节省的字节”；消掉 L0 后同样的键会以别的形式产生至少部分重写，可获得的净收益需要 E11 原型量化（本报告未做）（bench/L0_INVESTIGATION_REPORT.md:122）",
+   "勘误（2026-09-23）：逐 job 层级归因受 RocksDB listener 槽位错标影响，OnCompactionCompleted 的 input_file_infos[].level 是输入槽位序号而非 LSM 层级；“每一个压实 job 的输入都含 L0 文件（807/807）、不存在深层压实”是伪象，重映射后稳定覆盖写中 98.4% 的 job 是深层级联，L0→base 合并仅 31/2136（bench/L0_INVESTIGATION_REPORT.md:3）",
+   "受勘误影响的表述：“L0→base 占 71–91%”应读作“compaction 总输出占 71–91%，其中深层级联占大部分”（bench/L0_INVESTIGATION_REPORT.md:8）",
+   "W_deep = 0 的结构原因：本配置下每一个压实 job 的输入都含 L0 文件——填库 807/807、覆盖写 2136/2136（该归因已被勘误修正）（bench/L0_INVESTIGATION_REPORT.md:104）",
+   "重复与方差：50 GB 填库 3 次重复 SST_WA 5.511/5.931/5.928（离散度 7.6%）、吞吐 73.6/50.3/48.7 K ops/s（离散度 51%）；本报告只把超过该离散度的差异称为效应（bench/L0_INVESTIGATION_REPORT.md:83）",
+   "边界声明：单机单设备、单 CF、压缩关闭；本机预编译 RocksDB 未链接任何压缩编解码器（WITH_LZ4/SNAPPY/ZLIB/ZSTD=OFF），压缩配置下结论未覆盖；设备内部（NAND）写入量无法获得（bench/L0_INVESTIGATION_REPORT.md:63）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:3",
+   "bench/L0_INVESTIGATION_REPORT.md:8",
+   "bench/L0_INVESTIGATION_REPORT.md:11",
+   "bench/L0_INVESTIGATION_REPORT.md:26",
+   "bench/L0_INVESTIGATION_REPORT.md:34",
+   "bench/L0_INVESTIGATION_REPORT.md:60",
+   "bench/L0_INVESTIGATION_REPORT.md:63",
+   "bench/L0_INVESTIGATION_REPORT.md:74",
+   "bench/L0_INVESTIGATION_REPORT.md:78",
+   "bench/L0_INVESTIGATION_REPORT.md:83",
+   "bench/L0_INVESTIGATION_REPORT.md:91",
+   "bench/L0_INVESTIGATION_REPORT.md:96",
+   "bench/L0_INVESTIGATION_REPORT.md:100",
+   "bench/L0_INVESTIGATION_REPORT.md:101",
+   "bench/L0_INVESTIGATION_REPORT.md:102",
+   "bench/L0_INVESTIGATION_REPORT.md:104",
+   "bench/L0_INVESTIGATION_REPORT.md:112",
+   "bench/L0_INVESTIGATION_REPORT.md:117",
+   "bench/L0_INVESTIGATION_REPORT.md:119",
+   "bench/L0_INVESTIGATION_REPORT.md:122",
+   "bench/L0_INVESTIGATION_REPORT.md:525"
+  ]
+ },
+ {
+  "id": "bench/E2",
+  "title_zh": "E2 到达次序与 L0 文件键区间宽度",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "到达组批是否产生宽范围重叠并扩大合并工作？用同一键多重集合、同一数据量、同一配置、只改变按键到达次序的匹配对照回答。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "18 核",
+   "ram": "62 GiB 内存",
+   "device": "单 NVMe",
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "48,000,000 个键各插入一次、值相同、压缩关闭；到达次序对照：g_monotonic（按 key 升序，每个 L0 文件键区间互不相交）与 50gb_fill_r1/_r11/_r12（全键空间随机次序，每个 L0 文件键区间覆盖整个库）",
+   "rocksdb_options": "主配置 P（与 50 GB 填库同配置）",
+   "other": "O(k) 为解析式重建：shuffle 到达下任何键的候选 L0 文件数等于当时的 L0 文件数"
+  },
+  "results": [
+   {
+    "metric": "到达次序对 SST 写放大的效应（最强因果证据）",
+    "value": "仅改变按键到达的次序，SST 写放大从 5.51–5.93× 降到 1.008×",
+    "unit": "×",
+    "condition": "g_monotonic（升序） vs 50gb_fill_r1/_r11/_r12（全键空间随机）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:235"
+   },
+   {
+    "metric": "g_monotonic 账本与吞吐",
+    "value": "SST_WA 1.008；W_intraL0 0.000；W_L0base 0.000；base 重写/L0 输入 0.000；吞吐 266,635 ops/s；挂钟 180 s；峰值 L0 文件 2；并发文件区间重叠 0% (0/0 对)",
+    "unit": "× / ops/s",
+    "condition": "g_monotonic（升序到达，48.0 M 键）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:242"
+   },
+   {
+    "metric": "g_monotonic 零重写的三条独立证据",
+    "value": "(a) LOG 中 trivial_move 事件 260 条、compaction_finished 事件 0 条；(b) listener 记录 260 个 job 中没有一个创建过 table file；(c) 三源交叉账本 W_L0base = 0.000，总 SST 字节 = flush 字节 = 46.88 GiB，设备写 46.883 GiB（device_WA 1.039）",
+    "unit": "—",
+    "condition": "g_monotonic",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:248"
+   },
+   {
+    "metric": "O(k) 候选文件数（解析式）",
+    "value": "50 GB 填库实测：L0=5 文件时 mean O(k)=5.00，L0=2 时 2.00；升序到达下 O(k)=1",
+    "unit": "文件",
+    "condition": "shuffle 到达 vs 升序到达",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:256"
+   },
+   {
+    "metric": "写放大差异的归因",
+    "value": "5.9 倍的写放大差异全部来自 L0 文件的键区间宽度",
+    "unit": "×",
+    "condition": "§0 摘要",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:33"
+   },
+   {
+    "metric": "base 重写/L0 输入（同键集不同到达）",
+    "value": "g_monotonic 0.000；全键空间随机（50gb_fill_r1/_r11/_r12）0.56–0.72",
+    "unit": "—",
+    "condition": "匹配对照",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:244"
+   }
+  ],
+  "evaluation_zh": "判定：这是最强的一条因果证据——同一键多重集合、同一数据量、同一配置，仅改变按键到达的次序，SST 写放大从 5.51–5.93× 降到 1.008×（效应 5.9×，远超重复间离散度 7.6%）。决定 L0 成本的是“键怎么被分到 L0 文件里”，而不是 L0 本身是否存在。§12 证据闭环表把该计划陈述判为“成立”。",
+  "caveats_zh": [
+   "非匹配对照的标注：locality/zipf/hotspot 三个臂在多集合上与升序/随机臂不可比——逐操作复算表明 locality 有 9.5% 的重复键、只覆盖 90.5% 的键空间；zipf/hotspot 的键覆盖远小于 1（bench/L0_INVESTIGATION_REPORT.md:266）",
+   "只有 monotonic 与 shuffle 两个臂是严格匹配的对照，§4.1 的 5.9× 差异结论只建立在这两个臂上（bench/L0_INVESTIGATION_REPORT.md:269）",
+   "shuffle 到达下每个 L0 文件的键区间覆盖整个键空间，任何键的候选 L0 文件数等于当时的 L0 文件数（O(k) 为解析式重建）（bench/L0_INVESTIGATION_REPORT.md:255）",
+   "重复离散度：50 GB 填库 SST_WA 5.511/5.931/5.928（7.6%）、吞吐 73.6/50.3/48.7 K ops/s（51%）（bench/L0_INVESTIGATION_REPORT.md:84）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:29",
+   "bench/L0_INVESTIGATION_REPORT.md:33",
+   "bench/L0_INVESTIGATION_REPORT.md:235",
+   "bench/L0_INVESTIGATION_REPORT.md:237",
+   "bench/L0_INVESTIGATION_REPORT.md:242",
+   "bench/L0_INVESTIGATION_REPORT.md:244",
+   "bench/L0_INVESTIGATION_REPORT.md:248",
+   "bench/L0_INVESTIGATION_REPORT.md:255",
+   "bench/L0_INVESTIGATION_REPORT.md:256",
+   "bench/L0_INVESTIGATION_REPORT.md:266",
+   "bench/L0_INVESTIGATION_REPORT.md:269",
+   "bench/L0_INVESTIGATION_REPORT.md:526"
+  ]
+ },
+ {
+  "id": "bench/G#arrival",
+  "title_zh": "stage G 到达次序对照臂（monotonic / locality / zipf）",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "用到达形状控制臂（升序、1 M 键窗口内随机、zipf θ=0.99 偏斜）检验“键区间几何”对写放大与重叠的作用，并给出各臂的账本与吞吐。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "stage G 臂：g_monotonic（升序）、g_locality（1 M 键窗口内随机）、g_zipf（θ=0.99 偏斜）、g_hotspot；均为 48 M 次写量级、压缩关闭",
+   "rocksdb_options": "主配置 P",
+   "other": "到达形状控制对照；仅 monotonic 与 shuffle 为严格匹配对照"
+  },
+  "results": [
+   {
+    "metric": "g_locality 账本",
+    "value": "不同键数 43.4 M（非匹配）；SST_WA 3.484；W_intraL0 0.373；W_L0base 2.102；base 重写/L0 输入 0.384；吞吐 67,106 ops/s；挂钟 715 s；峰值 L0 文件 18；并发文件区间重叠 16.7% (233/1394)",
+    "unit": "× / ops/s",
+    "condition": "g_locality（1 M 键窗口内随机）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:243"
+   },
+   {
+    "metric": "全键空间随机到达臂",
+    "value": "不同键数 48.0 M；SST_WA 5.511 / 5.931 / 5.928；W_intraL0 0.44–0.61；W_L0base 3.89–4.48；base 重写/L0 输入 0.56–0.72；吞吐 48.7–73.6 K ops/s；挂钟 653–986 s；峰值 L0 文件 21–22；区间重叠 100%",
+    "unit": "× / ops/s",
+    "condition": "50gb_fill_r1/_r11/_r12（全键空间随机）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:244"
+   },
+   {
+    "metric": "g_zipf 账本",
+    "value": "不同键数 ≤ 1 M（非匹配）；flush 后 SST 条目 15.52 M；flush 字节/U 0.327；SST_WA 0.959；W_intraL0 0.000；W_L0base 0.631；base 重写/L0 输入 1.023；峰值 L0 文件 9",
+    "unit": "×",
+    "condition": "g_zipf（θ=0.99 偏斜到达）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:245"
+   },
+   {
+    "metric": "g_zipf 的 flush 后条目数",
+    "value": "48 M 次写只产出 15.52 M 条 SST 条目（0.323×），即 68% 的版本在 flush 阶段就被消除；相应 version_drop_rate 在压实阶段仍有 32.2%",
+    "unit": "条目 / %",
+    "condition": "g_zipf 口径说明",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:261"
+   },
+   {
+    "metric": "g_monotonic 对照臂（同一实验组的升序端）",
+    "value": "SST_WA 1.008、W_intraL0 0.000、W_L0base 0.000、吞吐 266,635 ops/s、峰值 L0 文件 2、重叠 0%",
+    "unit": "× / ops/s",
+    "condition": "g_monotonic（升序）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:242"
+   }
+  ],
+  "evaluation_zh": "判定：5.9× 的写放大差异只建立在 monotonic 与 shuffle 两个严格匹配臂上；locality/zipf/hotspot 因多集合不匹配被标为“非匹配”，不可与升序/随机臂比较。偏斜到达会改变分母的含义——W_flush/U = 0.327 不是“省了 flush”，而是内存表在 flush 时丢弃了同一批旧版本。",
+  "caveats_zh": [
+   "偏斜到达会改变分母的含义：g_zipf 的 W_flush/U = 0.327 不是“省了 flush”，而是内存表在 flush 时把旧版本丢弃了；计量上必须区分“用户确认字节 U”与“真正落到 SST 的字节”，本报告的分母始终是 U（bench/L0_INVESTIGATION_REPORT.md:261）",
+   "非匹配对照的标注：locality 有 9.5% 的重复键、只覆盖 90.5% 的键空间；zipf/hotspot 的键覆盖远小于 1；只有 monotonic 与 shuffle 两个臂是严格匹配的对照（bench/L0_INVESTIGATION_REPORT.md:266）",
+   "g_zipf 的吞吐在报告中记作“见 §4.3”而未在此表给出绝对值（bench/L0_INVESTIGATION_REPORT.md:245）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:11",
+   "bench/L0_INVESTIGATION_REPORT.md:32",
+   "bench/L0_INVESTIGATION_REPORT.md:242",
+   "bench/L0_INVESTIGATION_REPORT.md:243",
+   "bench/L0_INVESTIGATION_REPORT.md:244",
+   "bench/L0_INVESTIGATION_REPORT.md:245",
+   "bench/L0_INVESTIGATION_REPORT.md:256",
+   "bench/L0_INVESTIGATION_REPORT.md:261",
+   "bench/L0_INVESTIGATION_REPORT.md:266",
+   "bench/L0_INVESTIGATION_REPORT.md:269"
+  ]
+ },
+ {
+  "id": "bench/E3",
+  "title_zh": "E3 受控 L0 积压对点读成本的影响",
+  "engine": [
+   "native"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "L0 积压如何影响点读？用 8 个受控臂（K∈{1,4,8,16} 个近期层文件 × narrow/wide 区间几何 × hot/cold/online 三种读相）分离“文件数”“区间重叠”“在线压实”三种效应。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "读集固定 recent 40% / deep 40% / neg 20%；8 亿次点读的 0.2%（2 M 次/相）采样；三种读相：8 GiB 块缓存（hot）、64 MiB 块缓存（cold）、重开自动压实的在线读（online）；scan_len=10 的扫描基线",
+   "rocksdb_options": "主配置 P；cold 相把块缓存改为 64 MiB",
+   "other": "8 个臂都从同一个 50 GB 初始布局的硬链接副本出发；构造 K 个近期层文件，每文件 131.5 MiB，总近期数据 0.127/0.508/1.016/2.031 GiB（K=1/4/8/16）；narrow=文件只覆盖一段连续键区间，wide=每个文件覆盖整个近期层"
+  },
+  "results": [
+   {
+    "metric": "每请求数据块读（K=1 narrow，hot）",
+    "value": "数据块读/次 0.451；读字节/次 1,884；Bloom 命中 1.008；Bloom 未命中 0.781；p50 10.8 µs；p99 117.0 µs；p99.9 209.0 µs；吞吐 998,766 ops/s",
+    "unit": "次/请求",
+    "condition": "b_k1_narrow（K=1，narrow，8 GiB 缓存）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:340"
+   },
+   {
+    "metric": "每请求数据块读（K=16 narrow，hot）",
+    "value": "数据块读/次 0.683；读字节/次 2,852；Bloom 未命中 0.767；p50 17.2 µs；p99 49.4 µs；p99.9 329.5 µs；吞吐 999,260 ops/s",
+    "unit": "次/请求",
+    "condition": "b_k16_narrow（K=16，narrow，8 GiB 缓存）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:343"
+   },
+   {
+    "metric": "文件数 1→16 的读成本增幅",
+    "value": "每请求数据块读从 0.451 升到 0.683（+51%）、读字节从 1.88 KB 升到 2.85 KB（+51%）、p50 从 10.8 µs 升到 17.2 µs（+59%）；吞吐不变（~1.0 M ops/s）",
+    "unit": "%",
+    "condition": "K=1→16（narrow，8 GiB 缓存）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:354"
+   },
+   {
+    "metric": "wide vs narrow 的 Bloom 未命中数（K=16）",
+    "value": "Bloom 未命中 0.767 → 4.440（5.8×），而数据块读几乎不变（0.683 → 0.687）",
+    "unit": "次/请求",
+    "condition": "b_k16_narrow vs b_k16_wide（同 K、同字节、同条目）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:356"
+   },
+   {
+    "metric": "在线压实相的尾延迟",
+    "value": "K=8/16 在线相 p99.9 达 25–29 ms（b_k16_narrow online p99.9 28,631 µs；b_k16_wide online 2,838 µs），冻结相仅 0.07–0.8 ms；吞吐在 K=8/16 时掉到 ~500 K ops/s",
+    "unit": "µs",
+    "condition": "online 相 vs frozen 相（K=8/16）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:362"
+   },
+   {
+    "metric": "cold 相（64 MiB 块缓存）",
+    "value": "b_k16_wide 数据块读/次 1.033、读字节/次 4,312、p99 34.7 µs；b_k8_narrow 0.983、4,106、p99 34.7 µs",
+    "unit": "次/请求",
+    "condition": "b_k16_wide / b_k8_narrow（64 MiB 块缓存）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:347"
+   },
+   {
+    "metric": "无 L0 积压的基线点读",
+    "value": "50gb_read 吞吐 533,248 ops/s、命中率 80.0%、每请求数据块读 0.386、读字节 1,610、p50 23.0 µs、p99 244 µs、p99.9 301 µs；50gb_read_cold 533,246 ops/s、p99 254 µs、p99.9 3,146 µs",
+    "unit": "ops/s / µs",
+    "condition": "50gb_read（8 GiB 缓存）与 50gb_read_cold（64 MiB 缓存）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:373"
+   },
+   {
+    "metric": "库规模对点读 p50 的影响",
+    "value": "50 GB 与 100 GB 点读 p50 分别为 23.0 µs 与 53.2 µs（库大一倍，点读成本 ≈2.3×）",
+    "unit": "µs",
+    "condition": "50gb_read vs 100gb_read",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:378"
+   },
+   {
+    "metric": "扫描基线",
+    "value": "50gb_scan（scan_len=10）200,000 次 scan、吞吐 24,992 ops/s、命中率 100%、p50 1,016 µs、p99 3,146 µs、p99.9 16,376 µs",
+    "unit": "ops/s / µs",
+    "condition": "50gb_scan",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:376"
+   },
+   {
+    "metric": "O(k) 的机制解释",
+    "value": "wide 臂每个近期键有 17 个候选 L0 文件（16 个构造文件 + 基线自带的 1 个 L0 文件），narrow 臂只有 2 个；引擎按 seqno 从新到旧探测、命中即停，故实测 Bloom 未命中数远小于 17（≈4.4）",
+    "unit": "文件",
+    "condition": "K=16 wide vs narrow",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:360"
+   }
+  ],
+  "evaluation_zh": "判定（H3）：支持条件成立，但性质是“元数据/探测成本”，不是“磁盘读放大”——文件数 1→16 使每请求数据块读 +51%、p50 +59%，而吞吐不变。区间重叠（wide vs narrow）主要体现为 Bloom 未命中数（0.767→4.440，5.8×）而数据块读几乎不变，这正是计划里写的收缩条件，因此不能说成“L0 积压导致磁盘读放大”。尾延迟对在线压实最敏感：L0 积压本身对点读的直接冲击是温和的（p50 +59%），真正昂贵的是与后台压实同时发生时被拉长的尾延迟。",
+  "caveats_zh": [
+   "cold 臂（64 MiB 块缓存）每请求数据块读更高、读字节更多，但延迟反而更低（p99 34.7 µs）：本机 OS 页缓存（30 GiB）仍承接了大部分数据，64 MiB 只是让 RocksDB 块缓存失效；这一相测量的是“块缓存很小”而非“设备冷读”（bench/L0_INVESTIGATION_REPORT.md:365）",
+   "O(k) 是解析式重建（来自布局采样），不是测得的按层 probe 计数；每层 probe 计数不修改 RocksDB 无法获得（bench/L0_INVESTIGATION_REPORT.md:360）",
+   "受控构造的字节量按设计成比例：每文件 131.5 MiB、总近期数据 0.127/0.508/1.016/2.031 GiB（K=1/4/8/16），只变区间宽度与文件数（bench/L0_INVESTIGATION_REPORT.md:332）",
+   "100 GB 冷缓存读未执行：其初始布局副本在编排顺序调整后已被删除，未重建（重建需约 50 min）；50 GB 冷缓存读已执行（bench/L0_INVESTIGATION_REPORT.md:556）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:11",
+   "bench/L0_INVESTIGATION_REPORT.md:54",
+   "bench/L0_INVESTIGATION_REPORT.md:154",
+   "bench/L0_INVESTIGATION_REPORT.md:330",
+   "bench/L0_INVESTIGATION_REPORT.md:332",
+   "bench/L0_INVESTIGATION_REPORT.md:334",
+   "bench/L0_INVESTIGATION_REPORT.md:340",
+   "bench/L0_INVESTIGATION_REPORT.md:343",
+   "bench/L0_INVESTIGATION_REPORT.md:347",
+   "bench/L0_INVESTIGATION_REPORT.md:354",
+   "bench/L0_INVESTIGATION_REPORT.md:356",
+   "bench/L0_INVESTIGATION_REPORT.md:360",
+   "bench/L0_INVESTIGATION_REPORT.md:362",
+   "bench/L0_INVESTIGATION_REPORT.md:365",
+   "bench/L0_INVESTIGATION_REPORT.md:373",
+   "bench/L0_INVESTIGATION_REPORT.md:376",
+   "bench/L0_INVESTIGATION_REPORT.md:378",
+   "bench/L0_INVESTIGATION_REPORT.md:527",
+   "bench/L0_INVESTIGATION_REPORT.md:556"
+  ]
+ },
+ {
+  "id": "bench/E4",
+  "title_zh": "E4 键区间重叠是否限制后台有效并行",
+  "engine": [
+   "native"
+  ],
+  "category": "capacity_sweep",
+  "purpose_zh": "重叠是否限制后台有效并行？测量压实并发度与同层并发文件对的键区间重叠比例，并扫描 max_subcompactions 与 max_background_jobs 看能否加速排空。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "并发度统计来自 50 GB/100 GB 填库与覆盖写运行；资源扫描为 10 GB 尺度填库，--level0_trigger=4，变 max_subcompactions ∈ {1,4,8,16} 与 max_background_jobs ∈ {2,4,8,16}",
+   "rocksdb_options": "max_background_jobs=8（flush 与 compaction 共用线程池）；max_subcompactions 上限 8；变体 50gb_fill_static（dynamic_level_bytes=0，静态层级）",
+   "other": "区间重叠从布局采样中被标记 being_compacted 的文件计算（同一时刻同一层内两两文件键区间）"
+  },
+  "results": [
+   {
+    "metric": "实测压实并发度（50 GB 填库 r1）",
+    "value": "job 数 807；峰值并发 job 6；平均并发 job 5.29；有效并行度 5.04；sum(job wall)/运行期 2974.0 s / 590.1 s；峰值被压实文件数 18",
+    "unit": "job",
+    "condition": "50gb_fill_r1",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:277"
+   },
+   {
+    "metric": "实测压实并发度（50 GB 覆盖写）",
+    "value": "job 数 2136；峰值并发 6；平均并发 5.89；有效并行度 5.73；sum(job wall)/运行期 7404.4 s / 1292.0 s；峰值被压实文件数 10",
+    "unit": "job",
+    "condition": "50gb_overwrite",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:281"
+   },
+   {
+    "metric": "同层并发文件对的键区间重叠比例",
+    "value": "50gb_fill_r1 2140/2140、50gb_fill_r11 2567/2567、50gb_fill_r12 2938/2938、50gb_overwrite 626/626、100gb_fill_r5 2842/2842、100gb_overwrite 537/537 —— 均为 100%；静态层级变体 50gb_fill_static 36699 对里只有 2714 对重叠 = 7.4%",
+    "unit": "%",
+    "condition": "动态层级各运行 vs 50gb_fill_static（静态层级）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:293"
+   },
+   {
+    "metric": "静态层级变体的代价",
+    "value": "关闭动态层级后同一负载下同时被压缩实的文件从约 7 个涨到平均 29、峰值 73 个；intra-L0 份额更高（0.682 vs 0.442–0.605），总 SST_WA 略高（6.043 vs 5.511–5.931）",
+    "unit": "文件 / ×",
+    "condition": "50gb_fill_static",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:307"
+   },
+   {
+    "metric": "subcompaction 扫描吞吐（10 GB 填库，jobs=8 固定）",
+    "value": "max_subcompactions=1 → 103,921、4 → 147,547、8 → 83,975、16 → 122,289 ops/s",
+    "unit": "ops/s",
+    "condition": "d_e4_sc{1,4,8,16}",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:316"
+   },
+   {
+    "metric": "max_background_jobs 扫描吞吐（10 GB 填库，subcomp=8 固定）",
+    "value": "jobs=2 → 74,761、4 → 67,168、8 → 84,499、16 → 94,243 ops/s",
+    "unit": "ops/s",
+    "condition": "d_e4_job{2,4,8,16}",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:318"
+   },
+   {
+    "metric": "两次资源扫描的波动 vs 同配置重复波动",
+    "value": "扫描非单调、波动 1.76×（subcompactions）与 1.40×（jobs），而同配置重复运行为 1.51×（50 GB 填库）与 2.37×（10 GB 尺度）",
+    "unit": "×",
+    "condition": "§5.3 判定",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:321"
+   },
+   {
+    "metric": "job 的 CPU/挂钟比（IO 受限证据）",
+    "value": "压实 CPU/挂钟比只有 0.16–0.23（100 GB 填库 2758.5 s CPU / 16939.7 s job 挂钟）；单 job 内部仍有并行（50 GB 填库 746 组、100 GB 填库 3151 组 subcompaction begin/end）",
+    "unit": "—",
+    "condition": "50gb_fill / 100gb_fill_r5",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:286"
+   }
+  ],
+  "evaluation_zh": "判定：H4 支持条件部分成立——动态层级配置下“同层并发文件键区间 100% 重叠”是常态，但并发度本身已接近配置上限（峰值 6，上限 8），因此“存在空闲算力却被冲突挡住”这一半不成立；收缩条件成立：不能说“L0 完全串行”（单 job 内有 subcompaction 并行，并发度不是 1）。资源扫描方面：两次扫描都非单调，差异无法与噪声区分，因此没有证据支持“增加后台 job 或 subcompaction 资源即可加速 L0 排空”。",
+  "caveats_zh": [
+   "§5.3/§9 的每个配置只有 1 次运行，按计划“边际收益接近波动时需要更多重复”的要求，这些差异无法与噪声区分（bench/L0_INVESTIGATION_REPORT.md:322）",
+   "10 GB 尺度的对照能力有限：同配置重复运行（d_e5_bg1 与 d_e5_bg1_restore，配置完全相同、唯一差别是后者多一次被引擎拒绝的 SetOptions 调用）吞吐为 87,239 与 36,745 ops/s，相差 2.37×（bench/L0_INVESTIGATION_REPORT.md:550）",
+   "区间重叠比例来自布局采样中被标记 being_compacted 的文件，采样点有限（50gb_fill_r1 仅 52 个采样点、其中 61.5% 有在飞文件）（bench/L0_INVESTIGATION_REPORT.md:293）",
+   "收缩：不能说“L0 完全串行”——单 job 内部有 subcompaction 并行，且并发度不是 1（bench/L0_INVESTIGATION_REPORT.md:308）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:52",
+   "bench/L0_INVESTIGATION_REPORT.md:277",
+   "bench/L0_INVESTIGATION_REPORT.md:281",
+   "bench/L0_INVESTIGATION_REPORT.md:286",
+   "bench/L0_INVESTIGATION_REPORT.md:293",
+   "bench/L0_INVESTIGATION_REPORT.md:301",
+   "bench/L0_INVESTIGATION_REPORT.md:307",
+   "bench/L0_INVESTIGATION_REPORT.md:308",
+   "bench/L0_INVESTIGATION_REPORT.md:316",
+   "bench/L0_INVESTIGATION_REPORT.md:318",
+   "bench/L0_INVESTIGATION_REPORT.md:321",
+   "bench/L0_INVESTIGATION_REPORT.md:322",
+   "bench/L0_INVESTIGATION_REPORT.md:528",
+   "bench/L0_INVESTIGATION_REPORT.md:550"
+  ]
+ },
+ {
+  "id": "bench/E5",
+  "title_zh": "E5 L0 与写停顿的因果关系",
+  "engine": [
+   "native"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "L0 是写停顿的因果环节，还是伴随现象？用停顿区间的并集时长时间线与 LOG 中每次停顿原因行的逐条归类回答。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "50 GB / 100 GB 填库与稳定覆盖写主线索运行；停顿原因行按 (Stalling|Stopping) writes because ... 逐条归类",
+   "rocksdb_options": "主配置 P：slowdown=20, stop=36；soft_pending_compaction_bytes_limit = 68,719,476,736（64 GiB，RocksDB 默认值）",
+   "other": "stall_us_total 为各写线程被延迟时间的线程累计；stall_union_frac_of_wall 才是“处于 delayed/stopped 状态的挂钟占比”（bench/out/analysis/A_timeline.txt）"
+  },
+  "results": [
+   {
+    "metric": "50 GB 填库停顿并集占比",
+    "value": "时长 652.6 s、吞吐 73,552 ops/s、停顿累计线程时间/挂钟 0.249、停顿并集 343.0 s、并集/挂钟 52.6%、停顿区间数 57、每次写平均延迟 3.38 µs、中位 L0 文件 7、峰值 pending 68.7 GiB",
+    "unit": "% / s",
+    "condition": "50gb_fill_r1",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:137"
+   },
+   {
+    "metric": "50 GB 稳定覆盖写停顿并集占比",
+    "value": "时长 1293.2 s、吞吐 37,117 ops/s、停顿并集 1000.4 s、并集/挂钟 77.4%、停顿区间数 54、每次写平均延迟 10.80 µs、中位 L0 文件 4、峰值 pending 69.8 GiB",
+    "unit": "% / s",
+    "condition": "50gb_overwrite",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:140"
+   },
+   {
+    "metric": "100 GB 覆盖写停顿并集占比",
+    "value": "时长 5902.4 s、吞吐 16,265 ops/s、停顿并集 4453.3 s、并集/挂钟 75.4%、停顿区间数 44、每次写平均延迟 23.30 µs、中位 L0 文件 1、峰值 pending 74.9 GiB",
+    "unit": "% / s",
+    "condition": "100gb_overwrite",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:142"
+   },
+   {
+    "metric": "停顿原因归属（50 GB 覆盖写）",
+    "value": "停顿行总数 1612；待压实字节超软限 1612（100%）；immutable memtable 0；level-0 文件数 0",
+    "unit": "行",
+    "condition": "50gb_overwrite",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:153"
+   },
+   {
+    "metric": "停顿原因归属（100 GB 覆盖写）",
+    "value": "停顿行总数 5134；待压实字节超软限 5134（100%）；immutable memtable 0；level-0 文件数 0",
+    "unit": "行",
+    "condition": "100gb_overwrite",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:155"
+   },
+   {
+    "metric": "停顿原因归属（50 GB 填库）",
+    "value": "停顿行总数 297；待压实字节超软限 273（91.9%）；immutable memtable 0；level-0 文件数 24（8.1%）——唯一出现 level-0 文件数归因的运行",
+    "unit": "行",
+    "condition": "50gb_fill_r1",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:152"
+   },
+   {
+    "metric": "停顿期间的写限速",
+    "value": "rate 16777216（16 MiB/s）与 rate 13421772（13.4 MB/s）；实测吞吐 16.3 K ops/s × 1 KiB ≈ 16.3 MB/s 与限速吻合",
+    "unit": "MiB/s",
+    "condition": "停顿原因行的速率上限",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:157"
+   },
+   {
+    "metric": "软限阈值与峰值 pending 对照",
+    "value": "soft_pending_compaction_bytes_limit = 68,719,476,736（64 GiB）；实测 100 GB 覆盖写峰值 pending = 74.9 GiB > 64 GiB",
+    "unit": "GiB",
+    "condition": "100gb_overwrite",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:158"
+   },
+   {
+    "metric": "每次写平均被延迟（摊薄）",
+    "value": "3.4–23.3 µs",
+    "unit": "µs",
+    "condition": "50 GB/100 GB 填库与覆盖写",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:47"
+   },
+   {
+    "metric": "停顿并集占挂钟占比范围",
+    "value": "50 GB 填库 52.6%、50 GB 覆盖写 77.4%、100 GB 填库 81.5%、100 GB 覆盖写 75.4%",
+    "unit": "%",
+    "condition": "四个主线索运行",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:45"
+   }
+  ],
+  "evaluation_zh": "判定：支持——“L0 的到达触发了持续的目标层重写工作，积压（pending compaction bytes）反过来约束写入”，L0 在链条中但不是以“文件数”形式起作用。收缩（反证条件成立）：“L0 文件数是写停顿的瓶颈”在稳定覆盖写场景被数据否定——100 GB 覆盖写的中位 L0 文件数为 1、峰值为 11，而 75.4% 的挂钟处于停顿状态、停顿原因 100% 是待压实字节。§12 表把该计划陈述判为“部分成立 + 收缩”。",
+  "caveats_zh": [
+   "h_bg1 / h_bg1_restore（把 max_background_jobs 降到 1）干预确实生效，但 10 GB 填库在该配置下只需 50–120 s、干预点在 t≈62 s，干预后观察窗口太短（约 20–60 s），无法得出可分辨的结论；该臂只作为“干预接口可用”的记录（bench/L0_INVESTIGATION_REPORT.md:213）",
+   "max_background_jobs 在 DBOptions 中，必须用 SetDBOptions，用 SetOptions 会被拒绝（首次尝试 d_e5_bg1* 失败，Invalid argument: Extra option not recognized）（bench/L0_INVESTIGATION_REPORT.md:216）",
+   "机制性外推（需 E4/E5 干预实验确认）：既然每个 L0→base job 都要重写 1.0–1.75 倍于新到字节的存量，且并发 job 的键区间 100% 重叠，那么“去掉 L0 文件数”并不能消除这笔重写工作（bench/L0_INVESTIGATION_REPORT.md:166）",
+   "停顿的“调度等待”边界（eligible→scheduled）公开 API 不暴露，未测（bench/L0_INVESTIGATION_REPORT.md:549）",
+   "重复与方差：50 GB 填库 3 次重复停顿并集占比 52.6% / 59.8% / 65.5%（bench/L0_INVESTIGATION_REPORT.md:84）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:11",
+   "bench/L0_INVESTIGATION_REPORT.md:39",
+   "bench/L0_INVESTIGATION_REPORT.md:45",
+   "bench/L0_INVESTIGATION_REPORT.md:47",
+   "bench/L0_INVESTIGATION_REPORT.md:84",
+   "bench/L0_INVESTIGATION_REPORT.md:137",
+   "bench/L0_INVESTIGATION_REPORT.md:140",
+   "bench/L0_INVESTIGATION_REPORT.md:142",
+   "bench/L0_INVESTIGATION_REPORT.md:152",
+   "bench/L0_INVESTIGATION_REPORT.md:153",
+   "bench/L0_INVESTIGATION_REPORT.md:155",
+   "bench/L0_INVESTIGATION_REPORT.md:157",
+   "bench/L0_INVESTIGATION_REPORT.md:158",
+   "bench/L0_INVESTIGATION_REPORT.md:162",
+   "bench/L0_INVESTIGATION_REPORT.md:166",
+   "bench/L0_INVESTIGATION_REPORT.md:213",
+   "bench/L0_INVESTIGATION_REPORT.md:216",
+   "bench/L0_INVESTIGATION_REPORT.md:220",
+   "bench/L0_INVESTIGATION_REPORT.md:529",
+   "bench/L0_INVESTIGATION_REPORT.md:549"
+  ]
+ },
+ {
+  "id": "bench/H#intervention",
+  "title_zh": "stage H 定向干预（提升待压实字节上限 / 降 max_background_jobs）",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "把“待压实字节上限”这一环拆掉会怎样？在 50 GB 填库上于 t≈62 s 用 SetOptions 把 soft_pending_compaction_bytes_limit 从 64 GiB 提到 1 TiB，其余配置与三个对照完全相同，点对点检验该环的因果性。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "50 GB 填库（同 48 M 次写、同 46.49 GiB 确认字节），与三个未干预的 50 GB 填库对照比较；另一臂 h_bg1 / h_bg1_restore 在 10 GB 填库上做 max_background_jobs→1 干预",
+   "rocksdb_options": "soft_pending_compaction_bytes_limit 从 64 GiB（68,719,476,736）提到 1 TiB（1099511627776），经 SetOptions 生效；h_bg1 用 SetDBOptions 设 max_background_jobs=1",
+   "other": "干预事件记录：at=61.9 soft_pending_compaction_bytes_limit=1099511627776 via=SetOptions OK；max_background_jobs=1 via=SetDBOptions OK"
+  },
+  "results": [
+   {
+    "metric": "干预是否点对点生效（停顿原因变化）",
+    "value": "提限后“待压实字节超软限”0 行（对照 273/297 行 = 91.9%）；immutable memtable 93 + 2 行（对照 77 行）；level-0 文件数 2 行（对照 24 行）",
+    "unit": "行",
+    "condition": "h_lift_pending_limit vs 三个未干预 50 GB 填库",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:180"
+   },
+   {
+    "metric": "负载归一化完成时间（到各里程碑的秒数）",
+    "value": "h_lift_pending_limit 5/10/15/20/25/30 GiB = 18 / 104 / 226 / 328 / 413 / 478 s；对照 50gb_fill_r1 = 14 / 28 / 41 / 59 / 114 / 163 s，r11 = 14 / 68 / 134 / 208 / 255 / 313 s，r12 = 14 / 55 / 132 / 186 / 265 / 342 s",
+    "unit": "s",
+    "condition": "h_lift_pending_limit vs 三个对照",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:189"
+   },
+   {
+    "metric": "干预臂与对照的整轮对比",
+    "value": "h_lift_pending_limit 挂钟 1592.6 s、吞吐 30,139 ops/s、设备写 270.2 GiB、device_WA 5.81、停顿并集/挂钟 49.2%、停顿区间数 87；对照 50gb_fill_r1 652.6 s / 73,552 ops/s / 256.9 GiB / 5.525 / 52.6% / 57",
+    "unit": "s / ops/s",
+    "condition": "h_lift_pending_limit vs 50gb_fill_r1",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:207"
+   },
+   {
+    "metric": "干预后的服务能力变化",
+    "value": "干预臂设备写入量与对照同量级（270 vs 257–277 GiB，即做了同样多的重写工作），但挂钟是三个对照的 1.6–2.4 倍（30 GiB 里程碑 478 s vs 最慢对照 342 s）",
+    "unit": "×",
+    "condition": "h_lift_pending_limit vs 三个对照",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:210"
+   },
+   {
+    "metric": "干预事件记录",
+    "value": "at=61.9 soft_pending_compaction_bytes_limit=1099511627776 via=SetOptions OK",
+    "unit": "—",
+    "condition": "h_lift_pending_limit（t≈62 s）",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:173"
+   },
+   {
+    "metric": "h_bg1 干预的可分辨性",
+    "value": "max_background_jobs=1 via=SetDBOptions OK（恢复用同样方式）；10 GB 填库在该配置下只需 50–120 s，干预点在 t≈62 s，干预后观察窗口太短（约 20–60 s），无法得出可分辨结论",
+    "unit": "s",
+    "condition": "h_bg1 / h_bg1_restore",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:215"
+   }
+  ],
+  "evaluation_zh": "判定（H5）：支持——“待压实字节超限”是一条真实的因果环节，点对点干预使其对应的停顿类别归零（273→0 行），其余两类保持不变甚至更多。收缩：“它就是限制服务能力的瓶颈”不成立——缓解它并没有改善排队/服务，反而因债务失控而变慢（同一时刻债务更高、设备 IO 被更深积压占用，30 GiB 时 478 s vs 342 s）。这与计划给的反证条件一致：提升单一环节不改善服务，就不应把它当作当前瓶颈；本配置下真正限制服务能力的是“重写工作量 × 设备服务能力”这一整体，L0 是这笔工作的触发者而不是上限。",
+  "caveats_zh": [
+   "h_bg1 / h_bg1_restore 的观察窗口太短（干预落在 t≈62 s，10 GB 负载 50–120 s 内完成），未取得可分辨结论，仅确认干预接口可用（bench/L0_INVESTIGATION_REPORT.md:553）",
+   "三个对照之间的差本身就是 1.8×（409 / 717 / 743 s 到 45 GiB），而干预臂在每个里程碑都慢于最慢的对照（30 GiB 时 478 s vs 342 s），因此方向性结论超出噪声范围（bench/L0_INVESTIGATION_REPORT.md:197）",
+   "首次尝试 d_e5_bg1* 失败并以 Invalid argument: Extra option not recognized 记录在案：max_background_jobs 必须用 SetDBOptions（bench/L0_INVESTIGATION_REPORT.md:216）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:11",
+   "bench/L0_INVESTIGATION_REPORT.md:166",
+   "bench/L0_INVESTIGATION_REPORT.md:173",
+   "bench/L0_INVESTIGATION_REPORT.md:180",
+   "bench/L0_INVESTIGATION_REPORT.md:189",
+   "bench/L0_INVESTIGATION_REPORT.md:197",
+   "bench/L0_INVESTIGATION_REPORT.md:204",
+   "bench/L0_INVESTIGATION_REPORT.md:207",
+   "bench/L0_INVESTIGATION_REPORT.md:210",
+   "bench/L0_INVESTIGATION_REPORT.md:215",
+   "bench/L0_INVESTIGATION_REPORT.md:216",
+   "bench/L0_INVESTIGATION_REPORT.md:221",
+   "bench/L0_INVESTIGATION_REPORT.md:553"
+  ]
+ },
+ {
+  "id": "bench/E6",
+  "title_zh": "E6 L0 是否提供有界突发缓冲",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "L0 是否提供有界缓冲？在 50 GB 已压实布局副本上做开环定速写，600 s 基线速率加中间 60 s 突发（倍率 8×），逐秒记录确认写、L0 文件数、immutable 数、待压实字节与停顿。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "开环定速写：600 s 基线速率 + 中间 60 s 突发（倍率 8×）；三个臂 r3000×8、r6000×8、r4000×4；基线速率都远低于本机主线索服务能力（30–70 K ops/s）",
+   "rocksdb_options": "主配置 P；write_buffer_size=256M（WB=256 MiB）",
+   "other": "记录每秒的确认写、L0 文件数、immutable 内存表数、内存表字节、待压实字节、停顿累计与 is-write-stopped；“待压实峰值”取突发窗口内最大值，“回到 ~0”取突发结束后首次 ≤0.05 GiB 的时刻"
+  },
+  "results": [
+   {
+    "metric": "r3000×8 突发的待压实峰值与恢复",
+    "value": "基线 3000 ops/s（3 MB/s），突发 180–240 s ×8（24000 ops/s = 24 MB/s，1.44 GB）；突发内待压实峰值 8.50 GiB（t=231 s）；停顿事件 0；待压实回到 ~0 用时 突发结束后 2 s",
+    "unit": "GiB / s",
+    "condition": "d_e6_r3000_x8",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:407"
+   },
+   {
+    "metric": "r6000×8 突发的待压实峰值与恢复",
+    "value": "基线 6000 ops/s（6 MB/s），突发 180–240 s ×8（48 MB/s，2.88 GB）；峰值 10.44 GiB（t=224 s）；停顿事件 0；回到 ~0 用时 13 s",
+    "unit": "GiB / s",
+    "condition": "d_e6_r6000_x8",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:408"
+   },
+   {
+    "metric": "r4000×4 突发的待压实峰值与恢复",
+    "value": "基线 4000 ops/s（4 MB/s），突发 120–180 s ×4（16 MB/s，0.96 GB）；峰值 7.76 GiB（t=136 s）；停顿事件 0；回到 ~0 用时 0 s（≤0.05 GiB）",
+    "unit": "GiB / s",
+    "condition": "d_e6_r4000_x4",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:409"
+   },
+   {
+    "metric": "突发吸收能力（小结）",
+    "value": "60 s 内 0.96–2.88 GB（≈50 GB 基库的 2–6%）的突发被完全吸收，代价只是把 7.8–10.4 GiB 的压实债务推迟到突发之后再还（并在 0–13 s 内排空）",
+    "unit": "GB",
+    "condition": "三个臂",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:413"
+   },
+   {
+    "metric": "r3000×8 的逐秒状态（基线/突发/恢复）",
+    "value": "0–180 s 基线：累计确认写 0 → 540,622、L0 文件 1 → 0、immutable 0、内存表 1 → 245 MiB（锯齿）、待压实 0、停顿累计 0 µs；180–240 s 突发 8×：540,622 → 1,980,282、L0 1 → 2、immutable 0、待压实 0 → 8.50 GiB（峰值）、停顿 0",
+    "unit": "—",
+    "condition": "d_e6_r3000_x8",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:393"
+   },
+   {
+    "metric": "内存表状态",
+    "value": "内存表始终在 1 个 write buffer 的锯齿内（0–249 MiB，WB=256 MiB），没有出现内存表积压",
+    "unit": "MiB",
+    "condition": "d_e6_r3000_x8",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:401"
+   }
+  ],
+  "evaluation_zh": "判定（H6 支持条件）：成立（本场景内）——突发期间前台零停顿、零 immutable 堆积，1.44 GB（60 s × 24 MB/s）的额外到达全部被吸收，代价以“待压实字节峰值 8.50 GiB”的形式先记在压实债务上并在突发结束后 2 s 内降到 ~0。边界（必须同时成立的说法）：这不是无限缓冲，也不能掩盖更长时间的净积压——一旦把时间尺度拉长到“持续超过服务能力”，§3 的主线索运行里待压实字节被推到 64–75 GiB，停顿并集占挂钟 53–82%。",
+  "caveats_zh": [
+   "边界：这不是无限缓冲，也不能掩盖更长时间的净积压（突发缓冲成立，长期净积压不被掩盖）（bench/L0_INVESTIGATION_REPORT.md:402）",
+   "三个臂的基线速率都远低于本机主线索观察到的服务能力（30–70 K ops/s），因此是“低于饱和 + 短突发”的场景（bench/L0_INVESTIGATION_REPORT.md:386）",
+   "反证对照：持续写入把待压实字节推到 64–75 GiB（超过 64 GiB 软限）时，停顿并集占挂钟 53–82%（bench/L0_INVESTIGATION_REPORT.md:415）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:11",
+   "bench/L0_INVESTIGATION_REPORT.md:386",
+   "bench/L0_INVESTIGATION_REPORT.md:388",
+   "bench/L0_INVESTIGATION_REPORT.md:393",
+   "bench/L0_INVESTIGATION_REPORT.md:398",
+   "bench/L0_INVESTIGATION_REPORT.md:401",
+   "bench/L0_INVESTIGATION_REPORT.md:402",
+   "bench/L0_INVESTIGATION_REPORT.md:407",
+   "bench/L0_INVESTIGATION_REPORT.md:408",
+   "bench/L0_INVESTIGATION_REPORT.md:409",
+   "bench/L0_INVESTIGATION_REPORT.md:413",
+   "bench/L0_INVESTIGATION_REPORT.md:415",
+   "bench/L0_INVESTIGATION_REPORT.md:530"
+  ]
+ },
+ {
+  "id": "bench/E7",
+  "title_zh": "E7 L0 是否把有序访问状态从 DRAM 转到磁盘",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "L0 是否把有序访问状态从 DRAM 转到磁盘？用 stage B 的受控积压构造相（逐个 flush 出 16 个 L0 文件、期间不压实只读不写）测量 RSS、memtable 与 table reader 随 L0 增长的斜率。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "b_k16_wide / b_k16_narrow 的构造相：逐个 flush 出 16 个 L0 文件，近期数据从 0 增到 2.14 GiB，期间不压实、只读不写",
+   "rocksdb_options": "主配置 P（block cache 本配置下几乎为 0，读负载才有意义）",
+   "other": "数据来源 bench/out/analysis/B_memory.txt；table readers = 索引+过滤器常驻成本"
+  },
+  "results": [
+   {
+    "metric": "L0 文件数与近期数据量",
+    "value": "1 → 17 个文件 / 0 → 2.14 GiB",
+    "unit": "文件 / GiB",
+    "condition": "b_k16_wide/narrow 构造相",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:425"
+   },
+   {
+    "metric": "RSS 随 L0 增长的斜率",
+    "value": "RSS 888.7 → 876.4 MiB（无增长），最小二乘斜率 −31 MiB/GiB，即与 L0 大小无关",
+    "unit": "MiB",
+    "condition": "K=16 构造相",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:426"
+   },
+   {
+    "metric": "memtable 占用",
+    "value": "memtable（size-all-mem-tables）约 100 MiB，随 L0 增长保持恒定",
+    "unit": "MiB",
+    "condition": "K=16 构造相",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:427"
+   },
+   {
+    "metric": "table readers（索引+过滤器常驻）",
+    "value": "380 → 384 MiB，斜率 +8.1 MiB/GiB L0（≈8 B/条目）",
+    "unit": "MiB/GiB",
+    "condition": "K=16 构造相",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:428"
+   },
+   {
+    "metric": "边界：更大库上的 table readers",
+    "value": "100 GB 库上 table readers 达到 758 MiB，仍远小于数据量，但确实随库增长",
+    "unit": "MiB",
+    "condition": "100 GB 库",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:437"
+   }
+  ],
+  "evaluation_zh": "判定（H7 支持条件）：成立——2.14 GiB 的近期数据被放到磁盘上的 L0，而逐键 KV 状态没有留在内存里：memtable 恒定在 ~100 MiB（只承载当前活跃内存表）、RSS 不随 L0 增长，常驻的索引/过滤器成本约 8 MiB per GiB L0（≈8 B/条目），比“把同样数据留在内存表”所需的（每条约 1 KiB 数据 + 跳表开销）低约两个数量级；同期读路径仍可用。边界：这不是“内存恒定”——文件元数据、table reader 以及（在更大库上）过滤器仍随文件数增长。",
+  "caveats_zh": [
+   "边界：这不是“内存恒定”——文件元数据、table reader、以及（在更大库上）过滤器仍随文件数增长；100 GB 库上 table readers 达到 758 MiB（bench/L0_INVESTIGATION_REPORT.md:437）",
+   "block cache 在本配置下几乎为 0（读负载才有意义）（bench/L0_INVESTIGATION_REPORT.md:429）",
+   "rocksdb.estimate-table-readers-mem 在本构建中缺失（引用处标 n/a），文件元数据内存以 RSS 与块缓存用量代替（bench/BOTTLENECK_REPORT.md:776）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:11",
+   "bench/L0_INVESTIGATION_REPORT.md:418",
+   "bench/L0_INVESTIGATION_REPORT.md:425",
+   "bench/L0_INVESTIGATION_REPORT.md:426",
+   "bench/L0_INVESTIGATION_REPORT.md:427",
+   "bench/L0_INVESTIGATION_REPORT.md:428",
+   "bench/L0_INVESTIGATION_REPORT.md:429",
+   "bench/L0_INVESTIGATION_REPORT.md:431",
+   "bench/L0_INVESTIGATION_REPORT.md:437",
+   "bench/L0_INVESTIGATION_REPORT.md:531",
+   "bench/BOTTLENECK_REPORT.md:766",
+   "bench/CAMPAIGN.md:157"
+  ]
+ },
+ {
+  "id": "bench/E8",
+  "title_zh": "E8 触发阈值扫描能否扩大批量并摊销目标层重写",
+  "engine": [
+   "native"
+  ],
+  "category": "capacity_sweep",
+  "purpose_zh": "L0 的批处理是否摊销目标层重写与版本淘汰？5 个臂从同一 50 GB 初始布局副本出发跑同一段 12.8 M 次更新轨迹，只改 level0_file_num_compaction_trigger（2/4/8/16/32）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "同一段 12.8 M 次更新轨迹（--dist=uniform，同一置换、同一顺序）= 12.40 GiB 应用确认字节；5 个臂都从同一个 50 GB 初始布局的硬链接副本出发",
+   "rocksdb_options": "只改 level0_file_num_compaction_trigger ∈ {2,4,8,16,32}，并按其比例同步调整 level0_slowdown/stop（这一点是混杂：触发阈值与限流阈值一起动）",
+   "other": "同一臂内部的批量效应按 job 的 L0 输入文件数分桶（analyze.py 的 E8b），不受跨臂阈值混杂影响"
+  },
+  "results": [
+   {
+    "metric": "trigger=2 臂账本",
+    "value": "L0→base job 数 511；L0 文件/job(均) 1.184；base 重写/L0 输入 1.254；版本淘汰率 7.10%；SST_WA 9.634；W_intraL0 0.570；W_L0base 8.061；吞吐 27,602 ops/s；停顿并集/挂钟 142.7 s / 463.7 s = 30.8%",
+    "unit": "× / ops/s",
+    "condition": "c_trig2",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:448"
+   },
+   {
+    "metric": "trigger=4 臂账本",
+    "value": "job 数 454；L0 文件/job 1.227；base 重写/L0 输入 1.142；版本淘汰率 7.39%；SST_WA 8.937；W_intraL0 0.513；W_L0base 7.419；吞吐 10,788 ops/s；停顿 193.2 s / 1186.5 s = 16.3%",
+    "unit": "× / ops/s",
+    "condition": "c_trig4",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:449"
+   },
+   {
+    "metric": "trigger=8 臂账本",
+    "value": "job 数 429；L0 文件/job 1.268；base 重写/L0 输入 1.097；版本淘汰率 7.60%；SST_WA 8.539；W_intraL0 0.454；W_L0base 7.079；吞吐 11,672 ops/s；停顿 92.2 s / 1096.7 s = 8.4%",
+    "unit": "× / ops/s",
+    "condition": "c_trig8",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:450"
+   },
+   {
+    "metric": "trigger=16 / 32 臂账本",
+    "value": "trigger=16：job 469、L0 文件/job 1.250、base 重写/L0 输入 1.179、版本淘汰率 7.37%、SST_WA 8.788、W_intraL0 0.118、吞吐 n/a；trigger=32：job 454、L0 文件/job 1.273、base 重写/L0 输入 1.197、7.14%、SST_WA 8.767、W_intraL0 0.000、吞吐 23,489 ops/s、停顿 210.1 s / 544.9 s = 38.5%",
+    "unit": "× / ops/s",
+    "condition": "c_trig16 / c_trig32",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:451"
+   },
+   {
+    "metric": "臂内批量效应（按 job 的 L0 输入文件数分桶，base/L0 比值）",
+    "value": "c_trig8：1 个 L0 文件 1.884、2 个 0.417、3 个 0.349、4 个 0.103、≥6 个 0.251 / 0.088 / 0.087 / 0.601 / 0.343；c_trig2：1.636 / 0.757 / 0.929 / 0.634；c_trig4：1.721 / 0.418 / 0.644 / 0.149",
+    "unit": "—",
+    "condition": "E8b 分桶表",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:460"
+   },
+   {
+    "metric": "机制上摊销幅度",
+    "value": "1 个 L0 文件单独压实时要重写 1.64–1.88 倍于其输入的存量 base 字节；4 个以上一起压实时该比值降到 0.07–0.15（10–20× 的差别）",
+    "unit": "×",
+    "condition": "同一臂内对比",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:464"
+   },
+   {
+    "metric": "阈值调参拿到的批量变化",
+    "value": "trigger 从 2 提到 32，实际 batch 只从 1.184 个 L0 文件涨到 1.273 个（+7.5%）；SST_WA 在 8.54–9.63 之间非单调波动（差异 11%，与三次重复填库的 7.6% 离散度同量级）",
+    "unit": "%",
+    "condition": "c_trig2 → c_trig32",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:465"
+   },
+   {
+    "metric": "重写的搬移而非减少",
+    "value": "提高 trigger 会把工作从 intra-L0 转移到 L0→base（W_intraL0 0.570 → 0.000 单调下降），但 W_L0base 基本不变（7.08–8.06），总量因此几乎不变",
+    "unit": "×",
+    "condition": "c_trig2 → c_trig32",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:470"
+   }
+  ],
+  "evaluation_zh": "判定（H8）：机制上摊销确实存在（同一臂内把 1 个 L0 文件单独压实要重写 1.64–1.88× 存量 base 字节，4 个以上一起压实降到 0.07–0.15，10–20× 的差别）；但阈值调参拿不到这个收益（+7.5%，SST_WA 非单调波动 11% 与 7.6% 离散度同量级），原因是压实选片受“与既有层重叠”和 max_compaction_bytes 约束，触发阈值并不决定批量大小。收缩条件成立：不能以“提高触发阈值”作为“扩大批量并摊销重写”的证据；H8 若要成立，需要的是能真正形成大批量的机制。",
+  "caveats_zh": [
+   "混杂：触发阈值与限流阈值（level0_slowdown/stop）一起按比例调整，因此跨臂比较存在混杂（bench/L0_INVESTIGATION_REPORT.md:443）",
+   "trigger=16 臂的吞吐与停顿在报告中标为 n/a（见文件）（bench/L0_INVESTIGATION_REPORT.md:451）",
+   "阈值调参的差异（1.11×）不能判为效应：10 GB 尺度的同配置重复运行本身就相差 2.37×（bench/L0_INVESTIGATION_REPORT.md:552）",
+   "重复与方差：50 GB 填库三次重复的 SST_WA 离散度 7.6%，SST_WA 的臂间波动 11% 与之同量级（bench/L0_INVESTIGATION_REPORT.md:466）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:11",
+   "bench/L0_INVESTIGATION_REPORT.md:439",
+   "bench/L0_INVESTIGATION_REPORT.md:443",
+   "bench/L0_INVESTIGATION_REPORT.md:444",
+   "bench/L0_INVESTIGATION_REPORT.md:448",
+   "bench/L0_INVESTIGATION_REPORT.md:449",
+   "bench/L0_INVESTIGATION_REPORT.md:450",
+   "bench/L0_INVESTIGATION_REPORT.md:451",
+   "bench/L0_INVESTIGATION_REPORT.md:452",
+   "bench/L0_INVESTIGATION_REPORT.md:460",
+   "bench/L0_INVESTIGATION_REPORT.md:464",
+   "bench/L0_INVESTIGATION_REPORT.md:465",
+   "bench/L0_INVESTIGATION_REPORT.md:466",
+   "bench/L0_INVESTIGATION_REPORT.md:470",
+   "bench/L0_INVESTIGATION_REPORT.md:532",
+   "bench/L0_INVESTIGATION_REPORT.md:552"
+  ]
+ },
+ {
+  "id": "bench/E9",
+  "title_zh": "E9 空间成本的来源（文件数 / 冗余版本 / 暂态输出）",
+  "engine": [
+   "native"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "空间成本来自文件数、冗余版本，还是暂态输出？用逐区间目录扫描（区分 .sst/.log/其它、allocated 与 apparent 字节）与 ColumnFamilyMetaData 统计峰值/存活空间与文件数。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "50 GB 填库（3 次重复）、50 GB 覆盖写、100 GB 填库、100 GB 覆盖写；空间放大以同一时刻存活 SST 大小为分母",
+   "rocksdb_options": "主配置 P；max_total_wal_size 未设上限",
+   "other": "分配字节用 st_blocks×512，另记 apparent 大小、ColumnFamilyMetaData live bytes、峰值 RSS 与 memtable/immutable/cache 计入"
+  },
+  "results": [
+   {
+    "metric": "50 GB 填库空间账本（r1）",
+    "value": "U 46.49 GiB；峰值 SST 55.0 GiB；峰值 WAL 0.842 GiB；峰值目录 55.1 GiB；结束存活 SST 47.04 GiB；峰值/存活 1.173；峰值文件数 947；峰值 RSS 2808 MiB",
+    "unit": "GiB",
+    "condition": "50gb_fill_r1",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:477"
+   },
+   {
+    "metric": "50 GB 覆盖写空间账本",
+    "value": "峰值 SST 73.1 GiB；峰值 WAL 0.795 GiB；峰值目录 73.2 GiB；结束存活 SST 52.36 GiB；峰值/存活 1.404；峰值文件数 1360；峰值 RSS 2470 MiB",
+    "unit": "GiB",
+    "condition": "50gb_overwrite",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:480"
+   },
+   {
+    "metric": "100 GB 填库空间账本",
+    "value": "峰值 SST 97.5 GiB；结束存活 SST 94.08 GiB；峰值/存活 1.041；峰值文件数 1767；峰值 RSS 3366 MiB",
+    "unit": "GiB",
+    "condition": "100gb_fill_r5",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:481"
+   },
+   {
+    "metric": "100 GB 覆盖写空间账本",
+    "value": "峰值 SST 118.1 GiB；结束存活 SST 104.73 GiB；峰值/存活 1.132；峰值文件数 2179；峰值 RSS 3598 MiB",
+    "unit": "GiB",
+    "condition": "100gb_overwrite",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:482"
+   },
+   {
+    "metric": "WAL 峰值与 write buffer 关系",
+    "value": "WAL 峰值稳定在 0.8–0.94 GiB（约 3–4 个 write buffer），与 max_total_wal_size 未设上限一致",
+    "unit": "GiB",
+    "condition": "四个主线索运行",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:484"
+   },
+   {
+    "metric": "分配字节与表观字节的差异",
+    "value": "sst_alloc/sst_bytes 在 1.001 量级，说明峰值空间不是由稀疏文件或预留造成",
+    "unit": "×",
+    "condition": "各运行",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:485"
+   },
+   {
+    "metric": "空间放大范围",
+    "value": "峰值 SST / 同时刻存活 SST 在填库为 1.04–1.17，在稳定覆盖写为 1.13（100 GB）/ 1.40（50 GB）",
+    "unit": "×",
+    "condition": "填库 vs 稳定覆盖写",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:59"
+   }
+  ],
+  "evaluation_zh": "判定：成立（§12 表）——空间放大明确小于写放大，峰值/存活为 1.04–1.40；文件数在 100 GB 达 916–2179。WAL 峰值稳定在 0.8–0.94 GiB，且分配字节与表观字节差异仅 1.001 量级，说明峰值空间来自冗余版本/暂态输出而非稀疏文件或预留。",
+  "caveats_zh": [
+   "trivial move 若按 job 输出表统计会把 28 GiB 误记为重写字节；本报告的账本按 OnTableFileCreated 的真实文件字节计，不含该项（bench/L0_INVESTIGATION_REPORT.md:60）",
+   "WAL 峰值与 max_total_wal_size 未设上限一致（bench/L0_INVESTIGATION_REPORT.md:484）",
+   "空间放大的分母是同一时刻的存活 SST 大小（bench/CAMPAIGN.md:123）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:11",
+   "bench/L0_INVESTIGATION_REPORT.md:59",
+   "bench/L0_INVESTIGATION_REPORT.md:60",
+   "bench/L0_INVESTIGATION_REPORT.md:477",
+   "bench/L0_INVESTIGATION_REPORT.md:480",
+   "bench/L0_INVESTIGATION_REPORT.md:481",
+   "bench/L0_INVESTIGATION_REPORT.md:482",
+   "bench/L0_INVESTIGATION_REPORT.md:484",
+   "bench/L0_INVESTIGATION_REPORT.md:485",
+   "bench/L0_INVESTIGATION_REPORT.md:533",
+   "bench/CAMPAIGN.md:123"
+  ]
+ },
+ {
+  "id": "bench/E10",
+  "title_zh": "E10 Flush/L0 安装与 WAL 保留、恢复边界",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "Flush/L0 安装如何改变日志保留与恢复工作？在 6 个生命周期点位用 kill -9 注入故障，恢复后回读整个键空间校验已确认写入是否丢失。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "单写线程 + --dist=monotonic（键 id = 操作序号），因此“已确认写入集合”恰好是键前缀 [0, confirmed)；注入点：memtable_sealed #3、flush_installed #1、compaction_installed #1、运行 8 s（sync=0 与 sync=1 各一次）",
+   "rocksdb_options": "主配置 P；--sync=1 仅用于 e_kflush_sync 与 e_ktime_sync 两臂，其余为 --sync=0",
+   "other": "驱动在自杀前把确认记录写入 summary_extra.csv 并 fflush；恢复后用 --mode=verify 回读整个键空间检查“应存在的键”与值是否与写入时的确定性模式一致"
+  },
+  "results": [
+   {
+    "metric": "e_kseal（memtable_sealed #3）",
+    "value": "确认写入 46,166；恢复后存在 46,166；差值 0；恢复前 WAL 文件数 2；WAL 字节 16.4 MB；open 耗时 0.080 s；值错误 0",
+    "unit": "键 / s",
+    "condition": "e_kseal",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:497"
+   },
+   {
+    "metric": "e_kflush（flush_installed #1）",
+    "value": "确认写入 33,341；恢复后存在 50,690；差值 +17,349（+52%）；WAL 文件数 4；WAL 字节 53.9 MB；open 耗时 0.153 s；值错误 0",
+    "unit": "键 / s",
+    "condition": "e_kflush",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:498"
+   },
+   {
+    "metric": "e_kflush_sync（flush_installed #1，sync=1）",
+    "value": "确认写入 15,432；恢复后存在 15,492；差值 +60（+0.4%）；WAL 文件数 2；WAL 字节 16.5 MB；open 耗时 0.014 s；值错误 0",
+    "unit": "键 / s",
+    "condition": "e_kflush_sync",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:499"
+   },
+   {
+    "metric": "e_kcomp（compaction_installed #1）",
+    "value": "确认写入 84,972；恢复后存在 102,223；差值 +17,251（+20%）；WAL 文件数 3；WAL 字节 43.2 MB；open 耗时 0.168 s；值错误 0",
+    "unit": "键 / s",
+    "condition": "e_kcomp",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:500"
+   },
+   {
+    "metric": "e_ktime（运行 8 s，sync=0）",
+    "value": "确认写入 2,642,043；恢复后存在 2,642,043；差值 0；WAL 文件数 1；WAL 字节 11.4 MB；open 耗时 0.068 s；值错误 0",
+    "unit": "键 / s",
+    "condition": "e_ktime",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:501"
+   },
+   {
+    "metric": "e_ktime_sync（运行 8 s，sync=1）",
+    "value": "确认写入 9,251；恢复后存在 9,251；差值 0；WAL 文件数 1；WAL 字节 9.8 MB；open 耗时 0.051 s；值错误 0",
+    "unit": "键 / s",
+    "condition": "e_ktime_sync",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:502"
+   },
+   {
+    "metric": "已确认写入丢失情况",
+    "value": "没有任何一条已确认写入在 SIGKILL 后丢失：6/6 臂中“恢复后存在的键数 ≥ 确认数”，全部 2,822 万次回读抽查里值错误为 0",
+    "unit": "臂",
+    "condition": "6 个注入臂",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:505"
+   },
+   {
+    "metric": "WAL 保留量与恢复耗时",
+    "value": "各臂恢复前仅保留 1–4 个 WAL 文件、9.8–53.9 MB；重开耗时 0.014–0.168 s；logparser 确认 recovered_from_wal=true、recovery_status=OK，e_kflush 臂从 4 个 WAL 文件重放、恢复耗时 122 ms",
+    "unit": "MB / s",
+    "condition": "6 个注入臂",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:509"
+   },
+   {
+    "metric": "sync 语义的吞吐代价",
+    "value": "单线程下 sync=0 8 s 完成 2,642,043 次写（约 3 µs/写），sync=1 8 s 只完成 9,251 次写（约 865 µs/写），约 275× 的吞吐代价",
+    "unit": "×",
+    "condition": "e_ktime vs e_ktime_sync",
+    "source": "bench/L0_INVESTIGATION_REPORT.md:513"
+   }
+  ],
+  "evaluation_zh": "结论（H10 的支持条件）：成立——没有任何一条已确认写入在 SIGKILL 后丢失（6/6 臂“恢复后存在的键数 ≥ 确认数”，2,822 万次回读抽查值错误为 0），即“写入返回成功”在本机语义下确实意味着数据可由 WAL 恢复（sync=0 时依赖 OS 页缓存未被丢弃，即进程崩溃安全、掉电不安全）。WAL 保留与重放都很小（1–4 个文件、9.8–53.9 MB，重开 0.014–0.168 s），即“flush/安装 SST”把恢复工作压到了几十 MB 级别，代价是写放大。存活键数可超过确认数（e_kflush +52%、e_kcomp +20%），而 sync=1 时超出量极小（+0.4%、0%）。",
+  "caveats_zh": [
+   "--mode=verify 的“确认区间”参数依赖 summary.json，而被 SIGKILL 的进程不会写该文件，因此原计划的“只回读 [0, confirmed)”没有按预期执行（实际回读了整个键空间，结论由计数得出）；这一点记为工具的已知缺陷（bench/L0_INVESTIGATION_REPORT.md:516）",
+   "6 个臂中有 1 次 verify 进程以 SIGSEGV 退出（e_ktime_sync 的空区间回读，rc=139），其余 11 次回读全部 rc=0；该异常未能在隔离环境下复现，不作引擎结论，仅作记录（bench/L0_INVESTIGATION_REPORT.md:518）",
+   "无掉电故障注入（只有 SIGKILL），无 NAND/设备内部写计量（bench/CAMPAIGN.md:152）",
+   "两个 sync 模式的数据从不混在一起比较（bench/CAMPAIGN.md:53）"
+  ],
+  "sources": [
+   "bench/L0_INVESTIGATION_REPORT.md:11",
+   "bench/L0_INVESTIGATION_REPORT.md:487",
+   "bench/L0_INVESTIGATION_REPORT.md:497",
+   "bench/L0_INVESTIGATION_REPORT.md:498",
+   "bench/L0_INVESTIGATION_REPORT.md:499",
+   "bench/L0_INVESTIGATION_REPORT.md:500",
+   "bench/L0_INVESTIGATION_REPORT.md:501",
+   "bench/L0_INVESTIGATION_REPORT.md:502",
+   "bench/L0_INVESTIGATION_REPORT.md:505",
+   "bench/L0_INVESTIGATION_REPORT.md:509",
+   "bench/L0_INVESTIGATION_REPORT.md:513",
+   "bench/L0_INVESTIGATION_REPORT.md:516",
+   "bench/L0_INVESTIGATION_REPORT.md:518",
+   "bench/L0_INVESTIGATION_REPORT.md:534",
+   "bench/L0_INVESTIGATION_REPORT.md:556",
+   "bench/CAMPAIGN.md:52",
+   "bench/CAMPAIGN.md:152"
+  ]
+ },
+ {
+  "id": "bench/I#profile",
+  "title_zh": "stage I 默认配置画像（队列先后与三条时间线）",
+  "engine": [
+   "native"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "默认配置下“哪个阶段先出队、队列在哪里积压”？用三条统一时间线（前台完成率/延迟、Flush 队列与 immutable、L0/深层队列与设备）与队列越限时刻确定候选瓶颈。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "18 核",
+   "ram": "62 GiB",
+   "device": "单 NVMe（WD_BLACK SN750）",
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "工作负载 W：50 GB 库（48 M 键宇宙，16 B 键 / 1 KiB 不可压缩值，预填充后沉降，库的 SST 集合 47 GiB 与 8 GiB 块缓存无法整体驻留）、16 线程闭环、固定 12.8 M 次全键空间均匀覆盖写轨迹、sync=0、compression=none",
+   "rocksdb_options": "配置 C：leveled compaction、dynamic_level_bytes=1、实测 base level = L3、write_buffer_size=256M、level0_trigger=8、target_file_size_base=64M、max_background_jobs=8（派生 F=2/C=6）、max_subcompactions=8",
+   "other": "每阶段利用率定义 = Σ(job wall)/(池大小×到达相位时长)，job 归属按 ts_begin 落窗；到达相位 = 确认 ops 仍在增长的区间；数据源 out/analysis/BN1_queue_ordering.txt"
+  },
+  "results": [
+   {
+    "metric": "队列越限时刻（50 GB 稳定覆盖写，λ≈0.27 GiB/s）",
+    "value": "pending compaction ≥ 16 GiB 在 t = 4.3 s；pending ≥ 32 GiB 在 t = 12.2 s；L0 文件数 ≥ trigger(8) 在 t = 22.4 s；pending ≥ 64 GiB（软限，开始全局限速）在 t = 36.5 s；immutable memtable ≥ 2 持续：从不（瞬时峰值 ≤2）；immutable ≥ 3 持续：从不",
+    "unit": "s",
+    "condition": "out/A/50gb_overwrite",
+    "source": "bench/BOTTLENECK_REPORT.md:143"
+   },
+   {
+    "metric": "稳态队列状态（到达相位后 70%）",
+    "value": "中位 immutable = 0；L0 文件 = 4（震荡 1–12，trigger=8 内外摆动）；pending = 65.4 GiB（钉在 64 GiB 软限上方）；运行中 compaction = 6.00/6（满池）",
+    "unit": "GiB / 文件",
+    "condition": "50 GB 稳定覆盖写",
+    "source": "bench/BOTTLENECK_REPORT.md:150"
+   },
+   {
+    "metric": "时间线①前台完成率/延迟（bn_default_r1）",
+    "value": "到达相位 71.2 K ops/s；p50 61.4 µs、p99 6.55 ms、p99.9 6.82 ms；actual-delayed-write-rate>0 的采样点 737/2387",
+    "unit": "ops/s / µs",
+    "condition": "bn_default_r1（50 GB 稳定覆盖写）",
+    "source": "bench/BOTTLENECK_REPORT.md:165"
+   },
+   {
+    "metric": "时间线②Flush 队列与 immutable",
+    "value": "imm 中位 1（峰值 4 = max_write_buffer_number）、从不持续增长；size-all-mem-tables 在 1 个 write buffer 的锯齿内（~250 MiB）；flush 池占用 40%；flush 排队 p50 0.1 ms（仅在 F=1 时涨到 44.6 s）",
+    "unit": "—",
+    "condition": "bn_default_r1",
+    "source": "bench/BOTTLENECK_REPORT.md:166"
+   },
+   {
+    "metric": "时间线③L0/深层压实队列与设备",
+    "value": "L0 文件数中位 6（震荡 1–12，trigger=8）、L0 字节中位 1.71 GiB；pending bytes 从 t=4.3 s 单调增长并钉在 64 GiB 软限；运行中 compaction 6.00/6（满池）；设备写 179 + 读 11 MB/s、忙率 95.1%；compaction 池占用 89%",
+    "unit": "—",
+    "condition": "bn_default_r1",
+    "source": "bench/BOTTLENECK_REPORT.md:167"
+   },
+   {
+    "metric": "到达相位服务资源占用",
+    "value": "I 阶段 default 臂（首运行）flush 池占用 20%、compaction 池占用 77%（稳态满池 6.00/6）、compaction cpu/wall 0.14、设备 165+63 MB/s、设备 busy 88%；50gb_overwrite 为 17% / 97% / 0.21 / 285+102 MB/s；100gb_overwrite 为 10% / 78% / 0.17 / 154+65 MB/s",
+    "unit": "%",
+    "condition": "default 臂 / 50gb_overwrite / 100gb_overwrite",
+    "source": "bench/BOTTLENECK_REPORT.md:215"
+   },
+   {
+    "metric": "双模态回放方差（全部观测量的范围与离散度）",
+    "value": "设备写入量 109–142 GB（1.3×）；设备读入量 18–41 GB（2.2×）；device WA 8.2–10.7（1.3×）；整轮挂钟 441–711 s（1.6×）；交付设备写带宽 161–270 MB/s（1.7×）；到达相位吞吐（早期窗口）32–79 K ops/s（2.5×）",
+    "unit": "×",
+    "condition": "§3.4 方差与漂移",
+    "source": "bench/BOTTLENECK_REPORT.md:228"
+   },
+   {
+    "metric": "功能等价对照的差值（噪声带）",
+    "value": "同一配置的两次独立运行（default 与 x_f2c6，功能上等价：都是 F=2/C=6）差值达 1.86×（71.2K vs 38.3K ops/s），与臂间差值同量级",
+    "unit": "×",
+    "condition": "default vs x_f2c6",
+    "source": "bench/BOTTLENECK_REPORT.md:237"
+   },
+   {
+    "metric": "压实子系统服务率 μ（排空相位直接测量）",
+    "value": "排空相位 pending 衰减率 157–259 MB/s（中位 193 MB/s）；整轮 SST 字节产出率 163–273 MB/s（~200 MB/s）；排空起点 pending 债务 46–68 GiB（~65 GiB，钉在 64 GiB 软限附近）",
+    "unit": "MB/s",
+    "condition": "§3.5 服务率",
+    "source": "bench/BOTTLENECK_REPORT.md:259"
+   },
+   {
+    "metric": "吞吐 ≈ μ/WA 的自洽性检验",
+    "value": "整轮 U 率 ≈ 25 MB/s（13.3 GB / ~534 s），乘以实测 device WA ≈ 9.0 得 225 MB/s，与实测 SST 产出率 224 MB/s 吻合",
+    "unit": "MB/s",
+    "condition": "§3.5",
+    "source": "bench/BOTTLENECK_REPORT.md:264"
+   },
+   {
+    "metric": "设备忙率（全部 28 个已完成运行）",
+    "value": "设备忙率 p50 = 85.9%（56.6–92.1%），设备在每次运行中都接近饱和；慢运行的设备忙率反而更高（85–92% vs 快运行 56–72%）",
+    "unit": "%",
+    "condition": "28 个已完成运行",
+    "source": "bench/BOTTLENECK_REPORT.md:243"
+   }
+  ],
+  "evaluation_zh": "判定：对照计划 §三 的三种模式命中第三种——“L0 和 Flush 均没有明显积压 → pending compaction bytes 增长 → 服务资源长期饱和 → 全局限速/停顿”。先后关系为：pending 债务（t=4.3 s）早于前台进入 delayed 限速（t≈36 s）与 imm 的任何持续增长（从不），即“债务先涨 → 债务触限 → 前台被限速”。按计划要求，这只是候选瓶颈（深层压实服务能力），因果性由 §5 的容量干预证明。",
+  "caveats_zh": [
+   "本环境存在双模态回放方差：工作量几乎不变（device WA 1.3× 内），变化的是设备交付速率（1.7×）；同一配置两次独立运行差值达 1.86×（71.2K vs 38.3K ops/s），与臂间差值同量级（bench/BOTTLENECK_REPORT.md:226）",
+   "单次运行不能判定任何容量效应；本报告的一切臂间比较使用 5 次重复的均值 ± 标准差，并同时给出同 rep 窗口内的配对比值以抵消设备状态的时序漂移（bench/BOTTLENECK_REPORT.md:239）",
+   "物理机制的候选解释：一次机器重启（rep1→rep2 之间）重置了设备内部状态，是 rep2 系统性快于 rep1 的候选原因——列为限制，未做受控验证（bench/BOTTLENECK_REPORT.md:245）",
+   "到达率 λ 是内生响应变量、不是外生固定的到达率，因此计划 §七 条件 1 的“固定到达率下”在本实验中由“闭环持续背压下的稳态”代替（bench/BOTTLENECK_REPORT.md:762）",
+   "设备 busy% 依赖 io_ticks，仅新运行有；旧 A 阶段运行无此列（标 n/a），例如 50gb_overwrite 与 100gb_overwrite 的 busy% 为 n/a（bench/CAMPAIGN_BN.md:114）",
+   "被引用作对照的 50gb_overwrite 与 100gb_overwrite 属旧 A 阶段运行，其设备 busy% 无 io_ticks 列（bench/BOTTLENECK_REPORT.md:215）"
+  ],
+  "sources": [
+   "bench/BOTTLENECK_REPORT.md:3",
+   "bench/BOTTLENECK_REPORT.md:8",
+   "bench/BOTTLENECK_REPORT.md:19",
+   "bench/BOTTLENECK_REPORT.md:128",
+   "bench/BOTTLENECK_REPORT.md:135",
+   "bench/BOTTLENECK_REPORT.md:143",
+   "bench/BOTTLENECK_REPORT.md:150",
+   "bench/BOTTLENECK_REPORT.md:157",
+   "bench/BOTTLENECK_REPORT.md:165",
+   "bench/BOTTLENECK_REPORT.md:166",
+   "bench/BOTTLENECK_REPORT.md:167",
+   "bench/BOTTLENECK_REPORT.md:169",
+   "bench/BOTTLENECK_REPORT.md:215",
+   "bench/BOTTLENECK_REPORT.md:217",
+   "bench/BOTTLENECK_REPORT.md:220",
+   "bench/BOTTLENECK_REPORT.md:226",
+   "bench/BOTTLENECK_REPORT.md:228",
+   "bench/BOTTLENECK_REPORT.md:237",
+   "bench/BOTTLENECK_REPORT.md:239",
+   "bench/BOTTLENECK_REPORT.md:243",
+   "bench/BOTTLENECK_REPORT.md:245",
+   "bench/BOTTLENECK_REPORT.md:247",
+   "bench/BOTTLENECK_REPORT.md:255",
+   "bench/BOTTLENECK_REPORT.md:259",
+   "bench/BOTTLENECK_REPORT.md:264",
+   "bench/BOTTLENECK_REPORT.md:762",
+   "bench/CAMPAIGN_BN.md:114"
+  ]
+ },
+ {
+  "id": "bench/I#ledger",
+  "title_zh": "stage I 修正 listener 槽位错标后的分阶段工作量账本",
+  "engine": [
+   "native"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "谁做了最多工作？先用 base_input_level/output_level 修正 OnCompactionCompleted 的 listener 槽位错标，再按“来源×层级”重算稳定覆盖写的 SST 写账本与逐层挂钟分解。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "稳定覆盖写（U = 46.49 GiB，50 GB 库；100 GB 点 U = 92.98 GiB）：12.8 M 次均匀覆盖写；账本数据源 bn_analyze.py ledger / levels",
+   "rocksdb_options": "配置 C（leveled、dynamic_level_bytes=1、实测 base level = L3、level0_trigger=8、max_background_jobs=8、max_subcompactions=8）",
+   "other": "trivial move 已从字节账本剔除并单列 n_triv（stats 的 output_bytes 含元数据移动、未写字节）；RocksDB 源码依据 db/db_impl/db_impl_compaction_flush.cc:4996 记录的是输入槽循环变量 i"
+  },
+  "results": [
+   {
+    "metric": "分来源账本（稳定覆盖写，U = 46.49 GiB）",
+    "value": "flush SST 写放大 1.001（46.6 GiB，占 12%）；intra-L0 0.099（4.6 GiB，1%）；L0→base 合并 1.752（81.5 GiB，21%，31 个 job）；深层级联 5.528（272.9 GiB，67%，2101 个 job）",
+    "unit": "×",
+    "condition": "50gb_overwrite（corrected 映射）",
+    "source": "bench/BOTTLENECK_REPORT.md:32"
+   },
+   {
+    "metric": "逐层挂钟占比",
+    "value": "L5→L6 = 52.9%（50 GB）/ 48.4%（100 GB）；L4→L5 = 27.7% / 35.6%；L3→L4 = 14.6% / 13.0%；L0→L3 = 4.4% / 2.9%（50 GB / 100 GB）",
+    "unit": "%",
+    "condition": "50gb_overwrite / 100gb_overwrite",
+    "source": "bench/BOTTLENECK_REPORT.md:39"
+   },
+   {
+    "metric": "job 构成（corrected，50gb_overwrite）",
+    "value": "31 个 L0→base（1.5%）、2101 个深层（98.4%）、4 个 intra-L0、237 个 trivial move",
+    "unit": "job",
+    "condition": "50gb_overwrite",
+    "source": "bench/BOTTLENECK_REPORT.md:188"
+   },
+   {
+    "metric": "逐层成本分解（50gb_overwrite，U = 46.49 GiB，压实 job 挂钟合计 7404 s）",
+    "value": "L0→L3 31 job、输出 81.45 GiB、324 s（4.4%）；L3→L4 534 job、69.28 GiB、1083 s（14.6%）；L4→L5 741 job、99.56 GiB、2051 s（27.7%）；L5→L6 826 job、104.08 GiB、3918 s（52.9%）；L0→L0 4 job、4.61 GiB、27 s（0.4%）",
+    "unit": "job / s",
+    "condition": "50gb_overwrite",
+    "source": "bench/BOTTLENECK_REPORT.md:198"
+   },
+   {
+    "metric": "逐层成本分解（100gb_overwrite，挂钟合计 27729 s）",
+    "value": "L0→L3 814 s（2.9%）、L3→L4 3616 s（13.0%）、L4→L5 9861 s（35.6%）、L5→L6 13434 s（48.4%）",
+    "unit": "s",
+    "condition": "100gb_overwrite",
+    "source": "bench/BOTTLENECK_REPORT.md:204"
+   },
+   {
+    "metric": "L0→base 输出与下游深层重写的比例",
+    "value": "每单位 L0→base 合并输出（1.75×U）在下游引发约 3.2 倍于它的深层重写（5.53×U）——数据每下沉一层被重写一次",
+    "unit": "×",
+    "condition": "50gb_overwrite",
+    "source": "bench/BOTTLENECK_REPORT.md:189"
+   },
+   {
+    "metric": "修正前后的 job 归因对比",
+    "value": "旧报告据此把所有 compaction job 都归为“含 L0 输入”（填库 807/807、覆盖写 2136/2136）——这是伪象；用真实层级重算后稳定覆盖写里 98.4% 的压实 job（2101/2136）是深层级联（3→4、4→5、5→6），真正的 L0→base 合并只有 31 个 job",
+    "unit": "job",
+    "condition": "勘误 §1",
+    "source": "bench/BOTTLENECK_REPORT.md:87"
+   },
+   {
+    "metric": "100 GB 点与旧报告一致性",
+    "value": "100 GB 点（96 M 键，SST 94 GiB，明确超过内存）的账本与结论（§3.2 表：SST WA 8.08 填库 / 11.01 覆盖写，深层级联占 62%/75%）与本报告一致",
+    "unit": "×",
+    "condition": "100gb_fill_r5 / 100gb_overwrite",
+    "source": "bench/BOTTLENECK_REPORT.md:110"
+   },
+   {
+    "metric": "旧结论中不受影响的部分",
+    "value": "总 SST 写放大（账本来自 OnTableFileCreated 真实文件字节）、三源交叉验证、停顿并集时长、读路径、空间/内存/恢复结论——这些不依赖逐 job 层级归因",
+    "unit": "—",
+    "condition": "§1 勘误",
+    "source": "bench/BOTTLENECK_REPORT.md:92"
+   },
+   {
+    "metric": "受勘误影响的旧表述",
+    "value": "W_L0base 应分解为“L0→base 合并输出 + 深层级联输出”两栏（总量不变），“L0→base 占 71–91%”应读作“compaction 总量占 71–91%，其中深层级联是大头”",
+    "unit": "—",
+    "condition": "§1 勘误",
+    "source": "bench/BOTTLENECK_REPORT.md:94"
+   }
+  ],
+  "evaluation_zh": "判定：谁做了最多工作的答案是深层级联压实（L4→L5 与 L5→L6），不是 flush，也不是 L0→base 合并本身——L5→L6 占 52.9%（50 GB）/ 48.4%（100 GB）的压实挂钟，L4→L5 占 27.7% / 35.6%，而 L0→base 只占 3–4%（50 GB）到 2.9%（100 GB）。把 L0 当作成本中心的旧口径必须修正为“L0 是触发者，深层级联是成本主体”。",
+  "caveats_zh": [
+   "勘误（方法论修正）：RocksDB EventListener::OnCompactionCompleted 的 input_file_infos[i].level 填的是 compaction 内部输入槽位序号（0..num_input_levels−1），不是 LSM 层级；真实层级需用 base_input_level / output_level 恢复（bench/BOTTLENECK_REPORT.md:81）",
+   "旧报告 L0_INVESTIGATION_REPORT.md 的逐 job 层级归因受该错标影响，总量级结论不受影响，但“L0→base 占 71–91%”的读法必须修正（bench/BOTTLENECK_REPORT.md:88）",
+   "trivial move 已从字节账本剔除（stats 的 output_bytes 含元数据移动、未写字节），n_triv 单列（bench/BOTTLENECK_REPORT.md:177）",
+   "本报告的 U 分母口径为应用确认字节（含重复版本）；50gb_fill_r11 的压实 job 数列为“(旧数)”，未用修正映射重算（bench/BOTTLENECK_REPORT.md:182）"
+  ],
+  "sources": [
+   "bench/BOTTLENECK_REPORT.md:3",
+   "bench/BOTTLENECK_REPORT.md:26",
+   "bench/BOTTLENECK_REPORT.md:32",
+   "bench/BOTTLENECK_REPORT.md:37",
+   "bench/BOTTLENECK_REPORT.md:39",
+   "bench/BOTTLENECK_REPORT.md:81",
+   "bench/BOTTLENECK_REPORT.md:87",
+   "bench/BOTTLENECK_REPORT.md:88",
+   "bench/BOTTLENECK_REPORT.md:92",
+   "bench/BOTTLENECK_REPORT.md:94",
+   "bench/BOTTLENECK_REPORT.md:110",
+   "bench/BOTTLENECK_REPORT.md:177",
+   "bench/BOTTLENECK_REPORT.md:181",
+   "bench/BOTTLENECK_REPORT.md:182",
+   "bench/BOTTLENECK_REPORT.md:188",
+   "bench/BOTTLENECK_REPORT.md:189",
+   "bench/BOTTLENECK_REPORT.md:198",
+   "bench/BOTTLENECK_REPORT.md:204",
+   "bench/BOTTLENECK_REPORT.md:207",
+   "bench/BOTTLENECK_REPORT.md:209"
+  ]
+ },
+ {
+  "id": "bench/I#flush_scan",
+  "title_zh": "stage I Flush 容量扫描（F = 1 / 2 / 4）",
+  "engine": [
+   "native"
+  ],
+  "category": "capacity_sweep",
+  "purpose_zh": "降低或提高 Flush 线程数（F∈{1,2,4}，C 固定 6）是否使 immutable 队列增长、或改善前台吞吐与尾延迟？并先用单流隔离实验给出 flush 的服务率上限与可证伪预测。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "标准覆盖写轨迹（12.8 M 次写）；flush 隔离臂为单写线程、自动压实关闭、后台只剩 flush，write_buffer_size ∈ {64 MiB, 256 MiB, 1 GiB, 8 GiB}",
+   "rocksdb_options": "max_background_flushes ∈ {1,2,4}（默认派生 2），max_background_compactions=6 固定；隔离臂 disable_auto_compactions=1、trigger=1000",
+   "other": "每臂 5 次重复、rep-major 轮转交错；报 mean ± sd 与同 rep 窗口内的配对比值（bn_analyze.py paired）"
+  },
+  "results": [
+   {
+    "metric": "f1（F=1）",
+    "value": "到达相位吞吐 54,680 ± 22,138 ops/s；配对比值 vs default 1.185 ± 0.545；imm 中位 2.60；immutable 停顿行 365；flush 池占用 86%；flush 排队 p50 44.6 s；停顿并集 29.3%",
+    "unit": "ops/s",
+    "condition": "f1（n=5）",
+    "source": "bench/BOTTLENECK_REPORT.md:439"
+   },
+   {
+    "metric": "default（F=2）",
+    "value": "到达相位吞吐 49,049 ± 14,972 ops/s；配对比值 1.000；imm 中位 1.00；immutable 停顿行 166；flush 池占用 45%；flush 排队 p50 0.1 ms；停顿并集 31.5%",
+    "unit": "ops/s",
+    "condition": "default（n=5）",
+    "source": "bench/BOTTLENECK_REPORT.md:440"
+   },
+   {
+    "metric": "f4（F=4）",
+    "value": "到达相位吞吐 50,864 ± 11,802 ops/s；配对比值 1.092 ± 0.290；imm 中位 0.40；immutable 停顿行 137；flush 池占用 23%；flush 排队 p50 0.1 ms；停顿并集 32.0%",
+    "unit": "ops/s",
+    "condition": "f4（n=5）",
+    "source": "bench/BOTTLENECK_REPORT.md:441"
+   },
+   {
+    "metric": "支持条件 1（队列增长）",
+    "value": "F=1：imm 中位 1.00→2.60、immutable 停顿行 166→365、flush 池占用 45%→86%、flush 排队 p50 0.1 ms→44.6 s —— 支持（效应明确、方向正确）",
+    "unit": "—",
+    "condition": "计划 §四.1 判据 1",
+    "source": "bench/BOTTLENECK_REPORT.md:447"
+   },
+   {
+    "metric": "支持条件 4（前台吞吐提高）",
+    "value": "F=4 配对比值 1.092 ± 0.290；与等价对照（x_f2c6 vs default = 0.897 ± 0.337）同量级 —— 不支持（无显著收益）",
+    "unit": "—",
+    "condition": "计划 §四.1 判据 4",
+    "source": "bench/BOTTLENECK_REPORT.md:450"
+   },
+   {
+    "metric": "支持条件 2（MemTable stop 增加）",
+    "value": "停顿并集 31.5%→29.3%（未增加）；is-write-stopped 采样点数 12→13 —— 不支持",
+    "unit": "—",
+    "condition": "计划 §四.1 判据 2",
+    "source": "bench/BOTTLENECK_REPORT.md:448"
+   },
+   {
+    "metric": "flush 单流服务率（隔离实验 §4.1）",
+    "value": "write_buffer 64 MiB：flush 154 次、单流服务率 424 MB/s、wall/次 146 ms、device WA 1.01；256 MiB：38 次、409 MB/s、608 ms、1.00；1 GiB：9 次、308 MB/s、3.23 s、0.95；8 GiB：1 次、593 MB/s、13.4 s、1.84",
+    "unit": "MB/s",
+    "condition": "bn_isoflush_{wb64m,wb256m,wb1g,wb8g}",
+    "source": "bench/BOTTLENECK_REPORT.md:279"
+   },
+   {
+    "metric": "flush 的设备读",
+    "value": "设备读恒为 0（flush 输入全在内存）；device WA ≈ 1（只把数据写了一遍）",
+    "unit": "GB",
+    "condition": "bn_isoflush_*",
+    "source": "bench/BOTTLENECK_REPORT.md:284"
+   },
+   {
+    "metric": "flush 服务率与到达率的对照",
+    "value": "默认配置 F=2 时聚合 μ_flush ≈ 800+ MB/s，而本负载无约束峰值到达率 λ ≈ 230 MB/s、限速后稳态 λ ≈ 16–30 MB/s——到达率远低于 flush 服务率",
+    "unit": "MB/s",
+    "condition": "§4.1 结论",
+    "source": "bench/BOTTLENECK_REPORT.md:290"
+   },
+   {
+    "metric": "flush 的进程 CPU 成本",
+    "value": "进程 CPU（写路径+flush 合计）随 memtable 变大而上升：5.5 → 7.3 核秒/GiB",
+    "unit": "核秒/GiB",
+    "condition": "bn_isoflush_*",
+    "source": "bench/BOTTLENECK_REPORT.md:294"
+   }
+  ],
+  "evaluation_zh": "判定：Flush 服务能力在 F=1 时确实成为排队意义上的约束（排队时间从 0.1 ms 涨到 44.6 s，immutable 与 immutable 类停顿翻倍），但提高 Flush 能力不改善端到端吞吐（F=4 配对 1.092 ± 0.290，与等价对照 0.897 ± 0.337 同量级）。按计划自己给出的反证条件原文——“如果 Flush 负载很高，但改变 Flush 能力不影响前台吞吐，那么 Flush 是高成本阶段，但不是当前端到端瓶颈”——Flush 不是端到端瓶颈。",
+  "caveats_zh": [
+   "本环境回放噪声（同配置 1.86×、工作量不变而交付带宽 1.7×）大于计划所设想的单阶段容量旋钮效应的量级，因此 ±20% 量级的容量效应无法在有限重复下分辨（bench/BOTTLENECK_REPORT.md:335）",
+   "单臂 5 次重复不足以把 CI 收到 10% 以内：等价对照 default vs x_f2c6 的配对 sd 为 ±0.33（约 33%），本轮设计能可靠检出的最小效应约在 1.5–2× 量级（bench/BOTTLENECK_REPORT.md:754）",
+   "两个统计窗口（整个到达相位 vs 到达相位后 70%）给出相反排序，说明这些排序差异是度量窗口的产物而不是效应（bench/BOTTLENECK_REPORT.md:404）",
+   "8 GiB flush 隔离臂的 device WA 1.84 来自该臂本身几乎不 flush、而 WAL 与收尾 flush 各写了一遍，属该臂的构造特性（bench/BOTTLENECK_REPORT.md:285）",
+   "排序/编码/压缩的 CPU 时间不可从公共 API 分离；compression=none 下无压缩 CPU（bench/BOTTLENECK_REPORT.md:296）"
+  ],
+  "sources": [
+   "bench/BOTTLENECK_REPORT.md:3",
+   "bench/BOTTLENECK_REPORT.md:68",
+   "bench/BOTTLENECK_REPORT.md:279",
+   "bench/BOTTLENECK_REPORT.md:284",
+   "bench/BOTTLENECK_REPORT.md:285",
+   "bench/BOTTLENECK_REPORT.md:289",
+   "bench/BOTTLENECK_REPORT.md:290",
+   "bench/BOTTLENECK_REPORT.md:294",
+   "bench/BOTTLENECK_REPORT.md:296",
+   "bench/BOTTLENECK_REPORT.md:335",
+   "bench/BOTTLENECK_REPORT.md:339",
+   "bench/BOTTLENECK_REPORT.md:404",
+   "bench/BOTTLENECK_REPORT.md:439",
+   "bench/BOTTLENECK_REPORT.md:440",
+   "bench/BOTTLENECK_REPORT.md:441",
+   "bench/BOTTLENECK_REPORT.md:447",
+   "bench/BOTTLENECK_REPORT.md:448",
+   "bench/BOTTLENECK_REPORT.md:450",
+   "bench/BOTTLENECK_REPORT.md:454",
+   "bench/BOTTLENECK_REPORT.md:754"
+  ]
+ },
+ {
+  "id": "bench/I#comp_scan",
+  "title_zh": "stage I 压实容量扫描（C=2/6/12、SC=1/8/16）与 F×C 矩阵",
+  "engine": [
+   "native"
+  ],
+  "category": "capacity_sweep",
+  "purpose_zh": "提高 L0→base / 深层压实的 worker 数与单 job 内并行度（C∈{2,6,12}、SC∈{1,8,16} 及 F×C 矩阵）能否降低积压、改善尾延迟并提高端到端吞吐？",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "标准覆盖写轨迹（12.8 M 次均匀更新 = 12.40 GiB 应用确认字节），每臂 5 次重复（次要臂 3 次），rep-major 轮转交错，闭环饱和 16 线程，运行结束自然排空",
+   "rocksdb_options": "max_background_compactions ∈ {2,6,12}（默认派生 6），max_background_flushes=2 固定；max_subcompactions ∈ {1,8,16}；矩阵组合 default、f1c12、f4c2、f4c12s16、f1c2",
+   "other": "主指标 = 到达相位吞吐（确认 ops 数 / 确认 ops 停止增长的时刻）；并报同 rep 窗口内的配对比值以抵消设备状态时序漂移"
+  },
+  "results": [
+   {
+    "metric": "c2（C=2）",
+    "value": "到达相位吞吐 52,117 ± 2,546 ops/s；配对比值 1.140 ± 0.326；device WA 8.70 ± 0.09；devBusy 84%；compaction 池占用 88%；pending 中位 66.8 GiB",
+    "unit": "ops/s",
+    "condition": "c2（n=5）",
+    "source": "bench/BOTTLENECK_REPORT.md:462"
+   },
+   {
+    "metric": "default（C=6）",
+    "value": "到达相位吞吐 49,049 ± 14,972 ops/s；配对比值 1.000；device WA 9.12 ± 0.22；devBusy 94%；池占用 90%；pending 中位 65.0 GiB",
+    "unit": "ops/s",
+    "condition": "default（n=5）",
+    "source": "bench/BOTTLENECK_REPORT.md:463"
+   },
+   {
+    "metric": "c12（C=12）",
+    "value": "到达相位吞吐 43,967 ± 5,678 ops/s；配对比值 0.961 ± 0.284；device WA 9.40 ± 0.43；devBusy 93%；池占用 79%；pending 中位 57.8 GiB",
+    "unit": "ops/s",
+    "condition": "c12（n=5）",
+    "source": "bench/BOTTLENECK_REPORT.md:464"
+   },
+   {
+    "metric": "s1 与 s16（subcompaction 扫描）",
+    "value": "s1（SC=1）：59,041 ± 2,024 ops/s、配对 1.119 ± 0.379、device WA 8.46 ± 0.40、devBusy 81%、池占用 78%、pending 66.0 GiB；s16（SC=16）：47,307 ± 3,836、0.905 ± 0.350、8.96 ± 0.15、94%、92%、65.3 GiB",
+    "unit": "ops/s",
+    "condition": "s1 / s16（n=3）",
+    "source": "bench/BOTTLENECK_REPORT.md:465"
+   },
+   {
+    "metric": "压实并发度与写放大的单调关系",
+    "value": "C=2 → 6 → 12 的 device WA 为 8.70 ± 0.09 → 9.12 ± 0.22 → 9.40 ± 0.43（单调上升，8.70 vs 9.40 相差约 1.6 个合并 sd）；s1 最低 8.46 ± 0.40，f1c12（F=1/C=12）最高 10.45 ± 0.65",
+    "unit": "×",
+    "condition": "c2 / default / c12 / s1 / f1c12",
+    "source": "bench/BOTTLENECK_REPORT.md:480"
+   },
+   {
+    "metric": "吞吐 × device WA（跨臂不变量）",
+    "value": "noc 217.6、s1 215.8、c2 213.8、c12 206.2、f1c12 203.4、default 196.8、f4c2 195.0（×10³），落在 195–218×10³（离散度 1.12×，远小于吞吐自身的 1.31×），即吞吐 ≈ μ / WA，μ ≈ 200 MB/s 与所有容量旋钮无关",
+    "unit": "×10³",
+    "condition": "7 个臂",
+    "source": "bench/BOTTLENECK_REPORT.md:489"
+   },
+   {
+    "metric": "计划 §四.2 判据 1/3/4 的结果",
+    "value": "判据1 不支持（c2 的 L0 中位 7.8→5.2 下降）；判据3 不支持（反向：c2 的 imm 中位 1.00→0.00、immutable 停顿行 166→89）；判据4 不支持（c12 使 pending 65.0→57.8 GiB 略降，但吞吐 0.961±0.284 无收益、停顿行 166→397 恶化、device WA 9.12→9.40 恶化）",
+    "unit": "—",
+    "condition": "计划 §四.2 判据",
+    "source": "bench/BOTTLENECK_REPORT.md:472"
+   },
+   {
+    "metric": "全部容量臂的噪声带",
+    "value": "全部容量臂（除 noc）落在 32,696–59,041 ops/s = 1.81× 之内；若剔除唯一可分辨的 f1c12，其余 11 臂为 43,967–59,041 = 1.34×；功能等价对照 x_f2c6 与 default 相差 4%",
+    "unit": "×",
+    "condition": "12 个容量臂",
+    "source": "bench/BOTTLENECK_REPORT.md:374"
+   },
+   {
+    "metric": "唯一可分辨的负效应（f1c12）",
+    "value": "f1c12（F=1/C=12）：到达相位吞吐 32,696 ± 6,549 ops/s、相对 default 0.67×（边缘，t≈2.2）、immL 720、devWA 10.45；p50 98.3 µs（+41%）",
+    "unit": "ops/s",
+    "condition": "f1c12（n=5）",
+    "source": "bench/BOTTLENECK_REPORT.md:371"
+   },
+   {
+    "metric": "尾延迟被限速机制钉住",
+    "value": "p99 在全部 8 个压实臂上被写字控制器钉成同一个值（6.55–6.61 ms）；只有移除压实工作量才能改善尾延迟（noc p99 113 µs，58×）；p50 对所有容量臂几乎不变（59–70 µs），除 f1c12（98.3 µs，+41%）",
+    "unit": "ms",
+    "condition": "8 个压实臂 vs noc",
+    "source": "bench/BOTTLENECK_REPORT.md:424"
+   },
+   {
+    "metric": "两个统计窗口给出相反排序",
+    "value": "到达相位 vs 稳态窗口（后 70%）：c2 从 4 名掉到最末（52,117 → 20,779）、s1 从最高掉到第十（59,041 → 24,231）；反向地 c12、f4c12s16、f1 在稳态窗口上升；两个窗口的稳态离散度 1.68×，到达相位离散度 1.81× /（剔 f1c12）1.34×",
+    "unit": "ops/s",
+    "condition": "§5.0c 统计窗口对照",
+    "source": "bench/BOTTLENECK_REPORT.md:399"
+   },
+   {
+    "metric": "F×C 二维矩阵",
+    "value": "F 低（1）：f1c2 50,186 ± 10,335（1.02）immL 172；f1 54,680 ± 22,138（1.11）immL 365；f1c12 32,696 ± 6,549（0.67）immL 720 devWA 10.45；F 中（2）：c2 52,117 ± 2,546（1.06）devWA 8.70、default 49,049 ± 14,972（1.00）、c12 43,967 ± 5,678（0.90）；F 高（4）：f4c2 51,756 ± 7,637（1.06）、f4 50,864 ± 11,802（1.04）、f4c12s16 52,368 ± 14,139（1.07）",
+    "unit": "ops/s",
+    "condition": "§5.3 二维矩阵",
+    "source": "bench/BOTTLENECK_REPORT.md:508"
+   }
+  ],
+  "evaluation_zh": "判定：提高 L0→base / 深层压实的 worker 数与单 job 并行度都不改善吞吐，且提高并发会因重复重写（动态层级下同层并发文件键区间 100% 重叠）而降低有效吞吐——提高压实并行度买到的是重复工作，不是有效吞吐。计划判据 1、4 被数据反向否证。压实阶段（含 L0→base 与深层）的 worker 容量不是端到端瓶颈；吞吐由“服务率 / 写放大”决定，不由池子大小决定。",
+  "caveats_zh": [
+   "两个统计窗口给出相反排序：说明 ±20% 量级的臂间差异不可判定；本报告的容量扫描结论是“无系统效应”而不是“某臂更优”，存在小于噪声带的真实效应被漏检的可能（对 1.34× 带内的效应不敏感）（bench/BOTTLENECK_REPORT.md:751）",
+   "单臂 5 次重复不足以把 CI 收到 10% 以内：等价对照 default vs x_f2c6 的配对 sd 为 ±0.33（约 33%），即本轮设计能可靠检出的最小效应约在 1.5–2× 量级（bench/BOTTLENECK_REPORT.md:754）",
+   "本环境的回放噪声（同配置 1.86×、工作量不变而交付带宽 1.7×）大于容量旋钮效应的量级（bench/BOTTLENECK_REPORT.md:335）",
+   "F 方向在 C=12 列的变化来自 f1c12 这一个最差组合，而非“加 F 变快”（bench/BOTTLENECK_REPORT.md:518）",
+   "所有容量臂（54/54）通过冻结逻辑状态校验（2401/2401 键值正确），臂间差异不可能来自负载不同（bench/BOTTLENECK_REPORT.md:248）"
+  ],
+  "sources": [
+   "bench/BOTTLENECK_REPORT.md:3",
+   "bench/BOTTLENECK_REPORT.md:70",
+   "bench/BOTTLENECK_REPORT.md:248",
+   "bench/BOTTLENECK_REPORT.md:328",
+   "bench/BOTTLENECK_REPORT.md:335",
+   "bench/BOTTLENECK_REPORT.md:356",
+   "bench/BOTTLENECK_REPORT.md:371",
+   "bench/BOTTLENECK_REPORT.md:374",
+   "bench/BOTTLENECK_REPORT.md:378",
+   "bench/BOTTLENECK_REPORT.md:399",
+   "bench/BOTTLENECK_REPORT.md:410",
+   "bench/BOTTLENECK_REPORT.md:424",
+   "bench/BOTTLENECK_REPORT.md:462",
+   "bench/BOTTLENECK_REPORT.md:463",
+   "bench/BOTTLENECK_REPORT.md:464",
+   "bench/BOTTLENECK_REPORT.md:465",
+   "bench/BOTTLENECK_REPORT.md:472",
+   "bench/BOTTLENECK_REPORT.md:480",
+   "bench/BOTTLENECK_REPORT.md:489",
+   "bench/BOTTLENECK_REPORT.md:497",
+   "bench/BOTTLENECK_REPORT.md:500",
+   "bench/BOTTLENECK_REPORT.md:508",
+   "bench/BOTTLENECK_REPORT.md:518",
+   "bench/BOTTLENECK_REPORT.md:751",
+   "bench/BOTTLENECK_REPORT.md:754"
+  ]
+ },
+ {
+  "id": "bench/I#noc",
+  "title_zh": "stage I 决定性干预 noc（移除压实工作量）",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "移除压实产生的全部设备工作（disable_auto_compactions=1，同时解除 L0 限流并放宽 memtable 数），检验端到端吞吐的限制是来自压实工作量还是写路径本身。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "标准覆盖写轨迹（12.8 M 次均匀更新），5 次独立重复",
+   "rocksdb_options": "noc 臂：disable_auto_compactions=1，level0_trigger/slowdown/stop=100000，max_write_buffer_number=8；其余同主配置 P",
+   "other": "臂命令 bn_extra.sh noc；期望效应远大于回放噪声（数量级级别），用于计划 §七 第三条件的因果判定"
+  },
+  "results": [
+   {
+    "metric": "到达相位吞吐（主指标）",
+    "value": "499,169 ± 20,462 ops/s（noc，n=5） vs 49,049 ± 14,972 ops/s（default，n=5），相对 default 10.18×（t≈68）",
+    "unit": "ops/s",
+    "condition": "noc vs default",
+    "source": "bench/BOTTLENECK_REPORT.md:372"
+   },
+   {
+    "metric": "整轮均值吞吐与 U 率",
+    "value": "default 21,582 ops/s（22.4 MB/s U） → noc 213,295 ops/s（221.8 MB/s U），9.9×",
+    "unit": "ops/s",
+    "condition": "noc vs default（整轮）",
+    "source": "bench/BOTTLENECK_REPORT.md:532"
+   },
+   {
+    "metric": "device WA",
+    "value": "9.12 → 1.02（1/8.9）",
+    "unit": "×",
+    "condition": "noc vs default",
+    "source": "bench/BOTTLENECK_REPORT.md:536"
+   },
+   {
+    "metric": "停顿与设备忙率",
+    "value": "停顿并集/停顿行 31.5% / 87 → 0.5% / 0；设备忙率 93.5% → 52.2%；compaction 池占用 90% → 0%",
+    "unit": "%",
+    "condition": "noc vs default",
+    "source": "bench/BOTTLENECK_REPORT.md:538"
+   },
+   {
+    "metric": "尾延迟",
+    "value": "p99 6.55 ms → 113 µs（58× 改善）；p99.9 419.4 µs（16× 改善）；p50 57.3 µs",
+    "unit": "µs",
+    "condition": "noc vs default",
+    "source": "bench/BOTTLENECK_REPORT.md:413"
+   },
+   {
+    "metric": "其他资源量（noc vs default）",
+    "value": "整轮挂钟 601 s → 60 s（1/10）；设备写入量 121.4 GB → 13.6 GB（1/8.9）；压实 job 数 405（深层 394）→ 0",
+    "unit": "s / GB",
+    "condition": "noc vs default",
+    "source": "bench/BOTTLENECK_REPORT.md:534"
+   },
+   {
+    "metric": "SST 退休率对照",
+    "value": "移除压实后 SST 退休率不变：default 200 MB/s 对 noc 211 MB/s",
+    "unit": "MB/s",
+    "condition": "noc vs default",
+    "source": "bench/BOTTLENECK_REPORT.md:543"
+   },
+   {
+    "metric": "吞吐 × device WA（noc）",
+    "value": "217.6×10³（容量臂中最高，与 μ ≈ 200 MB/s 的模型一致）",
+    "unit": "×10³",
+    "condition": "noc",
+    "source": "bench/BOTTLENECK_REPORT.md:489"
+   }
+  ],
+  "evaluation_zh": "判定：这是本轮唯一产生数量级差异的干预（5 次重复）——移除压实后前台吞吐提高 9.9×（整轮）/ 10.2×（到达相位），停顿近乎消失，而设备忙率反而降到 52%（即设备尚有余量）。这证明：设备并非物理上写不动，而是其容量被 9 倍于用户数据的压实重写占满；写路径（flush）本身可以以 ~200 MB/s 服务，远高于有压实时的 ~22 MB/s。因此限制端到端吞吐的是压实产生的工作量（device WA），而非任何阶段的 worker 容量。边界：noc 同时解除了 L0 限流并放宽了 memtable 数，所以它证明的是“压实工作量”这一整体是约束，不区分压实内部是哪一层。",
+  "caveats_zh": [
+   "边界：noc 同时解除了 L0 限流（level0_* = 100000）并放宽了 memtable 数，所以它证明的是“压实工作量”这一整体是约束，不区分压实内部是哪一层；区分层次由逐层归因承担（bench/BOTTLENECK_REPORT.md:550）",
+   "noc 臂未跑冻结状态校验（--mode=verify）；它复用同一条固定种子轨迹与同一输入参数，差异只在引擎选项，但其最终逻辑状态未经回读确认（脚本级证据：轨迹由固定种子置换生成，运行日志中的 ops=12800000 与 U=12.40GB 在各臂一致）（bench/BOTTLENECK_REPORT.md:768）",
+   "对 1.34× 带内的效应不敏感：存在小于噪声带的真实效应被漏检的可能（bench/BOTTLENECK_REPORT.md:753）"
+  ],
+  "sources": [
+   "bench/BOTTLENECK_REPORT.md:3",
+   "bench/BOTTLENECK_REPORT.md:55",
+   "bench/BOTTLENECK_REPORT.md:372",
+   "bench/BOTTLENECK_REPORT.md:413",
+   "bench/BOTTLENECK_REPORT.md:427",
+   "bench/BOTTLENECK_REPORT.md:489",
+   "bench/BOTTLENECK_REPORT.md:532",
+   "bench/BOTTLENECK_REPORT.md:534",
+   "bench/BOTTLENECK_REPORT.md:536",
+   "bench/BOTTLENECK_REPORT.md:538",
+   "bench/BOTTLENECK_REPORT.md:540",
+   "bench/BOTTLENECK_REPORT.md:543",
+   "bench/BOTTLENECK_REPORT.md:546",
+   "bench/BOTTLENECK_REPORT.md:550",
+   "bench/BOTTLENECK_REPORT.md:671",
+   "bench/BOTTLENECK_REPORT.md:687",
+   "bench/BOTTLENECK_REPORT.md:753",
+   "bench/BOTTLENECK_REPORT.md:768",
+   "bench/CAMPAIGN_BN.md:54"
+  ]
+ },
+ {
+  "id": "bench/I#geom",
+  "title_zh": "stage I 深层几何干预（mc8g / mult20）",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "用 max_compaction_bytes=8G（扩大批量）与 max_bytes_for_level_multiplier=20（加宽层级）两种“目标层大小/调度”杠杆，检验深层级联工作量能否被结构性削减并带来吞吐收益。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "标准覆盖写轨迹；mc8g 与 mult20 各 n=3，逐层结构各取 1 次运行（bn_analyze.py levels）用于看工作是否换了位置",
+   "rocksdb_options": "mc8g：max_compaction_bytes=8G（默认 ~1.6G）；mult20：max_bytes_for_level_multiplier=20（默认 10）；其余同主配置 P；原计划的 num_levels 削减被引擎拒绝",
+   "other": "臂命令 bn_extra.sh deep；num_levels=5/4 施加于已存在的 7 层库被拒绝（Invalid argument: db has more levels than options.num_levels）"
+  },
+  "results": [
+   {
+    "metric": "default（对照）",
+    "value": "device WA 9.12 ± 0.22（n=5）；压实输出总量 ~104 GiB；到达相位吞吐 49,049 ± 14,972 ops/s",
+    "unit": "×",
+    "condition": "default",
+    "source": "bench/BOTTLENECK_REPORT.md:562"
+   },
+   {
+    "metric": "mc8g（max_compaction_bytes=8G）",
+    "value": "device WA 8.94 ± 0.12（−2%，n=3）；压实输出总量 102.0 GiB；到达相位吞吐 34,690 ± 737 ops/s；相对 default 0.71×（t≈2.1，边缘）",
+    "unit": "×",
+    "condition": "mc8g",
+    "source": "bench/BOTTLENECK_REPORT.md:563"
+   },
+   {
+    "metric": "mult20（max_bytes_for_level_multiplier=20）",
+    "value": "device WA 8.89 ± 0.24（−2.5%，n=3）；压实输出总量 98.0 GiB（−6%）；到达相位吞吐 37,077 ± 4,733 ops/s；相对 default 0.76×（带内）",
+    "unit": "×",
+    "condition": "mult20",
+    "source": "bench/BOTTLENECK_REPORT.md:564"
+   },
+   {
+    "metric": "逐层结构变化的搬移（各 1 次运行）",
+    "value": "default_r1：L0→L3 20.66、L3→L4 16.49、L4→L5 24.88、L5→L6 37.87、合计 99.9 GiB；mc8g_r1：21.12 / 17.04 / 22.37 / 40.24 / 100.8；mult20_r1：21.10 / 16.87 / 27.18（+9%）/ 29.61（−22%）/ 94.8",
+    "unit": "GiB",
+    "condition": "default_r1 / mc8g_r1 / mult20_r1",
+    "source": "bench/BOTTLENECK_REPORT.md:570"
+   },
+   {
+    "metric": "num_levels 干预不可行",
+    "value": "num_levels=5/4 施加于已存在的 7 层库被拒绝：Invalid argument: db has more levels than options.num_levels；层数只能在建库时决定",
+    "unit": "—",
+    "condition": "deep nl5 / nl4",
+    "source": "bench/BOTTLENECK_REPORT.md:558"
+   },
+   {
+    "metric": "唯一被证明能大幅改变深层工作量的手段",
+    "value": "到达几何：旧报告升序到达使 SST WA 降到 1.008×、L0→base 重写为 0；本轮 zipf 使 WA 降到 ~2.0、到达相位吞吐 281–392 K ops/s",
+    "unit": "×",
+    "condition": "§5.5 结论 / §0.2",
+    "source": "bench/BOTTLENECK_REPORT.md:582"
+   }
+  ],
+  "evaluation_zh": "判定：两个杠杆都无法实质性削减深层工作量，也没有带来吞吐收益——max_compaction_bytes 扩大批量对总输出几乎无效（102.0 vs 104 GiB，WA 8.94 vs 9.12）；max_bytes_for_level_multiplier=20 把最后一层输出减少 22%，但把工作转移到 L4→L5（+9%），净减少只有 6%，吞吐反而略低（0.71–0.76×）。这与旧报告 E8“把重写从一处挪到另一处，不等于减少重写”是同一现象。因此在本负载下 leveled compaction 的深层级联工作量是结构性的，不能靠调度/尺寸旋钮调低；改变层几何/批量尺寸这一手段实测无效。",
+  "caveats_zh": [
+   "num_levels 下调不可行（引擎拒绝），因此“减少级联层数”这一最直接的深层干预未测；仅测了 max_bytes_for_level_multiplier 与 max_compaction_bytes 两个较弱的几何杠杆（bench/BOTTLENECK_REPORT.md:749）",
+   "mc8g 的 0.71×（t≈2.1）为边缘显著，mult20 的 0.76× 落在噪声带内（bench/BOTTLENECK_REPORT.md:563）",
+   "逐层结构表各取 1 次运行，只用于看工作是否换了位置，不作为统计判定（bench/BOTTLENECK_REPORT.md:566）",
+   "两个臂的吞吐都不高于 default（点估计更低），说明改变层几何/批量尺寸不是削减这笔工作量的有效手段（bench/BOTTLENECK_REPORT.md:578）"
+  ],
+  "sources": [
+   "bench/BOTTLENECK_REPORT.md:3",
+   "bench/BOTTLENECK_REPORT.md:58",
+   "bench/BOTTLENECK_REPORT.md:61",
+   "bench/BOTTLENECK_REPORT.md:74",
+   "bench/BOTTLENECK_REPORT.md:554",
+   "bench/BOTTLENECK_REPORT.md:558",
+   "bench/BOTTLENECK_REPORT.md:562",
+   "bench/BOTTLENECK_REPORT.md:563",
+   "bench/BOTTLENECK_REPORT.md:564",
+   "bench/BOTTLENECK_REPORT.md:566",
+   "bench/BOTTLENECK_REPORT.md:570",
+   "bench/BOTTLENECK_REPORT.md:574",
+   "bench/BOTTLENECK_REPORT.md:577",
+   "bench/BOTTLENECK_REPORT.md:578",
+   "bench/BOTTLENECK_REPORT.md:582",
+   "bench/BOTTLENECK_REPORT.md:715",
+   "bench/BOTTLENECK_REPORT.md:749",
+   "bench/CAMPAIGN_BN.md:82"
+  ]
+ },
+ {
+  "id": "bench/I#devload",
+  "title_zh": "stage I 设备争用干预（devload2：注入可核验的背景随机写）",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "注入受控背景设备负载（O_DIRECT 4 KiB 随机写、16 线程，与压实设备流量同量级），让 devbench 周期打印注入速率以核验注入量，检验设备服务容量是否为共享约束。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": "ext4（devbench 走 ext4 + O_DIRECT）",
+   "engine_version": "11.2.0",
+   "binary_path": "bench/tools/devbench（源码 bench/tools/devbench.c，编译产物不随仓库入库）",
+   "workload": "标准覆盖写负载同时运行；devbench FILE 8 16 0（8 GiB 文件、16 线程、O_DIRECT 4 KiB 随机写），devbench 每 5 s 打印自己的速率；db 起量前为起始速率、t≈300 s 为稳态速率",
+   "rocksdb_options": "主配置 P（默认容量 F=2/C=6）",
+   "other": "3 次运行（bn_devload2_r1/r2/r3）；判定依据是注入写者被挤压的幅度，而非前台吞吐的百分比变化"
+  },
+  "results": [
+   {
+    "metric": "bn_devload2_r1 注入写者速率降幅",
+    "value": "注入写者起始速率 18,146 IOPS（71 MB/s）→ 稳态 1,134 IOPS（4.4 MB/s），降幅 94%",
+    "unit": "IOPS / MB/s",
+    "condition": "bn_devload2_r1",
+    "source": "bench/BOTTLENECK_REPORT.md:606"
+   },
+   {
+    "metric": "bn_devload2_r2 注入写者速率降幅",
+    "value": "起始 14,389 IOPS（56 MB/s）→ 稳态 1,187 IOPS（4.6 MB/s），降幅 92%",
+    "unit": "IOPS / MB/s",
+    "condition": "bn_devload2_r2",
+    "source": "bench/BOTTLENECK_REPORT.md:607"
+   },
+   {
+    "metric": "bn_devload2_r3 注入写者速率降幅",
+    "value": "起始 14,190 IOPS（55 MB/s）→ 稳态 731 IOPS（2.9 MB/s），降幅 95%",
+    "unit": "IOPS / MB/s",
+    "condition": "bn_devload2_r3",
+    "source": "bench/BOTTLENECK_REPORT.md:608"
+   },
+   {
+    "metric": "三次运行的均值",
+    "value": "起始 61 MB/s → 稳态 4.0 MB/s，降幅 93%（3/3 一致）",
+    "unit": "MB/s",
+    "condition": "bn_devload2 均值",
+    "source": "bench/BOTTLENECK_REPORT.md:609"
+   },
+   {
+    "metric": "与 noc 臂的互证",
+    "value": "独立外部写者在 DB 运行期间被挤压到 4.0 MB/s（−93%），而它自身的独立能力是 56–71 MB/s；与 noc 臂（移除压实后设备忙率从 93.5% 降到 52.2%、独立写路径恢复到 ~500 MB/s）互为反证",
+    "unit": "MB/s",
+    "condition": "devload2 vs noc",
+    "source": "bench/BOTTLENECK_REPORT.md:612"
+   },
+   {
+    "metric": "devload（v1）作废",
+    "value": "devload（v1，3 次运行）作废：当时 devbench 只在退出时打印速率，而它被 harness 提前 kill，注入量无法核验；结论以带周期输出的 devload2 为准",
+    "unit": "—",
+    "condition": "devload v1",
+    "source": "bench/BOTTLENECK_REPORT.md:621"
+   }
+  ],
+  "evaluation_zh": "判定：独立的外部写者在 DB 运行期间被从 61 MB/s 挤压到 4.0 MB/s（降幅 93%，3/3 一致），而它自身的独立能力是 56–71 MB/s——设备的随机写服务在 DB 运行期间没有剩余容量。这与 noc 臂互为反证，共同确认“压实工作量占满了设备写侧服务”这一因果环节。边界：注入量本身很小（4–71 MB/s），因为该设备随机 4 KiB 写的绝对能力本来就只有 56 MB/s，所以这个干预无法把前台吞吐按比例压低（预期效应只有 ~10% 量级，低于本环境噪声）；它的价值在于“竞争者在场时被挤到接近零”这一零空闲容量的直接观测。",
+  "caveats_zh": [
+   "边界：注入量本身很小（4–71 MB/s），受该设备随机 4 KiB 写上限 56 MB/s 制约；该干预无法把前台吞吐按比例压低（预期效应只有 ~10% 量级，低于本环境噪声），价值在于“竞争者在场时被挤到接近零”的直接观测（bench/BOTTLENECK_REPORT.md:616）",
+   "devload（v1，3 次运行）作废——当时 devbench 只在退出时打印速率，而它被 harness 提前 kill，注入量无法核验；v1 与 v2 的注入与压实在同一设备上竞争，前台到达吞吐的相对变化本身不是判定依据，判定依据是注入写者被挤压的幅度（96%）（bench/BOTTLENECK_REPORT.md:624）",
+   "devbench 的写侧数字（56 MB/s）受 ext4 分配/日志影响，是“设备+文件系统”的量，不等于 NAND 级能力；设备队列深度与设备级延迟未采集（bench/BOTTLENECK_REPORT.md:746）",
+   "devload2 臂未跑冻结状态校验（--mode=verify）（bench/BOTTLENECK_REPORT.md:768）"
+  ],
+  "sources": [
+   "bench/BOTTLENECK_REPORT.md:3",
+   "bench/BOTTLENECK_REPORT.md:348",
+   "bench/BOTTLENECK_REPORT.md:587",
+   "bench/BOTTLENECK_REPORT.md:598",
+   "bench/BOTTLENECK_REPORT.md:606",
+   "bench/BOTTLENECK_REPORT.md:607",
+   "bench/BOTTLENECK_REPORT.md:608",
+   "bench/BOTTLENECK_REPORT.md:609",
+   "bench/BOTTLENECK_REPORT.md:612",
+   "bench/BOTTLENECK_REPORT.md:614",
+   "bench/BOTTLENECK_REPORT.md:616",
+   "bench/BOTTLENECK_REPORT.md:621",
+   "bench/BOTTLENECK_REPORT.md:624",
+   "bench/BOTTLENECK_REPORT.md:718",
+   "bench/BOTTLENECK_REPORT.md:746",
+   "bench/BOTTLENECK_REPORT.md:756",
+   "bench/BOTTLENECK_REPORT.md:768",
+   "bench/CAMPAIGN_BN.md:56",
+   "bench/CAMPAIGN_BN.md:58",
+   "bench/CAMPAIGN_BN.md:75",
+   "bench/CAMPAIGN_BN.md:80"
+  ]
+ },
+ {
+  "id": "bench/I#devceil",
+  "title_zh": "stage I 设备随机 IO 服务能力上限探针（devbench）",
+  "engine": [
+   "native"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在无其它负载时直接测量这台设备的随机 IO 服务能力上限（8 GiB 文件、O_DIRECT、4 KiB 随机、16 线程、每次 30 s），为设备争用干预提供基准并解释注入量的绝对上限。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": "WD_BLACK SN750（单 NVMe）",
+   "filesystem": "ext4（随机写走 ext4 + O_DIRECT）",
+   "engine_version": null,
+   "binary_path": "bench/tools/devbench（源码 bench/tools/devbench.c）",
+   "workload": "tools/devbench 8 GiB 文件、O_DIRECT、4 KiB 随机、16 线程、每次 30 s；read_pct ∈ {0, 75, 100}（3×30 s）",
+   "rocksdb_options": null,
+   "other": "探针原始输出 bench/out/analysis/BN_device_ceiling.txt；这是纯设备+文件系统测量，无 RocksDB 参与"
+  },
+  "results": [
+   {
+    "metric": "纯写（4 KiB 随机，ext4 + O_DIRECT）",
+    "value": "56 MB/s；14.4 K IOPS",
+    "unit": "MB/s",
+    "condition": "read_pct=0",
+    "source": "bench/BOTTLENECK_REPORT.md:593"
+   },
+   {
+    "metric": "混合 75% 读 / 25% 写",
+    "value": "137 MB/s；35.2 K IOPS",
+    "unit": "MB/s",
+    "condition": "read_pct=75",
+    "source": "bench/BOTTLENECK_REPORT.md:596"
+   },
+   {
+    "metric": "纯读（4 KiB 随机）",
+    "value": "1,909 MB/s；488 K IOPS",
+    "unit": "MB/s",
+    "condition": "read_pct=100",
+    "source": "bench/BOTTLENECK_REPORT.md:596"
+   },
+   {
+    "metric": "写侧与读侧的能力差",
+    "value": "随机 4 KiB 写侧服务能力只有 56 MB/s，而随机读侧有 1.9 GB/s——写侧比读侧低 34 倍",
+    "unit": "×",
+    "condition": "纯写 vs 纯读",
+    "source": "bench/BOTTLENECK_REPORT.md:598"
+   },
+   {
+    "metric": "devload2 注入写者的起始速率上限",
+    "value": "平均起始速率 61 MB/s（单次 55–71 MB/s），受该设备随机 4 KiB 写上限 56 MB/s 制约",
+    "unit": "MB/s",
+    "condition": "bn_devload2 起始速率",
+    "source": "bench/BOTTLENECK_REPORT.md:609"
+   }
+  ],
+  "evaluation_zh": "判定：这台设备（WD_BLACK SN750，文件系统 ext4）的随机 4 KiB 写侧服务能力只有 56 MB/s，而随机读侧有 1.9 GB/s——写侧比读侧低 34 倍。该上限解释了 devload2 注入量本身很小的原因，也是 §5.6 判定“注入量无法把前台吞吐按比例压低”的依据。",
+  "caveats_zh": [
+   "devbench 的写侧数字（56 MB/s）受 ext4 分配/日志影响，是“设备+文件系统”的量，不等于 NAND 级能力；设备队列深度与设备级延迟未采集（bench/BOTTLENECK_REPORT.md:746）",
+   "devload2 的注入量本身只有 4–71 MB/s（受该设备随机 4 KiB 写上限 56 MB/s 制约），因此该臂的判据是“竞争者被挤到接近零”而非前台吞吐的百分比变化（bench/BOTTLENECK_REPORT.md:756）",
+   "探针为 3×30 s 的短时测量，无 RocksDB 参与，不含 DB 负载下的设备竞争（bench/CAMPAIGN_BN.md:77）"
+  ],
+  "sources": [
+   "bench/BOTTLENECK_REPORT.md:587",
+   "bench/BOTTLENECK_REPORT.md:589",
+   "bench/BOTTLENECK_REPORT.md:593",
+   "bench/BOTTLENECK_REPORT.md:596",
+   "bench/BOTTLENECK_REPORT.md:598",
+   "bench/BOTTLENECK_REPORT.md:599",
+   "bench/BOTTLENECK_REPORT.md:609",
+   "bench/BOTTLENECK_REPORT.md:746",
+   "bench/BOTTLENECK_REPORT.md:756",
+   "bench/CAMPAIGN_BN.md:77"
+  ]
+ },
+ {
+  "id": "bench/I#zipf",
+  "title_zh": "stage I zipf 敏感性（θ=0.99）",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "到达几何由均匀改为 zipf 偏斜（θ=0.99）时，设备工作量、flush 条目数与到达相位吞吐如何变化？这是计划 §一 要求的敏感性实验（而非主对照）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "--dist=zipf --zipf_theta=0.99，同一 12.8 M 次更新、U = 13.31 GB；5 次重复（3 次已完成）；其余同主配置 P",
+   "rocksdb_options": "主配置 P（默认容量 F=2/C=6）",
+   "other": "口径警告：--wait_for_drain 的中断条件是 L0==0 && pending==0 && imm==0 && compaction-pending==0，而已沉降库在 zipf 下 L0 恒为 1–2 个文件（< level0_trigger=8 不会被压实），该条件永不满足、等满 900 s 上限（DRAIN waited 900.3s），故整轮时长不可用，表用到达相位吞吐"
+  },
+  "results": [
+   {
+    "metric": "bn_zipf_r1",
+    "value": "到达相位时长 46 s；吞吐 281,240 ops/s；U 13.31 GB；flush 字节 4.02 GiB；flush 条目 4.13 M；压实 job 86；压实输出 21.4 GiB；device WA 2.01；队列越限无（imm/L0/pending 全部未持续越限）",
+    "unit": "ops/s",
+    "condition": "bn_zipf_r1",
+    "source": "bench/BOTTLENECK_REPORT.md:638"
+   },
+   {
+    "metric": "bn_zipf_r2",
+    "value": "到达相位时长 35 s；吞吐 363,012 ops/s；flush 字节 4.02 GiB；flush 条目 4.13 M；压实 job 75；压实输出 19.8 GiB；device WA 2.16；队列越限无",
+    "unit": "ops/s",
+    "condition": "bn_zipf_r2",
+    "source": "bench/BOTTLENECK_REPORT.md:639"
+   },
+   {
+    "metric": "bn_zipf_r3",
+    "value": "到达相位时长 33 s；吞吐 391,919 ops/s；flush 字节 4.01 GiB；flush 条目 4.12 M；压实 job 84；压实输出 20.1 GiB；device WA 1.96；队列越限无",
+    "unit": "ops/s",
+    "condition": "bn_zipf_r3",
+    "source": "bench/BOTTLENECK_REPORT.md:640"
+   },
+   {
+    "metric": "均匀到达对照（default，5 次）",
+    "value": "到达相位时长 279 s；吞吐 45.9 K ops/s；flush 字节 12.4 GiB；flush 条目 12.4 M；压实 job 405；压实输出 93.4 GiB；device WA 9.12；pending 持续增长并钉在软限",
+    "unit": "ops/s",
+    "condition": "default（均匀到达）",
+    "source": "bench/BOTTLENECK_REPORT.md:641"
+   },
+   {
+    "metric": "版本在内存表/flush 阶段即被消除",
+    "value": "12.8 M 次写只产出 4.13 M 条 SST 条目（0.32×），68% 版本在 flush 前消失；flush 字节从 12.4 GiB 降到 4.0 GiB",
+    "unit": "×",
+    "condition": "zipf vs 均匀",
+    "source": "bench/BOTTLENECK_REPORT.md:645"
+   },
+   {
+    "metric": "device WA 与吞吐的变化",
+    "value": "device WA 从 9.12 降到 1.96–2.16（4.5×），按吞吐 ≈ μ/WA 模型预测增益 4.5×；实测到达相位吞吐 281–392 K ops/s（对均匀 45.9 K 是 6–8.5×）",
+    "unit": "×",
+    "condition": "zipf vs 均匀",
+    "source": "bench/BOTTLENECK_REPORT.md:648"
+   },
+   {
+    "metric": "到达相位内的 flush 次数",
+    "value": "到达相位内只有 51 次 flush；热点集（约 1 M 键、~1 GiB）可被内存表与块缓存吸收，绝大多数写是内存内覆盖",
+    "unit": "次",
+    "condition": "bn_zipf_*",
+    "source": "bench/BOTTLENECK_REPORT.md:651"
+   },
+   {
+    "metric": "队列零越限",
+    "value": "immutable、L0 文件数、pending bytes 在 zipf 下都没有出现持续增长（与均匀到达的“pending +1.5 GiB/s”形成对照）",
+    "unit": "—",
+    "condition": "bn_zipf_*",
+    "source": "bench/BOTTLENECK_REPORT.md:652"
+   }
+  ],
+  "evaluation_zh": "判定（三项机制读数）：版本在内存表/flush 阶段即被消除（12.8 M 次写只产出 4.13 M 条 SST 条目）；device WA 从 9.12 降到 1.96–2.16（4.5×）；队列零越限——即当到达几何使版本在内存中坍缩时，设备工作量约束随之消失。边界：zipf 改变的是分母的口径（U 不变而落到 SST 的条目数只有 0.32×），因此不能把 281–392 K ops/s 读作“同等数据量下吞吐提高 6–8.5×”，正确读法是“同一操作数下，到达几何把设备工作量降到 1/4.5，于是吞吐升到 6–8.5×”。",
+  "caveats_zh": [
+   "口径警告：这组运行的整轮时长不可用——--wait_for_drain 的中断条件包含 L0==0，而已沉降的库在 zipf 下 L0 恒为 1–2 个文件（< level0_trigger=8，不会被压实），因此该条件永不满足、等满 900 s 上限（DRAIN waited 900.3s）；表使用到达相位吞吐（bench/BOTTLENECK_REPORT.md:630）",
+   "边界：zipf 改变的是分母的口径（U 不变而落到 SST 的条目数只有 0.32×），不能把 281–392 K ops/s 读作“同等数据量下吞吐提高 6–8.5×”（bench/BOTTLENECK_REPORT.md:656）",
+   "zipf 臂未跑冻结状态校验（--mode=verify）（bench/BOTTLENECK_REPORT.md:768）",
+   "zipf 到达会改变分母含义，分析时必须同时报告 flush 后条目数与 U（CAMPAIGN_BN.md §3c 引 L0_INVESTIGATION_REPORT.md §4.3 的同类口径问题）（bench/CAMPAIGN_BN.md:63）",
+   "计划 §一 把 Zipf 定位为敏感性实验（而非主对照）（bench/BOTTLENECK_REPORT.md:659）"
+  ],
+  "sources": [
+   "bench/BOTTLENECK_REPORT.md:3",
+   "bench/BOTTLENECK_REPORT.md:626",
+   "bench/BOTTLENECK_REPORT.md:628",
+   "bench/BOTTLENECK_REPORT.md:630",
+   "bench/BOTTLENECK_REPORT.md:638",
+   "bench/BOTTLENECK_REPORT.md:639",
+   "bench/BOTTLENECK_REPORT.md:640",
+   "bench/BOTTLENECK_REPORT.md:641",
+   "bench/BOTTLENECK_REPORT.md:645",
+   "bench/BOTTLENECK_REPORT.md:646",
+   "bench/BOTTLENECK_REPORT.md:648",
+   "bench/BOTTLENECK_REPORT.md:651",
+   "bench/BOTTLENECK_REPORT.md:652",
+   "bench/BOTTLENECK_REPORT.md:656",
+   "bench/BOTTLENECK_REPORT.md:659",
+   "bench/BOTTLENECK_REPORT.md:768",
+   "bench/CAMPAIGN_BN.md:62",
+   "bench/CAMPAIGN_BN.md:63"
+  ]
+ },
+ {
+  "id": "bench/I#iso",
+  "title_zh": "stage I 隔离实验（flush 隔离 / L0→base 固定输入重放）",
+  "engine": [
+   "native"
+  ],
+  "category": "isolation",
+  "purpose_zh": "每个部件本身有多贵？分别隔离 flush（单写线程、关闭自动压实、后台只剩 flush）与 L0→base 合并（frozen 副本构造 K 个 L0 文件后无前台写、让自动压实把积压排空），只回答部件成本，不进入因果判定。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "11.2.0",
+   "binary_path": null,
+   "workload": "iso_flush：单写线程、后台只剩 flush，write_buffer_size ∈ {64M, 256M, 1G, 8G} 扫描（8G 臂在 10 GB 宇宙几乎不 flush，给出“仅写路径”CPU 基线）；iso_l0base：同一批键、两种区间几何（narrow=连续不相交 / wide=全覆盖），K=8 各 ~1.04 GiB，排空打开时 L0=K+1 文件、债务 17.3 GiB",
+   "rocksdb_options": "iso_flush：disable_auto_compactions=1、trigger=1000；iso_l0base：容量固定 F2/C6，变量仅 max_subcompactions ∈ {1,8}",
+   "other": "臂：bn_isoflush_{wb64m,wb256m,wb1g,wb8g}、bn_isol0_{k8narrow,k8wide,k8narrow_sc1,k16wide,k16wide_sc1}；重放 n=1/臂，只用于部件成本"
+  },
+  "results": [
+   {
+    "metric": "flush 隔离：单流服务率与 wall（64 MiB）",
+    "value": "flush 次数 154；每次输入 ~62 MiB；单流服务率 424 MB/s；wall/次 146 ms；进程 CPU 5.58 核秒/GiB；设备写/读 10.12 / 0.00 GB；device WA 1.01",
+    "unit": "MB/s",
+    "condition": "bn_isoflush_wb64m",
+    "source": "bench/BOTTLENECK_REPORT.md:279"
+   },
+   {
+    "metric": "flush 隔离：单流服务率与 wall（256 MiB / 1 GiB / 8 GiB）",
+    "value": "256 MiB（默认）：flush 38 次、~248 MiB/次、409 MB/s、608 ms、device WA 1.00；1 GiB：9 次、~970 MiB、308 MB/s、3.23 s、0.95；8 GiB：1 次、~7.75 GiB、593 MB/s、13.4 s、1.84",
+    "unit": "MB/s",
+    "condition": "bn_isoflush_wb256m / wb1g / wb8g",
+    "source": "bench/BOTTLENECK_REPORT.md:280"
+   },
+   {
+    "metric": "flush 的 wall 随输入的线性度",
+    "value": "flush 单流服务率 300–600 MB/s，wall 随输入近似线性（~2.3 ms/MiB），没有超线性跳变",
+    "unit": "ms/MiB",
+    "condition": "iso_flush 扫描",
+    "source": "bench/BOTTLENECK_REPORT.md:289"
+   },
+   {
+    "metric": "L0→base 固定输入重放总排空时长",
+    "value": "K=8 narrow sc=8：12.9 s；K=8 wide sc=8：13.4 s；K=8 narrow sc=1：9.2 s；K=16 wide sc=8：18.9 s；K=16 wide sc=1：15.0 s",
+    "unit": "s",
+    "condition": "bn_isol0_*",
+    "source": "bench/BOTTLENECK_REPORT.md:305"
+   },
+   {
+    "metric": "单次 L0→base 合并的 wall",
+    "value": "narrow sc=8：1.26G L0 + 0.17G base → wall 1.8 s；wide sc=8：wall 4.6 s；narrow sc=1：wall 4.0 s；K=16 wide sc=8：2.28G L0 → wall 12.3 s；sc=1：8.5 s",
+    "unit": "s",
+    "condition": "bn_isol0_*",
+    "source": "bench/BOTTLENECK_REPORT.md:306"
+   },
+   {
+    "metric": "深层再平衡 job 数量与 wall（相对 L0→base 合并）",
+    "value": "一次 L0→base 合并本身只花 1.8–12.3 s（1–3 GiB 输入）；但其输出进入 L3/L4 后引发的深层再平衡 job 数量是其 20–30 倍、wall 是其 2–7 倍（如 K=8 narrow sc=8：23 个 job、start 1.16G+base 2.32G、wall 25.6 s）",
+    "unit": "job / s",
+    "condition": "bn_isol0_*",
+    "source": "bench/BOTTLENECK_REPORT.md:312"
+   },
+   {
+    "metric": "重放输入几何（wide/narrow）的影响",
+    "value": "同 K 同字节下对总排空时长影响很小（12.9 vs 13.4 s）——因为构造区域只占 50 GB 库的 2%，base 侧重叠占比低；线上负载的宽区间效应（旧报告 §4 的 5.9×）来自每个 L0 文件覆盖全库键区间，重放无法在 1 GiB 区域内复现该几何",
+    "unit": "s",
+    "condition": "K=8 narrow vs wide（sc=8）",
+    "source": "bench/BOTTLENECK_REPORT.md:314"
+   },
+   {
+    "metric": "subcompactions 的作用范围",
+    "value": "subcompactions 1→8 使单个 L0→base 合并 wall 变化 2.2×（narrow：4.0→1.8 s），但不改变总排空时长（深层再平衡主导）",
+    "unit": "×",
+    "condition": "bn_isol0_k8narrow vs k8narrow_sc1",
+    "source": "bench/BOTTLENECK_REPORT.md:317"
+   }
+  ],
+  "evaluation_zh": "判定：隔离实验只回答“部件多贵”；flush 的单流服务率 300–600 MB/s（F=2 时聚合 μ_flush ≈ 800+ MB/s）远高于本负载的峰值到达率 λ ≈ 230 MB/s，且设备读恒为 0、device WA ≈ 1；一次 L0→base 合并本身只花 1.8–12.3 s，但其输出引发的深层再平衡 job 数量是其 20–30 倍、wall 是其 2–7 倍——与在线账本的结构一致。谁限制系统由 §5 的在线容量干预回答。",
+  "caveats_zh": [
+   "重放实验 n=1/臂：只用于部件成本，不进入因果判定（bench/BOTTLENECK_REPORT.md:761）",
+   "重放无法在 1 GiB 区域内复现“每个 L0 文件覆盖全库键区间”的几何，wide/narrow 的线上差异被列为边界（bench/BOTTLENECK_REPORT.md:314）",
+   "8 GiB flush 隔离臂的 device WA 1.84 来自该臂本身几乎不 flush、而 WAL 与收尾 flush 各写了一遍，属该臂的构造特性（bench/BOTTLENECK_REPORT.md:285）",
+   "排序/编码/压缩的 CPU 时间不可分离：RocksDB 不暴露 flush 内部的阶段划分，报告只给出整进程 CPU 核秒/GiB 与 per-job CPU（bench/BOTTLENECK_REPORT.md:737）",
+   "隔离臂未跑冻结状态校验（--mode=verify）（bench/BOTTLENECK_REPORT.md:768）",
+   "所有 compaction 共用 LOW 池，“L0→base 专用容量”不可在线分离；本实验以显式 F×C 矩阵 + 固定输入重放（iso_l0base）回应计划 §四.2 的弱因果标注要求（bench/CAMPAIGN_BN.md:110）"
+  ],
+  "sources": [
+   "bench/BOTTLENECK_REPORT.md:3",
+   "bench/BOTTLENECK_REPORT.md:273",
+   "bench/BOTTLENECK_REPORT.md:275",
+   "bench/BOTTLENECK_REPORT.md:279",
+   "bench/BOTTLENECK_REPORT.md:280",
+   "bench/BOTTLENECK_REPORT.md:284",
+   "bench/BOTTLENECK_REPORT.md:285",
+   "bench/BOTTLENECK_REPORT.md:289",
+   "bench/BOTTLENECK_REPORT.md:296",
+   "bench/BOTTLENECK_REPORT.md:298",
+   "bench/BOTTLENECK_REPORT.md:300",
+   "bench/BOTTLENECK_REPORT.md:305",
+   "bench/BOTTLENECK_REPORT.md:306",
+   "bench/BOTTLENECK_REPORT.md:312",
+   "bench/BOTTLENECK_REPORT.md:314",
+   "bench/BOTTLENECK_REPORT.md:317",
+   "bench/BOTTLENECK_REPORT.md:320",
+   "bench/BOTTLENECK_REPORT.md:737",
+   "bench/BOTTLENECK_REPORT.md:761",
+   "bench/BOTTLENECK_REPORT.md:768",
+   "bench/CAMPAIGN_BN.md:92",
+   "bench/CAMPAIGN_BN.md:98",
+   "bench/CAMPAIGN_BN.md:110"
+  ]
+ }
+]

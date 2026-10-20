@@ -1,0 +1,2048 @@
+[
+ {
+  "id": "m5/B4B17B3_50GB_100GB_REPORT",
+  "title_zh": "b4b17b3 分支 50GB/100GB × 1KB KV 读写测试报告",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在 b4b17b3 候选提交上验证 50GB / 100GB 规模的 ZeroFlush 读写能否完成，并用同窗口、同参数、同判据的 native RocksDB 50GB 作对照，判断停滞是否来自环境。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "db_bench --threads=16（16 写线程）；构建 make -j20 并留 16 核给用户构建",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "b4b17b3ca14f054bb2a7ac5619c81c63b5081df5（分支 fix/zeroflush-recovery-visibility-fences）；db_bench md5 b29d439da6359757aa99d7df96badf49；librocksdb.so.11 md5 609c747930a331a4f163472efa30ae38",
+   "binary_path": "/home/embed/hyl/wt_b4b17b3/source/rocksdb-zeroflush（ZF db_bench）；native 对照 source/rocksdb/build/db_bench（md5 25c4356b789562db9b7ead087419e631）",
+   "workload": "50GB 口径：写 --num=48000000 --writes=3000000（16×3M=48M 写）、路由 sampled，读 --reads=8000000（128M 次）；100GB 口径：写 --num=100000000 --writes=6250000、static --zf_static_span=100000000，读 --reads=2000000（32M 次）；另含 1GB 写 smoke 与部分库读",
+   "rocksdb_options": "公共参数 --key_size=16 --value_size=1024 --threads=16 --seed=20260914 --compression_type=none --cache_size=536870912 --max_background_jobs=24 --subcompactions=16 --histogram=true --statistics=false；ZF 参数 --zeroflush --zf_partitions=16 --zf_value_cache_mb=64 --zf_base_merge=true，ZF_L0_TRIGGER=100000000",
+   "other": "独立 worktree /home/embed/hyl/wt_b4b17b3（in-source、RelWithDebInfo、PORTABLE=0、nice -n 10、make -j20）；b4b17b3 上不存在的开关：--zf_stall_probe_ms、ZF_BENCH_ORPHAN_RECOVER、ZF_DBG_BUSY"
+  },
+  "results": [
+   {
+    "metric": "native 50GB 同窗对照 fill 吞吐",
+    "value": "16,852",
+    "unit": "ops/s",
+    "condition": "native 同窗对照臂（PASS，墙钟 2848s）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:57"
+   },
+   {
+    "metric": "native 50GB 同窗对照 fill 平均延迟",
+    "value": "949.4",
+    "unit": "µs/op",
+    "condition": "native 同窗对照臂（PASS）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:57"
+   },
+   {
+    "metric": "native 50GB 同窗对照 read 吞吐",
+    "value": "613,681",
+    "unit": "ops/s",
+    "condition": "native 同窗对照臂（PASS，命中 77.0%）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:58"
+   },
+   {
+    "metric": "ZF@b4b17b3 50GB #1 fill 停滞点",
+    "value": "2.69",
+    "unit": "GB",
+    "condition": "ZF 50GB 臂 #1（INCOMPLETE）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:59"
+   },
+   {
+    "metric": "ZF@b4b17b3 50GB #2（复跑）fill 停滞点",
+    "value": "2.41",
+    "unit": "GB",
+    "condition": "ZF 50GB 臂 #2 复跑（INCOMPLETE，2/2 复现）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:60"
+   },
+   {
+    "metric": "ZF@b4b17b3 100GB fill 停滞点",
+    "value": "14.41",
+    "unit": "GB",
+    "condition": "ZF 100GB 臂（INCOMPLETE）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:61"
+   },
+   {
+    "metric": "ZF 写 smoke 吞吐（1GB，非对照口径）",
+    "value": "339,729",
+    "unit": "ops/s",
+    "condition": "ZF@b4b17b3 写 smoke，--writes=60000（16×60K=96 万写 ≈1GB）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:62"
+   },
+   {
+    "metric": "ZF 读 50GB 臂部分库读吞吐",
+    "value": "152,753",
+    "unit": "ops/s",
+    "condition": "ZF@b4b17b3 读 50GB 臂部分库（非对照口径）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:63"
+   },
+   {
+    "metric": "ZF 读 50GB 臂部分库命中率",
+    "value": "3.7（294,197 / 8,000,000）",
+    "unit": "%",
+    "condition": "ZF@b4b17b3 读 50GB 臂现场库（2.69GB，SST 1.27GB）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:90"
+   },
+   {
+    "metric": "ZF 读 100GB 臂部分库读吞吐",
+    "value": "156,341",
+    "unit": "ops/s",
+    "condition": "ZF@b4b17b3 读 100GB 臂部分库（非对照口径）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:64"
+   },
+   {
+    "metric": "ZF 读 100GB 臂部分库命中率",
+    "value": "51.6（1,032,970 / 2,000,000）",
+    "unit": "%",
+    "condition": "ZF@b4b17b3 读 100GB 臂现场库（14.41GB）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:91"
+   },
+   {
+    "metric": "停滞时账本 pending（越过 1GiB 停止水位）",
+    "value": "1083.1（#1）/ 1110.7（#2）",
+    "unit": "MB",
+    "condition": "ZF 50GB 臂，ledger_stop_bytes = 1ull << 30（1GiB）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:125"
+   },
+   {
+    "metric": "100GB 停滞前写放大（compaction 输出合计）",
+    "value": "87.95（→L2 55.86GB/1287 文件 + →L3 32.10GB/724 文件，对已写入 14.41GB 数据 ≈6.1×）",
+    "unit": "GB",
+    "condition": "ZF 100GB 臂",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:142"
+   },
+   {
+    "metric": "native 历史同参数 fill 跨轮波动",
+    "value": "47,875 / 47,385 / 23,343",
+    "unit": "ops/s",
+    "condition": "native 历史轮次（对比本轮 16,852）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:68"
+   }
+  ],
+  "evaluation_zh": "50GB 与 100GB 的 ZF 读写测试在 b4b17b3 上均未能完成：两臂写入阶段都停在 ZF 账本背压处，50GB 停于 2.69GB / 2.41GB（2/2 复现）、100GB 停于 14.41GB，因此 50GB/100GB 全量口径的写吞吐、写延迟、读吞吐、读延迟均无有效数据。停滞不是环境问题——同窗口、同参数、同判据的 native RocksDB 50GB 对照完整跑通。停滞签名与既有记录（D-129 / D-130）一致，且 b4b17b3 早于那些调查，说明候选线 09-17 的提交上就已存在这两条停滞路径：就崩溃而言'不存在可达的崩溃路径'成立，但可达的停滞路径确实存在。",
+  "caveats_zh": [
+   "表中'—'= 该阶段未完成、db_bench 未输出汇总，不是 0，也不是缺失测量。",
+   "读臂的 MB/s 与命中率成正比（未命中的读不计字节），读臂只应以 ops/s 比较。",
+   "native 自身跨轮波动很大（fill 47,875 / 47,385 / 23,343 vs 本轮 16,852；read 798,878 / 391,061 / 877,373 vs 本轮 613,681），单轮数字不可当稳定基线。",
+   "部分库读的命中率（3.7% / 51.6% vs 满库 77.0%）差异巨大，这批读延迟/吞吐不能用于 ZF 的读性能结论。",
+   "1GB 写 smoke 与部分库读的口径与 50GB/100GB 全量测试不同，不可当作该测试的结果。",
+   "读阶段第一次尝试被看门狗判为'停滞'是误判（判据'DB 体积 + LOG 大小不变'对读负载无效），readpartial50/100.bt_all.txt 是误判产物，不可当作'读停滞'证据，重跑（CPU 时间判据）后两相均 rc=0。",
+   "b4b17b3 上不存在 --zf_stall_probe_ms、ZF_BENCH_ORPHAN_RECOVER、ZF_DBG_BUSY。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:4",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:10",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:11",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:12",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:13",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:15",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:16",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:22",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:25",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:41",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:42",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:43",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:44",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:45",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:46",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:47",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:48",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:50",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:57",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:58",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:59",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:60",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:61",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:62",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:63",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:64",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:66",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:67",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:68",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:90",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:91",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:94",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:125",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:142",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:155",
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_100GB_REPORT.md:167"
+  ]
+ },
+ {
+  "id": "m5/50gb_1kb_merge_off#ENV_DIAGNOSIS",
+  "title_zh": "50GB/1KB 对比 DNF 的环境诊断",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "回答'机器上是否有其他负载拖慢了两次 fill'，并给出复跑前置条件。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "db_bench 16 写线程 + --max_background_jobs=24 + --subcompactions=16；裸盘微基准为 8 线程 O_DIRECT",
+   "ram": "62GB（期间发生 3 次 OOM）",
+   "device": "WD_BLACK SN750 2TB（消费级，固件 112000WD），/dev/nvme0n1p3",
+   "filesystem": "ext4 /dev/nvme0n1p3，挂载项无 discard，尺寸 1.8T / 用 59%；fstrim.timer 为周级",
+   "engine_version": null,
+   "binary_path": "./source/rocksdb/build/db_bench（探针命令，LD_LIBRARY_PATH=$PWD/source/rocksdb/build:/usr/lib/x86_64-linux-gnu）",
+   "workload": "4M ops=4GB 探针（同参数缩小版）；ZF merge-off fill（50GB 口径，SST 70.8GB/2227 文件）与 native fill（DB 85GB）；8GB/30GB 顺序直写与 4KB 随机读写裸盘微基准",
+   "rocksdb_options": "--benchmarks=fillrandom --key_size=16 --value_size=1024 --num=4000000 --threads=16 --compression_type=none --cache_size=536870912 --max_background_jobs=24 --subcompactions=16 --histogram=true --use_existing_db=0 --db=/tmp/probe",
+   "other": "运行时调优：wbt_lat_usec=0、mount -o remount,commit=60 /（重启即失效）"
+  },
+  "results": [
+   {
+    "metric": "load1（实验前，机器空闲）",
+    "value": "2.09",
+    "unit": "load1",
+    "condition": "/var/log/hwdiag/monitor_metrics.tsv 每 5 秒采样",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:24"
+   },
+   {
+    "metric": "load1（ZF fill 进行中）",
+    "value": "24.27",
+    "unit": "load1",
+    "condition": "monitor_metrics.tsv",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:26"
+   },
+   {
+    "metric": "load1（杀掉 bench 后）",
+    "value": "2.44",
+    "unit": "load1",
+    "condition": "monitor_metrics.tsv",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:29"
+   },
+   {
+    "metric": "探针完成量/速率（本次探针）",
+    "value": "15m44s 仅 1.1M ops = 1,166",
+    "unit": "ops/s",
+    "condition": "4M ops=4GB 探针（今天 12:20–12:36）",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:52"
+   },
+   {
+    "metric": "历史基准速率",
+    "value": "48M ops / 1817s = 26,409",
+    "unit": "ops/s",
+    "condition": "9/2 cmp_1kb50 同参数",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:52"
+   },
+   {
+    "metric": "长停顿",
+    "value": "long op 8,099,635 micros（8.1s）；历史基准 0 次 long op",
+    "unit": "micros",
+    "condition": "本次探针 vs 9/2 历史基准",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:53"
+   },
+   {
+    "metric": "fsync/flush 延迟（空闲）",
+    "value": "p50 0.67ms，max 1.17ms",
+    "unit": "ms",
+    "condition": "空闲场景",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:63"
+   },
+   {
+    "metric": "fsync/flush 延迟（db_bench 探针并发）",
+    "value": "p50 0.84ms，max 6745ms，mean 143ms",
+    "unit": "ms",
+    "condition": "db_bench 探针并发",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:64"
+   },
+   {
+    "metric": "8GB 顺序直写（dd oflag=direct）",
+    "value": "958",
+    "unit": "MB/s",
+    "condition": "裸盘微基准，机器空闲",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:76"
+   },
+   {
+    "metric": "30GB 持续直写",
+    "value": "514（首 2GB 仅 135MB/s，后段 ~1GB/s）",
+    "unit": "MB/s",
+    "condition": "裸盘微基准",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:77"
+   },
+   {
+    "metric": "4KB 随机写（预分配，8 线程 O_DIRECT）",
+    "value": "64,021 IOPS / 250 MB/s",
+    "unit": "IOPS",
+    "condition": "裸盘微基准",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:78"
+   },
+   {
+    "metric": "4KB 随机读（预分配，8 线程 O_DIRECT）",
+    "value": "70,338 IOPS / 275 MB/s",
+    "unit": "IOPS",
+    "condition": "裸盘微基准",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:79"
+   },
+   {
+    "metric": "盘温（sensors Composite）",
+    "value": "79.8–83.8（high = +83.8°C，到阈值即 ALARM）",
+    "unit": "°C",
+    "condition": "9/12 当日",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:68"
+   },
+   {
+    "metric": "盘温（9/11 fill 全程）",
+    "value": "84.8–85.8（至 9/12 11:52 结束才回落）",
+    "unit": "°C",
+    "condition": "9/11 14:30 起",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:69"
+   },
+   {
+    "metric": "fstrim -v /（首次）",
+    "value": "交还 830.2（耗时 2m49s）",
+    "unit": "GiB",
+    "condition": "处置措施",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:119"
+   },
+   {
+    "metric": "SMART 健康",
+    "value": "Percentage Used 13%、Available Spare 100%、Media Errors 0、Critical Warning 0；已写 221TB、通电 30705h",
+    "unit": "—",
+    "condition": "smartctl -a /dev/nvme0n1",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:120"
+   },
+   {
+    "metric": "fstrim 后复测探针速率",
+    "value": "3.2M ops / 10m27s ≈ 5.1k（前 90s 达 ~11.5k）；修复前 1,166",
+    "unit": "ops/s",
+    "condition": "fstrim 后 vs 修复前",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:136"
+   },
+   {
+    "metric": "fstrim 后 long op",
+    "value": "仍 1984 次（8.57s），未根除",
+    "unit": "次",
+    "condition": "fstrim 后 vs 修复前（8.1–8.57s）",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:137"
+   },
+   {
+    "metric": "fstrim -v /（再次，收尾）",
+    "value": "交还 690.6（耗时 1m39s）",
+    "unit": "GiB",
+    "condition": "清理中止实验 DB 后",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:151"
+   },
+   {
+    "metric": "中止实验的写放大（rerun_20260912/ABORTED_RUN_AMPLIFICATION.md）",
+    "value": "install 276.9GB=5.08×、原生 compaction 4,019.6GB=83.7×、设备 4.57TB=93.7×",
+    "unit": "—",
+    "condition": "ZF merge-off 50GB 臂中止落档",
+    "source": "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:146"
+   }
+  ],
+  "evaluation_zh": "结论：无外部负载——load 22–26 全部来自本实验自身线程（随实验启动升起、随进程被杀立刻回落），此前 DNF evidence 中'非本实验进程贡献'的判断错误已订正；真正的瓶颈在系统盘 SSD 的 flush/fsync 延迟（并发写下尖峰 5–8 秒），该状态当天已复现。处置（fstrim、关 WBT 节流、mount commit=60）后探针由'零进度'恢复到约 5.1k ops/s，但 long op 未根除；盘健康指标显示非磨损问题，降温能力不足是当前最可疑的剩余约束。",
+  "caveats_zh": [
+   "高温是'重度负载日常'（9/5–9/10 负载时段同样到过 84.8–85.8°C），非 9/11 新变量，仅凭温度不能解释速度差异。",
+   "fstrim 后 long op 仍 1984 次（8.57s），未根除。",
+   "9/11 的 node OOM 与 fill 慢无直接因果（占窗口 10 分钟），但说明 62GB 内存下有工具侧进程失控风险。",
+   "测试已停：ZF merge-off 50GB 臂于 15:1x 中止（≈2h1x），原生臂未开始。",
+   "运行时调优（wbt_lat_usec=0、mount commit=60）重启即失效，如需保留需写入 fstab/sysctl。",
+   "'未 TRIM 的已删除空间'是可疑诱因（推断性归因），未做受控对照验证。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:3",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:4",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:5",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:11",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:24",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:26",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:29",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:31",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:33",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:34",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:49",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:52",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:53",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:63",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:64",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:67",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:68",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:69",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:71",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:73",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:76",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:77",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:78",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:79",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:84",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:85",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:86",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:91",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:94",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:96",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:99",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:100",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:102",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:116",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:119",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:120",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:136",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:137",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:139",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:140",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:144",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:146",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:151",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:152",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:153",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:163",
+   "archive/zeroflush_m5_perf/50gb_1kb_merge_off/ENV_DIAGNOSIS.md:165"
+  ]
+ },
+ {
+  "id": "m5/l0_closure",
+  "title_zh": "L0→L1 闭包分布实验报告",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "用实测回答三个问题：① L0 触发阈值是不是优化杠杆；② 单次 L0→L1 事件的成本由什么决定；③ 50GB 运行里 3GB 级重写是怎么来的。方法是不改代码、采集 DB LOG 的 compacted to: 完成行，用解析器 parse_closure.py 统计。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "db_bench fillrandom；键域 250K / 4M / 16M，总 ops 8M–32M，覆盖 1×–16×；50GB 运行形态 = 16 分区 / 48M 键域 / 1× 覆盖；R 实验与分区扫描固定 H16/H2 形态（16M 键域 / 16M ops = 1× 覆盖）",
+   "rocksdb_options": "固定：16 线程、1KB 值、sampled 路由、merge 关闭、治理关闭、compression=none、max_background_jobs=24、subcompactions=16、每臂独立干净 DB；变量 ZF_L0_TRIGGER（1e8 或 4）、zf_partitions（1/4/16/64/256）、R 实验新增开关 ZF_L1_BUDGET_MB（只覆盖 L1 层目标）",
+   "other": "解析器 parse_closure.py；闭包口径 = L0→L1 事件输入字节全部（L0 输入 + 目标层输入），按 level=1 且 files in(a>0,b) 过滤，intra-L0（level 0）单列；P16/P64/P256 的 LOG 为压缩存档 results/*.LOG.gz"
+  },
+  "results": [
+   {
+    "metric": "A 臂 L0→L1 闭包 p50 / 输出对用户比",
+    "value": "48MB / 0.49×",
+    "unit": "MB；×",
+    "condition": "A：16 分区 / 250K 键域 / trig=1e8",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:21"
+   },
+   {
+    "metric": "M-1e8 闭包 p50 / 输出对用户比",
+    "value": "85MB / 1.06×",
+    "unit": "MB；×",
+    "condition": "M-1e8：16 分区 / 4M 键域 / trig=1e8",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:22"
+   },
+   {
+    "metric": "B 臂闭包 p50 / 输出对用户比",
+    "value": "101MB / 1.84×",
+    "unit": "MB；×",
+    "condition": "B：16 分区 / 250K 键域 / trig=4",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:23"
+   },
+   {
+    "metric": "M-4 臂闭包 p50 / 输出对用户比",
+    "value": "146MB / 3.41×",
+    "unit": "MB；×",
+    "condition": "M-4：16 分区 / 4M 键域 / trig=4",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:24"
+   },
+   {
+    "metric": "P4 臂闭包 p50 / 输出对用户比",
+    "value": "417MB / 2.77×",
+    "unit": "MB；×",
+    "condition": "P4：4 分区 / 4M 键域 / trig=1e8",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:25"
+   },
+   {
+    "metric": "H16 臂闭包 p50 / 输出对用户比",
+    "value": "344MB / 1.05×",
+    "unit": "MB；×",
+    "condition": "H16：4 分区 / 16M 键域 / 1× 覆盖",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:26"
+   },
+   {
+    "metric": "H2 臂闭包 p50 / L1 输入 p50 / 输出对用户比",
+    "value": "2075MB / 1006MB / 0.87×",
+    "unit": "MB；×",
+    "condition": "H2：1 分区 / 16M 键域 / 1× 覆盖 / trig=1e8",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:27"
+   },
+   {
+    "metric": "H2t4 臂闭包 p50 / L1 输入 p50 / 输出对用户比",
+    "value": "1481MB / 1006MB / 1.97×",
+    "unit": "MB；×",
+    "condition": "H2t4：1 分区 / 16M 键域 / trig=4",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:28"
+   },
+   {
+    "metric": "50GB 运行输出对用户比（混合口径）",
+    "value": "~52–84×",
+    "unit": "×",
+    "condition": "50GB 运行：16 分区 / 48M 键域 / 1× 覆盖",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:29"
+   },
+   {
+    "metric": "阈值 H2 vs H2t4：L0→L1 事件数 / L1 输入 p50 / 输出对用户",
+    "value": "14→33（2.4×）/ 1006MB 不变 / 0.87×→1.97×（2.3×）",
+    "unit": "次；MB；×",
+    "condition": "1 分区对照，trig 1e8 vs 4",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:64"
+   },
+   {
+    "metric": "4M 键域 trig=4 引入的 intra-L0 重写",
+    "value": "77 次（7.29GiB，纯内部重写）",
+    "unit": "次",
+    "condition": "M-4 臂",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:95"
+   },
+   {
+    "metric": "分区扫描：闭包 p50（P=1/4/16/64/256）",
+    "value": "2075 / 353 / 82 / 21 / 6",
+    "unit": "MB",
+    "condition": "H16 形态（16M 键域/1× 覆盖）只改 zf_partitions",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:245"
+   },
+   {
+    "metric": "分区扫描：吞吐（P=1/4/16/64/256）",
+    "value": "139K / 219K / 231K / 173K / 74K",
+    "unit": "ops/s",
+    "condition": "同上分区扫描",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:245"
+   },
+   {
+    "metric": "闭包 p50 与每分区 live 的关系",
+    "value": "16GB→2075MB、4GB→353MB、1GB→82MB、250MB→21MB、62MB→6MB；约每 1GB 分区 live 对应 20–130MB 闭包",
+    "unit": "MB",
+    "condition": "分区扫描",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:251"
+   },
+   {
+    "metric": "R 实验 R_iso256（L1 预算 256MB / L0 阈值 1GB）",
+    "value": "L1 输入 p50 229MB；L2 事件 150 次 / 11.32GiB；输出对用户 1.41×；吞吐 131K",
+    "unit": "MB；GiB；×；ops/s",
+    "condition": "R_iso256 隔离臂",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:186"
+   },
+   {
+    "metric": "R 实验 R_budget64（L1 预算 64MB）",
+    "value": "L1 输入 p50 61MB；L2 事件 117 次 / 73.66GiB；输出对用户 5.28×；吞吐 82K",
+    "unit": "MB；GiB；×；ops/s",
+    "condition": "R_budget64",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:187"
+   },
+   {
+    "metric": "ZF 侧安装次数 / 安装对用户比",
+    "value": "A 360 次（落 L0 344 / L1 16）0.69×；M-1e8 680 次 0.84×；H16 483 次 0.89×",
+    "unit": "次；×",
+    "condition": "各臂 ZF 安装统计",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:104"
+   },
+   {
+    "metric": "50GB 运行原生 compaction 累计输出对用户比 / 设备写入对用户比",
+    "value": "83.7× = 4,019.6GB ÷ 48GB；93.7× = 4.57TB ÷ 48GB；52× = ZF 侧物化口径（待重算）",
+    "unit": "×",
+    "condition": "50GB 运行（分母不同，不可直接比较）",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:150"
+   },
+   {
+    "metric": "分区数不是免费杠杆（P=1→256）",
+    "value": "事件数 14→1642（×117），吞吐 139K→74K（−47%）",
+    "unit": "次；ops/s",
+    "condition": "分区扫描",
+    "source": "archive/zeroflush_m5_perf/l0_closure/REPORT.md:263"
+   }
+  ],
+  "evaluation_zh": "结论：L0 触发阈值不是优化杠杆，而是负向杠杆（4M 键域下 1e8→4 使 L0→L1 输出/用户 1.06×→3.41×，1 分区下 0.87×→1.97×）——阈值只改变事件频率，降低阈值是让同一批 L1 驻留被重写更多次。单次闭包 = L0 输入 + 该键域的 L1 驻留，后者是主导项：H2 的 L1 输入被 max_bytes_for_level_base=1GB 钉在 1006MB，闭包 2075MB，复现了 50GB 运行的机制（L1 驻留 9.9GB 时闭包接近整分区，故有 4TB 级重写）。R 实验为负结果：L1 驻留上限机制有效（L1 输入 p50 1006→229/61MB），但成本转移到更深的层，'限制 L1 驻留'不是独立杠杆，正确表述是每一层都要保持 range 局部性；分区数调大方向正确但不是主修复（吞吐下降、文件数爆炸），真正杠杆是让每次物化与 L1 就地合并（kMergeBase / merge ON）。",
+  "caveats_zh": [
+   "初版报告的 M-4 行误抄为 B 臂数值，已在 a534fb1 修正（B 与 M-4 是独立测量）。",
+   "52× / 83.7× / 93.7× 分母不同（ZF 物化口径 / 原生 compaction 累计输出 / SMART 设备写入），三者不可直接比较。",
+   "覆盖率：H16/H2 为 1× 覆盖最接近 50GB 运行形态；A/B、M、P4 为 4–16×，输出被归并淘汰低估，绝对值不可外推。",
+   "P16/P64/P256 的 LOG 为压缩存档（results/*.LOG.gz），解析器需先解压或参考 results/ANALYSIS.txt 汇总。",
+   "P4 与 H16 为同一份数据（4 分区），非独立样本。",
+   "R 实验结论：不要把 L1 预算单独收紧（本次已证伪）；256 分区方案与'多层 range 局部性'仍待单独验证。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:3",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:4",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:7",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:8",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:12",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:13",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:14",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:16",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:17",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:21",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:22",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:23",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:24",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:25",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:26",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:27",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:28",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:29",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:34",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:42",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:43",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:45",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:46",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:47",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:48",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:49",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:50",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:52",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:53",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:56",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:64",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:68",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:69",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:77",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:79",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:81",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:88",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:90",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:104",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:133",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:140",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:150",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:152",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:154",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:175",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:182",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:184",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:186",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:187",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:192",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:197",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:206",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:219",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:234",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:243",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:245",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:246",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:247",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:248",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:249",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:251",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:252",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:258",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:263",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:280",
+   "archive/zeroflush_m5_perf/l0_closure/REPORT.md:282"
+  ]
+ },
+ {
+  "id": "m5/ledger#REPORT_0B",
+  "title_zh": "step 0b-3：pending ledger 水位背压（第一/二阶段）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "把'已封存未安装'的数据纳入可观测账目，并在写路径（seq 分配前）用 native DelayWrite / bg_cv_ 通道施加水位背压，超时可重试逃生。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "冒烟用例 8 线程（--threads=8；复现段为 16 分区配置）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "/home/embed/hyl/metadata_offload/source/rocksdb-zeroflush/build_rel（db_bench 与 zf_valcheck 同目录）",
+   "workload": "db_bench --benchmarks=fillrandom,waitforcompaction --num=48000000 --writes=200000 --threads=8 --seed=20260915；空 edit 复测 400K 写；严格校验器 zf_valcheck write/scan 40000 键",
+   "rocksdb_options": "--key_size=16 --value_size=1024 --compression_type=none --cache_size=536870912 --max_background_jobs=24 --statistics=false --use_existing_db=0 --zeroflush --zf_partitions=16 --zf_routing=sampled --zf_base_merge=true --zf_ledger_stop_mb=32 --zf_ledger_resume_mb=24 [--zf_bp_timeout_ms=1]；账目默认 ledger_stop_bytes=1GiB / ledger_resume_bytes=0.75GiB / backpressure_timeout_micros=15s",
+   "other": "门控：ZF_FORCE_EMPTY_EDIT=N、ZF_DBG_LEDGER=1；第二阶段重构后删除 ledger 的 generation 所有权镜像，改由 SealedFileCache 作唯一权威"
+  },
+  "results": [
+   {
+    "metric": "用例 A（默认水位 stop=1GiB）",
+    "value": "pending 0 / entries 0 / orphan 0 / drained 1.45GB / 峰值 332MB；waits=0；253K ops/s",
+    "unit": "GB；ops/s",
+    "condition": "1.6M 写 / 8 线程 / 16 分区",
+    "source": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:40"
+   },
+   {
+    "metric": "用例 B（低水位 stop=32MB, resume=24MB）",
+    "value": "waits=14，timeouts=0，pending 归零；165K ops/s",
+    "unit": "次；ops/s",
+    "condition": "背压生效的代价",
+    "source": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:41"
+   },
+   {
+    "metric": "用例 C（超时逃生 stop=32MB + timeout=1ms）",
+    "value": "waits=1971、timeouts=1964、bp_retries=15642；运行正常结束（退出码 0），无死锁，pending 归零",
+    "unit": "次",
+    "condition": "超时逃生用例",
+    "source": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:42"
+   },
+   {
+    "metric": "强制 2 次空 edit 验证",
+    "value": "empty_edit_barrier_advance=2，随后 install_direct_base=48 正常安装",
+    "unit": "次",
+    "condition": "ZF_FORCE_EMPTY_EDIT=2，400K 写",
+    "source": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:115"
+   },
+   {
+    "metric": "空 edit 下 pending 与 entry 数不变",
+    "value": "empty_edit_pending_unchanged=2",
+    "unit": "次",
+    "condition": "同上",
+    "source": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:117"
+   },
+   {
+    "metric": "持续空 edit 分歧（修复前）",
+    "value": "drain: rounds=2 has_pending=1->1 skip=407.4MB（cache 认为还有 407MB 待物化），而 ledger pending=0.0MB entries=0",
+    "unit": "MB",
+    "condition": "ZF_FORCE_EMPTY_EDIT=1000",
+    "source": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:126"
+   },
+   {
+    "metric": "持续空 edit 复测（重构后）",
+    "value": "pending / drained / reclaimed = 0 / 257.2MB / 257.2MB（自洽）；skip 0.0MB；HasPendingGens 0->0 rounds=0",
+    "unit": "MB",
+    "condition": "ZF_FORCE_EMPTY_EDIT=1000，400K 写",
+    "source": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:209"
+   },
+   {
+    "metric": "handoff_installed_filtered（守卫拦截）",
+    "value": "12",
+    "unit": "次",
+    "condition": "重构后复测（非 0 说明调用方用了过期 gens 列表）",
+    "source": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:211"
+   },
+   {
+    "metric": "重开后数据状态",
+    "value": "recovery_count=0、pending=0、registered_gens=0，读有命中",
+    "unit": "—",
+    "condition": "readrandom 重开",
+    "source": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:217"
+   },
+   {
+    "metric": "严格校验器 scan 缺陷（覆盖写在读路径上丢失）",
+    "value": "mismatch=2227（lost_overwrite=2227 / total=40000；占被覆盖区间 20000 的 11%）",
+    "unit": "次",
+    "condition": "zf_valcheck scan 40000 键，阈值降至 16MB/4MB 触发封存",
+    "source": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:263"
+   },
+   {
+    "metric": "归因事实 R3/R4",
+    "value": "R3 陈旧遮蔽 100% 发生在 L0（B3_visible_in_sst=2144 in_L0=2144 in_L1plus=0）；R4 失败集随开合循环漂移（fail 3283→2144，B2 980→0）",
+    "unit": "次",
+    "condition": "triage 实测",
+    "source": "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:310"
+   }
+  ],
+  "evaluation_zh": "第一阶段（水电位背压）完成并冒烟验证（三个用例含 1ms 超时逃生均正常结束），实现中发现并修掉四处账目挂载点缺陷；第二阶段发现 ledger 用并行 map 镜像 cache 所有权必然漂移（持续空 edit 下 watermark 低计 407.4MB），按用户意见重构为以 SealedFileCache 为唯一权威、分离 pending/drained/reclaimed 三个量，复测自洽（0 / 257.2MB / 257.2MB、registered_gens 归零）。随后严格校验器发现'覆盖写在读路径上丢失'的正确性缺陷（scan lost_overwrite=2227），该缺陷直接阻断 0b-4。",
+  "caveats_zh": [
+   "第一阶段只完成水位背压；空 edit（第二阶段）与 9 项故障用例（第三阶段）当时待做。",
+   "4 项（readrandom 命中率 20400/200000 受 db_bench 键分布影响）不能作为完整性判据；7 项（部分 kSkip 多分区批次）与 10 项（同分区 FIFO 与读后缀）本轮未构造场景。",
+   "在覆盖写丢失缺陷修复前 0b-4（无 L0 受控实验）不应开始。",
+   "缺陷是否既有需用 0b-3 之前的提交构建同一校验器做二分确认（本轮配置未触发 0b-3 的任何新机制，高度指向既有缺陷）。",
+   "'1ms timeout 重试风暴'已记录：backpressure_timeouts 与 bp_retries 分离计数，正式驱动需退避（harness 目前是 1ms 固定退避）。",
+   "当前代码状态：引擎与工具均已构建通过，未写入任何修复补丁；debug 读保护待补（本版本 GetContext 不在 db/*.h）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:3",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:4",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:5",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:16",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:40",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:41",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:42",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:62",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:65",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:115",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:117",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:126",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:146",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:147",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:165",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:201",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:209",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:211",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:217",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:223",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:228",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:237",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:259",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:263",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:276",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:278",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:304",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:310",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:311",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:314",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:358",
+   "archive/zeroflush_m5_perf/ledger/REPORT_0B.md:360"
+  ]
+ },
+ {
+  "id": "m5/materialize_lag#report",
+  "title_zh": "物化滞后专题分析（50GB merge-ON 数据滞留 WAL）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "定位 50GB merge-ON 验收中 fill 完成后 47.3GB 数据仍滞留分区 WAL、SST 仅 0.4GB（ZFDBG-install 仅 68 次、原生 compaction 0 次）的原因，并记录一次自纠：初判'物化管线滞后'，实测证明是 install 锁引入的让位循环。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "最小复现：4M 键 / 4M 写（4GB）/ merge ON / 16 分区 / 锁开启；另有 50GB merge-ON 验收（--num=3000000，48M 写）",
+   "rocksdb_options": "merge ON（zf_base_merge=true）+ install 锁；max_background_flushes=4；对照臂 ZF_INSTALL_LOCK=0",
+   "other": "探针门控 ZF_DBG_MM；窗口参数在 160ms / 60s / 120s / 阻塞等待之间对照"
+  },
+  "results": [
+   {
+    "metric": "安装事件（4M 写复现）",
+    "value": "68",
+    "unit": "次",
+    "condition": "全部集中在日志前 246 行（启动后 ~1s 内）",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:17"
+   },
+   {
+    "metric": "封存事件",
+    "value": "26（其中 15 次 size=0）",
+    "unit": "次",
+    "condition": "4M 写复现",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:18"
+   },
+   {
+    "metric": "ctxhandoff（gens 移交 recovery）",
+    "value": "49",
+    "unit": "次",
+    "condition": "4M 写复现",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:19"
+   },
+   {
+    "metric": "adopt（下批收养）/ skip_gens 增长",
+    "value": "48 次，skip_gens 4 → 148 单调增长",
+    "unit": "次",
+    "condition": "4M 写复现；决策计数 ZFDBG-skip 全为 0（无 kSkip）",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:20"
+   },
+   {
+    "metric": "DB LOG 'install lock busy; batch deferred'",
+    "value": "49",
+    "unit": "次",
+    "condition": "4M 写复现",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:22"
+   },
+   {
+    "metric": "终态",
+    "value": "WAL 3.45GB / SST 0.24GB",
+    "unit": "GB",
+    "condition": "4M 写复现",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:23"
+   },
+   {
+    "metric": "让位探针等待时长",
+    "value": "wait_us=60388556（job 6/8 同一 holder）",
+    "unit": "µs",
+    "condition": "ZF_DBG_MM 探针，60s 窗口",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:48"
+   },
+   {
+    "metric": "锁获取配对探针",
+    "value": "acq ok=0: 47,093 次；acq ok=1: 5 次；release held=1: 17 次",
+    "unit": "次",
+    "condition": "锁获取/释放配对探针",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:51"
+   },
+   {
+    "metric": "循环驱动力（等待窗口 vs 构建耗时）",
+    "value": "首次物化（学习批切片）耗时 300–500ms，而窗口 160ms → 必然超时",
+    "unit": "ms",
+    "condition": "160ms 窗口",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:73"
+   },
+   {
+    "metric": "长超时（60s / 120s）修法结果",
+    "value": "让位减少但未消失（仍 12–16 次），acq ok=0 达 47K 次；fill 13K ops/s",
+    "unit": "ops/s",
+    "condition": "长窗口版",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:83"
+   },
+   {
+    "metric": "阻塞等待（WaitForInstallLock）",
+    "value": "defer=0 / handoff=0（循环消除），但 300s 超时仍未完成 fill",
+    "unit": "s",
+    "condition": "阻塞等待版",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:84"
+   },
+   {
+    "metric": "锁关闭（ZF_INSTALL_LOCK=0）",
+    "value": "正常：764 次原生 compaction、WAL 清空、3.6GB SST",
+    "unit": "次；GB",
+    "condition": "对照臂",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:85"
+   },
+   {
+    "metric": "50GB 验收当时的数字（让位循环下的产物）",
+    "value": "327K ops/s 与 47GB WAL 留存；安装停在 68 次",
+    "unit": "ops/s；GB",
+    "condition": "锁开启臂",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:95"
+   },
+   {
+    "metric": "崩溃修复对照",
+    "value": "控制组 3/3 崩 vs 修复组 3/3 过",
+    "unit": "—",
+    "condition": "并发崩溃修复有效性",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:100"
+   }
+  ],
+  "evaluation_zh": "报告自纠：初判'物化管线滞后'不成立——实测决策层没有 kSkip、锁的获取/释放是配对的（release held=1 出现 17 次，无泄漏），真正原因是新增 install 锁的等待/让位路径与 recovery 收养机制叠加形成的让位循环，属本次修复引入的回归。因此 50GB 验收的 327K ops/s 与 47GB WAL 是让位循环抑制物化的产物，'锁开启比锁关闭快 4.1×'需重新解读；崩溃修复本身仍成立（控制组 3/3 崩 vs 修复组 3/3 过），但代价是物化停滞，比原先估计的 1.9× 变慢严重得多。",
+  "caveats_zh": [
+   "初版分析把现象归因为'物化管线滞后'（决策层不物化），实测证明决策层没有 kSkip，该归因已自纠。",
+   "验收中'锁开启比锁关闭快 4.1×'的结论需要重新解读：快的原因是物化被让位循环抑制，而非锁本身高效。",
+   "长窗口（60s / 120s）让位只是减少而未消失，且出现 acq ok=0 达 47K 次的密集重试。",
+   "短期建议：在换锁粒度/压缩持有时段/重设计让位语义落地前，merge ON 默认保持 ZF_INSTALL_LOCK=0（崩溃风险仅存在于高并发 + ≥0.8GB 的 merge_basen 场景，生产配置需评估）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:3",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:4",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:5",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:6",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:9",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:13",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:17",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:18",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:19",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:20",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:22",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:23",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:48",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:51",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:52",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:53",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:73",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:74",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:83",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:84",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:85",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:87",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:95",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:96",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:97",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:98",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:100",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:101",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:105",
+   "archive/zeroflush_m5_perf/materialize_lag/REPORT.md:114"
+  ]
+ },
+ {
+  "id": "m5/materialize_lag#protocol_fix_attempt",
+  "title_zh": "install 锁协议修复尝试记录（保留 pending + 死锁根因修复）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "按用户方案 commit 1 实现：锁竞争失败时保留输入在 imm/retry 队列并返回可重试状态，不再'gens 移交 recovery + 返回 OK'；并进一步定位与修复 256 分区配置下的停摆/死锁。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "M4.9 压力配置 256 分区 / 16 线程；4M 写复现案例为 16 分区",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "4M 键 / 4M 写（4GB）/ merge ON / 16 分区 / 锁开启；M4.9 压力配置 256 分区 / 16 线程 / 2.1M 写（16 轮）",
+   "rocksdb_options": "merge ON + ZF_INSTALL_LOCK=1（锁开启）",
+   "other": "门控 ZF_TRACE_IMM=1；代码已回退到 495b278（instal 锁默认关闭、zf_test ALL PASSED、M4.9 崩溃修复代码保留但默认不生效）"
+  },
+  "results": [
+   {
+    "metric": "新协议 fill 完成情况（4M 写复现）",
+    "value": "旧实现 ❌ 停滞（300s 超时）→ 新协议 ✅ 13.3s / 300K ops/s",
+    "unit": "s；ops/s",
+    "condition": "4M 键/4M 写/merge ON/16 分区/锁开启",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:15"
+   },
+   {
+    "metric": "ctxhandoff↔adopt 循环",
+    "value": "49/48 次、skip_gens 4→148 → 2/2 次（收敛）",
+    "unit": "次",
+    "condition": "新旧协议对照",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:16"
+   },
+   {
+    "metric": "安装次数",
+    "value": "68（停摆）→ 199（随输入增长）",
+    "unit": "次",
+    "condition": "新旧协议对照",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:17"
+   },
+   {
+    "metric": "存储形态",
+    "value": "WAL 3.45GB / SST 0.24GB → WAL 0.23GB / SST 0.25GB",
+    "unit": "GB",
+    "condition": "新旧协议对照",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:18"
+   },
+   {
+    "metric": "256 分区 16 轮停摆（新协议）",
+    "value": "约 6 分钟后停摆：写完 144 万/210 万后卡住，dirconf=249→251、imm=8-9、Stopping writes、安装停在 192 次",
+    "unit": "次",
+    "condition": "M4.9 压力配置 256 分区/16 线程/2.1M 写",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:62"
+   },
+   {
+    "metric": "最旧 imm 白盒状态",
+    "value": "seq=26 PickMemtablesToFlush picked_done ids=[10]；seq=27 TryInstall commit_loop commit_stop oldest_id=10 inprog=1 completed=0 n=1",
+    "unit": "—",
+    "condition": "ZF_TRACE_IMM 探针，停摆现场",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:122"
+   },
+   {
+    "metric": "owner 轨迹",
+    "value": "JOB 11 = memtable 10 的 owner：物化成功（s=OK、产出 4 文件）、进入 Run_preinstall，但无 mark_completed、无 flush_finished、无错误、无回滚",
+    "unit": "—",
+    "condition": "job 绑定探针",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:141"
+   },
+   {
+    "metric": "gdb 栈揭示的死锁环",
+    "value": "WaitGen0WindowClosed（学习窗） / AcquireGen0Slot（gen0 槽） / ZfMaterializeAllEpochs，构成自锁",
+    "unit": "—",
+    "condition": "256 分区 / 16 轮 / 锁开启",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:208"
+   },
+   {
+    "metric": "修复后 M4.9 崩溃配置验证",
+    "value": "3/3 通过（120/129/126s），零 overlapping/corruption，read 命中与 reopen 一致",
+    "unit": "s",
+    "condition": "256 分区/16T/16 轮，锁开启",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:236"
+   },
+   {
+    "metric": "同配置另一次 2 连跑",
+    "value": "2/2 通过（112.7/114.0s，18.4K/18.4K ops/s）",
+    "unit": "s；ops/s",
+    "condition": "同上",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:237"
+   },
+   {
+    "metric": "4M 写 / 16 分区 / merge ON（修复后）",
+    "value": "13.5s 完成（297K ops/s），零让位，安装 200 次，WAL 0.23GB / SST 0.26GB（可回收）",
+    "unit": "s；ops/s；GB",
+    "condition": "锁开启",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:238"
+   },
+   {
+    "metric": "zf_test 全量",
+    "value": "ALL PASSED",
+    "unit": "—",
+    "condition": "修复后",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:239"
+   },
+   {
+    "metric": "吞吐代价（锁开启 vs 锁关闭，256 分区）",
+    "value": "≈18.4K ops/s vs 约 23K 量级，约 −20%",
+    "unit": "ops/s",
+    "condition": "来源为安装窗口串行化 + 前序轮询退避",
+    "source": "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:242"
+   }
+  ],
+  "evaluation_zh": "修复尝试部分成功但未达到可上线标准：新协议方向正确，消除 recovery 收养循环（13.3s / 300K ops/s、安装数随输入增长、WAL 可回收），但 256 分区配置仍会停摆；附录 B 通过 gdb 栈实证定位'学习批持 gen0 槽等前序 × 前序等学习窗关闭'的自锁环，并以两处修改（前序门取锁之前等待、等前序时释放 gen0 槽，缺一不可）修复，修复后 M4.9 配置 3/3 通过、zf_test ALL PASSED，吞吐代价约 −20%。",
+  "caveats_zh": [
+   "结果'部分成功，但未达到可上线标准'。",
+   "代码已回退到 495b278（install 锁默认关闭、默认行为不受影响）。",
+   "对照（锁关闭）本批抽样未复现崩溃——该崩溃为概率性，历史 3/3 崩溃记录在案。",
+   "早期取证受环境限制：本机 ptrace_scope=1 且无免密 sudo，gdb attach 被拒绝（ptrace: Inappropriate ioctl for device），当时栈未取到。",
+   "吞吐代价约 −20%，可后续用分区级 token 收窄。",
+   "256 分区停摆的根因（让位与 flush 队列语义竞争）在附录 B 前仅为'判断'。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:3",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:4",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:5",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:6",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:11",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:15",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:16",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:17",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:18",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:20",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:43",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:57",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:62",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:71",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:78",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:120",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:122",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:128",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:141",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:171",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:173",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:208",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:214",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:219",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:236",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:237",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:238",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:239",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:240",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:242",
+   "archive/zeroflush_m5_perf/materialize_lag/PROTOCOL_FIX_ATTEMPT.md:243"
+  ]
+ },
+ {
+  "id": "m5/merge_on_accept",
+  "title_zh": "50GB merge-ON 验收（zf_install_mu_ 修复后，后被更正）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在真实 50GB 负载上验证 M4.9 并发崩溃修复（commit 2980464），并量化安装锁的实际代价（配对的 A/B 同键空间同参数对照）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "commit 2980464（zf_install_mu_ 修复后）",
+   "binary_path": null,
+   "workload": "--num=3000000（每线程）→ 16 线程 = 48M ops = 48GB 用户数据（每键一次写，无覆盖）；键空间 48M、1KB 值；readrandom 8M 次",
+   "rocksdb_options": "sampled + 16 分区 / zf_base_merge=true（merge ON）/ governance OFF / ZF_L0_TRIGGER=1e8 / compression=none / bg=24 / subcompactions=16；配对臂仅 ZF_INSTALL_LOCK 不同（默认开 vs =0）",
+   "other": "同二进制 A/B：同一二进制，仅 ZF_INSTALL_LOCK 不同"
+  },
+  "results": [
+   {
+    "metric": "fillrandom（锁开启，默认）",
+    "value": "327,460（146.6s，324.8 MB/s）",
+    "unit": "ops/s",
+    "condition": "锁开启臂",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:16"
+   },
+   {
+    "metric": "readrandom（锁开启，默认）",
+    "value": "77,093（1,660s），8,000,000 / 8,000,000 found（100%）",
+    "unit": "ops/s",
+    "condition": "锁开启臂",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:17"
+   },
+   {
+    "metric": "数据完整性",
+    "value": "零 corruption / 零 overlapping 报错；8M 随机采样全部命中",
+    "unit": "—",
+    "condition": "锁开启臂",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:18"
+   },
+   {
+    "metric": "崩溃",
+    "value": "无（M4.9 曾在此配置 100% 崩溃）",
+    "unit": "—",
+    "condition": "锁开启臂",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:19"
+   },
+   {
+    "metric": "让位（install lock busy）",
+    "value": "0 次（本次负载未触发锁竞争）",
+    "unit": "次",
+    "condition": "锁开启臂",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:20"
+   },
+   {
+    "metric": "LSM 终态",
+    "value": "L0=3 / L1=19 / L2=57",
+    "unit": "文件",
+    "condition": "锁开启臂",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:21"
+   },
+   {
+    "metric": "物理形态",
+    "value": "SST 0.4GB（52 文件）+ WAL 47.3GB（2,157 文件）",
+    "unit": "GB",
+    "condition": "锁开启臂",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:22"
+   },
+   {
+    "metric": "配对 A/B fill 吞吐",
+    "value": "锁开启 317,962 ops/s（151.0s，终态 48GB）vs 锁关闭 76,779 ops/s（625.2s，终态 3.7GB）",
+    "unit": "ops/s",
+    "condition": "同一二进制，仅 ZF_INSTALL_LOCK 不同",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:30"
+   },
+   {
+    "metric": "锁关闭臂的原生 compaction 次数",
+    "value": "764",
+    "unit": "次",
+    "condition": "锁关闭臂（fill 期间）",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:40"
+   },
+   {
+    "metric": "ZFDBG-install 安装次数（异常）",
+    "value": "68 次（48 L0 + 20 L1），对 48M 写/16 分区而言极低",
+    "unit": "次",
+    "condition": "锁开启臂",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:64"
+   },
+   {
+    "metric": "历史基线（口径不同）",
+    "value": "09-02 cmp_1kb50（merge ON，旧代码）27,066 ops/s，48M 键 / 768M 写（16× 覆盖）",
+    "unit": "ops/s",
+    "condition": "不可直接比较",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:52"
+   }
+  ],
+  "evaluation_zh": "本次验收通过：数据完整（零 corruption、8M 随机采样全命中）、无崩溃，M4.9 并发崩溃修复有效（控制组 3/3 崩）。但 §4.5 更正：锁开启臂 327K ops/s 与 47GB WAL 留存并非'锁高效'，而是让位循环抑制了物化，'安装锁代价为负'的结论不成立；当前锁实现（整批串行 + 超时让位）会与 recovery 收养叠加形成让位循环，导致物化滞后、数据滞留 WAL，是比吞吐下降更严重的问题。",
+  "caveats_zh": [
+   "本次（锁开）与 09-02 基线口径不同，不可直接比：09-02 是 --num=48000000（每线程）768M 写（16× 覆盖），本次 --num=3000000 共 48M 写（1× 覆盖）。",
+   "'安装锁代价为负'的结论已更正：327K ops/s 是让位循环抑制物化的产物，真实代价需在无让位循环的实现上重测。",
+   "§1 主结果中'让位 0 次'因 68 次安装上限未打满而显示 0，§4.5 已更正。",
+   "物化滞后属独立问题（非崩溃/丢数据）：install 仅 68 次、read 吞吐 77K vs 历史同量级 188K，WAL 空间不回收。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:3",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:6",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:7",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:9",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:16",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:17",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:18",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:20",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:21",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:22",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:26",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:30",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:31",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:38",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:40",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:50",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:52",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:54",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:59",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:61",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:64",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:67",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:76",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:79",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:85",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:95",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:97",
+   "archive/zeroflush_m5_perf/merge_on_accept/REPORT.md:98"
+  ]
+ },
+ {
+  "id": "m5/merge_on_accept_v2#report",
+  "title_zh": "50GB merge-ON 验收报告（准入循环修复后）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在安装顺序准入循环修复（e355d35 + 8fb5bab）后重做 50GB merge-ON 验收，检查是否不崩溃、不死锁、物化不停滞、WAL 可回收、数据完整；并用独立校验器 zf_valcheck 抽样验证数据完整性。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16T（16 线程）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "e355d35（安装顺序准入循环）+ 8fb5bab（DB mutex 退避修复）",
+   "binary_path": null,
+   "workload": "--num=48000000（键空间）--writes=3000000（每线程）→ 48M 次写 = 48GB 逻辑字节（期望覆盖率 1-e⁻¹ = 63.2%）；fill 后另有 142s 排空阶段",
+   "rocksdb_options": "ZF_INSTALL_LOCK 默认开启（=1）、merge ON、governance OFF、16T / 1KB 值 / 16 分区 / sampled / compression=none / seed=20260914",
+   "other": "独立校验器 tools/zf_valcheck.cc 在 48M 键空间上均匀采样 2100 键；对照基线 09-02 27,066 ops/s、历史 native 26,409 ops/s"
+  },
+  "results": [
+   {
+    "metric": "成功写入 / 耗时 / 吞吐",
+    "value": "48,000,000 ops = 48GB 逻辑字节；1,699.97s（28.3 min）；28,235 ops/s",
+    "unit": "ops/s",
+    "condition": "本版（e355d35），相对 09-02 基线 27,066 = 1.04×，相对历史 native 26,409 = 1.07×",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:18"
+   },
+   {
+    "metric": "崩溃/重叠",
+    "value": "0",
+    "unit": "次",
+    "condition": "本版（e355d35）",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:19"
+   },
+   {
+    "metric": "写入停摆（Stopping writes）",
+    "value": "0",
+    "unit": "次",
+    "condition": "本版",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:20"
+   },
+   {
+    "metric": "物化 install 次数",
+    "value": "478（停摆版仅 68）",
+    "unit": "次",
+    "condition": "本版 vs 停摆版",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:21"
+   },
+   {
+    "metric": "barrier 等待 / unexpected_predecessor / lock 阻塞等待",
+    "value": "294 / 0 / 0（mm-lockwait）",
+    "unit": "次",
+    "condition": "本版",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:22"
+   },
+   {
+    "metric": "skip→adopt",
+    "value": "100 / 100（平衡，均为合法 kSkip 让位周期，无净增长）",
+    "unit": "次",
+    "condition": "本版",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:24"
+   },
+   {
+    "metric": "排空阶段 LSM 文件数 [L0,L1,L2,L3]",
+    "value": "fill 终态 [3, 91, 124, 495] → 排空后 [3, 15, 68, 577]（L1 从 91 降到 15）",
+    "unit": "文件",
+    "condition": "fill 结束后 142s 停写、后台继续推进",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:30"
+   },
+   {
+    "metric": "compaction 累计",
+    "value": "1,001 次（→L2 654、→L3 347）",
+    "unit": "次",
+    "condition": "本版",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:31"
+   },
+   {
+    "metric": "SST / WAL 终态",
+    "value": "SST 30.02GB（663 文件）/ WAL 0.00GB",
+    "unit": "GB",
+    "condition": "本版（对照停摆版 WAL 47.3GB 滞留不回收）",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:42"
+   },
+   {
+    "metric": "峰值 memtable 堆积",
+    "value": "notflushed=1（未见堆积）",
+    "unit": "个",
+    "condition": "本版",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:43"
+   },
+   {
+    "metric": "独立校验命中率",
+    "value": "62.5%（1313/2100），期望 63.2%（1-e⁻¹）；抽样标准差 ≈1.05%",
+    "unit": "%",
+    "condition": "zf_valcheck 均匀采样 2100 键（48M 键空间）",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:53"
+   },
+   {
+    "metric": "校验值长度",
+    "value": "全部 1024B（1313/1313）",
+    "unit": "B",
+    "condition": "zf_valcheck",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:54"
+   },
+   {
+    "metric": "与停摆版对比",
+    "value": "fill 进度 2.7GB 处永久停摆 → 完整 48M 写；install 68 → 478；WAL 47.3GB 滞留 → 0.00GB；L1 排空 无 → 91→15 文件",
+    "unit": "—",
+    "condition": "停摆版（8fb5bab 前）vs 本版（e355d35）",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:65"
+   }
+  ],
+  "evaluation_zh": "结论：通过——不崩溃、不死锁、物化不停滞、WAL 可回收、数据完整。fill 吞吐 28,235 ops/s（相对 09-02 基线 27,066 为 1.04×，相对历史 native 26,409 为 1.07×），填满 48M 写；排空期 L1 从 91 文件降到 15 文件，说明停止写入后 L1→L2 仍能推进；独立校验器在 48M 键空间均匀采样 2100 键得命中率 62.5%（理论 63.2%）、值长度全部 1024B，零丢失。",
+  "caveats_zh": [
+   "锁仍为实验配置：本版 ZF_INSTALL_LOCK 默认开启且 50GB 通过，但需再跑 1–2 轮 50GB 复现稳定性后才改为正式默认。",
+   "与 native 同窗对照缺失，需补一轮 native 同参（28.2K vs 26.4K 虽已反超，但口径不完全可比）。",
+   "barrier 等待 294 次的耗时未单独计量（zf_install_wait_micros_ 已留接口，待补 lock_hold/lock_wait 细分）。",
+   "skip→adopt 各 100 次属合法让位周期，但值得后续确认其对写放大贡献。",
+   "db_bench 的 readrandom 报告 77% found，其多线程计数口径与独立采样不一致，以独立均匀采样（62.5%）为准。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:3",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:4",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:5",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:6",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:7",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:10",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:16",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:17",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:18",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:19",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:20",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:21",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:22",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:23",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:24",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:26",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:30",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:31",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:32",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:35",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:42",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:46",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:53",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:54",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:56",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:58",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:61",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:65",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:72",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:75",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:76",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/REPORT.md:78"
+  ]
+ },
+ {
+  "id": "m5/merge_on_accept_v2#attempt_log",
+  "title_zh": "50GB merge-ON 验收 + 严格最旧准入尝试（未通过，已回退）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "记录 cf5608e/8fb5bab 上的 50GB 验收未通过（2.7GB 处停摆）及其修复效果，以及按用户方案实现'最旧可处理批次准入'的尝试（段错误，已回退），说明准入门判据必须前移。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "gdb 抓到 4 个 flush 线程栈",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "cf5608e / 8fb5bab（修复提交）；回退目标 8fb5bab",
+   "binary_path": null,
+   "workload": "50GB 口径验收：2.7GB / 每线程 15 万写处停摆",
+   "rocksdb_options": "锁开启（ZF_INSTALL_LOCK）",
+   "other": "gdb 线程栈取证；准入门实现基于 MemTableList::ZfEarliestUncompleted()"
+  },
+  "results": [
+   {
+    "metric": "50GB 验收停摆位置",
+    "value": "2.7GB / 每线程 15 万写",
+    "unit": "GB",
+    "condition": "cf5608e/8fb5bab，锁开启（未通过）",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:5"
+   },
+   {
+    "metric": "gdb 线程栈 Thread 27",
+    "value": "InstrumentedMutex::Lock（想进 ZfMaterializeAllEpochs，入口要 DB mutex）",
+    "unit": "—",
+    "condition": "停摆现场",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:9"
+   },
+   {
+    "metric": "gdb 线程栈 Thread 26",
+    "value": "WaitInstallRelease（前序等待退避）——持 DB mutex 空转",
+    "unit": "—",
+    "condition": "停摆现场",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:10"
+   },
+   {
+    "metric": "gdb 线程栈 Thread 3",
+    "value": "nanosleep（同一等待循环）",
+    "unit": "—",
+    "condition": "停摆现场",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:11"
+   },
+   {
+    "metric": "修复（8fb5bab）后退避期间放开 DB mutex 的复测",
+    "value": "仍在 2.7GB 同一处停摆（这次前序的 flush job 卡在 gen0 窗口等待）",
+    "unit": "GB",
+    "condition": "复测",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:14"
+   },
+   {
+    "metric": "严格最旧准入尝试结果",
+    "value": "段错误（rc=139）；日志显示 defer_in_materialize=1",
+    "unit": "—",
+    "condition": "本次尝试（已回退）",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:26"
+   },
+   {
+    "metric": "崩溃根因（判据不一致）",
+    "value": "准入门用 ZfEarliestUncompleted() < max_memtable_id（只看未完成项），materialize 内用 GetEarliestMemTableID() < my_min（含已完成待提交项）；更旧的已完成未提交项会断裂 TryInstall 提交链（commit_stop oldest_id=..）",
+    "unit": "—",
+    "condition": "本次尝试",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:30"
+   },
+   {
+    "metric": "回退状态",
+    "value": "代码回到 8fb5bab（锁默认开启；M4.9 与 4M 写、zf_test 已验证；50GB 未验证），工作树干净",
+    "unit": "—",
+    "condition": "回退后",
+    "source": "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:41"
+   }
+  ],
+  "evaluation_zh": "50GB 验收未通过（2.7GB 处停摆），修复（8fb5bab：退避期间放开 DB mutex）后复测仍在 2.7GB 同一处停摆，说明'批级全局串行 + 前序等待'框架下等待环层出不穷。严格最旧准入尝试以段错误（rc=139）告终并已回退，结论是准入门与前序检查必须使用同一判据（'最早未完成项'），且该判据必须前移到 PickMemtable 之后、创建 FlushJob 之前的调度点——已超出'FlushJob 内部补丁'的范围。",
+  "caveats_zh": [
+   "本次尝试已回退，代码回到 8fb5bab，且该状态下 50GB 未验证。",
+   "段错误根因（判据不一致导致提交链断裂）是本次尝试引入的，不是既有缺陷。",
+   "需要改调度入口，属下一轮工作，尚未完成。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:3",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:5",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:9",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:10",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:11",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:14",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:21",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:26",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:30",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:34",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:37",
+   "archive/zeroflush_m5_perf/merge_on_accept_v2/ATTEMPT_LOG.md:41"
+  ]
+ },
+ {
+  "id": "m5/native_50gb_samewindow",
+  "title_zh": "50GB merge-ON 同窗对照：ZeroFlush vs native RocksDB",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在同机、同盘、同窗口、同参数下对比 ZF 与 native 的 50GB fill/read，量化 P1 的剩余差距并定位成本中心。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16T（16 线程）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "ZF：e355d35+8fb5bab；native：RocksDB（对照臂）",
+   "binary_path": null,
+   "workload": "--num=48M（键空间）--writes=3M/线程（16T）= 48M 写；1KB 值；read 阶段；三臂在 48M 键空间命中键数一致（6,161,212）",
+   "rocksdb_options": "compression=none、cache 512MB、bg=24、subcompactions=16、seed=20260914；ZF 配置：merge ON、governance OFF、锁默认开启",
+   "other": "四轮均已完成，DB 大小与键覆盖一致，可直接比较；记录盘温均值/p90"
+  },
+  "results": [
+   {
+    "metric": "fill ops/s",
+    "value": "native #1 47,875；native #2 47,385；ZF 探针臂 28,235；ZF 无探针臂 16,055",
+    "unit": "ops/s",
+    "condition": "同窗四臂",
+    "source": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:15"
+   },
+   {
+    "metric": "read ops/s",
+    "value": "native 798,878（#1）/ 391,061（#2）；ZF 901,285（探针）/ 846,977（无探针）",
+    "unit": "ops/s",
+    "condition": "同窗四臂",
+    "source": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:17"
+   },
+   {
+    "metric": "read found（三臂一致）",
+    "value": "6,161,212",
+    "unit": "键",
+    "condition": "native #1 / ZF 探针 / ZF 无探针",
+    "source": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:18"
+   },
+   {
+    "metric": "DB 大小",
+    "value": "native 31.78GB（562 SST）；ZF 探针 30.02GB（663 SST）；ZF 无探针 31.04GB（656 SST）",
+    "unit": "GB",
+    "condition": "各臂终态",
+    "source": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:19"
+   },
+   {
+    "metric": "compaction 输出合计",
+    "value": "native 345.9GB；ZF 探针 649.4GB；ZF 无探针 921.5GB",
+    "unit": "GB",
+    "condition": "fill 阶段逐条求和 'compacted to' 行",
+    "source": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:36"
+   },
+   {
+    "metric": "fill 期物理写入合计",
+    "value": "native ~377–384GB；ZF 探针 ~705GB；ZF 无探针 ~976GB",
+    "unit": "GB",
+    "condition": "fill 阶段",
+    "source": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:38"
+   },
+   {
+    "metric": "对 31GB 数据的写入放大",
+    "value": "native ≈12×；ZF 探针 ≈23×；ZF 无探针 ≈31×",
+    "unit": "×",
+    "condition": "fill 阶段",
+    "source": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:39"
+   },
+   {
+    "metric": "sink 次数 / L2 clear 次数",
+    "value": "native 0 / 0；ZF 探针 4,828 / 4,674；ZF 无探针 7,263 / 7,166",
+    "unit": "次",
+    "condition": "ZF 独有 sink（L1→L2）+ L2 清场（L2→L3）管线",
+    "source": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:47"
+   },
+   {
+    "metric": "ZF fill 相对 native 的比值",
+    "value": "0.34–0.59×",
+    "unit": "×",
+    "condition": "ZF 明显更慢且两轮波动很大（28.2K vs 16.1K）",
+    "source": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:25"
+   },
+   {
+    "metric": "读性能对比",
+    "value": "ZF 读反而快 6–13%（第一对 +13%、第二对 +117%）",
+    "unit": "%",
+    "condition": "两对比较",
+    "source": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:26"
+   },
+   {
+    "metric": "盘温均值/p90",
+    "value": "native #1 81.1/84.8°C；ZF 探针 80.9/84.8°C；ZF 无探针 83.0/84.8°C",
+    "unit": "°C",
+    "condition": "各臂",
+    "source": "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:22"
+   }
+  ],
+  "evaluation_zh": "结论：native 两轮稳定（47.9K/47.4K），ZF 明显更慢且两轮波动很大（28.2K vs 16.1K），ZF fill 为 native 的 0.34–0.59×；读则 ZF 反而快 6–13%（901K/847K vs 799K）。写放大的成本中心是 ZF 独有的 sink（L1→L2）+ L2 清场（L2→L3）管线（ZF 的 L2 层是 native 的 1.9–3.7×、L3 层 3.2–3.6×），而不是物化本身（物化输出仅 55GB / 1460–1697 次）。三臂在 48M 键空间命中键数完全一致（6,161,212），数据内容等价，性能差异不是数据量差异造成的。",
+  "caveats_zh": [
+   "native #2 的 read 掉到 391K（其 DB 596 SST、读阶段可能仍在后台收敛），故第二对读差距不可当作稳定结论。",
+   "ZF 两轮差异由 sink 管线解释：sink 工作量本身不稳定（同一配置、同负载、同键空间），这是下一轮要查的对象。",
+   "native #2 的部分表格项为 '—'（未记录 read found / DB 大小等）。",
+   "ZF 探针臂与无探针臂差异未归因到探针代价，而是归于 sink 次数。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:3",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:4",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:5",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:6",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:8",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:11",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:15",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:16",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:17",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:18",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:19",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:20",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:21",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:22",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:24",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:25",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:26",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:28",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:30",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:36",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:38",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:39",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:47",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:48",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:50",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:53",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:57",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:60",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:67",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:68",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:71",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:73",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:81",
+   "archive/zeroflush_m5_perf/native_50gb_samewindow/SAME_WINDOW_COMPARISON.md:86"
+  ]
+ },
+ {
+  "id": "m5/sink_tuning#report",
+  "title_zh": "sink / L2 清场受控实验（实验 A/B，结论一后被更正作废）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "capacity_sweep",
+  "purpose_zh": "压缩 ZF 的 →L2（sink）+ →L3（L2 清场）写入量（50GB 下 649–921GB），以整分区 sink、按 L1 单文件窄 sink、以及 L2 清场阈值（4GB/8GB）做四臂受控对照。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "48M 键空间 / 16 线程 × 1M 写 = 16M 写（14GB DB），单臂约 1–7 分钟",
+   "rocksdb_options": "新增 env 门控开关（默认行为不变）：ZF_SINK_WHOLE_RANGE=1（旧行为，整个分区区间下沉）；默认 = 按分区内最左 L1 文件的键区间下沉（实验 A）；ZF_SINK_L2_CLEAR_MB=N（L2 清场阈值，默认 4096MB）",
+   "other": "复现脚本 run_arm.sh；EVENT_LOG 统计 trivial_move / compaction_started|finished"
+  },
+  "results": [
+   {
+    "metric": "base 臂（整分区 sink + 4GB 清场）",
+    "value": "吞吐 38,692 ops/s；sink 消息 108；L2 清场 347；完成 compaction 245；→L2 64.8G；→L3 41.1G；总输出 105.9G；LSM [3,25,79,159]",
+    "unit": "ops/s；GB",
+    "condition": "base 臂",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:21"
+   },
+   {
+    "metric": "A 臂（按 L1 单文件 sink + 4GB）",
+    "value": "吞吐 249,430 ops/s；sink 消息 621；L2 清场 0；完成 compaction 0；→L2 0；→L3 0；总输出 0；LSM [3,140,80,0]",
+    "unit": "ops/s；GB",
+    "condition": "A 臂（实现不完整）",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:22"
+   },
+   {
+    "metric": "B 臂（整分区 sink + 8GB 清场）",
+    "value": "吞吐 43,350 ops/s；sink 消息 121；L2 清场 155；完成 compaction 268；→L2 109.2G；→L3 10.3G；总输出 119.5G；LSM [3,30,128,85]",
+    "unit": "ops/s；GB",
+    "condition": "B 臂",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:23"
+   },
+   {
+    "metric": "AB 臂（按文件 sink + 8GB）",
+    "value": "吞吐 212,782 ops/s；sink 消息 640；L2 清场 0；完成 compaction 0；总输出 0；LSM [3,113,108,0]",
+    "unit": "ops/s；GB",
+    "condition": "AB 臂（实现不完整）",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:24"
+   },
+   {
+    "metric": "A 臂 trivial move 统计",
+    "value": "EVENT_LOG 21 次 trivial_move、0 次 compaction_started/finished；base 臂为 245 次真 compaction + 2,463 次文件创建/2,493 次删除",
+    "unit": "次",
+    "condition": "A 臂 vs base 臂",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:34"
+   },
+   {
+    "metric": "B 臂（4GB→8GB 清场阈值）：L2 清场次数与 →L3",
+    "value": "347 → 155；→L3 从 41.1G 降到 10.3G（−75%）",
+    "unit": "次；GB",
+    "condition": "清场阈值对照",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:43"
+   },
+   {
+    "metric": "B 臂（4GB→8GB 清场阈值）：→L2 与总量",
+    "value": "→L2 从 64.8G 涨到 109.2G（+69%）；总量 105.9G → 119.5G（更差 −13%）；吞吐 38.7K→43.4K（+12%）",
+    "unit": "GB；ops/s",
+    "condition": "清场阈值对照",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:44"
+   }
+  ],
+  "evaluation_zh": "§2026-09-15 更正已作废 A/AB 两臂的数据与'结论一'（窄下沉可退化为 trivial move）——A/AB 臂 compaction 完成数为 0 是因为窄下沉把区间 Slice 指向已释放的 std::string（heap-use-after-free，picker 收到垃圾边界），A 臂不是有效配置。B 臂不经过该路径，结论二仍成立并被判定采纳：提高 L2 清场阈值单独使用只是把成本从 L3 搬到 L2（→L3 −75% 但 →L2 +69%，总量更差 −13%），必须与'下沉粒度收窄'联合使用，否则不采用。",
+  "caveats_zh": [
+   "2026-09-15 更正：A/AB 两臂的数据与'结论一'作废（窄下沉指向已释放 std::string 的 heap-use-after-free，glibc tcache 覆写了 16B key 的前 16 字节）；其中 21 次 trivial move 属偶发。",
+   "A/AB 臂的吞吐 21–25 万 ops/s 是'没做下压工作'的假象，A 臂当前不是有效配置。",
+   "结论二（单独调 L2 清场阈值是搬移成本而非减少成本）仅在 B 臂（不经过 UAF 路径）上成立。",
+   "实验 C/D（sink 与普通 compaction 合并调度、同区间去重）与实验 E（并发参数）需在 A 修正为真正有效的按 range 下沉后才有意义。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:3",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:4",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:6",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:7",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:10",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:11",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:13",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:14",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:15",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:21",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:22",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:23",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:24",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:28",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:31",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:34",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:43",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:44",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:49",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:59",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:62",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT.md:64"
+  ]
+ },
+ {
+  "id": "m5/sink_tuning#report_0a",
+  "title_zh": "step 0a：窄区间 sink 失败原因分类与三臂对照",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "定位 sink/L2 清场受控实验中窄区间下沉（实验 A/AB）compaction 完成数为 0 的原因，把 request → picked → registered → scheduled → installed 打成可观测状态并分类失败原因；修复后再做同二进制三臂对照（整分区 / 单文件窄 / 合批），并推进 0b-1 排空口径与 0b-2 '3.9× 的构成'。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（P=16 分区）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "16M 写 / 14GB DB（P=16、1KB value、48M 键空间），与 base 同参；单臂约 1–7 分钟；运行含 fillrandom + waitforcompaction 排空阶段",
+   "rocksdb_options": "下沉策略开关：ZF_SINK_WHOLE_RANGE=1（整分区，base）、ZF_SINK_NARROW=1（单文件窄，A0c/A0d）、ZF_SINK_BATCH=1（按 L2 重叠合批，B1）；ZF_SINK_L2_CLEAR_MB（4GB）；诊断经 rocksdb.zeroflush.sink_diag 暴露",
+   "other": "新增诊断文件 db/compaction/zf_sink_diag.h（失败原因枚举 + 计数器 + 占用者登记）；ZFDBG-sink-built 记录'请求区间 → 实际输入区间'；db_bench 结束打印 ZF END STATE（各层文件数 + num-running-compactions + install_fallback_l0）"
+  },
+  "results": [
+   {
+    "metric": "窄下沉请求分类：pick_ok",
+    "value": "284（11.6%）",
+    "unit": "次",
+    "condition": "A0b 臂（taken=2443）",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:76"
+   },
+   {
+    "metric": "窄下沉请求分类：expand_clean_cut（目标 L1 文件被占）",
+    "value": "1589（65.0%）",
+    "unit": "次",
+    "condition": "A0b 臂",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:77"
+   },
+   {
+    "metric": "窄下沉请求分类：no_l1_file（区间内无 L1 文件）",
+    "value": "570（23.3%）",
+    "unit": "次",
+    "condition": "A0b 臂",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:78"
+   },
+   {
+    "metric": "窄下沉请求分类：setup_other / files_in_compaction / output_range_overlap",
+    "value": "0 / 0 / 0",
+    "unit": "次",
+    "condition": "A0b 臂",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:79"
+   },
+   {
+    "metric": "占用者归属",
+    "value": "sink=1574（99.1%）、merge=15（0.9%）",
+    "unit": "次",
+    "condition": "A0b 臂（失败几乎全是'被另一条下沉占用'）",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:80"
+   },
+   {
+    "metric": "requeue 残余",
+    "value": "右残余 1865 次、左残余 255 次",
+    "unit": "次",
+    "condition": "A0b 臂",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:81"
+   },
+   {
+    "metric": "A0a 臂（窄下沉，已修）",
+    "value": "吞吐 38,331 ops/s；→L2 70.5G(213)；→L3 50.5G(44)；合计 121.0G；trivial 89 次 / 6.33G",
+    "unit": "ops/s；GB",
+    "condition": "16M 写 / 14GB，与 base 同参",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:70"
+   },
+   {
+    "metric": "A0b 臂（窄下沉，已修，含占用者归属）",
+    "value": "吞吐 43,071 ops/s；→L2 69.6G(193)；→L3 59.7G(50)；合计 129.3G；trivial 101 次 / 6.75G",
+    "unit": "ops/s；GB",
+    "condition": "同上",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:71"
+   },
+   {
+    "metric": "窄下沉真实输入：L1 侧",
+    "value": "每次只吃 1 个 L1 文件，平均 51–53MB，全部 ≤80MB（符合每 range ≤64MB 单文件设计）",
+    "unit": "MB",
+    "condition": "窄下沉第一轮",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:91"
+   },
+   {
+    "metric": "窄下沉真实输入：L2 侧与 L2/L1",
+    "value": "读 51–53MB L1 却要读 296–318MB L2（文本解析口径 L2/L1 = 5.8–6.0×），产生约 334MB 输出",
+    "unit": "MB；×",
+    "condition": "窄下沉第一轮（该 6× 口径后被修正为 ≈3.9–4.1×）",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:94"
+   },
+   {
+    "metric": "三臂对照（同二进制，交错复跑）",
+    "value": "base2 46,479 ops/s / 118.6G / clean-cut 失败 4；base2b 43,667 / 118.0G；base2c 34,814 / 85.6G；A0c（单文件窄）33,520 / 131.2G / clean-cut 失败 1500；B1（合批）35,372 / 118.2G / clean-cut 失败 0",
+    "unit": "ops/s；GB",
+    "condition": "16M 写 / 14GB",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:159"
+   },
+   {
+    "metric": "真实 Compaction 输入的 L2/L1",
+    "value": "base2 3.9×、A0c 4.0×、B1 3.7×（三臂一致）",
+    "unit": "×",
+    "condition": "按构造出的 Compaction 对象实测（非文本解析）",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:172"
+   },
+   {
+    "metric": "合批是否生效",
+    "value": "batch: rounds=282 l1_files=282（平均 1.0 个 L1 文件/批）——并批从未接受；B1 收益全来自流水修复（跳过被占文件使 clean-cut 失败 1500→0，请求 2383→643，成功率 12%→44%）",
+    "unit": "—",
+    "condition": "B1 臂",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:181"
+   },
+   {
+    "metric": "下沉任务耗时 p50",
+    "value": "1.4s（base）/ 2.3s（A0c）/ 3.1s（B1），输入字节相近（~350MB）",
+    "unit": "s",
+    "condition": "三臂",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:196"
+   },
+   {
+    "metric": "0b-1 排空口径验证 base3（整分区新默认 + 排空）",
+    "value": "41,542 ops/s；总输出 127.0G；末态 [3,24,83,171]；fallback_l0 48；drain rounds=1 remaining=0 6.3s",
+    "unit": "ops/s；GB；s",
+    "condition": "同二进制，16M 写",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:241"
+   },
+   {
+    "metric": "0b-1 排空口径验证 A0d（窄下沉 + 排空）",
+    "value": "30,873 ops/s；总输出 129.9G；末态 [3,24,64,177]；fallback_l0 48；drain rounds=1 5.5s",
+    "unit": "ops/s；GB；s",
+    "condition": "两臂 HasPendingSealedData 均由真转假，recovery=0、skip=0",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:242"
+   },
+   {
+    "metric": "sink 写入 L2 的文件大小分布",
+    "value": "base2 文件数 1171、合计 68.2GB、中位 66.6MB、p90 67.1MB、最大 67.7MB、<16MB 占比 7%（三臂一致）",
+    "unit": "MB；GB",
+    "condition": "按 job 关联 table_file_creation 的 file_size",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:257"
+   },
+   {
+    "metric": "每 sink 的 L2 输入与 L2 驻留",
+    "value": "每 sink L2 输入实测 200–212MB；L2 驻留（末态）3.97–5.53GB，分摊到 P=16 为 254–354MB；推论 每 sink 的 L2 输入 ≈ ZF_SINK_L2_CLEAR_MB / P",
+    "unit": "MB；GB",
+    "condition": "0b-2 分析",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:278"
+   },
+   {
+    "metric": "总输出的跨运行方差",
+    "value": "同一策略（整分区）四次运行 85.6 / 118.0 / 118.6 / 127.0 GB（±20%）；窄下沉四次 121.0 / 129.3 / 129.9 / 131.2；合批两次 118.2 / 126.9",
+    "unit": "GB",
+    "condition": "固定写量下总输出不可直接跨臂比较",
+    "source": "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:294"
+   }
+  ],
+  "evaluation_zh": "原实验 A/AB 的'0 次完成'是一个真实 bug——窄下沉把区间 Slice 指向了内层作用域已析构的 std::string（16B key 超过 SSO 上限走堆分配，glibc 把 tcache 指针写在 chunk 前 16 字节，正是 key 数据所在位置），不是 picker 语义问题；修复后窄下沉能正常工作，但并没有降低写放大：每次只吃 ~50MB L1 却要吃 ~4 倍 L2 重叠，同清场阈值下总输出反而比整分区高 14–22%（后续以已排空运行比较为高 2–11%，仅 1 次 base 已排空样本，方向可信幅度不可信）。设计稿'把下沉粒度收窄当作压缩写放大的唯一现实路径'被证伪，真正的杠杆在 L2 的驻留与重叠结构（以及 L2→L3 级联）；结论 2（单独调 L2 清场阈值只是把成本从 L3 搬到 L2）不受影响，B 臂形态被采纳保留。",
+  "caveats_zh": [
+   "'L2/L1 = 5.8–6.0×'是文本解析配对的假象（16 路交织日志会把相邻 compaction 的摘要行错配），按构造出的 compaction 实测为 ≈3.9–4.1×，三臂一致。",
+   "与'历史 base 105.9G'的比较不可用——同一二进制重跑 base 得 118.0–118.6G（第三次 85.6G），故该比较已作废。",
+   "总输出在固定写量下不可直接跨臂比较（存在路径选择混淆：末态 L0 是否已排空直接改变总输出）；稳定可用的指标是每次任务的构成（L1 输入 ~50MB、L2 输入 ~200MB、L2/L1 ≈3.9–4.0×、下沉后 L1 文件数 1）；单次运行总输出差异 <15% 不应作为结论，建议 ≥5 次运行均值。",
+   "合批（ZF_SINK_BATCH）在本规模下从未生效（每分区仅 1–2 个 L1 文件），需在 L1 扇出更高的场景复测后再决定是否保留该代码路径。",
+   "'仅 L2 为空才 sink'不予采纳（用户判断）：L2 非空时必须有出口；B1 的形态（合批 + 跳过被占）已保留这条出口。",
+   "第一轮 99.1% 的'目标文件被占'来自另一条在飞的下沉（A0c），设计稿'sink 忙时暂缓同范围的新融合'的假设在本工作负载下不成立。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:3",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:4",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:7",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:10",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:11",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:21",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:60",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:61",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:62",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:63",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:65",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:70",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:71",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:73",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:76",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:77",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:78",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:79",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:80",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:81",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:91",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:92",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:93",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:94",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:100",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:104",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:105",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:109",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:131",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:148",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:153",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:157",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:159",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:160",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:161",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:162",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:163",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:164",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:166",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:170",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:172",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:178",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:181",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:183",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:187",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:191",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:196",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:204",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:208",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:218",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:226",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:232",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:241",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:242",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:247",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:257",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:258",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:259",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:278",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:280",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:282",
+   "archive/zeroflush_m5_perf/sink_tuning/REPORT_0A.md:294"
+  ]
+ },
+ {
+  "id": "m5/b4b17b3_followups",
+  "title_zh": "b4b17b3_followups 目录文件说明（取证有效性）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "说明该目录各取证文件（线程栈、日志、复跑记录）的用途与有效性，避免把误判产物当作证据读取。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": null,
+   "rocksdb_options": null,
+   "other": "看门狗判据：写阶段为'DB 体积 + LOG 大小不变'，读阶段改用进程 CPU 时间（/proc/PID/stat 的 utime+stime）"
+  },
+  "results": [
+   {
+    "metric": "readpartial50|100.*（线程栈 / hang.LOG / log / watch.log）",
+    "value": "误判产物，不可当作'读停滞'证据",
+    "unit": "—",
+    "condition": "看门狗按'DB 体积 + LOG 不变'判据终止",
+    "source": "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:5"
+   },
+   {
+    "metric": "误判旁证（线程栈）",
+    "value": "16 个读线程当时正在 DBImpl::GetImpl / InlineSkipList / Version::Get / TableCache::Get 里正常工作，并非等待",
+    "unit": "—",
+    "condition": "readpartial 取证",
+    "source": "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:7"
+   },
+   {
+    "metric": "reads50_retest.log / reads100_retest.log",
+    "value": "修正后的正式读数（改用进程 CPU 时间作进展信号），两相均 rc=0 正常完成",
+    "unit": "—",
+    "condition": "read_retest.sh",
+    "source": "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:10"
+   },
+   {
+    "metric": "fill_smoke.log",
+    "value": "停滞点以下的 ZF 写 smoke（1GB，非对照口径），完整跑通",
+    "unit": "—",
+    "condition": "写 smoke",
+    "source": "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:12"
+   },
+   {
+    "metric": "fill_repeat.log / repeat.LOG（50GB 口径复跑）",
+    "value": "同样停滞，停于 2.41GB，账本 pending=1110.7MB",
+    "unit": "GB；MB",
+    "condition": "50GB 口径复跑",
+    "source": "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:13"
+   },
+   {
+    "metric": "run.log 退出码含义",
+    "value": "*_watch=91 表示被看门狗判停滞后终止；=0 表示正常完成",
+    "unit": "—",
+    "condition": "各相 run.log",
+    "source": "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:14"
+   }
+  ],
+  "evaluation_zh": "目录说明的效力判定：readpartial50|100 系列（线程栈、hang.LOG、log、watch.log）是看门狗误判产物，不可当作'读停滞'证据；改用进程 CPU 时间作进展信号后的 reads50_retest / reads100_retest 才是修正后的正式读数（两相 rc=0）；fill_smoke 为 1GB 非对照口径的完整跑通，fill_repeat 复现了 50GB 口径的停滞（停于 2.41GB、账本 pending=1110.7MB）。完整报告见 ../B4B17B3_50GB_100GB_REPORT.md。",
+  "caveats_zh": [
+   "本文件只是目录文件说明，完整报告在 ../B4B17B3_50GB_100GB_REPORT.md。",
+   "readpartial 系列为误判产物；判断依据（'DB 体积 + LOG 不变'）对读负载无效。"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:1",
+   "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:3",
+   "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:5",
+   "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:9",
+   "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:10",
+   "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:12",
+   "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:13",
+   "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:14",
+   "archive/zeroflush_m5_perf/b4b17b3_followups/NOTE_文件说明.md:16"
+  ]
+ }
+]

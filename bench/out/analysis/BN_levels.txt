@@ -1,0 +1,31 @@
+== 100gb_overwrite  F=2 C=6 time=5902.273s
+   start->out   jobs   in@start     in@out  out_bytes    wall_s     cpu_s   triv
+   L0->L0         1       0.97       0.00       0.97       4.9       2.7      0
+   L0->L3        99      93.08      67.71     160.75     813.8     531.9      0
+   L3->L4      1529      93.14      89.62     182.76    3615.9     540.2    213
+   L4->L5      1806      93.04     208.10     301.13    9860.9    1428.9     70
+   L5->L6      1705      92.06     285.96     295.33   13433.7    2182.0      0
+   device: wr 212 MB/s + rd 82 MB/s, busy nan%, devWA 11.15 | arr 21017 ops/s, t_arr 4568s
+
+== 50gb_overwrite  F=2 C=6 time=1293.018s
+   start->out   jobs   in@start     in@out  out_bytes    wall_s     cpu_s   triv
+   L0->L0         4       4.61       0.00       4.61      27.4      13.4      0
+   L0->L3        31      46.66      34.81      81.45     324.3     272.0      0
+   L3->L4       534      46.62      22.66      69.28    1083.3     184.3    155
+   L4->L5       741      46.56      53.01      99.56    2051.1     399.6     82
+   L5->L6       826      46.00      99.33     104.08    3918.2     709.6      0
+   device: wr 291 MB/s + rd 89 MB/s, busy nan%, devWA 8.48 | arr 43410 ops/s, t_arr 1106s
+
+== bn_default_r1  F=2 C=6 time=533.651s
+   start->out   jobs   in@start     in@out  out_bytes    wall_s     cpu_s   triv
+   L0->L0         4       4.37       0.00       4.37      33.0      11.8      0
+   L0->L3         8      12.60       8.06      20.66      95.5      68.3      0
+   L3->L4       109      12.57       3.92      16.49     325.3      35.4     46
+   L4->L5       160      12.52      12.36      24.88     818.8      69.4     27
+   L5->L6       209      12.05      33.31      37.87    1731.3     240.9      0
+   device: wr 179 MB/s + rd 11 MB/s, busy 95.1%, devWA 9.10 | arr 71179 ops/s, t_arr 180s
+
+== bn_noc_r1  F=2 C=6 time=59.874s
+   start->out   jobs   in@start     in@out  out_bytes    wall_s     cpu_s   triv
+   device: wr 530 MB/s + rd 0 MB/s, busy 54.5%, devWA 1.02 | arr 474000 ops/s, t_arr 27s
+

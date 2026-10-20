@@ -1,0 +1,15 @@
+2026-09-30T13:02:18+08:00 === K scan chain: K=[1 2 4 8 16] reps=5 base=/home/embed/hyl/metadata_offload/bench/out/perf_v2/l0_backlog_kscan_K16/db/base_holes ===
+2026-09-30T13:02:18+08:00 base identity: base_l0_empty=1 base_keys=44040192 universe=48000000 k=16 seed=20260925 bin_sha256=2908281f88694f81823bb606b9056042bb3c1388ab0d6226d43fedecb883e731 
+2026-09-30T13:02:18+08:00 tool sha256:   2908281f88694f81823bb606
+2026-09-30T13:02:18+08:00 common rate:   72526
+2026-09-30T13:02:18+08:00 --- K=1 START (root /home/embed/hyl/metadata_offload/bench/out/perf_v2/l0_backlog_kscan_K1) ---
+2026-09-30T13:31:59+08:00 --- K=1 END rc=0 runs=20 valid=20 manifest=20 elapsed=1780s ---
+2026-09-30T13:31:59+08:00 --- K=2 START (root /home/embed/hyl/metadata_offload/bench/out/perf_v2/l0_backlog_kscan_K2) ---
+2026-09-30T14:00:20+08:00 --- K=2 END rc=0 runs=20 valid=20 manifest=20 elapsed=1701s ---
+2026-09-30T14:00:20+08:00 --- K=4 START (root /home/embed/hyl/metadata_offload/bench/out/perf_v2/l0_backlog_kscan_K4) ---
+2026-09-30T14:29:10+08:00 --- K=4 END rc=0 runs=20 valid=20 manifest=20 elapsed=1730s ---
+2026-09-30T14:29:10+08:00 --- K=8 START (root /home/embed/hyl/metadata_offload/bench/out/perf_v2/l0_backlog_kscan_K8) ---
+2026-09-30T14:57:31+08:00 --- K=8 END rc=0 runs=20 valid=20 manifest=20 elapsed=1701s ---
+2026-09-30T14:57:31+08:00 --- K=16 START (root /home/embed/hyl/metadata_offload/bench/out/perf_v2/l0_backlog_kscan_K16) ---
+2026-09-30T15:26:28+08:00 --- K=16 END rc=0 runs=20 valid=20 manifest=20 elapsed=1737s ---
+2026-09-30T15:26:28+08:00 === K scan chain complete ===

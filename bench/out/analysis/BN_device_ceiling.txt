@@ -1,0 +1,26 @@
+=== devbench device ceiling probes, 2026-09-25 01:21:42 (no other load) ===
+device: nvme0n1p3, WD_BLACK SN750 2TB; 8 GiB file on the same filesystem; O_DIRECT; 16 threads; 30 s each
+--- read_pct=0 (write-only)
+devbench t=  5s total=13885 IOPS (54 MB/s) reads=0 writes=13885 IOPS
+devbench t= 10s total=14089 IOPS (55 MB/s) reads=0 writes=14089 IOPS
+devbench t= 15s total=14140 IOPS (55 MB/s) reads=0 writes=14140 IOPS
+devbench t= 20s total=14247 IOPS (56 MB/s) reads=0 writes=14247 IOPS
+devbench t= 25s total=14307 IOPS (56 MB/s) reads=0 writes=14307 IOPS
+devbench t= 30s total=14396 IOPS (56 MB/s) reads=0 writes=14396 IOPS
+devbench threads=16 read_pct=0 size=8GiB dur=30.0s: total=14396 IOPS (56 MB/s), reads=0 IOPS, writes=14396 IOPS
+--- read_pct=75 (mixed-75%-read)
+devbench t=  5s total=94447 IOPS (369 MB/s) reads=70795 writes=23652 IOPS
+devbench t= 10s total=58457 IOPS (228 MB/s) reads=43818 writes=14639 IOPS
+devbench t= 15s total=46466 IOPS (182 MB/s) reads=34833 writes=11633 IOPS
+devbench t= 20s total=40624 IOPS (159 MB/s) reads=30465 writes=10160 IOPS
+devbench t= 25s total=37416 IOPS (146 MB/s) reads=28051 writes=9365 IOPS
+devbench t= 30s total=35184 IOPS (137 MB/s) reads=26380 writes=8805 IOPS
+devbench threads=16 read_pct=75 size=8GiB dur=30.0s: total=35183 IOPS (137 MB/s), reads=26378 IOPS, writes=8804 IOPS
+--- read_pct=100 (read-only)
+devbench t=  5s total=267318 IOPS (1044 MB/s) reads=267318 writes=0 IOPS
+devbench t= 10s total=400353 IOPS (1564 MB/s) reads=400353 writes=0 IOPS
+devbench t= 15s total=444917 IOPS (1738 MB/s) reads=444917 writes=0 IOPS
+devbench t= 20s total=466038 IOPS (1820 MB/s) reads=466038 writes=0 IOPS
+devbench t= 25s total=479613 IOPS (1873 MB/s) reads=479613 writes=0 IOPS
+devbench t= 30s total=488602 IOPS (1909 MB/s) reads=488602 writes=0 IOPS
+devbench threads=16 read_pct=100 size=8GiB dur=30.0s: total=488588 IOPS (1909 MB/s), reads=488588 IOPS, writes=0 IOPS

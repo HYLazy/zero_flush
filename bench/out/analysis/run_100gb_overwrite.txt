@@ -1,0 +1,84 @@
+== E1 write-flow ledger (all ratios are bytes / application-confirmed byte U) ==
+run,mode,U_gib,WA_sst,WA_device,WA_wal,WA_flush,WA_intraL0,WA_L0base,WA_deep,share_flush,share_intraL0,share_L0base,share_deep,peak_l0_files,n_flushes,n_intra_L0,n_L0_to_base,n_deep,n_trivial_moves
+100gb_overwrite,overwrite,92.98,11.096,11.147,1.005,1.011,0.011,10.075,0.000,0.091,0.001,0.908,0.000,11,385,1,5139,0
+
+== cross-checks (same quantity from independent sources) ==
+run,flush_listener_GiB,flush_stat_GiB,rel_diff,compact_listener_GiB,compact_stat_GiB,rel_diff,wall_sum_s,cpu_sum_s,cpu_per_wall,file_write_s,fsync_s,records_replaced,skipped_GiB,trivial_moves,trivial_moved_GiB
+100gb_overwrite,94.014,94.014,-0.0000,937.753,937.753,0.0000,27729.2,4685.8,0.169,0.0,0.0,85039257,0.000,283,10.541
+
+== E5 timeline summary ==
+run,mode,duration_s,throughput,stall_us_total,stall_thread_time_over_wall,stall_union_s,stall_union_frac_of_wall,stall_intervals,stall_us_per_write,stall_begin_events,n_delayed_events,n_stopped_events,l0_trigger,p50_l0_files,frac_ticks_l0_ge_trigger,frac_ticks_l0_ge_slowdown,peak_l0_files,peak_immutable,peak_pending_gib,peak_memtable_gib,run_p50_us,run_p99_us,run_p999_us,run_p9999_us,run_max_us
+100gb_overwrite,overwrite,5902.381,16264.623,2237180908.000,0.379,4453.324,0.754,44,23.304,45.000,45,0,8,1.000,0.002,0.000,11.000,3.000,74.883,0.857,409.600,6815.744,65011.712,805306.368,6440731.740
+
+== E2 L0 range overlap O(k) over time (k = number of L0 files whose range covers a key) ==
+-- 100gb_overwrite
+ts,n_l0,l0_GiB,mean_ok,max_ok,p95_ok,frac_ok_ge_2
+1789994215,1,0.027,1.00,1,1,0.000
+1789994693,2,0.488,2.00,2,2,1.000
+1789995223,1,0.244,1.00,1,1,0.000
+1789995692,3,0.732,3.00,3,3,1.000
+1789996180,4,0.976,4.00,4,4,1.000
+1789996730,3,0.732,3.00,3,3,1.000
+1789997271,4,0.977,4.00,4,4,1.000
+1789997768,2,0.488,2.00,2,2,1.000
+1789998284,1,0.244,1.00,1,1,0.000
+1789998781,1,0.244,1.00,1,1,0.000
+1789999226,1,0.244,1.00,1,1,0.000
+1789999669,1,0.244,1.00,1,1,0.000
+1790000112,1,0.244,1.00,1,1,0.000
+
+== E2/E3 analytic O(k) for the keys actually read (nearest layout snapshot) ==
+run,component,status,O(k)=capped20,count
+
+== E3 per-request read cost (PerfContext deltas, sampled ops) ==
+run,status,n,mean_block_reads,mean_block_read_bytes,mean_cache_hits,mean_filter_reads,mean_index_reads,mean_bloom_sst_hit,mean_bloom_sst_miss,mean_memtable_probes,mean_internal_skipped,mean_user_key_cmp,p50_us,mean_us,p99_us,p999_us
+
+== E4 background parallelism ==
+run,n_jobs,peak_concurrent_jobs,mean_concurrent_jobs,sum_job_wall_s,wall_span_s,effective_parallelism,n_l0_jobs,l0_job_wall_s,n_deep_jobs,deep_job_wall_s,l0_deep_time_overlap_s,n_deep_while_l0_active,n_subcompaction_begin,n_subcompaction_end
+100gb_overwrite,5140,6,5.901,27729.161,4824.069,5.748,5140,28469.018,0,0,0.000,0,5550,5550
+
+== E7 resident memory vs recent-layer size ==
+-- 100gb_overwrite: mean L0 file 250.5 MiB, max L0 11 files / 2.69 GiB, RSS slope -110.46164731158997 MiB/GiB, table-readers slope 15.963584849299169 MiB/GiB
+l0_files,n,rss_mib,memtable_mib,table_readers_mib,block_cache_mib
+0,2506,3224.3,245.0,904.6,0.0
+1,11323,3231.8,103.0,848.8,0.0
+2,4011,3221.0,175.0,909.7,0.0
+3,4807,3222.9,175.0,907.3,0.0
+4,3257,3217.8,121.0,904.9,0.2
+5,81,2739.5,130.0,868.5,0.2
+6,11,2784.7,658.9,791.6,0.3
+7,19,2659.5,433.8,783.7,0.1
+8,50,2462.8,105.5,813.2,0.3
+9,2,2720.0,398.6,798.3,0.0
+10,5,2604.9,433.8,799.3,0.2
+11,3,2639.6,509.4,801.2,0.0
+
+== E4b concurrent-compaction range conflict (from being_compacted flags) ==
+run,n_snapshots,frac_snapshots_with_busy,max_busy_files,mean_busy_files,concurrent_busy_pairs,overlapping_pairs,overlap_pair_frac
+100gb_overwrite,530,0.1566,10,0.6302,537,537,1.0000
+
+== E8 L0->base batching: cost per unit of newly arrived L0 byte ==
+run,trigger,n_L0base_jobs,files_per_job_mean,in_L0_GiB,in_base_GiB,out_GiB,base_rewrite_per_L0_input,out_per_L0_input,records_in,records_out,records_replaced,version_drop_rate,cpu_s
+100gb_overwrite,8,5139,1.0870,371.3146,651.3890,939.9708,1.7543,2.5315,1040903920.0000,955864663.0000,85039257.0000,0.0817,4683.0582
+
+== E8b within-run batch effect (base bytes rewritten per L0 input byte, by batch size) ==
+run,batch_L0_files,n_jobs,base_per_L0,out_per_L0,version_drop
+100gb_overwrite,1,4883,2.1645,2.8521,0.0997
+100gb_overwrite,2,154,0.9485,1.9240,0.0133
+100gb_overwrite,3,21,0.6528,1.6457,0.0041
+100gb_overwrite,4,77,0.7296,1.7292,0.0000
+100gb_overwrite,5,2,0.8289,1.8284,0.0000
+100gb_overwrite,6,1,0.9955,1.9950,0.0000
+100gb_overwrite,8,1,0.6959,1.6955,0.0000
+
+== E9 space accounting ==
+run,mode,U_GiB,peak_sst_GiB,peak_sst_alloc_GiB,peak_wal_GiB,peak_db_total_GiB,final_live_sst_GiB,space_amp_peak_over_live,wal_over_sst_at_peak,peak_n_sst,rsst_peak_mib
+100gb_overwrite,overwrite,92.983,118.127,118.553,0.819,118.289,104.725,1.132,0.007,2179.000,3597.512
+
+== E10 recovery ==
+{'run': '100gb_overwrite', 'killed_at_ops': -1.0, 'wal_files_before_recovery': None, 'wal_bytes_before_recovery': None, 'open_seconds': None, 'reopen_line': None}
+
+== run comparison ==
+run,mode,throughput_ops_s,duration_s,writes,reads,read_hit_rate,U_GiB,device_write_GiB,p50_us,p99_us,p999_us,max_us,e2e_p99_us
+100gb_overwrite,overwrite,16264.6227,5902.3810,96000000.0000,0.0000,n/a,92.9832,1036.5240,409.6000,6815.7440,65011.7120,6440731.7400,6815.7440
+

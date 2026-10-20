@@ -1,0 +1,567 @@
+[
+ {
+  "id": "perf_v2/P0",
+  "title_zh": "v2 P0 —— 工具验收（直方图编码 / 计数守恒 / 窗口不变性）",
+  "generation": "v2",
+  "engine": [
+   "native"
+  ],
+  "category": "protocol",
+  "purpose_zh": "在正式测量之前，用可独立重算的验收用例证明 v2 测量工具测的是 runbook 要求的东西：对数线性直方图的桶边界与标签、计数守恒、每类直方图、开环到达的 cohort 口径、progress_ms/wait_for_drain 不得移动 cohort 吞吐（<1%），并解释 P0 中两组『吞吐几乎相同』的臂是否真的相同。",
+  "environment": {
+   "engine_version": "11.2.0",
+   "binary_path": "bench/tools/l0bench（P0 时的构建，md5 d063d79446c992a1a69c531d6492c86b；见 p0/P0_SUMMARY.md）",
+   "workload": "hist 用例（桶边界与标签）、mix 用例（10k Put + 10k Get + 50/50）、scan 用例（定长扫描校验和）、inv 用例（开环固定到达率的 cohort 不变性）、inv_open（门控轮询/排空对照）",
+   "rocksdb_options": "P0 各用例自带参数；验收驱动 bench/v2/p0_acceptance.sh + p0_verify.py（独立重算，不读驱动自身的记账）",
+   "other": "16 次运行；验收结果写入 out/perf_v2/p0/P0_SUMMARY.md（overall: PASS，§6 gate over P0 workload runs: all-VALID）"
+  },
+  "results": [
+   {
+    "metric": "P0 验收总判定",
+    "value": "overall: PASS；§6 有效性门覆盖全部 P0 运行：all-VALID",
+    "unit": "—",
+    "condition": "p0/P0_SUMMARY.md",
+    "source": "bench/out/perf_v2/p0/P0_SUMMARY.md:7"
+   },
+   {
+    "metric": "『吞吐几乎相同』两组臂的相对差",
+    "value": "≤ 2.8e-8（用各自原始的 monotonic_ns 边界独立重算，而不是比较两个已经取整的吞吐值）",
+    "unit": "相对差",
+    "condition": "p0 两组外观相同的臂",
+    "source": "bench/v2/IMPLEMENTATION_REPORT.md:29"
+   },
+   {
+    "metric": "历史延迟口径修正（v1 编码 → v2 桶下界）",
+    "value": "默认臂 p99 6553.6 µs → 2359.3 µs（占位值改为桶下界；该桶宽 262.1 µs，即 ≈11%，区间 2359.3–2621.4 µs）",
+    "unit": "µs",
+    "condition": "同 harness 历史上 87 次运行的重新标注",
+    "source": "bench/v2/IMPLEMENTATION_REPORT.md:42"
+   },
+   {
+    "metric": "计时开销是否可分辨",
+    "value": "交替插入计时调用的对照显示无可分辨开销（P0 §3.4 不变性用例：progress_ms / wait_for_drain 不移动 cohort 吞吐 >1%）",
+    "unit": "—",
+    "condition": "p0/inv_open（门控）、p0/inv + p0/ctrl（诊断）",
+    "source": "bench/v2/IMPLEMENTATION_REPORT.md:103"
+   }
+  ],
+  "evaluation_zh": "验收通过。结论（对本次行动的意义）：v2 工具的直方图与计数口径可被独立重算复现，因此后续 M1–M5 与三个跟随实验的延迟/吞吐数字有可审计的口径；历史上用 v1 编码导出的延迟百分位一律按桶下界重标，不能与 v2 数字混用。",
+  "caveats_zh": [
+   "延迟百分位是桶下界（hist_version=2 / lower_bound_v2），报告中同时给出桶宽（bench/v2/IMPLEMENTATION_REPORT.md:42）",
+   "P0 验收只证明工具口径，不产生任何性能结论；p0/inv 与 p0/ctrl 只作为诊断（同配置噪声底）",
+   "验收用的二进制与后续 M1/M2 的二进制不是同一次构建（工具在 M1 前重建过一次），逐运行的 md5 记录在各 run 的 config.txt 与 manifest 中（见 perf_v2/M1 与 bench/v2/IMPLEMENTATION_REPORT.md:624）"
+  ],
+  "sources": [
+   "bench/out/perf_v2/p0/P0_SUMMARY.md:1-10",
+   "bench/v2/IMPLEMENTATION_REPORT.md:22-102",
+   "bench/v2/IMPLEMENTATION_REPORT.md:103-155",
+   "bench/v2/IMPLEMENTATION_REPORT.md:29",
+   "bench/v2/IMPLEMENTATION_REPORT.md:42"
+  ]
+ },
+ {
+  "id": "perf_v2/M1",
+  "title_zh": "v2 M1 —— 纯写开环到达率扫描（写路径的膝点与可持续性）",
+  "generation": "v2",
+  "engine": [
+   "native"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "写路径在多少 offered 速率上开始跪？用纯覆盖写（overwrite，shuffle/uniform，16 线程）扫 0.25–1.10 × 闭环速率的开环臂，把『吞吐掉』与『尾延迟/停顿先动』分开，并用关闭自动压实的 noc 消融给出因果上界，用 300 s 延长窗检验 60 s 窗是否已到稳态。",
+  "environment": {
+   "engine_version": "11.2.0",
+   "binary_path": "bench/tools/l0bench（md5 c741cca1…，M1 前的一次构建；逐运行 argv 在 <run>.config.txt）",
+   "workload": "overwrite（对 base50 47 GiB 快照上的既有键做同值覆盖）：--mode=overwrite --order=shuffle --dist=uniform --threads=16，warmup 30 s + measure 60 s（延长臂 measure 300 s），wait_for_drain=0",
+   "rocksdb_options": "disable_wal=false, compression=none, cache 8 GiB, write_buffer_size 256 MiB, level0 trigger/slowdown/stop=8/20/36, max_background_jobs 16；noc 消融额外 disable_auto_compactions=1",
+   "other": "51 个有效运行（含 12 个 300 s 延长窗）；同窗对照的 m1_fill_ctrl（空库填充）与 m1_noc10（无压实上界）"
+  },
+  "results": [
+   {
+    "metric": "闭环速率（基线）",
+    "value": "82 336 ops/s；同窗口 17 次 stall 事件、写放大 4.48×、p99 2359.3 µs",
+    "unit": "ops/s",
+    "condition": "m1_cb_r1（闭环，60 s 窗）",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:40"
+   },
+   {
+    "metric": "开环 0.50 × 闭环",
+    "value": "offered 41 618 → achieved 41 618 ops/s（1.00×）；p99 123 µs；p99/3×基线 1.36；stall 0；写放大 8.74×",
+    "unit": "ops/s",
+    "condition": "m1_ov_f0.50_r1（开环，60 s 窗）",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:47"
+   },
+   {
+    "metric": "开环 0.90 × 闭环（膝点）",
+    "value": "offered 74 912 → achieved 70 652 ops/s（0.94×）；p99 1179.6 µs；p99/3×基线 13.09；stall 5",
+    "unit": "ops/s",
+    "condition": "m1_ov_f0.90_r1（开环，60 s 窗）",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:49"
+   },
+   {
+    "metric": "开环 1.10 × 闭环（过载）",
+    "value": "offered 91 559 → achieved 70 657 ops/s（0.77×）；p99 2359.3 µs；p99/3×基线 26.19；stall 10",
+    "unit": "ops/s",
+    "condition": "m1_ov_f1.10_r1（开环，60 s 窗）",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:51"
+   },
+   {
+    "metric": "300 s 延长窗：后半段是否稳态",
+    "value": "在 0.75/0.90/1.00/1.10 全部四档：后半段吞吐仅为前半段的 0.40–0.71×，p99 增长 10–21×，窗末 pending 仍以 ≈0.22 GiB/s 上升 —— 60 s 窗看不见的『缓慢恶化』",
+    "unit": "—",
+    "condition": "m1_ov_f{0.75,0.90,1.00,1.10}_r1_ext300（每臂 300 s 延伸窗）",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:53"
+   },
+   {
+    "metric": "noc 消融（因果上界）",
+    "value": "82 336 ops/s achieved、p99 107 µs、stall 0、写放大 1.0（同闭环速率、关自动压实）",
+    "unit": "ops/s",
+    "condition": "m1_noc10_r1（disable_auto_compactions=1，非部署候选）",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:58"
+   }
+  ],
+  "evaluation_zh": "裁决：写路径的膝点在 0.75–0.90 × 闭环速率之间（p99 > 3× 低载基线），且 60 s 窗会低估它——300 s 窗显示 ≥0.75 档全部处于缓慢恶化中（后半段吞吐腰斩、pending 继续上升），因此『0.75 档看起来干净』不是稳态结论。noc 消融把尾延迟与停顿归因到后台压实：关掉压实后同速率下 p99 107 µs、stall 0、写放大 1.0，但这只是上界。",
+  "caveats_zh": [
+   "开环臂为固定到达率（不是闭环反馈），achieved/offered 的差额即为排队；逐请求的 submitted/completed/censored 与客户端排队在 m1/REPORT.md 的臂表中",
+   "60 s 窗与 300 s 窗的臂分别记录（ext300 后缀），两者不可混为一条曲线（bench/out/perf_v2/RESULTS_SUMMARY.md:53）",
+   "覆盖写使 L0/compaction 的行为与『向空库填充』不同；同窗对照 m1_fill_ctrl 单独记录",
+   "延迟百分位为桶下界（hist_version=2），p99/3× 基线列用于膝点判定，不做绝对延迟比较"
+  ],
+  "sources": [
+   "bench/out/perf_v2/RESULTS_SUMMARY.md:38-62",
+   "bench/out/perf_v2/m1/REPORT.md:7-124",
+   "bench/out/perf_v2/m1/knee.json:1",
+   "bench/out/perf_v2/synthesis/m1_offered_fractions.txt:1-24"
+  ]
+ },
+ {
+  "id": "perf_v2/M2",
+  "title_zh": "v2 M2 —— 纯点读矩阵（线程 × 块缓存 × 请求构成）",
+  "generation": "v2",
+  "engine": [
+   "native"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "点读吞吐在多少线程上饱和？块缓存大小（8 GiB / 512 MiB / 64 MiB）在页缓存已经很热的情况下还能不能改变吞吐与尾延迟？用 84 个臂 × 3 次重复 = 252 次运行，把 deep/recent/negative/mixed 四种请求构成与线程数、缓存大小交叉。",
+  "environment": {
+   "engine_version": "11.2.0",
+   "binary_path": "bench/tools/l0bench（md5 c741cca1…；逐运行 argv 在 <run>.config.txt）",
+   "workload": "纯点读：deep（全库随机）/ recent（近端）/ negative（不存在的键）/ mixed（0.4/0.4/0.2），threads 1/2/4/8/16/32，block cache 8G/512M/64M，warmup 30 s + measure 60 s",
+   "rocksdb_options": "cache_size 为扫描变量；compression=none；level0 trigger 8；只读臂，无前台写",
+   "other": "252 个运行（84 臂 × 3 重复），0 invalid；数据库为 base50 快照的硬链接副本（47.05 GiB / 847 SST）"
+  },
+  "results": [
+   {
+    "metric": "deep 点读随线程数扩展（8 GiB 缓存）",
+    "value": "182 392 / 320 952 / 588 247 / 1 098 974 / 1 707 925 / 1 725 455 ops/s（1/2/4/8/16/32 线程）",
+    "unit": "ops/s",
+    "condition": "m2_deep_t{1,2,4,8,16,32}_c8G，3 次重复中位数",
+    "source": "bench/v2/IMPLEMENTATION_REPORT.md:409"
+   },
+   {
+    "metric": "16→32 线程的边际",
+    "value": "吞吐 +1%（1 707 925 → 1 725 455 ops/s），而 hit p99 从 7.7 µs 涨到 10.2 µs（recent 构成）",
+    "unit": "ops/s",
+    "condition": "m2_deep/m2_recent_t16 与 _t32（8 GiB 缓存）",
+    "source": "bench/v2/IMPLEMENTATION_REPORT.md:412"
+   },
+   {
+    "metric": "块缓存的效果（deep，1 线程）",
+    "value": "8 GiB 相对 512 MiB/64 MiB 快 41%（182 392 vs 129 138/128 579 ops/s）；16 线程时 +20%（1 707 925 vs 1 387 782/1 428 596）",
+    "unit": "ops/s",
+    "condition": "m2_deep_t1_c* 与 m2_deep_t16_c*",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:69"
+   },
+   {
+    "metric": "missing（negative）读对缓存不敏感",
+    "value": "1 287 389 / 1 293 900 / 1 309 600 ops/s（8G / 64M / 512M，1 线程）",
+    "unit": "ops/s",
+    "condition": "m2_negative_t1_c*",
+    "source": "bench/out/perf_v2/synthesis/m2_negative_reads.txt:5-7"
+   },
+   {
+    "metric": "读臂的页缓存状态",
+    "value": "232 / 234 个读臂设备读入 < 0.05 GiB（即答案来自内存）；本机 62 GiB RAM、库 47 GiB",
+    "unit": "GiB",
+    "condition": "全 M2 读臂的 dev_read_gib 列",
+    "source": "bench/out/perf_v2/m2/REPORT.md:7"
+   }
+  ],
+  "evaluation_zh": "裁决：16 线程是点读的膝点——再翻倍到 32 线程只换来 1% 吞吐并让尾延迟变差；块缓存一致地有价值（+12…41%），但按预注册的『≥1.5× 且大于重复间离散』规则记为未判定（unresolved），不作为效应宣称。missing 读对缓存大小不敏感，符合『只查过滤器、不取数据』的预期。",
+  "caveats_zh": [
+   "这 252 个运行测的是『页缓存之上的 RocksDB 块缓存』，不是设备读性能；每臂的 dev_read_gib / read_bytes_per_op 在其 summary.json 内（bench/out/perf_v2/m2/REPORT.md:7）",
+   "块缓存效应 41%（1 线程）与 12–23%（16 线程）均低于 1.5× 阈值，因此登记为未判定，不写成结论",
+   "第一次 M2 通过（219/252 配置塌缩）被判定作废，归档在 m2_INVALID_flagconflict/，本数据集不包含它",
+   "延迟百分位为桶下界；p50/p99 的桶宽记录在 runs 目录的 hist*.csv"
+  ],
+  "sources": [
+   "bench/v2/IMPLEMENTATION_REPORT.md:401-430",
+   "bench/out/perf_v2/m2/REPORT.md:9-247",
+   "bench/out/perf_v2/RESULTS_SUMMARY.md:64-82",
+   "bench/out/perf_v2/synthesis/m2_deep_reads.txt:1-22",
+   "bench/out/perf_v2/synthesis/m2_negative_reads.txt:1-22"
+  ]
+ },
+ {
+  "id": "perf_v2/M3",
+  "title_zh": "v2 M3 —— 混合读写（25/50/75% 读）在开环分数下的线性度与写尾",
+  "generation": "v2",
+  "engine": [
+   "native"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在 M1 得到写路径膝点之后，把读混进来：固定读比例（25/50/75%）并扫描 offered 速率（0.25–1.00 × 写路径闭环速率），看混合负载在何处、以何种指标先偏离线性。",
+  "environment": {
+   "engine_version": "11.2.0",
+   "binary_path": "bench/tools/l0bench（md5 c741cca1…）",
+   "workload": "--mode=mix --read_pct={25,50,75} --arrival=open，速率取 0.25/0.50/0.75/1.00 × 写闭环速率（20 571 / 41 143 / 61 715 / 82 287 ops/s），warmup 30 s + measure 60 s",
+   "rocksdb_options": "cache 8 GiB, compression=none, level0 trigger/slowdown/stop=8/20/36, write_buffer_size 256 MiB",
+   "other": "39 个运行（12 个 (read_pct, rate) 组合 × 3 重复 + 对照），0 invalid"
+  },
+  "results": [
+   {
+    "metric": "读占比 ≥50% 时的线性度",
+    "value": "achieved 与 offered 相等（0.01% 内），直到写路径满容量 82 287 ops/s（read_pct=25 的对照臂在 offered 82 287 时只到 0.93×）",
+    "unit": "—",
+    "condition": "m3_r50_f1.00_r* 与 m3_r25_f1.00_r*",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:84"
+   },
+   {
+    "metric": "写重臂（25% 读）在满容量处的写尾",
+    "value": "Put p99 从 147.5 µs（0.75 × 容量）涨到 1441.8 µs（1.00 × 容量），而总吞吐仍是 offered 的 93%",
+    "unit": "µs",
+    "condition": "m3_r25_f0.75_r* 与 m3_r25_f1.00_r*（Put 分位）",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:84"
+   },
+   {
+    "metric": "低载下的 Put p99（对照）",
+    "value": "98.3 / 106.5 / 122.9 µs（read_pct=25，0.25/0.50/0.75 × 容量）",
+    "unit": "µs",
+    "condition": "m3_r25_f{0.25,0.50,0.75}_r*",
+    "source": "bench/out/perf_v2/synthesis/m3_mixed_load.txt:18-21"
+   }
+  ],
+  "evaluation_zh": "裁决：混合负载在膝点以下严格线性（achieved=offered）；偏离从写重端开始，且**尾延迟先动**——总吞吐仍有 93% 时 Put p99 已放大 10 倍。读占比越高，能满足的速率越高（读便宜），这与 M1 的写膝点一致，没有出现新的机制。",
+  "caveats_zh": [
+   "0.25 × 容量的臂在开环下 3 次重复几乎完全一致（1.00× 离散），膝点臂的重复也在 1.13× 内，故报告的差异不是重复噪声",
+   "Put p99 为桶下界；Put 计数为整运行计数（非窗口），口径见 m3/REPORT.md 的列义",
+   "本矩阵只覆盖读占比 25/50/75，没有 100% 读（那是 M2）与 0% 读（那是 M1）"
+  ],
+  "sources": [
+   "bench/out/perf_v2/RESULTS_SUMMARY.md:83-88",
+   "bench/out/perf_v2/m3/REPORT.md:9-50",
+   "bench/out/perf_v2/synthesis/m3_mixed_load.txt:1-30"
+  ]
+ },
+ {
+  "id": "perf_v2/M4",
+  "title_zh": "v2 M4 —— L0 几何（文件数 × 区间布局 × 冻结/在线）对读的影响",
+  "generation": "v2",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "在固定工作集上，L0 的文件数 K（1/8/16）、区间几何（narrow=连续序数块 / wide=i mod K）与是否在线压实，是否改变点读吞吐与尾延迟？每个几何跑 3 次重复，并分别在深区与近区读。",
+  "environment": {
+   "engine_version": "11.2.0",
+   "binary_path": "bench/tools/l0bench（md5 c1241e4f…，为修 M4 缺陷重建的那一版；见 bench/v2/IMPLEMENTATION_REPORT.md:624）",
+   "workload": "--mode=read，读相 deep / recent；构造臂写入 K 个 L0 文件（K∈{1,8,16} × narrow/wide × frozen/online），读臂 8 GiB 缓存 + warmup 30 s + measure 60 s",
+   "rocksdb_options": "构造臂 disable_auto_compactions=1；读臂 cache 8 GiB；compression=none",
+   "other": "108 次运行（12 个几何 × 3 重复 × (build + deep 读 + recent 读)），0 invalid"
+  },
+  "results": [
+   {
+    "metric": "几何本身的可分辨性",
+    "value": "K×布局×冻结/在线 共 12 组的吞吐中位数落在 1 782 548–1 829 261 ops/s（1.03×），而组内重复离散 1.10–1.17× → 未判定（unresolved）",
+    "unit": "ops/s",
+    "condition": "m4_k{1,8,16}_{narrow,wide}_{frozen,online}_r*_read_*",
+    "source": "bench/out/perf_v2/synthesis/m4_geometry.txt:20-21"
+   },
+   {
+    "metric": "深区 vs 近区（唯一可分辨的差异）",
+    "value": "deep 1 696 325–1 728 095 vs recent 1 903 473–1 920 839 ops/s（1.13×）；命中 p99 13.3 µs vs 7.2 µs（K=16/narrow 为例）",
+    "unit": "ops/s",
+    "condition": "m4_k*_*_r*_read_deep 与 _read_recent",
+    "source": "bench/out/perf_v2/synthesis/m4_deep_vs_recent.txt:5-16"
+   }
+  ],
+  "evaluation_zh": "裁决：在本工作集下 L0 几何对点读**没有可分辨影响**（1.03–1.13× 落在 1.10–1.17× 的重复离散内）；可分辨的只有『读哪些键』（deep vs recent，1.13× 吞吐、命中 p99 7.2→13.3 µs）。与 L0-only 布局实验（perf_v2/LAYOUT_BLOOM）相对照，结论是：布局的代价出现在『答案就在 L0 里』的场景，在 L0 之上压着 46 GiB 库时不显现。",
+  "caveats_zh": [
+   "M4 的构造臂与读臂共 108 次运行；构造臂的 ops_s=0 属正常（它只构造），分析时按 _read_ 过滤",
+   "本矩阵的绝对吞吐来自 c1241e4f 这一版工具（M4 缺陷修复后的构建），与 M1/M2/M3/M5 的构建不同；逐运行 md5 在 config.txt 内（bench/v2/IMPLEMENTATION_REPORT.md:624）",
+   "读臂的页缓存状态不受协议控制，绝对吞吐随测量次序变化（见 perf_v2/BACKLOG 的限制条目与 RESULTS_SUMMARY §8）"
+  ],
+  "sources": [
+   "bench/out/perf_v2/RESULTS_SUMMARY.md:90-95",
+   "bench/out/perf_v2/m4/REPORT.md:9-120",
+   "bench/out/perf_v2/synthesis/m4_geometry.txt:1-25",
+   "bench/out/perf_v2/synthesis/m4_deep_vs_recent.txt:1-18",
+   "bench/v2/IMPLEMENTATION_REPORT.md:624"
+  ]
+ },
+ {
+  "id": "perf_v2/M5",
+  "title_zh": "v2 M5 —— 线程 / 扫描长度 / 块缓存（读、写、扫描三组）",
+  "generation": "v2",
+  "engine": [
+   "native"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在同一个 47 GiB 快照上独立复核三件事：点读随线程的扩展（与 M2 交叉验证）、Put 随线程是否扩展、定长扫描的每键成本如何随扫描长度变化；附带块缓存对照。",
+  "environment": {
+   "engine_version": "11.2.0",
+   "binary_path": "bench/tools/l0bench（md5 c741cca1…）",
+   "workload": "get 臂 threads 1–32（cache 8G/64M/512M）；put 臂 threads 1–32；scan 臂 scan_len 1k/10k/100k/1M 键（16 线程，随机起点）",
+   "rocksdb_options": "同 base50 主配置；扫描臂随机起点与顺序起点各一",
+   "other": "75 次运行，0 invalid"
+  },
+  "results": [
+   {
+    "metric": "get 随线程扩展（与 M2 交叉复核）",
+    "value": "163 120 / 387 707 / 705 000 / 1 279 636 / 1 632 866 / 1 716 826 ops/s（1/2/4/8/16/32 线程）→ 同样在 16 线程饱和",
+    "unit": "ops/s",
+    "condition": "m5_get_t{1,2,4,8,16,32}（3 重复中位数）",
+    "source": "bench/out/perf_v2/synthesis/m5_get_scale.txt:5-10"
+   },
+   {
+    "metric": "Put 随线程数",
+    "value": "52 686–63 043 ops/s（1–32 线程），组间 1.20× < 组内离散 1.45× → 未判定：写路径不随线程扩展",
+    "unit": "ops/s",
+    "condition": "m5_put_t*（3 重复）",
+    "source": "bench/out/perf_v2/synthesis/m5_put_scale.txt:5-11"
+   },
+   {
+    "metric": "扫描的每键成本随长度下降",
+    "value": "9 886 / 1 013 / 92.5 / 6.01 ops/s（scan_len 1k/10k/100k/1M，16 线程）→ 每键成本随长度摊销（1 000→1 000 000 键，吞吐降 1646×，等于每键成本降 ~60×）",
+    "unit": "ops/s",
+    "condition": "m5_scan_*（16 线程）",
+    "source": "bench/out/perf_v2/synthesis/m5_scans.txt:5-9"
+   },
+   {
+    "metric": "块缓存对照（16 线程）",
+    "value": "1 749 042 / 1 582 801 / 1 562 678 ops/s（8G / 64M / 512M）→ 8 GiB 高 12%，低于 1.5× 阈值：同 M2，登记为未判定",
+    "unit": "ops/s",
+    "condition": "m5_get_t16_c{8G,64M,512M}",
+    "source": "bench/out/perf_v2/synthesis/m5_get_cache.txt:5-7"
+   }
+  ],
+  "evaluation_zh": "裁决：get 的 16 线程膝点在独立矩阵中被复现（M2 与 M5 一致）；写路径在 1–32 线程上不扩展（未判定，但方向明确：写是单点资源）；扫描成本按长度摊销，符合『固定启动开销 + 线性扫描』的形态。",
+  "caveats_zh": [
+   "put 臂的组内离散（1.45×）大于组间差异（1.20×），因此按规则不指定最优线程数",
+   "扫描臂的吞吐单位是『次扫描/秒』，不是键/秒；换算与 scan_len 一并记录在 synthesis/m5_scans.txt",
+   "块缓存 12% 的差异低于 1.5× 阈值，登记为未判定（与 M2 相同处理）"
+  ],
+  "sources": [
+   "bench/out/perf_v2/RESULTS_SUMMARY.md:64-82",
+   "bench/out/perf_v2/m5/REPORT.md:9-87",
+   "bench/out/perf_v2/synthesis/m5_get_scale.txt:1-12",
+   "bench/out/perf_v2/synthesis/m5_put_scale.txt:1-12",
+   "bench/out/perf_v2/synthesis/m5_scans.txt:1-10",
+   "bench/out/perf_v2/synthesis/m5_get_cache.txt:1-12"
+  ]
+ },
+ {
+  "id": "perf_v2/LAYOUT_BLOOM",
+  "title_zh": "v2 L0-only 布局 × Bloom 代价（narrow/wide × 位数）",
+  "generation": "v2",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "当整个工作集就在 L0 里时，文件分组方式（narrow=连续序数块 / wide=i mod K）与 Bloom 位数（0/10/16）如何改变点读的过滤器探测次数与 CPU 成本？用只有 L0 的库（M=2 097 152 键、只写偶数键）把『候选文件包络』从 1 变到 K=16。",
+  "environment": {
+   "engine_version": "11.2.0",
+   "binary_path": "bench/tools/l0bench_layout（首轮 md5 fafe148c5e129160f5783aeb3ff92224；加载扩展组将用加入 --use_direct_reads 后的新构建重跑）",
+   "workload": "只写偶数键、每个文件一次 flush、恰好 K 个 SST；三类查询 hit / missing_in_range / missing_out_range（权重 0.4/0.4/0.2），K∈{1,8,16}、bits∈{0,10,16}，双窗：60 s 性能窗 + 20 s 计数器诊断窗",
+   "rocksdb_options": "构造时 disable_auto_compactions=1、level0_stop=100000、write_buffer_size 按每文件容量放大；读时 cache 8 GiB、compression=none",
+   "other": "174 次运行；其中 138 valid，36 个加载扩展臂因门控判无效（24 个标志重复、12 个 --use_direct_reads 不存在导致 rc=2），修复后重跑中"
+  },
+  "results": [
+   {
+    "metric": "候选文件数（K=16，in-range miss）",
+    "value": "narrow 1.000 checks/Get vs wide 16.000 checks/Get（K×1 探测，位数 10；bits=16 时探测次数不变）",
+    "unit": "checks/Get",
+    "condition": "K=16 bits=10 missing_inrange（两布局）",
+    "source": "bench/out/perf_v2/layout_bloom/REPORT_FIRST.md:17,23"
+   },
+   {
+    "metric": "布局的吞吐/延迟代价（K=16，bits=10，in-range miss）",
+    "value": "982 327 ops/s、p99 2.46 µs、CPU 1 022.1 ns/Get（narrow） vs 290 551 ops/s、p99 6.55 µs、CPU 3 319.9 ns/Get（wide）",
+    "unit": "ops/s",
+    "condition": "K=16 narrow/wide bits=10",
+    "source": "bench/out/perf_v2/layout_bloom/REPORT_FIRST.md:17,23"
+   },
+   {
+    "metric": "Bloom 位数的收益（FPR）",
+    "value": "in-range miss 的 FPR 0.0098（10 bits）→ 0.0008（16 bits），探测次数仍为 1.000（narrow）/16.000（wide）",
+    "unit": "FPR",
+    "condition": "K=16 narrow/wide bits=16 vs bits=10",
+    "source": "bench/out/perf_v2/layout_bloom/REPORT_EXTEND.md:24,32"
+   },
+   {
+    "metric": "关掉 Bloom 的极端代价",
+    "value": "wide/K=16/bits=0 的 in-range miss：27 924.1 ns/Get（34 811 ops/s，p99 40.96 µs）",
+    "unit": "ns/Get",
+    "condition": "K=16 wide bits=0 missing_inrange",
+    "source": "bench/out/perf_v2/layout_bloom/REPORT_FIRST.md:20"
+   },
+   {
+    "metric": "加载扩展组的有效性",
+    "value": "36 / 174 个臂被判 VALID=0：24 个被扫参数出现两次（如 --cache_size=['8G','512M']）、12 个 direct-read 臂 rc=2（工具当时没有 --use_direct_reads）；修复后整体重跑（冻结首轮速率 35 955 ops/s 以保持成对）",
+    "unit": "—",
+    "condition": "layout_bloom/load_* 首轮",
+    "source": "bench/v2/IMPLEMENTATION_REPORT.md:591"
+   }
+  ],
+  "evaluation_zh": "裁决：在 L0-only 工作集下，布局把『每请求探测几个文件』从 1 变到 16，代价是 3.4× 吞吐与 2.7× p99；16-bit 过滤器把 FPR 降一个数量级而不改变探测次数，说明两者是独立的两条杠杆（探测次数由布局决定，误判率由位数决定）。加载扩展组（线程/开环/缓存/direct read）首轮被判无效，重跑后方可引用。",
+  "caveats_zh": [
+   "138 / 174 为有效臂；无效的 36 个（标志重复与不支持的 --use_direct_reads）**不得**用于任何结论，修复后重跑的结果将追加到 load_rev2",
+   "首轮 18 个有效加载臂保留在 layout_bloom/load_rev1/ 作为跨构建对照（重跑用同一版工具的另一构建）",
+   "narrow/wide 在 K=1 退化为同一状态，K=1 的两条曲线一致是自洽性检查而非布局对照",
+   "所有延迟百分位为桶下界；CPU ns/Get 来自 PerfContext 采样窗"
+  ],
+  "sources": [
+   "bench/out/perf_v2/RESULTS_SUMMARY.md:97-108",
+   "bench/out/perf_v2/layout_bloom/REPORT_FIRST.md:7-60",
+   "bench/out/perf_v2/layout_bloom/REPORT_EXTEND.md:20-40",
+   "bench/v2/IMPLEMENTATION_REPORT.md:585-599",
+   "bench/LAYOUT_BLOOM_PLAN.md:1"
+  ]
+ },
+ {
+  "id": "perf_v2/BACKLOG",
+  "title_zh": "v2 L0 积压：布局 × 大小 × {冻结读 / 只压实 / 混合}（90 次运行）",
+  "generation": "v2",
+  "engine": [
+   "native"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "把『L0 里堆着多少数据』与『它按什么布局堆着』分开：在约 50 GiB 底库上做同值覆盖写，制造 B∈{0.5, 2, 8} GiB 的 L0 积压、layout∈{narrow, wide}，每个状态跑三类实验（A 冻结只读、B 只让压实排空、C 混合业务负载），5 次成对重复；并报告绝对工作量与每 GiB 积压的归一化工作量。",
+  "environment": {
+   "engine_version": "11.2.0",
+   "binary_path": "bench/tools/l0bench_backlog（md5 612cd91a29582602ab2c364b2180e93e；其中 18 个 rep1 运行由 09-29 17:29 重建前的构建产生——两次构建只差两个默认关闭的可选标志，逐运行 argv 证明未传入）",
+   "workload": "积压=对底库既有键做同值覆盖（narrow/wide 分组，K=16 个 L0 文件）；A：--mode=read --read_class=mixed（hit:0.4, missing_inrange:0.4, missing_outrange:0.2）+ warmup 30 s + perf 60 s + diag 20 s；B：--mode=open --wait_for_drain=1（可压实，无前台负载，drain 稳定判据 4 个采样）；C：--mode=mix --read_pct=90，开环固定到达率 72 526 ops/s（= 未积压底库混合容量的一半）",
+   "rocksdb_options": "A/B/C 均 cache 8 GiB、compression=none；B/C level0_trigger=8；构造阶段 disable_auto_compactions=1 且 level0_stop=100000",
+   "other": "90 次运行（6 个状态 × 3 类实验 × 5 次成对重复），90/90 VALID=1；底库 44 GiB（48 M 宇宙、44 040 192 已写、尾部留洞）"
+  },
+  "results": [
+   {
+    "metric": "排空一个 B 的积压要付多少写工作量（每 GiB 积压）",
+    "value": "narrow 11.11 / 8.57 / 6.39 GiB 写入 GiB 积压（B=0.5/2/8 GiB）；wide 10.07 / 8.10 / 6.51",
+    "unit": "GiB/GiB",
+    "condition": "lb_B_{narrow,wide}_B{0.5,2,8}GiB_r*，5 次重复中位数（trivial move 不计入写入字节）",
+    "source": "bench/out/perf_v2/l0_backlog/REPORT.md:35-37,41-43"
+   },
+   {
+    "metric": "排空时间与峰值空间随 B 增长",
+    "value": "drain 中位数 14 / 45 / 159 s（narrow，B=0.5/2/8 GiB）；峰值目录 43.7 / 49.4 / 63.0 GiB",
+    "unit": "s",
+    "condition": "lb_B_narrow_B*，5 次重复中位数",
+    "source": "bench/out/perf_v2/l0_backlog/REPORT.md:35-37"
+   },
+   {
+    "metric": "冻结读的探测次数（布局在积压上的直接代价）",
+    "value": "in-range miss 4.245 checks/Get（narrow） vs 19.244（wide），K=16，B=2 GiB —— 差值 15 与 K-1 一致",
+    "unit": "checks/Get",
+    "condition": "lb_A_{narrow,wide}_B2147483648_r*",
+    "source": "bench/out/perf_v2/l0_backlog/REPORT.md:9-10"
+   },
+   {
+    "metric": "冻结读的每类延迟（B=2 GiB，K=16）",
+    "value": "base hit p50/p99 32.8/180.2 µs、L0 hit p50 28.7 µs、in-range miss p50/p99 7.7/36.9 µs（narrow）；缓存随重复序次升温（见限制条目）",
+    "unit": "µs",
+    "condition": "lb_A_narrow_B2147483648_r*，5 次重复中位数",
+    "source": "bench/out/perf_v2/l0_backlog/REPORT.md:15-22"
+   },
+   {
+    "metric": "读实验为何在吞吐上看不到布局差",
+    "value": "冻结读在 46 GiB 底库上是设备受限的（base hit p50 29–45 µs、每请求一次设备块读的冷态），布局差异只体现在便宜的类上（in-range miss：narrow 7.7/36.9 µs vs wide 12.3–18.4/36.9–294.9 µs）",
+    "unit": "µs",
+    "condition": "per-class 表（A）",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:127-140"
+   },
+   {
+    "metric": "页缓存升温（同一臂 5 次重复）",
+    "value": "15 568 → 104 574 ops/s，CPU 29 044 → 6 829 ns/Get，设备读 3.5 → 1.5 GiB（K=1 冻结读，narrow，rep1→rep5）",
+    "unit": "ops/s",
+    "condition": "lb_A_narrow_K1_B2147483648_r1..r5",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:165"
+   }
+  ],
+  "evaluation_zh": "裁决：积压的『价格』是每 GiB 6–11 GiB 的压实写入，且随 B 增大而下降（B=0.5→8 GiB 时降 40%）；布局在冻结读里只改变探测次数（4.245 vs 19.244），在本底库规模上不改变吞吐（读为设备受限，且逐类的构成随 B 变化）。B 类（只压实）证明排空时间与峰值空间随 B 单调增长；C 类给出业务负载下的同一结论。",
+  "caveats_zh": [
+   "冻结读（A）的 5 次重复不是可交换的：协议无法 drop cache（无 root），同臂 rep1→rep5 吞吐可差 6.7×（bench/out/perf_v2/RESULTS_SUMMARY.md:165）；报告中每个冻结臂都给出逐重复轨迹与设备读量",
+   "字节列是按运行的中位数（不是组内求和）——早期版本把 5 次重复求和后除以单个积压，使每 GiB 比值放大 5×；同一缺陷的另一面是清单里同一 run_id 出现两行（重跑追加）导致计数翻倍，二者均已修复（bench/v2/IMPLEMENTATION_REPORT.md:659）",
+   "90 次运行中有 18 次由重建前的工具版本产生；两次构建差两个默认关闭的可选标志，逐运行 config/argv 可验证（bench/v2/IMPLEMENTATION_REPORT.md:624）",
+   "A 类的每类构成随 B 变化（L0 命中占比 0.48%→7.47%），因此总吞吐列把布局与『服务了哪一类』混在一起，逐类列才是对照",
+   "延迟百分位为桶下界"
+  ],
+  "sources": [
+   "bench/out/perf_v2/RESULTS_SUMMARY.md:110-140",
+   "bench/out/perf_v2/l0_backlog/REPORT.md:1-60",
+   "bench/out/perf_v2/l0_backlog/charts/chart_layout_x_size.png:1",
+   "bench/out/perf_v2/l0_backlog/charts/chart_business_drain.png:1",
+   "bench/out/perf_v2/l0_backlog/charts/chart_perf_vs_write.png:1",
+   "bench/v2/IMPLEMENTATION_REPORT.md:600-608"
+  ]
+ },
+ {
+  "id": "perf_v2/KSWEEP",
+  "title_zh": "v2 L0 积压：固定 B=2 GiB 只扫 K（1/2/4/8/16）",
+  "generation": "v2",
+  "engine": [
+   "native"
+  ],
+  "category": "capacity_sweep",
+  "purpose_zh": "把『积压文件数 K』从『积压字节 B』和『布局』里单独分出来：固定 B≈2 GiB，K∈{1,2,4,8,16}，每个 K 分两组——冻结压实（文件选择、Bloom、扫描、元数据代价）与自动压实（调度与 slowdown/stop 门槛）——各 5 次成对重复，全部 K 共用同一个底库实例，并留一组与 BACKLOG 数据集的 K=16 臂做重复性对照。",
+  "environment": {
+   "engine_version": "11.2.0",
+   "binary_path": "bench/tools/l0bench_backlog（md5 612cd91a29582602ab2c364b2180e93e / sha256 2908281f…，与 BACKLOG 同一构建）",
+   "workload": "同 BACKLOG 的积压构造（同值覆盖、K 个 L0 文件、narrow/wide），B 固定 2 147 483 648 B；A 组为冻结只读（mixed 查询 + 三窗口），B 组为只让压实排空（--mode=open --wait_for_drain=1）",
+   "rocksdb_options": "A/B 均 cache 8 GiB、compression=none、level0_trigger=8；构造阶段 disable_auto_compactions=1、level0_stop=100000",
+   "other": "100 次运行（K×2 布局×2 组×5 重复），输出按 K 分根 l0_backlog_kscan_K{1,2,4,8,16}，分析用 l0_kscan_merge.py 软链合并到 l0_backlog_kscan/；全部 K 共用 09-30 20:30 构建的 44 GiB 底库"
+  },
+  "results": [
+   {
+    "metric": "扫描设计（预注册）",
+    "value": "固定 B≈2 GiB，把『压实冻结组』与『自动压实组』分开；跨过 slowdown=20 / stop=36 的臂单独列出",
+    "unit": "—",
+    "condition": "计划 §5",
+    "source": "bench/L0_BACKLOG_PLAN.md:112"
+   },
+   {
+    "metric": "K=1 运行完成度",
+    "value": "20 / 20 运行、20 / 20 VALID=1、rc=0，用时 1 780 s（首个 K）",
+    "unit": "—",
+    "condition": "KSCAN_STATUS.log（K=1 END 行）",
+    "source": "bench/out/perf_v2/l0_backlog_kscan/KSCAN_STATUS.log:4"
+   },
+   {
+    "metric": "K=1 的冻结读（narrow，B=2 GiB，K=1 单文件）",
+    "value": "5 次重复：15 568 / 17 210 / 19 476 / 35 061 / 104 574 ops/s（设备读 3.5 → 1.5 GiB）——同臂的页缓存升温，尚未是 K 的效应",
+    "unit": "ops/s",
+    "condition": "lb_A_narrow_K1_B2147483648_r1..r5",
+    "source": "bench/out/perf_v2/RESULTS_SUMMARY.md:165"
+   },
+   {
+    "metric": "跨 K 对照的可用性",
+    "value": "每个 K 看到相同的重复结构（同一次扫描里 rep r 内所有 K 臂乱序执行），冷→热升温对所有 K 一致，因此跨 K 对照不受影响；绝对微秒数受影响",
+    "unit": "—",
+    "condition": "分析器的 K 扫描小节注",
+    "source": "bench/v2/l0_backlog_analyze.py:1"
+   }
+  ],
+  "evaluation_zh": "进行中：K=1 已完成且 20/20 有效；K=2/4/8/16 运行中，合并分析（l0_backlog_analyze.py 的 K 小节 + 三张图 chart_K_read_cost / chart_K_compaction / chart_K_business）与对 BACKLOG 的 K=16 重复性对照（l0_kscan_replicate.py）在该扫描结束后生成。当前可确证的只有设计、K=1 的完成度与页缓存升温对绝对数的影响。",
+  "caveats_zh": [
+   "本数据集的结论尚不完整：K≥2 的分析在扫描结束后才生成（bench/v2/finalize_chain.sh 自动执行）",
+   "底库实例与 BACKLOG 数据集不同（09-30 20:30 构建 vs 09-29 03:57 构建），两者的绝对延迟不可直接比较；K=16 臂的重复性对照给出了这个差异的大小",
+   "冻结读的绝对吞吐受页缓存升温影响（同一臂 5 次重复可差 6.7×），跨 K 对照因所有 K 共享同一重复结构而仍然有效",
+   "K=1 时 narrow 与 wide 退化为同一状态，两布局在该点一致属自洽性检查"
+  ],
+  "sources": [
+   "bench/L0_BACKLOG_PLAN.md:112-125",
+   "bench/v2/IMPLEMENTATION_REPORT.md:604-608",
+   "bench/v2/l0_kscan_chain.sh:1-10",
+   "bench/out/perf_v2/l0_backlog_kscan/KSCAN_STATUS.log:1-4"
+  ]
+ }
+]

@@ -1,0 +1,9 @@
+== E5 timeline summary ==
+run,mode,duration_s,throughput,stall_us_total,stall_thread_time_over_wall,stall_union_s,stall_union_frac_of_wall,stall_intervals,stall_us_per_write,stall_begin_events,n_delayed_events,n_stopped_events,l0_trigger,p50_l0_files,frac_ticks_l0_ge_trigger,frac_ticks_l0_ge_slowdown,peak_l0_files,peak_immutable,peak_pending_gib,peak_memtable_gib,run_p50_us,run_p99_us,run_p999_us,run_p9999_us,run_max_us
+e_kcomp.reopen,open,0.668,0.000,0.000,n/a,0.000,0.000,0,n/a,0.000,0,0,8,4.000,0.000,0.000,4.000,0.000,0.000,0.000,n/a,n/a,n/a,n/a,n/a
+e_kflush.reopen,open,0.653,0.000,0.000,n/a,0.000,0.000,0,n/a,0.000,0,0,8,2.000,0.000,0.000,2.000,0.000,0.000,0.000,n/a,n/a,n/a,n/a,n/a
+e_kflush_sync.reopen,open,0.514,0.000,0.000,n/a,0.000,0.000,0,n/a,0.000,0,0,8,2.000,0.000,0.000,2.000,0.000,0.000,0.000,n/a,n/a,n/a,n/a,n/a
+e_kseal.reopen,open,0.580,0.000,0.000,n/a,0.000,0.000,0,n/a,0.000,0,0,8,3.000,0.000,0.000,3.000,0.000,0.000,0.000,n/a,n/a,n/a,n/a,n/a
+e_ktime.reopen,open,0.568,0.000,0.000,n/a,0.000,0.000,0,n/a,0.000,0,0,8,1.000,0.000,0.000,1.000,0.000,0.000,0.000,n/a,n/a,n/a,n/a,n/a
+e_ktime_sync.reopen,open,0.551,0.000,0.000,n/a,0.000,0.000,0,n/a,0.000,0,0,8,1.000,0.000,0.000,1.000,0.000,0.000,0.000,n/a,n/a,n/a,n/a,n/a
+

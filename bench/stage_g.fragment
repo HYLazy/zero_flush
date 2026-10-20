@@ -1,0 +1,24 @@
+# Stage G -- E2 arrival order at 50GB: identical inserted key multiset (for monotonic and
+# locality, each of which inserts every key exactly once), different arrival order, and
+# therefore different L0 file key ranges. This is the mechanism test for H2.
+# ---------------------------------------------------------------------------
+stage_G() {
+  local U50=48000000
+  local C; C=$(fill_common)
+  local i=0
+  for spec in "monotonic:--dist=monotonic --order=identity" \
+              "locality:--dist=locality --locality_window=1000000" \
+              "zipf:--dist=zipf --zipf_theta=0.99" \
+              "hotspot:--dist=hotspot --hot_fraction=0.10 --hot_share=0.80"; do
+    i=$((i+1)); wants "$i" || continue
+    local name=${spec%%:*}; local dargs=${spec#*:}
+    local rid="g_${name}"; local db=$BENCH/db/$rid; local rdir=$OUT/$rid
+    rm -rf "$db"; mkdir -p "$rdir"
+    launch "$rdir" "$db" 21600 300 -- --db=$db --out=$rdir/$rid --mode=fill --universe=$U50 \
+      --num_ops=$U50 $dargs $C \
+      --drain_observe_s=60 --wait_for_drain=1 --wait_for_drain_max_s=900
+    local rc=$?; finish_run "$rdir" "$db" 0
+    record "$rid" "\"arrival\":\"$name\",\"scale\":\"50gb\",\"rc\":$rc"
+  done
+}
+

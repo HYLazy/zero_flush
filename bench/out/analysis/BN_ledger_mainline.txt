@@ -1,0 +1,4 @@
+run                      U(GiB)     WA   flush intraL0 L0->base    deep  totSST   jobs   triv
+50gb_fill_r1              46.49   5.47   1.004   0.600   1.459   2.405  254.21    655    152
+50gb_overwrite            46.49   8.38   1.001   0.099   1.752   5.528  389.61   1899    237
+100gb_overwrite           92.98  11.01   1.003   0.010   1.729   8.267 1023.69   4857    283

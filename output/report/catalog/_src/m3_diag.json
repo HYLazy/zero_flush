@@ -1,0 +1,1310 @@
+[
+ {
+  "id": "m3/native_wa_stall_100gb",
+  "title_zh": "原生 RocksDB 100GB/1KB fillrandom：写放大 · 写停顿 · Compaction 规模",
+  "engine": [
+   "native"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "在原生 RocksDB 100GB / 1KB KV / 16 线程 fillrandom 下量化四件事：各层写放大（含每层读入/写出字节与 W-Amp）；三类写停顿（memtable-limit / L0-file-count-limit / pending-compaction-bytes）；L0→L1 compaction 每次涉及的 SSTable 数量；深层 compaction（output_level ≥ 2）涉及的 SSTable 数量。（archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md:3-11）",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（--threads=16）（archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md:14）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "fillrandom --num=103244288 --writes=6452768 --threads=16（key 16B + value 1024B = 1040B/键，103,244,288 × 1040B ≈ 100GB 为所有线程写入总和；writes 6,452,768/线程 × 16）（archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md:14-16）；报告记为「key 16B + value 1024B、16 线程、num=103,244,288（用户数据 100GB）」（archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:3-4）",
+   "rocksdb_options": "compression=none、disable_wal=false、cache 512MB、max_background_jobs=24、subcompactions=16、--statistics（ticker 终值）、--stats_dump_period_sec=60（LOG 每 60s 累计 stats：Compaction Stats 表 + Write Stall (count) 按原因）（archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md:17-20）",
+   "other": "数据全部来自 LOG 文件（无需插桩）；LOG 原件保留于实验目录（压缩）；预计时长 ≈2.3h（矩阵同参 12.4K ops/s）（archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md:19-29,35）"
+  },
+  "results": [
+   {
+    "metric": "吞吐",
+    "value": "13,978",
+    "unit": "ops/s",
+    "condition": "16 线程基线（报告同时给出 13.9 MB/s）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:5"
+   },
+   {
+    "metric": "wall",
+    "value": "7,386",
+    "unit": "s",
+    "condition": "16 线程基线（= 123 分钟）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:5"
+   },
+   {
+    "metric": "写停顿总时长占比（Cumulative stall）",
+    "value": "94.6%",
+    "unit": "",
+    "condition": "16 线程基线；摘要段写作 94.7%（native_wa_stall_100gb_report.md:5）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:35"
+   },
+   {
+    "metric": "写停顿总时长",
+    "value": "6,959.762",
+    "unit": "s",
+    "condition": "16 线程基线；报告同一数字记为 116 分钟（native_wa_stall_100gb_report.md:35）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb.json:1073"
+   },
+   {
+    "metric": "总写放大（合计 SST 写出）",
+    "value": "9.80x；SST 累计写出 980.3GB；合计 1336 个文件 / 77.6GB；Compaction 次数 5391",
+    "unit": "×；GB",
+    "condition": "16 线程基线，最终 cumulative Compaction Stats（JSON Sum 行同一量记为 980.4GB / w_amp 9.7，comp_sec 98220.75）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:19"
+   },
+   {
+    "metric": "L0 层写出 / 写放大",
+    "value": "184.8GB；W-Amp 1.80；Write/用户数据 1.85x；1950 次 Comp；末态 8 个文件 / 0.5GB",
+    "unit": "GB；×",
+    "condition": "16 线程基线（该层为 flush 输出）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:14"
+   },
+   {
+    "metric": "L1 层写出 / 写放大",
+    "value": "121.9GB；W-Amp 1.20；Write/用户数据 1.22x；99 次 Comp；末态 26 个文件 / 1.1GB",
+    "unit": "GB；×",
+    "condition": "16 线程基线（L1 行 Rnp1=22.2、Rn=100.4）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:15"
+   },
+   {
+    "metric": "L2 层写出 / 写放大",
+    "value": "285.7GB；W-Amp 3.20；Write/用户数据 2.86x；1702 次 Comp；末态 66 个文件 / 3.4GB",
+    "unit": "GB；×",
+    "condition": "16 线程基线（报告称 L2/L3 是写放大主力）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:16"
+   },
+   {
+    "metric": "L3 层写出 / 写放大",
+    "value": "371.0GB；W-Amp 4.40；Write/用户数据 3.71x；1505 次 Comp；末态 410 个文件 / 25.7GB",
+    "unit": "GB；×",
+    "condition": "16 线程基线（dynamic level 下 L3 为数据主层）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:17"
+   },
+   {
+    "metric": "L4 层写出 / 写放大",
+    "value": "16.9GB；W-Amp 1.40；Write/用户数据 0.17x；135 次 Comp；末态 826 个文件 / 47.0GB",
+    "unit": "GB；×",
+    "condition": "16 线程基线",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:18"
+   },
+   {
+    "metric": "memtable-limit 写停顿（delayed / stopped）",
+    "value": "0 / 2605",
+    "unit": "次",
+    "condition": "16 线程基线，最终 WriteStallCause 计数",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:30"
+   },
+   {
+    "metric": "L0-file-count-limit 写停顿（delayed / stopped）",
+    "value": "6 / 0",
+    "unit": "次",
+    "condition": "16 线程基线",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:31"
+   },
+   {
+    "metric": "pending-compaction-bytes 写停顿（delayed / stopped）",
+    "value": "0 / 0",
+    "unit": "次",
+    "condition": "16 线程基线（L1+ 预估 compaction 字节未触发 soft/hard limit）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:32"
+   },
+   {
+    "metric": "三类写停顿合计（delayed / stopped）",
+    "value": "6 / 2605",
+    "unit": "次",
+    "condition": "16 线程基线（JSON total-delays=6、total-stops=2605）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:33"
+   },
+   {
+    "metric": "L0→L1 compaction 规模（输出层 L1，per subcompaction job）",
+    "value": "99 jobs；输入 SST 累计 1052（561 个 L0 + 491 个 L1）；平均 10.63；中位 10；最大 21",
+    "unit": "jobs；个",
+    "condition": "16 线程基线，compaction_started 输入文件",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:47"
+   },
+   {
+    "metric": "L1→L2 compaction 规模（输出层 L2）",
+    "value": "1719 jobs；输入 SST 累计 5879（0 个 L0 + 5879 个更深输入）；平均 3.42；中位 3；最大 10",
+    "unit": "jobs；个",
+    "condition": "16 线程基线",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:48"
+   },
+   {
+    "metric": "L2→L3 compaction 规模（输出层 L3）",
+    "value": "1513 jobs；输入 SST 累计 6809；平均 4.5；中位 4；最大 10",
+    "unit": "jobs；个",
+    "condition": "16 线程基线",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:49"
+   },
+   {
+    "metric": "L3→L4 compaction 规模（输出层 L4）",
+    "value": "141 jobs；输入 SST 累计 305；平均 2.16；中位 2；最大 3",
+    "unit": "jobs；个",
+    "condition": "16 线程基线",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:50"
+   },
+   {
+    "metric": "Intra-L0 compaction 规模（输出层 L0）",
+    "value": "290 jobs；输入 SST 累计 1393（全为 L0 输入）；平均 4.8；中位 4；最大 10",
+    "unit": "jobs；个",
+    "condition": "16 线程基线",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:46"
+   },
+   {
+    "metric": "全部已匹配 compaction job 合计",
+    "value": "3762 jobs；输入 SST 累计 15438（1954 个 L0 + 13484 个更深输入）；平均 4.10",
+    "unit": "jobs；个",
+    "condition": "16 线程基线（JSON compaction_jobs_matched=3762）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:51"
+   }
+  ],
+  "evaluation_zh": "报告结论（原文表述方向为支持其判断）：原生 fillrandom 100GB 的写停顿 = memtable 停顿，94.6% 时间在 stop 等待——写停顿不是 L0 也不是 L1+ 字节限制，而是深层 compaction 消费不及导致 memtable 无法出清；总写放大 9.8×，其中 L2+L3 贡献 6.6×（68%），ZF 的物化（无多版本重写）+ L1 直装正是绕开这段开销；L0→L1 compaction 单次平均 10.6 个 SST（vs 深层 2-4.5 个）；13,978 ops/s 中实际写线程活跃仅 ~5%，compaction 消费能力（24 后台线程）是上限。（archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:59-65）",
+  "caveats_zh": [
+   "摘要段把 Cumulative stall 记为 94.7%（native_wa_stall_100gb_report.md:5），与第 35 行表格的 94.6% 及 JSON 的 94.6（native_wa_stall_100gb.json:1074）不一致。",
+   "报告表格的合计行为 980.3GB / 9.80x，而 JSON Sum 行为 980.4GB / w_amp 9.7（native_wa_stall_100gb_report.md:19；native_wa_stall_100gb.json:76-88）。",
+   "L4 仅 0.17×：实验结束时深层下沉尚在初期（native_wa_stall_100gb_report.md:24）。",
+   "pending-compaction-bytes 停顿为 0 的原因是 dynamic level bytes 下主层 26GB 远低于限制（native_wa_stall_100gb_report.md:39-40）。",
+   "观测依赖 LOG/statistics（无插桩），启用 --statistics 与 stats_dump 60s 有观测开销（native_wa_stall_100gb/DESIGN.md:18-20）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md:3-11",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md:13-21",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md:23-29",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md:31-35",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:3-5",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:12-19",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:28-40",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:44-51",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:59-65",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb.json:2-3",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb.json:76-88",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb.json:1060-1075",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb.json:1570-1617"
+  ]
+ },
+ {
+  "id": "m3/native_wa_stall_100gb#comp_time",
+  "title_zh": "原生 RocksDB 100GB：L0→L1 与 L1 以下 compaction 耗时统计（16/8/4/2 线程）",
+  "engine": [
+   "native"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "统计四次线程缩放实验（16/8/4/2 线程，workload 恒定 100GB）LOG 中 compaction_finished 事件的每逻辑 compaction wall 耗时分布（平均/P50/P95/P99/P99.9/max）与全部 job 的累计耗时，回答 L0→L1 与 L1 以下 compaction 各自消耗多少时间、是否是瓶颈。（archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:3-6）",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 / 8 / 4 / 2 线程（四个线程缩放实验）（archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:3）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "fillrandom，workload 恒定 100GB（key 16B + value 1024B、num=103,244,288；同 native_wa_stall_100gb 系列）（archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:3；archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_report.md:3-4）",
+   "rocksdb_options": "subcompactions=16（子 job 在逻辑 job 内部并行）；其余同 100GB 系列：compression=none、cache 512MB、max_background_jobs=24、stats_dump 60s（archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:3-6；archive/zeroflush_m3_perf/native_wa_stall_100gb/DESIGN.md:17-20）",
+   "other": "数据源：LOG 的 compaction_finished 事件（compaction_time_micros 记为该 job 的 wall 时间）；total 为累计耗时，同一时刻多个 compaction 并行执行故可超过 wall（archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:3-6）"
+  },
+  "results": [
+   {
+    "metric": "L0→L1（output_level=1）jobs",
+    "value": "99 / 108 / 115 / 127",
+    "unit": "jobs",
+    "condition": "16 / 8 / 4 / 2 线程（顺序同表）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:12"
+   },
+   {
+    "metric": "L0→L1 avg_wall",
+    "value": "15.7 / 16.5 / 17.6 / 18.1",
+    "unit": "s",
+    "condition": "16 / 8 / 4 / 2 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:13"
+   },
+   {
+    "metric": "L0→L1 p50_wall / p95_wall",
+    "value": "17.2 / 17.7 / 18.9 / 19.6（p50）；25.7 / 26.7 / 28.0 / 28.4（p95）",
+    "unit": "s",
+    "condition": "16 / 8 / 4 / 2 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:14-15"
+   },
+   {
+    "metric": "L0→L1 p99 / p999 / max_wall",
+    "value": "p99 28.2 / 28.2 / 30.2 / 29.6；p999 28.2 / 29.4 / 30.7 / 29.9；max 28.2 / 29.4 / 30.7 / 29.9",
+    "unit": "s",
+    "condition": "16 / 8 / 4 / 2 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:16-18"
+   },
+   {
+    "metric": "L0→L1 total_thread_time",
+    "value": "1558.2 / 1783.3 / 2019.9 / 2293.9",
+    "unit": "s",
+    "condition": "16 / 8 / 4 / 2 线程（16 线程值同 JSON L0_L1 total_thread_time_s=1558.2、subjobs=1507）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:19"
+   },
+   {
+    "metric": "L0→L1 累计耗时占 wall 比例",
+    "value": "21.1% / 21.7% / 22.4% / 23.4%",
+    "unit": "",
+    "condition": "16 / 8 / 4 / 2 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:20"
+   },
+   {
+    "metric": "L1 以下（output_level≥2，L1→L2/L2→L3/L3→L4 合计）jobs",
+    "value": "3373 / 3444 / 3552 / 3611",
+    "unit": "jobs",
+    "condition": "16 / 8 / 4 / 2 线程（JSON deep_total jobs=3373）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:26"
+   },
+   {
+    "metric": "L1 以下 avg_wall",
+    "value": "24.4 / 26.4 / 28.4 / 29.3",
+    "unit": "s",
+    "condition": "16 / 8 / 4 / 2 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:27"
+   },
+   {
+    "metric": "L1 以下 p50 / p95 / p99",
+    "value": "p50 21.9 / 22.9 / 25.8 / 27.6；p95 49.6 / 56.1 / 59.8 / 62.4；p99 67.8 / 74.7 / 74.8 / 78.5",
+    "unit": "s",
+    "condition": "16 / 8 / 4 / 2 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:28-30"
+   },
+   {
+    "metric": "L1 以下 p999 / max_wall",
+    "value": "p999 84.5 / 92.0 / 101.2 / 104.9；max 91.4 / 108.7 / 114.4 / 142.9",
+    "unit": "s",
+    "condition": "16 / 8 / 4 / 2 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:31-32"
+   },
+   {
+    "metric": "L1 以下 total_thread_time",
+    "value": "82244 / 91013 / 100838 / 105838",
+    "unit": "s",
+    "condition": "16 / 8 / 4 / 2 线程（JSON deep_total total_thread_time_s=82244.1）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:33"
+   },
+   {
+    "metric": "L1 以下累计耗时占 wall 比例",
+    "value": "1114% / 1107% / 1116% / 1080%",
+    "unit": "",
+    "condition": "16 / 8 / 4 / 2 线程（累计线程时间可超过 wall）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:34"
+   },
+   {
+    "metric": "L1→L2 单 job 耗时（16 线程代表分布）",
+    "value": "jobs 1719；平均 17.6s；P50 17.7s；P95 31.8s；P99 37.7s；P99.9 44.2s；max 47.1s；累计 30200s",
+    "unit": "s",
+    "condition": "16 线程（JSON L1_L2：jobs 1719、avg_wall_s 17.568、p99_wall_s 37.653、max_wall_s 47.097、total_thread_time_s 30200.2）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:40"
+   },
+   {
+    "metric": "L2→L3 单 job 耗时（16 线程代表分布）",
+    "value": "jobs 1513；平均 32.1s；P50 31.4s；P95 56.7s；P99 72.9s；P99.9 90.1s；max 91.4s；累计 48530s",
+    "unit": "s",
+    "condition": "16 线程（JSON L2_L3：avg_wall_s 32.075、p99_wall_s 72.873、max_wall_s 91.382、total_thread_time_s 48529.8）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:41"
+   },
+   {
+    "metric": "L3→L4 单 job 耗时（16 线程代表分布）",
+    "value": "jobs 141；平均 24.9s；P50 26.3s；P95 36.4s；P99 44.4s；P99.9 51.4s；max 51.4s；累计 3514s",
+    "unit": "s",
+    "condition": "16 线程（JSON L3_L4：avg_wall_s 24.923、total_thread_time_s 3514.1）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:42"
+   }
+  ],
+  "evaluation_zh": "报告结论（原报表述为支持其判断）：L0→L1 快而稳定——单 job 平均 15.7-18.1s、P99 28-30s、max ≤31s，累计耗时 1,558-2,294s 仅占 wall 的 21-23%；L1 以下慢且长尾——单 job 平均 24.4-29.3s（约 L0→L1 的 1.6 倍），P99 68-78s、最长 91-143s，累计 82,244-105,838s，是 L0→L1 的 45-53 倍、占 wall 的 9.8-10.8 倍，即平均 10.8-11.1 个 compaction 并行仍消费不过来；L2→L3 是最大耗时层（16 线程累计 48,530s，占 deep 的 59%）；深层 compaction 是唯一的系统性瓶颈，L0→L1 从不是瓶颈。（archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:46-56）",
+  "caveats_zh": [
+   "total_thread_time_s 为同刻多个并行 compaction 的累计线程时间，可超过 wall 时间（archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:3-6）。",
+   "线程数对单 job 耗时几乎无影响（各分布 ±15% 内），但低线程数下单 job 略慢、job 数更多，故累计耗时随线程数下降而增加（82.2K → 105.8K s，+29%）（archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:53-54）。",
+   "L3→L4 尚在初期（16 线程累计 3,514s）（archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:52）。",
+   "P99.9 与 max 同量级，报告据此判定长尾真实存在（archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:48-50）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:3-6",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:8-20",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:22-34",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:36-42",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/comp_time_report.md:46-56",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_comp_time.json:2-3",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_comp_time.json:7-21",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_comp_time.json:22-36",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb/native_wa_stall_100gb_comp_time.json:52-93"
+  ]
+ },
+ {
+  "id": "m3/native_wa_stall_100gb_t2",
+  "title_zh": "原生 RocksDB 100GB/1KB fillrandom · 2 线程：三类写停顿（线程缩放 16/8/4/2 对比）",
+  "engine": [
+   "native"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "把写线程数降到 2（workload 恒定 103,244,288 键 ≈ 100GB 用户数据；后台 compaction 能力不变，max_background_jobs=24、subcompactions=16），复测三类写停顿（memtable-limit / L0-file-count-limit / pending-compaction-bytes）与写放大、compaction 规模，检验原生 fillrandom 100GB 的停顿结构是否随写线程数变化。（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:3-5）",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "2 线程（同一组实验含 16/8/4/2 线程四档）（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:3-5,9-18）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "workload 恒定：103,244,288 键 ≈ 100GB 用户数据，仅写线程数变化（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:3）；JSON 记为「native rocksdb 100GB/1KB fillrandom (2 threads)」（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_100gb_t2.json:2）",
+   "rocksdb_options": "后台 compaction 能力不变：max_background_jobs=24、subcompactions=16（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:4）",
+   "other": "无插桩，数据全部来自 LOG stats_dump（60s）+ EVENT_LOG compaction 事件（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:4-5）；JSON num_stats_dumps=163（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_100gb_t2.json:3）"
+  },
+  "results": [
+   {
+    "metric": "吞吐",
+    "value": "10,539",
+    "unit": "ops/s",
+    "condition": "2 线程（同表 16/8/4 线程为 13,978 / 12,558 / 11,424）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:11"
+   },
+   {
+    "metric": "wall",
+    "value": "163",
+    "unit": "分钟",
+    "condition": "2 线程（同表 16/8/4 线程为 123 / 137 / 151 分钟）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:12"
+   },
+   {
+    "metric": "停顿总时长",
+    "value": "8704s（89.2%）",
+    "unit": "s",
+    "condition": "2 线程（JSON stall_time_final：secs 8703.983、percent 89.2）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:13"
+   },
+   {
+    "metric": "memtable stop 次数",
+    "value": "2460",
+    "unit": "次",
+    "condition": "2 线程（JSON stall_counts_final memtable-limit-stops=2460；memtable-limit-delays=0）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:14"
+   },
+   {
+    "metric": "单次 memtable stop 平均时长",
+    "value": "3.54",
+    "unit": "s",
+    "condition": "2 线程（同表 16/8/4 线程为 2.67 / 2.96 / 3.35s）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:27"
+   },
+   {
+    "metric": "L0-file-count-limit 停顿（delayed / stopped）",
+    "value": "0 / 0",
+    "unit": "次",
+    "condition": "2 线程（JSON l0-file-count-limit-delays=0、l0-file-count-limit-stops=0）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:15"
+   },
+   {
+    "metric": "pending-compaction-bytes 停顿（delayed / stopped）",
+    "value": "0 / 0",
+    "unit": "次",
+    "condition": "2 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:16"
+   },
+   {
+    "metric": "SST 累计写出（总写放大）",
+    "value": "1065GB（10.6×）",
+    "unit": "GB；×",
+    "condition": "2 线程（同表 16/8/4 线程为 980GB(9.8×) / 1007GB(10.1×) / 1030GB(10.3×)）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:17"
+   },
+   {
+    "metric": "compaction jobs",
+    "value": "4,011",
+    "unit": "jobs",
+    "condition": "2 线程（JSON compaction_jobs_matched=4011）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:18"
+   },
+   {
+    "metric": "各层写放大（L0 / L1 / L2 / L3 / L4）",
+    "value": "L0 181.6GB（1.82×）；L1 128.1GB（1.28×）；L2 341.9GB（3.42×）；L3 396.0GB（3.96×）；L4 17.0GB（0.17×）",
+    "unit": "GB；×",
+    "condition": "2 线程（4 线程列为 181.9(1.82) / 125.3(1.25) / 317.8(3.18) / 388.0(3.88) / 16.5(0.17)）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:33-37"
+   },
+   {
+    "metric": "L0→L1 compaction 规模（输出层 L1：jobs / 输入 SST / 平均）",
+    "value": "127 / 1247 / 9.82",
+    "unit": "jobs；个",
+    "condition": "2 线程（JSON compactions_by_output_level[1]：jobs 127、input_files 1247、avg_input 9.82）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:44"
+   },
+   {
+    "metric": "其余输出层 compaction 规模（L0 / L2 / L3 / L4：jobs / 输入 SST / 平均）",
+    "value": "L0 273 / 1404 / 5.14；L2 1913 / 7147 / 3.74；L3 1564 / 7264 / 4.64；L4 134 / 283 / 2.11",
+    "unit": "jobs；个",
+    "condition": "2 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:43-47"
+   }
+  ],
+  "evaluation_zh": "报告结论（原报表述为支持其判断）：写线程 16→2（8 倍范围）时 memtable stop 始终绝对主导，停顿占比 94.6% → 93.7% → 91.4% → 89.2% 仅缓降 5.4pp，stop 次数几乎不变，L0 与 pending-bytes 停顿恒为 0；吞吐仅降 25%（13,978 → 10,539 ops/s）而写线程减 8 倍——有效写入速率 = 后台 compaction 消费速率（~11-14K ops/s），与写线程数基本无关；停顿占比缓降来自 burst 速率随线程数近似线性下降；各层写放大与 compaction 规模与线程数无关（总放大 9.8-10.5×、L0→L1 平均 9.8-10.6 个输入 SST）。（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:51-57）",
+  "caveats_zh": [
+   "停顿占比缓降的解释是推论：burst 速率随线程数近似线性下降（~90/45/22/11 MB/s），趋近 compaction 支撑速率（~10K ops/s）时停顿将消失（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:55-56）。",
+   "对 ZeroFlush 的意义（ZF 分区 WAL 直装绕开 memtable 出清、其停顿结构在更深层）为报告推论，未在本实验中验证（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:59-61）。",
+   "同一组实验的 16 线程项同时被记为 10.1×（本报告 line 17）与 10.0×/10.07×（native_wa_stall_100gb_t8_report.md:14,41），两文件写法不一致。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:3-5",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:7-18",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:20-27",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:29-37",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:39-47",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:49-61",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_100gb_t2.json:2-3",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_100gb_t2.json:1373-1384",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_100gb_t2.json:2040-2086"
+  ]
+ },
+ {
+  "id": "m3/native_wa_stall_100gb_t4",
+  "title_zh": "原生 RocksDB 100GB/1KB fillrandom · 4 线程：三类写停顿（线程缩放 16/8/4/2 对比）",
+  "engine": [
+   "native"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "把写线程数降到 4（workload 恒定 103,244,288 键 ≈ 100GB 用户数据；后台 compaction 能力不变），复测三类写停顿与写放大、compaction 规模，作为 16/8/4/2 线程缩放曲线的一档，检验停顿结构是否随写线程数变化。（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:3-5,9-18）",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "4 线程（同一组实验含 16/8/4/2 线程四档）（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:3-5,9-18）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "workload 恒定：103,244,288 键 ≈ 100GB 用户数据，仅写线程数变化（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:3）；JSON 记为「native rocksdb 100GB/1KB fillrandom (4 threads)」（archive/zeroflush_m3_perf/native_wa_stall_100gb_t4/native_wa_stall_100gb_t4.json:2）",
+   "rocksdb_options": "后台 compaction 能力不变：max_background_jobs=24、subcompactions=16（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:4）",
+   "other": "无插桩，数据全部来自 LOG stats_dump（60s）+ EVENT_LOG compaction 事件（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:4-5）；JSON num_stats_dumps=150（archive/zeroflush_m3_perf/native_wa_stall_100gb_t4/native_wa_stall_100gb_t4.json:3）"
+  },
+  "results": [
+   {
+    "metric": "吞吐",
+    "value": "11,424",
+    "unit": "ops/s",
+    "condition": "4 线程（同表 16/8/2 线程为 13,978 / 12,558 / 10,539）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:11"
+   },
+   {
+    "metric": "wall",
+    "value": "151",
+    "unit": "分钟",
+    "condition": "4 线程（同表 16/8/2 线程为 123 / 137 / 163 分钟）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:12"
+   },
+   {
+    "metric": "停顿总时长",
+    "value": "8209s（91.4%）",
+    "unit": "s",
+    "condition": "4 线程（JSON stall_time_final：secs 8209.292、percent 91.4）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:13"
+   },
+   {
+    "metric": "memtable stop 次数",
+    "value": "2450",
+    "unit": "次",
+    "condition": "4 线程（JSON stall_counts_final memtable-limit-stops=2450；memtable-limit-delays=0）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:14"
+   },
+   {
+    "metric": "单次 memtable stop 平均时长",
+    "value": "3.35",
+    "unit": "s",
+    "condition": "4 线程（同表 16/8/2 线程为 2.67 / 2.96 / 3.54s）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:27"
+   },
+   {
+    "metric": "L0-file-count-limit 停顿（delayed / stopped）",
+    "value": "0 / 0",
+    "unit": "次",
+    "condition": "4 线程（JSON l0-file-count-limit-delays=0、l0-file-count-limit-stops=0）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:15"
+   },
+   {
+    "metric": "pending-compaction-bytes 停顿（delayed / stopped）",
+    "value": "0 / 0",
+    "unit": "次",
+    "condition": "4 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:16"
+   },
+   {
+    "metric": "SST 累计写出（总写放大）",
+    "value": "1030GB（10.3×）",
+    "unit": "GB；×",
+    "condition": "4 线程（同表 16/8/2 线程为 980GB(9.8×) / 1007GB(10.1×) / 1065GB(10.6×)）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:17"
+   },
+   {
+    "metric": "compaction jobs",
+    "value": "3,934",
+    "unit": "jobs",
+    "condition": "4 线程（JSON compaction_jobs_matched=3934）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:18"
+   },
+   {
+    "metric": "各层写放大（L0 / L1 / L2 / L3 / L4）",
+    "value": "L0 181.9GB（1.82×）；L1 125.3GB（1.25×）；L2 317.8GB（3.18×）；L3 388.0GB（3.88×）；L4 16.5GB（0.17×）",
+    "unit": "GB；×",
+    "condition": "4 线程（2 线程列为 181.6(1.82) / 128.1(1.28) / 341.9(3.42) / 396.0(3.96) / 17.0(0.17)）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:33-37"
+   },
+   {
+    "metric": "L0→L1 compaction 规模（输出层 L1：jobs / 输入 SST / 平均）",
+    "value": "115 / 1172 / 10.19",
+    "unit": "jobs；个",
+    "condition": "4 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:44"
+   },
+   {
+    "metric": "其余输出层 compaction 规模（L0 / L2 / L3 / L4：jobs / 输入 SST / 平均）",
+    "value": "L0 267 / 1341 / 5.02；L2 1857 / 6547 / 3.53；L3 1554 / 7166 / 4.61；L4 141 / 296 / 2.1",
+    "unit": "jobs；个",
+    "condition": "4 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:43-47"
+   }
+  ],
+  "evaluation_zh": "报告结论（原报表述为支持其判断）：16→2 线程范围内 memtable stop 始终绝对主导（4 线程：2,450 次、停顿占比 91.4%），L0 与 pending-bytes 停顿恒为 0；吞吐随线程数下降而缓降（13,978 → 12,558 → 11,424 → 10,539 ops/s，16→2 线程 8 倍范围仅降 25%），说明有效写入速率由后台 compaction 消费速率（~11-14K ops/s）决定，与写线程数基本无关；各层写放大与 compaction 规模与线程数无关（总放大 9.8-10.5×）。（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:51-57）",
+  "caveats_zh": [
+   "4 线程档没有独立报告与 DESIGN 文件，本条目全部数字取自跨档对比报告「写线程数 16/8/4/2 三类写停顿对比」的 4 线程列（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:9-18）。",
+   "累计耗时随线程数下降而增加的原因（burst 写更平缓 → 同层文件更多重叠、job 数更多）为报告解释（archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:53-54）。",
+   "各层写放大与线程数无关的判定建立在 ±3% 量级的比较上（archive/zeroflush_m3_perf/native_wa_stall_100gb_t8_report.md:43）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:3-5",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:7-18",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:20-27",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:29-37",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:39-47",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:49-61",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t4/native_wa_stall_100gb_t4.json:2-3",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t4/native_wa_stall_100gb_t4.json:1273-1284",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t4/native_wa_stall_100gb_t4.json:1888-1934"
+  ]
+ },
+ {
+  "id": "m3/native_wa_stall_100gb_t8",
+  "title_zh": "原生 RocksDB 100GB/1KB fillrandom · 8 线程：三类写停顿复测（vs 16 线程）",
+  "engine": [
+   "native"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "与 16 线程基线（../native_wa_stall_100gb/）唯一差异改为 threads=8（writes 12,905,536/线程 × 8 = 103,244,288 键，用户数据 100GB 不变），回答「写线程减半（写压力减半、后台 compaction 能力不变）时三类写停顿（memtable-limit / L0-file-count-limit / pending-compaction-bytes）如何变化」。（archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/DESIGN.md:3-7）",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "8 线程（writes 12,905,536/线程 × 8 = 103,244,288 键）（archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/DESIGN.md:3）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "fillrandom，workload 103,244,288 键 ≈ 100GB 用户数据（与 16 线程基线同 workload）（archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:3-4）",
+   "rocksdb_options": "compression=none、cache 512MB、max_background_jobs=24、subcompactions=16、stats_dump 60s（archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/DESIGN.md:4）",
+   "other": "JSON num_stats_dumps=137（archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8.json:3）"
+  },
+  "results": [
+   {
+    "metric": "吞吐",
+    "value": "12,558（12.5 MB/s）",
+    "unit": "ops/s",
+    "condition": "8 线程（对比 16 线程 13,978 ops/s（13.9 MB/s））",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:10"
+   },
+   {
+    "metric": "wall",
+    "value": "8,221（137 分钟）",
+    "unit": "s",
+    "condition": "8 线程（对比 16 线程 7,386s（123 分钟））",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:11"
+   },
+   {
+    "metric": "写停顿总时长",
+    "value": "7,684（93.7%）",
+    "unit": "s",
+    "condition": "8 线程（对比 16 线程 6,960s（94.6%）；JSON stall_time_final：secs 7684.196、percent 93.7）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:12"
+   },
+   {
+    "metric": "L0 flush 写出",
+    "value": "184.1",
+    "unit": "GB",
+    "condition": "8 线程（对比 16 线程 184.8GB）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:13"
+   },
+   {
+    "metric": "SST 累计写出（总写放大）",
+    "value": "1,007.0（10.0×）",
+    "unit": "GB；×",
+    "condition": "8 线程（对比 16 线程 980.3GB（9.8×））；同报告第 41 行合计写作 1,007.0GB（10.07×）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:14"
+   },
+   {
+    "metric": "compaction jobs",
+    "value": "3,834",
+    "unit": "jobs",
+    "condition": "8 线程（对比 16 线程 3,762；JSON compaction_jobs_matched=3834）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:15"
+   },
+   {
+    "metric": "三类写停顿 delayed / stopped",
+    "value": "memtable-limit 0 / 2595；L0-file-count-limit 0 / 0；pending-compaction-bytes 0 / 0；合计 0 / 2595",
+    "unit": "次",
+    "condition": "8 线程（对比 16 线程 memtable 0 / 2605、L0 6 / 0、合计 6 / 2605；JSON memtable-limit-stops=2595、l0-file-count-limit-delays=0）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:21-24"
+   },
+   {
+    "metric": "单次停顿平均时长",
+    "value": "2.96",
+    "unit": "s/次",
+    "condition": "8 线程（7,684s ÷ 2,595 次 ≈ 2.96s；16 线程 2.67s/次）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:28"
+   },
+   {
+    "metric": "各层写放大（L0 / L1 / L2 / L3 / L4 / 合计）",
+    "value": "L0 184.1GB（1.84×）；L1 122.7GB（1.23×）；L2 303.0GB（3.03×）；L3 382.2GB（3.82×）；L4 15.0GB（0.15×）；合计 1,007.0GB（10.07×）",
+    "unit": "GB；×",
+    "condition": "8 线程（对比 16 线程 184.8(1.85) / 121.9(1.22) / 285.7(2.86) / 371.0(3.71) / 16.9(0.17) / 980.3(9.80)）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:36-41"
+   },
+   {
+    "metric": "L0→L1 compaction 规模（输出层 L1：jobs / 输入 SST / 平均）",
+    "value": "108 / 1122 / 10.39",
+    "unit": "jobs；个",
+    "condition": "8 线程（对比 16 线程 99 / 1052 / 10.63；最大输入 16 vs 21）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:51"
+   },
+   {
+    "metric": "其余输出层 compaction 规模（L0 / L2 / L3 / L4：jobs / 输入 SST / 平均）",
+    "value": "L0 282 / 1377 / 4.88；L2 1778 / 6213 / 3.49；L3 1549 / 7072 / 4.57；L4 117 / 249 / 2.13",
+    "unit": "jobs；个",
+    "condition": "8 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:50-54"
+   },
+   {
+    "metric": "全部已匹配 compaction 合计（jobs / 输入 SST / 平均）",
+    "value": "3,834 / 17,033 / 4.44",
+    "unit": "jobs；个",
+    "condition": "8 线程（对比 16 线程 3,762 / 15,438 / 4.10）",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:55"
+   },
+   {
+    "metric": "停顿模式（时间线特征）",
+    "value": "开头 ~30s 全速写满 ~2.7GB memtable 预算，此后 94% 时间在等 compaction 出清",
+    "unit": "",
+    "condition": "8 线程",
+    "source": "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:30"
+   }
+  ],
+  "evaluation_zh": "报告结论（原报表述为支持其判断）：写线程数 16→8 不改变停顿结构——memtable stop 仍占运行时间 ~94%（2,605 vs 2,595 次），L0/pending-bytes 停顿仍为 0，瓶颈在后台 compaction 消费能力（不变），不在写线程数；吞吐仅降 10%（13,978 → 12,558 ops/s），写线程近乎全程停顿，有效写入由 compaction 出清节奏决定；写放大与 compaction 规模与线程数无关（9.8× vs 10.0×、L0→L1 平均 10.6 vs 10.4 个 SST），均由 workload 分布与 LSM 参数决定。（archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:63-69）",
+  "caveats_zh": [
+   "8 线程 L2 写放大略高（303GB vs 16 线程 286GB），报告解释为写突发更平缓 → L0 小文件分布不同 → L1→L2 输入重叠略增（archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:43-44）。",
+   "同一数字在不同文件中写法不一致：本报告 8 线程总写放大写作 1,007.0GB（10.0× / 10.07×），而跨档对比报告写作 1007GB（10.1×）（archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:14,41；archive/zeroflush_m3_perf/native_wa_stall_100gb_t2/native_wa_stall_thread_scaling_report.md:17）。",
+   "对 ZeroFlush 的意义条（原生瓶颈 = 深层 compaction 消费 < flush 生产，memtable 出清为唯一节流阀）为报告推论（archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:68）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/DESIGN.md:1-7",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:3-15",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:17-30",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:32-44",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:46-59",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8_report.md:61-69",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8.json:2-3",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8.json:1166-1177",
+   "archive/zeroflush_m3_perf/native_wa_stall_100gb_t8/native_wa_stall_100gb_t8.json:1729-1775"
+  ]
+ },
+ {
+  "id": "m3/profiling",
+  "title_zh": "ZeroFlush 写路径剖析：wall time 分解与根因判定（W0/W1/W2/W2b/W3 + 微实验）",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "在 2.2GB 小规模下复现 ZF fillrandom 慢的现象、分解 wall time，验证/推翻 archive/report/benchmark/benchmark_analysis_report.md 发现 2 的三个根因（①L0 停写、②物化随机定点读、③物化单线程），为 P3 优化方向提供实测依据；方法为 4 个对照变体（W0 原生 / W1 ZF 基线 / W2 无停写 / W3 K=1，另有 W2b 全 L0 触发器抬升）+ 5 组微实验（单线程 / 线程伸缩 1-16 / 分区数 1-16-64 / strace / 原生单线程参照）。（archive/zeroflush_m3_perf/profiling/profiling_report.md:3-8,30-38）",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "基准 16 线程；微实验含单线程与线程=2,4,8（archive/zeroflush_m3_perf/profiling/profiling_report.md:28,38）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "fillrandom，vs256 / key 16B / num=8,000,000（≈2.2GB 逻辑 → 8 个 epoch @ 256MB）/ 16 线程 / 无压缩 / WAL 开 / cache 8MB / write_buffer 256MB / max_background_jobs 16；与 50GB 基准同参（archive/zeroflush_m3_perf/profiling/profiling_report.md:28）",
+   "rocksdb_options": "W1：P=64, stop=72, slowdown=64, K=8；W2：slowdown/stop=10^6；W3：--zf_materialize_parallelism=1；W2b：compaction trigger 同抬 10^6（archive/zeroflush_m3_perf/profiling/profiling_report.md:33-36）；插桩：tools/db_bench_tool.cc 新增 --zf_materialize_parallelism 与结束时打印全部 15 个 rocksdb.zeroflush.* 属性（archive/zeroflush_m3_perf/profiling/profiling_report.md:40）",
+   "other": "环境备注：perf_event_paranoid=4（perf 不可用）、yama ptrace_scope=1（不可 attach，可跟踪子进程 → strace 可用）（archive/zeroflush_m3_perf/profiling/profiling_report.md:151）；数据：本目录 W*/result.json、W*/parsed.json、W*/samples.csv、W*/stdout.txt、LOG（/tmp/zf_prof_db_W*）（archive/zeroflush_m3_perf/profiling/profiling_report.md:8）"
+  },
+  "results": [
+   {
+    "metric": "吞吐",
+    "value": "1,031,788（W0 原生） / 10,898（W1 ZF 基线 K=8） / 10,926（W2 无停写） / 10,899（W3 K=1） / 10,431（W2b）",
+    "unit": "ops/s",
+    "condition": "W0/W1/W2/W3/W2b 五臂（2.2GB）",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:51"
+   },
+   {
+    "metric": "wall",
+    "value": "8.0（W0） / 734.4（W1） / 732.7（W2） / 734.3（W3） / 767.2（W2b）",
+    "unit": "s",
+    "condition": "五臂（2.2GB）",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:50"
+   },
+   {
+    "metric": "吞吐（MB/s）",
+    "value": "267.6（W0） / 2.8（W1） / 2.8（W2） / 2.8（W3） / 2.7（W2b）",
+    "unit": "MB/s",
+    "condition": "五臂",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:52"
+   },
+   {
+    "metric": "P50 延迟",
+    "value": "13.7（W0） / 1,511（W1） / 1,483（W2） / 1,503（W3） / 1,552（W2b）",
+    "unit": "us",
+    "condition": "五臂",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:53"
+   },
+   {
+    "metric": "P99 延迟",
+    "value": "29.3（W0） / 2,826（W1） / 2,826（W2） / 2,816（W3） / 2,842（W2b）",
+    "unit": "us",
+    "condition": "五臂",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:54"
+   },
+   {
+    "metric": "epochs（封存=物化=回收）",
+    "value": "8/8/8",
+    "unit": "",
+    "condition": "W1/W2/W3/W2b（W0 记为 —）",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:55"
+   },
+   {
+    "metric": "物化总耗时",
+    "value": "12.2（1.7% wall，W1 K=8） / 13.4（W2） / 85.5（11.6% wall，W3 K=1） / 13.9（W2b）",
+    "unit": "s",
+    "condition": "W1/W2/W3/W2b（每物化批次均值：1.53 / 1.68 / 10.68 / 1.73 s）",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:56-57"
+   },
+   {
+    "metric": "compaction 作业数 / 总 wall",
+    "value": "3 / 5.4（W0）；21 / 331.8（W1）；21 / 322.6（W2）；22 / 324.0（W3）；11 / 227.6（W2b）",
+    "unit": "作业；s",
+    "condition": "五臂",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:58"
+   },
+   {
+    "metric": "L0 停写行数 / stall 秒",
+    "value": "2 / 0.08（W0）；0 / 0.0（W1、W2、W3、W2b）",
+    "unit": "行；s",
+    "condition": "五臂",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:59"
+   },
+   {
+    "metric": "平均 CPU 核数",
+    "value": "16.1（W0） / 2.71（W1） / 2.69（W2） / 2.65（W3） / 2.62（W2b）",
+    "unit": "核",
+    "condition": "五臂",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:60"
+   },
+   {
+    "metric": "磁盘写",
+    "value": "370.7（W0） / 13.3（W1） / 12.8（W2） / 12.8（W3） / 10.3（W2b）",
+    "unit": "MB/s",
+    "condition": "五臂",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:61"
+   },
+   {
+    "metric": "install 直装 / 回落 L0",
+    "value": "1 / 511",
+    "unit": "次",
+    "condition": "W1/W2/W3/W2b（W0 记为 —）",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:62"
+   },
+   {
+    "metric": "微实验：原生 threads=1 P50 / 聚合",
+    "value": "5.35",
+    "unit": "us",
+    "condition": "原生 threads=1（聚合 89,162 ops/s）",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:73"
+   },
+   {
+    "metric": "微实验：ZF threads=1, P=64 P50 / 聚合",
+    "value": "52.0",
+    "unit": "us",
+    "condition": "ZF threads=1, P=64（聚合 ~19,000 ops/s；ZF 每 op 固定成本 ≈ 47us）",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:74"
+   },
+   {
+    "metric": "微实验：P50 随 ZF 线程数增长",
+    "value": "121.4（threads=2） / 483.9（threads=4） / 721.5（threads=8） / 1,517（threads=16 smoke）",
+    "unit": "us",
+    "condition": "ZF 微实验（threads=4 受采样噪声；threads=16 smoke 无 epoch 封存、无 L0 文件）",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:75-78"
+   },
+   {
+    "metric": "微实验：ShouldSeal 扫描开销",
+    "value": "P50 32.3us（P=1，聚合 19,365 ops/s）；P50 44.9us（P=16，聚合 16,187 ops/s）",
+    "unit": "us",
+    "condition": "ZF threads=1（ShouldSeal 扫描 ≈ 0.3us × P）",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:79-80"
+   },
+   {
+    "metric": "strace 结论（每 op 开销在用户态 CPU）",
+    "value": "全进程 syscall 总时间 0.65s，futex 0.84s 集中于启动期",
+    "unit": "s",
+    "condition": "strace -c",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:82"
+   },
+   {
+    "metric": "L0→L1 compaction 单作业耗时（W1）",
+    "value": "14~30s（subcompactions=1，cpu≈wall；如 job5：29.8s / 428MB / 1.69M records）",
+    "unit": "s",
+    "condition": "W1 基线（2.2GB）；21 个 compaction 作业全部 sub=1",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:88"
+   },
+   {
+    "metric": "L0 轨迹（flush_finished 快照）",
+    "value": "恒 63~64；每轮物化 +64；从未越过 stop=72",
+    "unit": "个",
+    "condition": "W1 基线",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:87"
+   },
+   {
+    "metric": "小规模复现 50GB 基准延迟特征",
+    "value": "W1 P50=1511us vs 50GB 的 1440us",
+    "unit": "us",
+    "condition": "W1 基线（C5）",
+    "source": "archive/zeroflush_m3_perf/profiling/profiling_report.md:20"
+   }
+  ],
+  "evaluation_zh": "报告判定（原文）：C1 主瓶颈是写路径全序列化，不是物化、不是停写、不是任何 L0 侧机制——ZF 把整个 write group 的处理（ShouldSeal + 逐条 WAL 追加 + SlimMemTable 插入）放在 DB mutex 临界区，且强制 allow_concurrent_memtable_write=false，16 线程完全串行，聚合天花板 ~11K ops/s（1/92us）；C2 物化路径又快又并行，benchmark 报告的根因②（物化随机定点读）③（物化单线程）不成立（K=8 vs K=1 物化 12.2s→85.5s、7× 差距，端到端吞吐却相同）；C3 每条写有 ~47us 用户态固定开销（原生 5.4us）+ 每 partition ~0.3us ShouldSeal 扫描；C4 L0→L1 compaction subcompactions=1 单线程，2.2GB 尺度刚好跟上；C5 小规模完美复现 50GB 基准延迟特征。对发现 2 的判定：②③ 不成立、① 部分成立但机制错位（隐形限速走 WriteController::GetDelay，抬 slowdown/stop 根本触不到）；P3 正确排序应改为写路径去串行化 → L0 消费端 → 每写固定开销微优化。（archive/zeroflush_m3_perf/profiling/profiling_report.md:14-22,113-117,125）",
+  "caveats_zh": [
+   "50GB 尺度的进一步劣化（10.9K→3.4K ops/s）为推定：原 50GB run 的 LOG 已被基准脚本删除，无法直接分解，待 50GB 复测验证（archive/zeroflush_m3_perf/profiling/profiling_report.md:19,116,135）。",
+   "W2 变体的隔离目的被预测为无效：W1 本就零停写，slowdown/stop→10^6 所有指标不动（archive/zeroflush_m3_perf/profiling/profiling_report.md:35,66）。",
+   "微实验 threads=4 受采样噪声（趋势一致）（archive/zeroflush_m3_perf/profiling/profiling_report.md:76）。",
+   "perf_event_paranoid=4 使 perf 不可用、yama ptrace_scope=1 不可 attach，只能跟踪子进程用 strace（archive/zeroflush_m3_perf/profiling/profiling_report.md:151）。",
+   "规模仅 2.2GB（8 个 epoch @ 256MB），与 50GB 基准同参但不同规模（archive/zeroflush_m3_perf/profiling/profiling_report.md:28）。",
+   "插桩改动 tools/db_bench_tool.cc（新增 flag 与属性打印），报告声明未触碰核心逻辑（archive/zeroflush_m3_perf/profiling/profiling_report.md:40）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/profiling/profiling_report.md:3-8",
+   "archive/zeroflush_m3_perf/profiling/profiling_report.md:14-22",
+   "archive/zeroflush_m3_perf/profiling/profiling_report.md:26-40",
+   "archive/zeroflush_m3_perf/profiling/profiling_report.md:48-67",
+   "archive/zeroflush_m3_perf/profiling/profiling_report.md:71-82",
+   "archive/zeroflush_m3_perf/profiling/profiling_report.md:86-89",
+   "archive/zeroflush_m3_perf/profiling/profiling_report.md:93-117",
+   "archive/zeroflush_m3_perf/profiling/profiling_report.md:121-136",
+   "archive/zeroflush_m3_perf/profiling/profiling_report.md:140-151"
+  ]
+ },
+ {
+  "id": "m3/profiling#verification",
+  "title_zh": "ZeroFlush 成果检验（M4.0+M4.1）：全量回归、数据完整性五连验证与性能对比",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "integration",
+  "purpose_zh": "对 source/rocksdb-zeroflush（M4.1 完成态二进制）做成果检验：全量回归 + 端到端数据完整性五连验证 + 性能对比，判断 M4.1 并行写路径是否带来数据完整性损失以及吞吐/延迟提升幅度。（archive/zeroflush_m3_perf/profiling/verification_report.md:3-5）",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "检验对象：source/rocksdb-zeroflush（M4.1 完成态二进制）（archive/zeroflush_m3_perf/profiling/verification_report.md:3）",
+   "binary_path": "回归：build/zf_test（27 用例）；性能数据：archive/zeroflush_m3_perf/profiling/W1|R3/result.json + parsed.json（archive/zeroflush_m3_perf/profiling/verification_report.md:68-70）",
+   "workload": "V1 完整性验证：fillrandom 8M keys 完成（R3 配置 2.2GB）（archive/zeroflush_m3_perf/profiling/verification_report.md:21）",
+   "rocksdb_options": null,
+   "other": "验证脚本：archive/zeroflush_m3_perf/profiling/verify_integrity.py；设计文档 zeroflush/M4_DESIGN.md（M4.0/M4.1 完成节）（archive/zeroflush_m3_perf/profiling/verification_report.md:69-71）"
+  },
+  "results": [
+   {
+    "metric": "回归（正确性基线）",
+    "value": "27/27 用例全 PASS（M1 7 + M2 6 + M3.0~M3.3 12 + M4.0 新增用例 35）",
+    "unit": "用例",
+    "condition": "M4.1 二进制；覆盖写路径、恢复、M3.2/M3.3 直装零 L0/并行物化 7×/融合归并、M4.0 kSampled 学习期端到端",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:11-16"
+   },
+   {
+    "metric": "V1 fillrandom 8M keys 完成",
+    "value": "rc=0，45.6K ops/s，176s",
+    "unit": "ops/s；s",
+    "condition": "R3 配置 2.2GB",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:21"
+   },
+   {
+    "metric": "V2 全量读回（同进程）",
+    "value": "每线程 found 316,236 vs 期望 316,060（比值 1.0006）——数据 100% 完整",
+    "unit": "",
+    "condition": "R3 配置 2.2GB",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:22"
+   },
+   {
+    "metric": "V3 重开读回（新进程 Recover）",
+    "value": "found 315,749（差 487 = 随机抽样波动 1σ≈341）",
+    "unit": "",
+    "condition": "R3 配置 2.2GB",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:23"
+   },
+   {
+    "metric": "V4 写入中途 kill -9 → 重开读回",
+    "value": "found 124,420（崩溃时已落盘数据全部可恢复）",
+    "unit": "",
+    "condition": "R3 配置 2.2GB",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:24"
+   },
+   {
+    "metric": "V5 封存-物化-回收闭环",
+    "value": "epochs_sealed=8 == materialized=8 == reclaimed=8",
+    "unit": "",
+    "condition": "R3 配置 2.2GB",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:25"
+   },
+   {
+    "metric": "吞吐（2.2GB 全量，R3）",
+    "value": "12,082（M4.0） → 38,129（M4.1），3.2×",
+    "unit": "ops/s",
+    "condition": "M4.0 R3 vs M4.1 R3",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:33"
+   },
+   {
+    "metric": "P50 延迟",
+    "value": "1,279 → 138（9.3×）",
+    "unit": "us",
+    "condition": "M4.0 R3 vs M4.1 R3",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:34"
+   },
+   {
+    "metric": "P99 延迟",
+    "value": "2,632 → 1,739（1.5×）",
+    "unit": "us",
+    "condition": "M4.0 R3 vs M4.1 R3",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:35"
+   },
+   {
+    "metric": "wall",
+    "value": "662 → 211（3.1×）",
+    "unit": "s",
+    "condition": "M4.0 R3 vs M4.1 R3",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:36"
+   },
+   {
+    "metric": "micro 8 线程吞吐",
+    "value": "~20K → 110.6K（5.5×）",
+    "unit": "ops/s",
+    "condition": "M4.0 vs M4.1 micro 8 线程",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:37"
+   },
+   {
+    "metric": "单线程 P50",
+    "value": "52 → 38.9（1.3×）",
+    "unit": "us",
+    "condition": "M4.0 vs M4.1",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:38"
+   },
+   {
+    "metric": "W1（hash P=64）全量吞吐",
+    "value": "10,898 → 21,594（2.0×）",
+    "unit": "ops/s",
+    "condition": "M4.0 → M4.1",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:40"
+   },
+   {
+    "metric": "M4.1 R3 全量 compaction 占用",
+    "value": "24 作业 199s / wall 211s",
+    "unit": "作业；s",
+    "condition": "M4.1 R3（剩余瓶颈第 1 条）",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:58"
+   },
+   {
+    "metric": "写路径天花板提升",
+    "value": "10.9K → micro 110K+（10×）；全量 3.2×",
+    "unit": "ops/s",
+    "condition": "M4.1（O(1) ShouldSeal + SlimMemTableRep 并发化 + parallel 两分支注入 + 锁外编码）",
+    "source": "archive/zeroflush_m3_perf/profiling/verification_report.md:52-53"
+   }
+  ],
+  "evaluation_zh": "报告判定（原文）：M4.1 并行写路径（含 4 个 bug 修复后）数据完整性无损失（27/27 回归 PASS，V1-V5 全 PASS）；性能成果为写路径天花板 10.9K → micro 110K+（10×）、全量 3.2×（12,082 → 38,129 ops/s）、P50 9.3×（1,279 → 138us）。剩余瓶颈按优先级：全量 38K vs 60K 目标——compaction 几乎全程占用（R3 全量 24 作业 199s / wall 211s）与写路径争抢 CPU + L0 偶发堆积，属 L0 消费端，M4.3 每分区 compact 为根本解；P50 138us 来自封存-物化-imm 链的间歇干扰。（archive/zeroflush_m3_perf/profiling/verification_report.md:27,33-38,52-53,57-60）",
+  "caveats_zh": [
+   "待收：50GB R4（M4.0 二进制写放大）与 R5（M4.1 二进制全量验收）后台运行中，报告发布时未有结果（archive/zeroflush_m3_perf/profiling/verification_report.md:5,62）。",
+   "V3 重开读回差 487，报告解释为随机抽样波动 1σ≈341（archive/zeroflush_m3_perf/profiling/verification_report.md:23）。",
+   "M4.1 修复 4 个真实 bug（follower 原生路径丢数据最严重、Ref UAF、原生 flush 触发无 epoch imm、kSampled table_version），说明前一版本存在数据正确性缺陷（archive/zeroflush_m3_perf/profiling/verification_report.md:52）。",
+   "M4.0 实测发现 M3.2 直装单独必然退化（L1 重写 4.4×），P=16 是融合归并的批量关键旋钮（archive/zeroflush_m3_perf/profiling/verification_report.md:47）。",
+   "后续项 M4.2（物化输入侧换跳表序）与 M4.3（每分区 memtable + 全局 epoch 拆除）为规划，验收线 60K+ 尚未达成（archive/zeroflush_m3_perf/profiling/verification_report.md:58,63-64）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/profiling/verification_report.md:3-5",
+   "archive/zeroflush_m3_perf/profiling/verification_report.md:9-16",
+   "archive/zeroflush_m3_perf/profiling/verification_report.md:17-27",
+   "archive/zeroflush_m3_perf/profiling/verification_report.md:29-41",
+   "archive/zeroflush_m3_perf/profiling/verification_report.md:43-53",
+   "archive/zeroflush_m3_perf/profiling/verification_report.md:55-64",
+   "archive/zeroflush_m3_perf/profiling/verification_report.md:66-72"
+  ]
+ },
+ {
+  "id": "m3/l0_bottleneck",
+  "title_zh": "L0 是写路径瓶颈：结构串行性 / 剂量-响应 / 双侧受挤 三角度互证",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "在既有实验（L0→L1 单 job 代价 O(|L1|) 且随 L1 主导写路径）基础上，用三个更本质的角度证明 L0 是原生 RocksDB 100GB/1KB fillrandom 写路径的结构性瓶颈：角度 A 结构串行性（compaction job 区间重建归因）、角度 B 剂量-响应（同窗 trigger 扫描）、角度 C 双侧受挤（无参数点可逃逸）。全部无插桩，数据来自 LOG 的 compaction_finished 事件（时间戳 + 时长 + lsm_state）与 stats dump。（archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:3-7）",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程为基线（默认 dynamic 16 线程基线）；T 扫描 2/4/8/16 线程、线程扫描 16/8/4/2 线程（archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:15,36-41,52-59）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "原生 RocksDB 100GB / 1KB fillrandom，全部配置同一 workload（archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:1,52）",
+   "rocksdb_options": "角度 A/B：L1 容量扫描（L1=256MB / 1GB / 4GB，T=2/4/8/16）与 level0_file_num_compaction_trigger 同窗扫描（T=2/4（默认）/8/16，L1=4GB 固定、seed=1）；默认 dynamic 16 线程基线（archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:8-21,33-41）",
+   "other": "无插桩；compaction job 区间由「结束时间戳 − compaction_time_micros」重建；L0 时间线由 l0_timeline_analysis.py 统计（archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:4-6,11,28,83-87）"
+  },
+  "results": [
+   {
+    "metric": "L0→L1 最大并发（角度 A，8 组运行）",
+    "value": "恒为 1（625 个 L0→L1 job、约 20 小时运行）",
+    "unit": "",
+    "condition": "默认 dynamic 16 线程基线 / L1=256MB / L1=1GB / L1=4GB(T=2,4,8,16) 共 8 组",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:13-24"
+   },
+   {
+    "metric": "全系统 compaction 利用率",
+    "value": "95-100%（所有 8 组）",
+    "unit": "",
+    "condition": "8 组运行（默认 dynamic 99.9%、L1=256MB 99.9%、L1=1GB 99.7%、L1=4GB T=2 99.4% / T=4 99.3% / T=8 98.7% / T=16 95.2%）",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:26"
+   },
+   {
+    "metric": "深层车道最大并发（对照）",
+    "value": "18",
+    "unit": "",
+    "condition": "角度 A 全部 8 组（深层车道可吃满 24 后台线程）",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:15-21"
+   },
+   {
+    "metric": "默认 dynamic 16 线程基线：L0→L1 jobs / 最大并发 / 车道利用率 / 全系统利用率",
+    "value": "99 / 1 / 21.1% / 99.9%",
+    "unit": "jobs",
+    "condition": "默认 dynamic（16 线程基线）",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:15"
+   },
+   {
+    "metric": "L1=4GB 组 L0 文件数分布",
+    "value": "中位数 10 个（trigger=4 的 2.5 倍）、p90=15、max=21",
+    "unit": "个",
+    "condition": "L1=4GB（角度 A）",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:28"
+   },
+   {
+    "metric": "L0 flush 文件去向",
+    "value": "1,543 个 L0 flush 文件中仅 466 个直接进入 L0→L1，其余 1,077 个先被 intra-L0 反复归并",
+    "unit": "个",
+    "condition": "L1=4GB 组（角度 A）",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:29-30"
+   },
+   {
+    "metric": "同窗 trigger 扫描吞吐（角度 B）",
+    "value": "T=2 43,530；T=4（默认）55,722；T=8 49,682；T=16 45,839",
+    "unit": "ops/s",
+    "condition": "L1=4GB 固定、seed=1，四点背靠背同窗（T=4 为 1.00×；T=2 −21.9%、T=8 −10.8%、T=16 −17.7%）",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:36-41"
+   },
+   {
+    "metric": "同窗 trigger 扫描写停顿占比（角度 B）",
+    "value": "84.7%（T=2） / 81.1%（T=4） / 82.0%（T=8） / 76.2%（T=16）",
+    "unit": "",
+    "condition": "L1=4GB 固定、seed=1，同窗",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:38-41"
+   },
+   {
+    "metric": "同窗 trigger 扫描 L0→L1 写出与单 job 输入 SST（角度 B）",
+    "value": "T=2：431.0GB / 122.3（max 250）；T=4：254.9GB / ~69；T=8：256.7GB / 69.4；T=16：336.0GB / 79.6",
+    "unit": "GB；个",
+    "condition": "L1=4GB 固定、seed=1，同窗",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:38-41"
+   },
+   {
+    "metric": "同窗 trigger 扫描串行车道利用率（角度 B）",
+    "value": "62.3%（T=2） / 40.0%（T=4） / 37.3%（T=8） / 42.3%（T=16）",
+    "unit": "",
+    "condition": "L1=4GB 固定、seed=1，同窗",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:38-41"
+   },
+   {
+    "metric": "T 扫描 memtable stop / L0 delay / 停顿总占比（角度 C）",
+    "value": "T=2：1,335 / 100 / 84.7%；T=4：1,350 / 117 / 81.1%；T=8：1,353 / 190 / 82.0%；T=16：1,228 / 598 / 76.2%",
+    "unit": "次",
+    "condition": "全部同 workload",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:54-57"
+   },
+   {
+    "metric": "L1=256MB（深层饱和侧）memtable stop / L0 delay / 停顿占比",
+    "value": "2,350 / 14 / 91.1%",
+    "unit": "次",
+    "condition": "L1=256MB",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:58"
+   },
+   {
+    "metric": "默认 dynamic 线程扫描（16/8/4/2）memtable stop / L0 delay / 停顿占比",
+    "value": "2,605/2,595/2,450/2,460；L0 delay 6/0/0/0；停顿 94.6/93.7/91.4/89.2%",
+    "unit": "次",
+    "condition": "默认 dynamic（角度 C 复引线程缩放实验数据）",
+    "source": "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:59"
+   }
+  ],
+  "evaluation_zh": "报告综合结论（原文，方向为支持其判断）：L0→L1 是结构上不可并行的单服务器级（8 组、625 job、并发恒 1）；其单次代价 O(|L1|)（L1=4GB 时单 job 收 69-122 个 SST、重写 250-431GB）；默认参数已位于该结构权衡曲线的局部最优（倒 U 顶点），任何方向调参都使吞吐下降 11-22%，且停顿占比无法低于 76%；上游（memtable）与下游（深层）的失效均以 L0 排空速率为中介——L0 子系统是写路径的结构性瓶颈；ZF 的对照意义是分区范围物化 + 直装把「全范围串行汇流」拆为 P 个可并行、代价 O(|L1|/P) 的独立安装点，并绕过 L0 的文件数停顿面。（archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:70-79）",
+  "caveats_zh": [
+   "环境方差 ±30%+：早前 base4g（35.4K ops/s）与本次 trig4（55.7K ops/s）配置相同但跨时间窗，故剂量-响应必须同窗比较（本表全部 11:33-12:04 前后背靠背）（archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:47）。",
+   "角度 A 的平台（8 组运行、约 20 小时、625 个 L0→L1 job）跨时间窗，报告未声明各组运行时间是否连续（archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:23-24）。",
+   "停顿占比 76-95% 的结论限定在 11 组参数组合（L1 放大 256MB→4GB、T 扫描 2→16、线程数 16→2）（archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:64-65）。",
+   "对 ZeroFlush 的对照意义为报告论证，本实验未跑 ZF（archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:78-79）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:1-7",
+   "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:8-30",
+   "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:32-48",
+   "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:50-68",
+   "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:70-79",
+   "archive/zeroflush_m3_perf/l0_bottleneck/l0_bottleneck_report.md:81-87"
+  ]
+ },
+ {
+  "id": "m3/l0_l1_importance",
+  "title_zh": "L0→L1 compaction 影响整体写路径性能的证明（L1 容量 256MB/1GB/4GB 三配置）",
+  "engine": [
+   "native"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "检验机制假设 H1：原生 RocksDB 的 L0 文件全 key 范围，故每次 L0→L1 的重写字节 ≈ O(|L1|)，与触发它的 L0 数据量（~4×256MB）无关；并用 L1 容量三配置（256MB / 1GB / 4GB，固定层级形状）验证四个可证伪预测——P1 L0→L1 单 job 规模/耗时随 |L1| 增长、P2 L0 写停顿从 0 出现、P3 深层 compaction 被吸收且 L0→L1 成为写路径主导、P4 总写放大反而下降（证明「重要性」在路径关键性而非总字节）。（archive/zeroflush_m3_perf/l0_l1_importance/DESIGN.md:3-20；archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:3-16）",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:10-11）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "1KB value、num=103,244,288（≈100GB）、seed=1、三配置背靠背运行保证环境可比（archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:10-12）",
+   "rocksdb_options": "level_compaction_dynamic_level_bytes=false（固定层级，隔离旋钮）+ max_bytes_for_level_base（L1 容量）= 256MB / 1GB / 4GB；其余同 100GB 系列：subcompactions=16、bg=24、cache 512MB（archive/zeroflush_m3_perf/l0_l1_importance/DESIGN.md:23-25；archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:9-11）",
+   "other": "解析产物：analysis_*.json（各层 WA/停顿）、comp_time_*.json（逐 job 耗时分布）；LOG 归档 LOG_*_fill.tar.gz（stats_dump 60s）；驱动 run_l0l1.py（archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:71-76）"
+  },
+  "results": [
+   {
+    "metric": "写吞吐",
+    "value": "28,374（L1=256MB） / 27,694（L1=1GB） / 35,402（L1=4GB）",
+    "unit": "ops/s",
+    "condition": "16 线程、三配置（固定层级）",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:22"
+   },
+   {
+    "metric": "写停顿占比",
+    "value": "91.1% / 91.5% / 85.7%",
+    "unit": "",
+    "condition": "L1=256MB / 1GB / 4GB",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:23"
+   },
+   {
+    "metric": "memtable stop 次数",
+    "value": "2,350 / 2,031 / 1,390",
+    "unit": "次",
+    "condition": "L1=256MB / 1GB / 4GB",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:24"
+   },
+   {
+    "metric": "L0-file-count delay 次数",
+    "value": "14 / 18 / 130",
+    "unit": "次",
+    "condition": "L1=256MB / 1GB / 4GB（预测 P2：从 0 出现）",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:25"
+   },
+   {
+    "metric": "pending-compaction-bytes 停顿",
+    "value": "0 / 0 / 0",
+    "unit": "次",
+    "condition": "L1=256MB / 1GB / 4GB",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:26"
+   },
+   {
+    "metric": "L0→L1 写出字节",
+    "value": "121.2GB / 169.5GB / 279.8GB（+131%）",
+    "unit": "GB",
+    "condition": "L1=256MB / 1GB / 4GB（L1=4GB 时 45 个 job 累计写出 279.8GB）",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:27"
+   },
+   {
+    "metric": "L0→L1 字节占全部 compaction",
+    "value": "12.5% / 20.0% / 41.1%",
+    "unit": "",
+    "condition": "L1=256MB / 1GB / 4GB",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:28"
+   },
+   {
+    "metric": "L0→L1 单 job 平均输入 SST",
+    "value": "11.0 / 27.0 / 80.0（max 135）",
+    "unit": "个",
+    "condition": "L1=256MB / 1GB / 4GB（预测 P1）",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:29"
+   },
+   {
+    "metric": "L0→L1 单 job 平均 / P99 耗时",
+    "value": "8.9s / 18.9s；13.0s / 24.4s；28.3s / 50.2s",
+    "unit": "s",
+    "condition": "L1=256MB / 1GB / 4GB（平均/P99）",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:30"
+   },
+   {
+    "metric": "L2→L3 compaction jobs",
+    "value": "1,501 / 1,013 / 0",
+    "unit": "jobs",
+    "condition": "L1=256MB / 1GB / 4GB（预测 P3：深层被吸收）",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:31"
+   },
+   {
+    "metric": "深层（≥L2 输出）累计耗时",
+    "value": "42,434 / 44,603 / 19,201",
+    "unit": "s",
+    "condition": "L1=256MB / 1GB / 4GB（L1=4GB 为 −55%）",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:32"
+   },
+   {
+    "metric": "总写放大（SST 写出/用户数据）",
+    "value": "9.6× / 8.5× / 6.8×",
+    "unit": "×",
+    "condition": "L1=256MB / 1GB / 4GB（预测 P4：总写放大反而下降，-29%）",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:33"
+   },
+   {
+    "metric": "readrandom 读吞吐（辅证）",
+    "value": "73.4K / 79.1K / 69.7K",
+    "unit": "ops/s",
+    "condition": "L1=256MB / 1GB / 4GB",
+    "source": "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:34"
+   }
+  ],
+  "evaluation_zh": "报告判定（原文）：四个预测全部 ✓（方向为支持 H1）——P1 ✓ L0→L1 随 |L1| 线性变贵（单 job 平均输入 SST 11.0→27.0→80.0，7.3×；平均耗时 8.9→13.0→28.3s，3.2×；P99 18.9→24.4→50.2s），L1=4GB 时平均每次重写整个 L1；P2 ✓ L0 停顿从 0 出现（14→18→130）；P3 ✓ 深层被吸收、L0→L1 成为主导（L2→L3 jobs 1501→1013→0，深层累计耗时 −55%，L0→L1 字节占比 12.5%→41.1%）；P4 ✓ 总写放大 9.6×→6.8×（−29%）而吞吐 +25%，说明 L0→L1 的重要性体现为结构性代价（单 job 巨型化、L0 排空延迟、汇流点地位）而非字节占比。论文论证链进一步指出 L0→L1 是唯一无法并行化的 compaction（45 个巨型 job 完全串行化）。（archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:36-69）",
+  "caveats_zh": [
+   "第一轮运行存在 LOG 轮转缺陷（已修）；其 readrandom 与吞吐见 *_run1.log，结论一致，base1g 的 35.6K 优势更显著，系负载波动（archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:76-77）。",
+   "readrandom 读吞吐在表中标注为「辅证」，非本实验主指标（archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:34）。",
+   "P2 的判定基准是「基线（默认 dynamic、之前 16/8/4/2 线程实验）中该停顿恒为 0」，跨实验对比（archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:43-46）。",
+   "L1=4GB 时 L2→L3 jobs=0，写路径 compaction 工作几乎全部集中在 L0→L1/L1→L2（archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:47-49）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/l0_l1_importance/DESIGN.md:1-20",
+   "archive/zeroflush_m3_perf/l0_l1_importance/DESIGN.md:21-40",
+   "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:3-16",
+   "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:18-34",
+   "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:36-55",
+   "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:57-69",
+   "archive/zeroflush_m3_perf/l0_l1_importance/l0l1_report.md:71-77"
+  ]
+ }
+]

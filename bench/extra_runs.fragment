@@ -1,0 +1,57 @@
+# Fragment: additional stage-A runs (cold reads, scans, 100GB snapshot).
+# Applied to campaign.sh AFTER the running driver exits (bash reads a running script
+# lazily, so editing it mid-run can corrupt execution).
+#
+# Runs added:
+#   24  base100 snapshot   : hardlink replica of the settled 100GB fill + verify
+#   21  50gb_read_cold     : settled 50GB layout, 64 MiB block cache (device reads forced)
+#   22  100gb_read_cold    : settled 100GB layout, 64 MiB block cache
+#   23  50gb_scan          : settled 50GB layout, iterator scans (records + bytes returned)
+
+  if wants 24; then
+    require_db "$BENCH/db/$B100" || continue
+    local rid="base100_snapshot"; local db=$BENCH/db/$B100; local rdir=$OUT/$rid
+    mkdir -p "$rdir" "$BENCH/base"
+    rm -rf "$BENCH/base/base100"
+    bash "$MKREP" "$BENCH/db/$B100" "$BENCH/base/base100" > "$rdir/replica.log" 2>&1
+    local rrc=$?
+    "$BIN" --db=$BENCH/base/base100 --out=$rdir/$rid.verify --mode=verify --universe=$U100 \
+      --verify_step=19997 --verify_salt=1 > "$rdir/verify.log" 2>&1
+    local vrc=$?
+    record "$rid" "\"replica_rc\":$rrc,\"verify_rc\":$vrc"
+  fi
+  if wants 21; then
+    local rid=50gb_read_cold; local db=$BENCH/db/${rid}_w; local rdir=$OUT/$rid
+    [ -d "$BENCH/base/base50" ] || continue
+    rm -rf "$db" "$rdir"; mkdir -p "$rdir"
+    bash "$MKREP" "$BENCH/base/base50" "$db" > "$rdir/replica.log" 2>&1 || continue
+    launch "$rdir" "$db" 3600 300 -- --db=$db --out=$rdir/$rid --mode=read --universe=$U50 \
+      --num_ops=8000000 --use_existing_db=1 --read_mix=recent:0.4,deep:0.4,neg:0.2 \
+      ${C/--cache_size=$CACHE/--cache_size=64M} --perf_detail=1 --detail_rate=0.001 \
+      --read_log_rate=0.002 --layout_ms=5000
+    local rc=$?; finish_run "$rdir" "$db" 0
+    record "$rid" "\"phase\":\"read\",\"scale\":\"50gb\",\"variant\":\"cold-cache\",\"rc\":$rc"
+  fi
+  if wants 22; then
+    local rid=100gb_read_cold; local db=$BENCH/db/${rid}_w; local rdir=$OUT/$rid
+    [ -d "$BENCH/base/base100" ] || continue
+    rm -rf "$db" "$rdir"; mkdir -p "$rdir"
+    bash "$MKREP" "$BENCH/base/base100" "$db" > "$rdir/replica.log" 2>&1 || continue
+    launch "$rdir" "$db" 3600 300 -- --db=$db --out=$rdir/$rid --mode=read --universe=$U100 \
+      --num_ops=8000000 --use_existing_db=1 --read_mix=recent:0.4,deep:0.4,neg:0.2 \
+      ${C/--cache_size=$CACHE/--cache_size=64M} --perf_detail=1 --detail_rate=0.001 \
+      --read_log_rate=0.002 --layout_ms=5000
+    local rc=$?; finish_run "$rdir" "$db" 0
+    record "$rid" "\"phase\":\"read\",\"scale\":\"100gb\",\"variant\":\"cold-cache\",\"rc\":$rc"
+  fi
+  if wants 23; then
+    local rid=50gb_scan; local db=$BENCH/db/${rid}_w; local rdir=$OUT/$rid
+    [ -d "$BENCH/base/base50" ] || continue
+    rm -rf "$db" "$rdir"; mkdir -p "$rdir"
+    bash "$MKREP" "$BENCH/base/base50" "$db" > "$rdir/replica.log" 2>&1 || continue
+    launch "$rdir" "$db" 3600 300 -- --db=$db --out=$rdir/$rid --mode=read --universe=$U50 \
+      --num_ops=200000 --use_existing_db=1 --read_mix=scan:1.0 --scan_len=10 \
+      --perf_detail=1 --detail_rate=0.01 --read_log_rate=0.01 --layout_ms=10000
+    local rc=$?; finish_run "$rdir" "$db" 0
+    record "$rid" "\"phase\":\"scan\",\"scale\":\"50gb\",\"scan_len\":10,\"rc\":$rc"
+  fi

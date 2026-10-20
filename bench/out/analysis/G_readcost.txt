@@ -1,0 +1,3 @@
+== E3 per-request read cost (PerfContext deltas, sampled ops) ==
+run,status,n,mean_block_reads,mean_block_read_bytes,mean_cache_hits,mean_filter_reads,mean_index_reads,mean_bloom_sst_hit,mean_bloom_sst_miss,mean_memtable_probes,mean_internal_skipped,mean_user_key_cmp,p50_us,mean_us,p99_us,p999_us
+

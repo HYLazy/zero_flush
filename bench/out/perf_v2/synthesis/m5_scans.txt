@@ -1,0 +1,10 @@
+bench/out/perf_v2/m5/REPORT.md: 24 arm rows, 4 groups by ['scan_len', 'threads']
+
+| scan_len | threads | n | ops_s median | min..max | spread | effect |
+|---|---|---|---|---|---|---|
+| 1000 | 16 | 6 | 9886.18 | 8244.33..10129.93 | 1.23x | |
+| 10000 | 16 | 6 | 1012.62 | 994.89..1049.38 | 1.05x | |
+| 100000 | 16 | 6 | 92.54 | 85.95..98.03 | 1.14x | |
+| 1000000 | 16 | 6 | 6.01 | 5.44..6.75 | 1.24x | |
+
+across-axis spread: 6.01 .. 9886.18 = 1646.32x; largest within-bucket spread 1.24x -> EFFECT

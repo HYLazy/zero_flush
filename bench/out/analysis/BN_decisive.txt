@@ -1,0 +1,12 @@
+=== decisive interventions (physical invariants + throughput) ===
+default      n=5  U_rate=  22.4 MB/s dur=   601 s devWR= 121.4 GB devWA= 9.12 sstRetire=   200 MB/s jobs=405   deep=394   deepOut= 73.33 GiB L0baseOut=20.09 GiB stallUnion= 31.5% stallLines=87    devBusy= 93.5%
+noc          n=5  U_rate= 221.8 MB/s dur=    60 s devWR=  13.6 GB devWA= 1.02 sstRetire=   211 MB/s jobs=0     deep=0     deepOut=  0.00 GiB L0baseOut= 0.00 GiB stallUnion=  0.5% stallLines=0     devBusy= 53.2%
+geom mc8g    n=3  U_rate=  19.0 MB/s dur=   700 s devWR= 119.0 GB devWA= 8.94 sstRetire=   168 MB/s jobs=390   deep=379   deepOut= 71.57 GiB L0baseOut=19.97 GiB stallUnion= 35.9% stallLines=99    devBusy= 94.8%
+geom mult20  n=3  U_rate=  19.3 MB/s dur=   691 s devWR= 118.3 GB devWA= 8.89 sstRetire=   164 MB/s jobs=408   deep=396   deepOut= 67.82 GiB L0baseOut=22.29 GiB stallUnion= 32.1% stallLines=104   devBusy= 95.4%
+devload2     n=3  U_rate=  18.8 MB/s dur=   709 s devWR= 118.1 GB devWA= 8.87 sstRetire=   156 MB/s jobs=369   deep=358   deepOut= 66.40 GiB L0baseOut=20.07 GiB stallUnion= 35.3% stallLines=103   devBusy= 95.0%
+zipf         n=5  U_rate=  32.8 MB/s dur=   828 s devWR=  26.9 GB devWA= 2.02 sstRetire=    63 MB/s jobs=83    deep=70    deepOut= 13.99 GiB L0baseOut= 5.55 GiB stallUnion=  1.0% stallLines=2     devBusy= 64.7%
+
+reading: work volume (devWR GB / devWA) is the invariant that capacity knobs do NOT change;
+         noc should collapse devWA toward ~1 and drop job counts;
+         deep should cut deepOut/job counts at equal U;
+         devload should cut U_rate without changing devWA.

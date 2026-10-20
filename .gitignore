@@ -24,3 +24,25 @@ output/**/frozen_*/
 # 压力/验收实验目录（每组一个父目录，内含 per-iteration 库）
 output/**/st_*/
 output/**/it_*/
+
+# 实验导出包：可由 output/report/catalog（主动）与 archive/catalog（存档）的元数据
+# + 原始数据重新生成：
+#   python3 output/report/catalog/export_bundle.py export --all
+#   python3 output/report/catalog/export_bundle.py export --all --scope archived
+# 故只入库两侧的导出清单 index.json，不入库 .zexp 本体（主动 ~109 MiB + 存档 ~19 MiB）
+output/bundles/*.zexp
+archive/bundles/*.zexp
+
+# V2 验收用的独立测试构建目录（zf_test 需 -Wno-error=format-truncation，见 V2_DESIGN.md）
+source/rocksdb-zeroflush/build_test/
+
+# ---- 2026-10-20 收尾清理追加 ----
+# 正式构建目录（cmake，可随时重建）
+source/rocksdb-zeroflush/build_rel/
+
+# PDF 报告重建用的第三方字体（38 MiB，可重新获取；报告产物本身已入库）
+report/fonts/
+
+# Python 缓存
+__pycache__/
+*.pyc

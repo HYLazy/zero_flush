@@ -1,0 +1,8 @@
+== E4b concurrent-compaction range conflict (from being_compacted flags) ==
+run,n_snapshots,frac_snapshots_with_busy,max_busy_files,mean_busy_files,concurrent_busy_pairs,overlapping_pairs,overlap_pair_frac
+c_trig16,16,0.5625,12,4,231,231,1.0000
+c_trig2,24,0.6667,8,2.4583,98,98,1.0000
+c_trig32,36,0.3611,16,3.2500,626,626,1.0000
+c_trig4,118,0.1525,11,0.8220,259,259,1.0000
+c_trig8,110,0.0727,10,0.4727,166,166,1.0000
+

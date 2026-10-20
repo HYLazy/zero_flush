@@ -1,0 +1,353 @@
+[
+ {
+  "path": "bench/README.md",
+  "title": "bench/ — L0 investigation harness (native RocksDB)",
+  "category": "note",
+  "lines": 42,
+  "bytes": 2996,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/hist_erratum/LATENCY_ERRATUM.md",
+  "title": "Latency erratum for the pre-2026-09-25 exports",
+  "category": "note",
+  "lines": 106,
+  "bytes": 5212,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/hist_erratum/THROUGHPUT_CAVEAT.md",
+  "title": "Throughput caveat for the pre-2026-09-25 exports",
+  "category": "note",
+  "lines": 81,
+  "bytes": 3937,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/bundles/SUPERSEDED_20260926T074200.md",
+  "title": "Superseded bundle: 2026-09-26T074200",
+  "category": "note",
+  "lines": 13,
+  "bytes": 660,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/l0_backlog_kscan/REPLICATION_K16.md",
+  "title": "K=16 / B=2 GiB replication check",
+  "category": "note",
+  "lines": 38,
+  "bytes": 2055,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/m2_INVALID_flagconflict/WHY_INVALID.md",
+  "title": "These M2 runs are invalid: conflicting duplicate flags",
+  "category": "note",
+  "lines": 17,
+  "bytes": 913,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/p0/P0_SUMMARY.md",
+  "title": "P0 acceptance",
+  "category": "note",
+  "lines": 11,
+  "bytes": 371,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/p0/P0_THROUGHPUT_EXPLAINED.md",
+  "title": "Why the P0 invariance throughputs are (nearly) identical",
+  "category": "note",
+  "lines": 45,
+  "bytes": 4540,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2_local/p0/P0_SUMMARY.md",
+  "title": "P0 acceptance",
+  "category": "note",
+  "lines": 10,
+  "bytes": 284,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/v2/README.md",
+  "title": "perf_v2 — server-side RocksDB read/write experiment harness",
+  "category": "note",
+  "lines": 121,
+  "bytes": 8051,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/CAMPAIGN.md",
+  "title": "L0 investigation campaign — run protocol (native RocksDB 11.2)",
+  "category": "protocol",
+  "lines": 166,
+  "bytes": 10662,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/CAMPAIGN_BN.md",
+  "title": "Bottleneck campaign — run protocol (native RocksDB 11.2)",
+  "category": "protocol",
+  "lines": 115,
+  "bytes": 8150,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/L0_BACKLOG_PLAN.md",
+  "title": "L0 backlog: layout × size × file count — experiment plan",
+  "category": "protocol",
+  "lines": 161,
+  "bytes": 8973,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/LAYOUT_BLOOM_PLAN.md",
+  "title": "L0 overlap × Bloom filter cost — experiment plan",
+  "category": "protocol",
+  "lines": 191,
+  "bytes": 8900,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/BOTTLENECK_REPORT.md",
+  "title": "RocksDB 真实瓶颈判定：容量干预实验报告（Bottleneck campaign）",
+  "category": "report",
+  "lines": 772,
+  "bytes": 57622,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/L0_INVESTIGATION_REPORT.md",
+  "title": "原生 RocksDB 中 L0 的角色：50GB / 100GB × 1KB KV 实验报告",
+  "category": "report",
+  "lines": 589,
+  "bytes": 50008,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/RESULTS_SUMMARY.md",
+  "title": "perf_v2 campaign: results",
+  "category": "report",
+  "lines": 198,
+  "bytes": 12711,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/l0_backlog/REPORT.md",
+  "title": "L0 backlog: layout x size x file count",
+  "category": "report",
+  "lines": 77,
+  "bytes": 5515,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/l0_backlog_kscan/REPORT.md",
+  "title": "L0 backlog: layout x size x file count",
+  "category": "report",
+  "lines": 165,
+  "bytes": 11261,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/layout_bloom/REPORT_EXTEND.md",
+  "title": "L0 overlap x Bloom cost — results",
+  "category": "report",
+  "lines": 86,
+  "bytes": 9849,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/layout_bloom/REPORT_FIRST.md",
+  "title": "L0 overlap x Bloom cost — results",
+  "category": "report",
+  "lines": 78,
+  "bytes": 8855,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/m1/REPORT.md",
+  "title": "perf_v2 analysis",
+  "category": "report",
+  "lines": 125,
+  "bytes": 19070,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/m1/REPORT_EXTENDED.md",
+  "title": "perf_v2 analysis",
+  "category": "report",
+  "lines": 125,
+  "bytes": 19070,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/m2/REPORT.md",
+  "title": "perf_v2 analysis",
+  "category": "report",
+  "lines": 252,
+  "bytes": 35499,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/m2_INVALID_flagconflict/REPORT.md",
+  "title": "perf_v2 analysis",
+  "category": "report",
+  "lines": 250,
+  "bytes": 33451,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/m3/REPORT.md",
+  "title": "perf_v2 analysis",
+  "category": "report",
+  "lines": 55,
+  "bytes": 5264,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/m4/REPORT.md",
+  "title": "perf_v2 analysis",
+  "category": "report",
+  "lines": 124,
+  "bytes": 11365,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/out/perf_v2/m5/REPORT.md",
+  "title": "perf_v2 analysis",
+  "category": "report",
+  "lines": 91,
+  "bytes": 8120,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "bench/v2/IMPLEMENTATION_REPORT.md",
+  "title": "perf_v2 implementation report",
+  "category": "report",
+  "lines": 665,
+  "bytes": 46392,
+  "milestone": "bench",
+  "tracked": false
+ },
+ {
+  "path": "EXPERIMENT_DATA_SUMMARY.md",
+  "title": "ZeroFlush / metadata_offload 全项目实验数据汇总",
+  "category": "note",
+  "lines": 219,
+  "bytes": 17255,
+  "milestone": "repo",
+  "tracked": true
+ },
+ {
+  "path": "exp_design/zeroflush/plan/CSD协同设计规划.md",
+  "title": "ZeroFlush × CSD 协同设计规划",
+  "category": "note",
+  "lines": 233,
+  "bytes": 19153,
+  "milestone": "repo",
+  "tracked": false
+ },
+ {
+  "path": "output/report/README.md",
+  "title": "output/report —— 主线报告与元数据（当前活跃，含 v1 / v2 两代）",
+  "category": "note",
+  "lines": 138,
+  "bytes": 23321,
+  "milestone": "repo",
+  "tracked": false
+ },
+ {
+  "path": "source/rocksdb-zeroflush/zeroflush/README.md",
+  "title": "ZeroFlush M1（zero flush LSM-tree 优化）",
+  "category": "note",
+  "lines": 110,
+  "bytes": 5056,
+  "milestone": "repo",
+  "tracked": true
+ },
+ {
+  "path": "source/rocksdb-zeroflush/zeroflush/M3_DESIGN.md",
+  "title": "ZeroFlush M3 方案设计：范围路由 · 消除 L0 · API 完备",
+  "category": "protocol",
+  "lines": 1023,
+  "bytes": 57756,
+  "milestone": "repo",
+  "tracked": true
+ },
+ {
+  "path": "source/rocksdb-zeroflush/zeroflush/M4_DESIGN.md",
+  "title": "ZeroFlush M4 方案设计：终态架构 —— WAL 即 L0 · 每分区跳表 · 永不物化",
+  "category": "protocol",
+  "lines": 989,
+  "bytes": 71266,
+  "milestone": "repo",
+  "tracked": true
+ },
+ {
+  "path": "source/rocksdb-zeroflush/zeroflush/M4_DG_DESIGN.md",
+  "title": "ZeroFlushV0 M4 动态治理 DG 设计/状态档（v1）",
+  "category": "protocol",
+  "lines": 103,
+  "bytes": 6811,
+  "milestone": "repo",
+  "tracked": true
+ },
+ {
+  "path": "source/rocksdb-zeroflush/zeroflush/M5_DESIGN.md",
+  "title": "M5 设计：Per-Range L1 合并架构（fillrandom 静态版）",
+  "category": "protocol",
+  "lines": 181,
+  "bytes": 10916,
+  "milestone": "repo",
+  "tracked": true
+ },
+ {
+  "path": "source/rocksdb-zeroflush/zeroflush/P1B_DESIGN.md",
+  "title": "ZeroFlushV0 P1B 设计：带在途数据的 DRAINING merge（S4 完整版）",
+  "category": "protocol",
+  "lines": 237,
+  "bytes": 16809,
+  "milestone": "repo",
+  "tracked": true
+ },
+ {
+  "path": "source/rocksdb-zeroflush/zeroflush/RECOVERY_FENCE_DESIGN.md",
+  "title": "V0.6 恢复可见性 fence：实现规格（方案 1）",
+  "category": "protocol",
+  "lines": 160,
+  "bytes": 9154,
+  "milestone": "repo",
+  "tracked": true
+ }
+]

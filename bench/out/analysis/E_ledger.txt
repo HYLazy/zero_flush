@@ -1,0 +1,18 @@
+== E1 write-flow ledger (all ratios are bytes / application-confirmed byte U) ==
+run,mode,U_gib,WA_sst,WA_device,WA_wal,WA_flush,WA_intraL0,WA_L0base,WA_deep,share_flush,share_intraL0,share_L0base,share_deep,peak_l0_files,n_flushes,n_intra_L0,n_L0_to_base,n_deep,n_trivial_moves
+e_kcomp.reopen,open,0.00,n/a,n/a,n/a,n/a,n/a,n/a,n/a,0.000,0.000,0.000,0.000,4,0,0,0,0
+e_kflush.reopen,open,0.00,n/a,n/a,n/a,n/a,n/a,n/a,n/a,0.000,0.000,0.000,0.000,2,0,0,0,0
+e_kflush_sync.reopen,open,0.00,n/a,n/a,n/a,n/a,n/a,n/a,n/a,0.000,0.000,0.000,0.000,2,0,0,0,0
+e_kseal.reopen,open,0.00,n/a,n/a,n/a,n/a,n/a,n/a,n/a,0.000,0.000,0.000,0.000,3,0,0,0,0
+e_ktime.reopen,open,0.00,n/a,n/a,n/a,n/a,n/a,n/a,n/a,0.000,0.000,0.000,0.000,1,0,0,0,0
+e_ktime_sync.reopen,open,0.00,n/a,n/a,n/a,n/a,n/a,n/a,n/a,0.000,0.000,0.000,0.000,1,0,0,0,0
+
+== cross-checks (same quantity from independent sources) ==
+run,flush_listener_GiB,flush_stat_GiB,rel_diff,compact_listener_GiB,compact_stat_GiB,rel_diff,wall_sum_s,cpu_sum_s,cpu_per_wall,file_write_s,fsync_s,records_replaced,skipped_GiB,trivial_moves,trivial_moved_GiB
+e_kcomp.reopen,0.000,0.000,n/a,0.040,0.000,n/a,0.0,0.0,0.000,0.0,0.0,0,0.000,0,0.000
+e_kflush.reopen,0.000,0.000,n/a,0.035,0.000,n/a,0.0,0.0,0.000,0.0,0.0,0,0.000,0,0.000
+e_kflush_sync.reopen,0.000,0.000,n/a,0.000,0.000,n/a,0.0,0.0,0.000,0.0,0.0,0,0.000,0,0.000
+e_kseal.reopen,0.000,0.000,n/a,0.015,0.000,n/a,0.0,0.0,0.000,0.0,0.0,0,0.000,0,0.000
+e_ktime.reopen,0.000,0.000,n/a,0.010,0.000,n/a,0.0,0.0,0.000,0.0,0.0,0,0.000,0,0.000
+e_ktime_sync.reopen,0.000,0.000,n/a,0.009,0.000,n/a,0.0,0.0,0.000,0.0,0.0,0,0.000,0,0.000
+

@@ -1,0 +1,16 @@
+== E1 write-flow ledger (all ratios are bytes / application-confirmed byte U) ==
+run,mode,U_gib,WA_sst,WA_device,WA_wal,WA_flush,WA_intraL0,WA_L0base,WA_deep,share_flush,share_intraL0,share_L0base,share_deep,peak_l0_files,n_flushes,n_intra_L0,n_L0_to_base,n_deep,n_trivial_moves
+c_trig16,overwrite,12.40,8.788,8.839,1.005,1.006,0.118,7.664,0.000,0.114,0.013,0.872,0.000,18,50,1,469,0
+c_trig2,overwrite,12.40,9.634,9.695,1.005,1.003,0.570,8.061,0.000,0.104,0.059,0.837,0.000,8,51,7,511,0
+c_trig32,overwrite,12.40,8.767,8.800,1.005,1.005,0.000,7.761,0.000,0.115,0.000,0.885,0.000,19,51,0,454,0
+c_trig4,overwrite,12.40,8.937,8.973,1.005,1.005,0.513,7.419,0.000,0.113,0.057,0.830,0.000,13,51,5,454,0
+c_trig8,overwrite,12.40,8.539,8.573,1.005,1.006,0.454,7.079,0.000,0.118,0.053,0.829,0.000,15,51,5,429,0
+
+== cross-checks (same quantity from independent sources) ==
+run,flush_listener_GiB,flush_stat_GiB,rel_diff,compact_listener_GiB,compact_stat_GiB,rel_diff,wall_sum_s,cpu_sum_s,cpu_per_wall,file_write_s,fsync_s,records_replaced,skipped_GiB,trivial_moves,trivial_moved_GiB
+c_trig16,12.466,12.466,-0.0000,96.480,96.473,0.0001,2385.1,411.1,0.172,0.0,0.0,7718160,0.000,67,5.784
+c_trig2,12.435,12.435,-0.0000,107.003,107.003,0.0000,2594.1,453.8,0.175,0.0,0.0,7791837,0.000,77,5.143
+c_trig32,12.465,12.465,-0.0000,96.223,96.223,0.0000,3080.0,435.3,0.141,0.0,0.0,7544474,0.000,74,5.190
+c_trig4,12.466,12.466,-0.0000,98.332,98.332,0.0000,2904.1,434.6,0.150,0.0,0.0,7484440,0.000,61,5.315
+c_trig8,12.469,12.469,-0.0000,93.390,93.390,0.0000,2280.5,431.5,0.189,0.0,0.0,7370273,0.000,64,6.999
+

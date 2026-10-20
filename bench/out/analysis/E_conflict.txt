@@ -1,0 +1,9 @@
+== E4b concurrent-compaction range conflict (from being_compacted flags) ==
+run,n_snapshots,frac_snapshots_with_busy,max_busy_files,mean_busy_files,concurrent_busy_pairs,overlapping_pairs,overlap_pair_frac
+e_kcomp.reopen,2,0.0000,0,0,0,0,None
+e_kflush.reopen,2,0.0000,0,0,0,0,None
+e_kflush_sync.reopen,2,0.0000,0,0,0,0,None
+e_kseal.reopen,2,0.0000,0,0,0,0,None
+e_ktime.reopen,2,0.0000,0,0,0,0,None
+e_ktime_sync.reopen,2,0.0000,0,0,0,0,None
+

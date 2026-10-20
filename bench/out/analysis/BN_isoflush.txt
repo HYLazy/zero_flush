@@ -1,0 +1,4 @@
+wb64m    T=    45s flushes= 154 flush_wall=   22.5s flush_bytes=  9.33GiB entries=  9.59M per_flush_p50_wall_us=  146278 flush_MB_s=  424.1 proc_cpu=   51.9s cpu_per_GiB_in=  5.58 devWR=10.12GB devRD=0.00GB devWA= 1.01 U= 9.30GiB
+wb256m   T=    50s flushes=  38 flush_wall=   23.1s flush_bytes=  9.23GiB entries=  9.49M per_flush_p50_wall_us=  608185 flush_MB_s=  409.0 proc_cpu=   51.3s cpu_per_GiB_in=  5.52 devWR=10.02GB devRD=0.00GB devWA= 1.00 U= 9.30GiB
+wb1g     T=    61s flushes=   9 flush_wall=   29.1s flush_bytes=  8.75GiB entries=  9.00M per_flush_p50_wall_us= 3231982 flush_MB_s=  308.0 proc_cpu=   57.1s cpu_per_GiB_in=  6.14 devWR= 9.49GB devRD=0.00GB devWA= 0.95 U= 9.30GiB
+wb8g     T=    70s flushes=   1 flush_wall=   13.4s flush_bytes=  7.75GiB entries=  7.97M per_flush_p50_wall_us=13392555 flush_MB_s=  592.6 proc_cpu=   67.9s cpu_per_GiB_in=  7.30 devWR=18.39GB devRD=0.00GB devWA= 1.84 U= 9.30GiB

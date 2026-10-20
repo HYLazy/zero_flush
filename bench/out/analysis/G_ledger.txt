@@ -1,0 +1,14 @@
+== E1 write-flow ledger (all ratios are bytes / application-confirmed byte U) ==
+run,mode,U_gib,WA_sst,WA_device,WA_wal,WA_flush,WA_intraL0,WA_L0base,WA_deep,share_flush,share_intraL0,share_L0base,share_deep,peak_l0_files,n_flushes,n_intra_L0,n_L0_to_base,n_deep,n_trivial_moves
+g_hotspot,fill,46.49,3.827,3.838,1.005,0.992,0.575,2.260,0.000,0.259,0.150,0.591,0.000,22,192,27,425,0
+g_locality,fill,46.49,3.484,3.503,1.005,1.010,0.373,2.102,0.000,0.290,0.107,0.603,0.000,18,190,15,389,0
+g_monotonic,fill,46.49,1.008,1.039,1.005,1.008,0.000,0.000,0.000,1.000,0.000,0.000,0.000,2,192,0,260,0
+g_zipf,fill,46.49,0.959,0.982,1.005,0.327,0.000,0.631,0.000,0.341,0.000,0.659,0.000,9,191,0,172,0
+
+== cross-checks (same quantity from independent sources) ==
+run,flush_listener_GiB,flush_stat_GiB,rel_diff,compact_listener_GiB,compact_stat_GiB,rel_diff,wall_sum_s,cpu_sum_s,cpu_per_wall,file_write_s,fsync_s,records_replaced,skipped_GiB,trivial_moves,trivial_moved_GiB
+g_hotspot,46.128,46.128,-0.0000,131.800,131.797,0.0000,2970.4,475.8,0.160,0.0,0.0,33304630,0.000,96,15.042
+g_locality,46.935,46.935,-0.0000,115.064,115.059,0.0000,3519.9,455.0,0.129,0.0,0.0,24271006,0.000,141,55.054
+g_monotonic,46.883,46.883,-0.0000,0.000,0.000,n/a,0.0,0.0,0.000,0.0,0.0,0,0.000,260,151.176
+g_zipf,15.214,15.214,-0.0000,29.348,29.348,0.0000,301.7,112.1,0.372,0.0,0.0,14216199,0.000,1,0.000
+

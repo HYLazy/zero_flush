@@ -1,0 +1,2124 @@
+[
+ {
+  "id": "m5/sink_tuning",
+  "title_zh": "step 0a：ZF sink 受控对照（整范围/窄下沉/合批/L2 清场）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "在固定 workload（16 线程 / 16 分区 / kSampled / --num=48000000 --writes=1000000 / 1KB value）下对 sink 行为做受控对照，比较不同 sink 配置的吞吐、总输出量与 L0 末态，判断 sink 的代价与实现问题（见 RUN_MANIFEST.md:12-29）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（--threads=16）（RUN_MANIFEST.md:12-13）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/db_bench（清单全局声明的二进制路径；0a 各臂未逐臂记录二进制）（RUN_MANIFEST.md:7-8）",
+   "workload": "16 线程 / 16 分区 / kSampled / --num=48000000 --writes=1000000（每线程 1M，共 16M 写）/ 1KB value（RUN_MANIFEST.md:12-13）",
+   "rocksdb_options": "--zf_base_merge=true / cache 512MB / L2 清场 4GB；臂级 env：ZF_SINK_WHOLE_RANGE=1、ZF_SINK_NARROW=1、ZF_SINK_BATCH=1、ZF_SINK_L2_CLEAR_MB=8192（RUN_MANIFEST.md:12-13,17-23）",
+   "other": "复现：sink_tuning/run_arm.sh <臂名> \"<env>\"；矩阵 run_matrix_0a2.sh / run_matrix_0a2b.sh / run_matrix_0b1.sh；分析 analyze_0a2.py（RUN_MANIFEST.md:28-29）"
+  },
+  "results": [
+   {
+    "metric": "吞吐",
+    "value": "38,692",
+    "unit": "ops/s",
+    "condition": "base（历史，旧二进制）ZF_SINK_WHOLE_RANGE=1；总输出 105.9GB",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:17"
+   },
+   {
+    "metric": "吞吐",
+    "value": "249,430",
+    "unit": "ops/s",
+    "condition": "臂 A（历史，含 UAF）默认（窄），总输出 0GB——**作废**（UAF 致 picker 收到垃圾区间）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:18"
+   },
+   {
+    "metric": "吞吐",
+    "value": "43,350",
+    "unit": "ops/s",
+    "condition": "臂 B（历史）ZF_SINK_WHOLE_RANGE=1 ZF_SINK_L2_CLEAR_MB=8192；总输出 119.5GB",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:19"
+   },
+   {
+    "metric": "吞吐 / 总输出",
+    "value": "46,479 / 43,667 / 34,814 ops/s；118.6 / 118.0 / 85.6 GB；末态 L0 = 3 / 38 / 40",
+    "unit": "ops/s；GB",
+    "condition": "base2 / base2b / base2c（ZF_SINK_WHOLE_RANGE=1，同二进制复跑）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:20"
+   },
+   {
+    "metric": "吞吐",
+    "value": "41,542",
+    "unit": "ops/s",
+    "condition": "base3（默认整分区 + 排空），总输出 127.0GB，waitforcompaction 后 remaining=0",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:21"
+   },
+   {
+    "metric": "吞吐 / 总输出",
+    "value": "38,331 / 43,071 / 33,520 / 30,873 ops/s；121.0 / 129.3 / 131.2 / 129.9 GB",
+    "unit": "ops/s；GB",
+    "condition": "A0a / A0b / A0c / A0d（窄下沉 ZF_SINK_NARROW=1）；请求成功率 12%，clean-cut 失败 ≈1500/次",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:22"
+   },
+   {
+    "metric": "吞吐 / 总输出",
+    "value": "35,372 / 32,240 ops/s；118.2 / 126.9 GB",
+    "unit": "ops/s；GB",
+    "condition": "B1 / B1b（ZF_SINK_BATCH=1）；合批判据 0 次生效（每分区仅 1–2 个 L1 文件）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:23"
+   },
+   {
+    "metric": "每臂实际输入构成（built 计数）",
+    "value": "L1 输入 ≈52MB/次、L2 输入 ≈200MB/次、L2/L1 ≈ 3.9–4.0、每次下沉取 1 个 L1 文件；下沉写入 L2 的文件中位 66.6MB",
+    "unit": "MB；比值",
+    "condition": "各臂共同",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:25-26"
+   }
+  ],
+  "evaluation_zh": "本段未给出汇总结论，只注明结论见 sink_tuning/REPORT_0A.md 与 REPORT.md（含 A/AB 臂作废更正）；A（默认窄）臂因 UAF 作废，窄下沉（A0a–A0d）臂请求成功率仅 12%、clean-cut 失败 ≈1500/次（RUN_MANIFEST.md:22,29）。",
+  "caveats_zh": [
+   "A 臂作废：UAF 致 picker 收到垃圾区间（RUN_MANIFEST.md:18）",
+   "base2/base2b/base2c 方差源于\"未完成工作量\"（末态 L0 不同）（RUN_MANIFEST.md:20）",
+   "B1/B1b 的合批判据 0 次生效，该配置未真正被触发（RUN_MANIFEST.md:23）",
+   "本段未记录 0a 各臂的二进制/构建配置差异（仅称 A 臂为\"旧二进制\"、base 为\"历史\"）（RUN_MANIFEST.md:17-19）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:10-29"
+  ]
+ },
+ {
+  "id": "m5/ledger",
+  "title_zh": "step 0b-3：ledger / 背压 / 空 edit / 校验器（zf_valcheck triage）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "用 zf_valcheck 的多模式（write/walhit/l1hit/verify/scan/probe/deep/triage）在小数据上也强制走封存→物化路径，验证 ledger 记账自洽性并暴露 WAL 重放遮蔽 L0 新版本的失败（B1/B2/B3 分桶）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "zf_valcheck 以 4 线程运行（如 triage 40000 4）（RUN_MANIFEST.md:64-66）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/zf_valcheck（RUN_MANIFEST.md:7-8,62-63）",
+   "workload": "40K 键（40000）/ 16 分区 / kSampled / 封存阈值 epoch_target=16MB、partition_target=4MB（使小数据也走封存→物化路径）；另 400K 写 smoke（RUN_MANIFEST.md:33-34,38,55-57,64-66）",
+   "rocksdb_options": "--zf_base_merge=true；ZF_VC_KEEP_WAL=1；smoke B ZF_LEDGER_STOP_MB/ZF_LEDGER_RESUME_MB=32/24；smoke C --zf_bp_timeout_ms=1；db_ee 系列 ZF_FORCE_EMPTY_EDIT=N(2/1000)（RUN_MANIFEST.md:33-34,38-42）",
+   "other": "校验器模式：write/walhit/l1hit/verify/scan/probe/deep/triage；失败 key 清单入库 ledger/triage_fail_keys.txt（RUN_MANIFEST.md:5-6,44-47）"
+  },
+  "results": [
+   {
+    "metric": "smoke A（400K 写、默认水位 stop=1GiB）",
+    "value": "pending→0、entries=0、drained 1.45GB、峰值 332MB、waits=0",
+    "unit": "",
+    "condition": "ledger smoke A",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:38"
+   },
+   {
+    "metric": "smoke B 背压",
+    "value": "backpressure_waits=14、timeouts=0",
+    "unit": "次",
+    "condition": "--zf_ledger_stop_mb=32 --zf_ledger_resume_mb=24",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:39"
+   },
+   {
+    "metric": "smoke C 背压超时",
+    "value": "waits=1971 / timeouts=1964 / bp_retries=15642，退出码 0、无死锁",
+    "unit": "次",
+    "condition": "同上 + --zf_bp_timeout_ms=1",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:40"
+   },
+   {
+    "metric": "triage（40K 键 / 保留 WAL）分桶",
+    "value": "B1_not_written=0  B2_in_wal=980  B3_visible_in_sst=2303（B3 拆分 in_L0=2303 / in_L1plus=0；seq2>seq1 = 2303/2303）",
+    "unit": "键",
+    "condition": "ledger triage 基线（已知失败门，故意保留）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:55-56"
+   },
+   {
+    "metric": "scan lost_overwrite",
+    "value": "2227 / 3039 / 14053（随运行状态漂移，≠0）",
+    "unit": "键",
+    "condition": "ledger scan 基线（已知失败门，故意保留）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:57"
+   },
+   {
+    "metric": "0b-3 基线验收",
+    "value": "build pass；smoke A/B/C pass；ledger accounting pass（pending / drained_materialize / reclaimed 三者自洽，registered_gens 结清）",
+    "unit": "",
+    "condition": "0b-3 基线",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:49-50"
+   }
+  ],
+  "evaluation_zh": "0b-3 基线验收通过（build pass、smoke A/B/C pass、ledger accounting 自洽）；但 scan/triage 是**已知失败门**（故意保留）——恢复用\"文件是否存在\"推断 active/待物化（R0）且索引命中不与已安装层比较 sequence（R2），陈旧遮蔽 100% 发生在 L0（R3），失败集随开合循环漂移（R4）；修复顺序与回归门见 ledger/REPORT_0B.md 第 10 节（RUN_MANIFEST.md:49-58,69-72）。",
+  "caveats_zh": [
+   "scan lost_overwrite≠0 且数值随运行状态漂移（2227/3039/14053）（RUN_MANIFEST.md:57）",
+   "triage B2=980/B3=2303 为未修失败，非通过（RUN_MANIFEST.md:52-56）",
+   "归因为已证结论 R0/R2/R3/R4，但修复尚未实施（RUN_MANIFEST.md:69-72）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:31-72"
+  ]
+ },
+ {
+  "id": "m5/baseline",
+  "title_zh": "基线标识：0a/0b 之前的起点与修复分支根（提交对照）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "integration",
+  "purpose_zh": "给出便于二分与追溯的基线提交标识（parent 1ec2f45 / 诊断内容提交 750e458 / 干净基线 665f434），并记录修复分支第一步的失败键数变化。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": null,
+   "rocksdb_options": null,
+   "other": "parent (0a/0b 之前的起点) = 1ec2f45 ZeroFlushV0 tip；diagnostic content commit = 750e458（amend 前的原始提交，悬空对象，不参与后续二进制/二分）；clean baseline commit = 665f434（含 .gitignore）；repair branch root = 665f434 @ fix/zeroflush-recovery-visibility-fences；branch ZeroFlushV0.5 亦指向 665f434（RUN_MANIFEST.md:76-82）"
+  },
+  "results": [
+   {
+    "metric": "triage fail（基线门禁）",
+    "value": "2144（B3 2303，拆分全 L0）、scan lost_overwrite≠0",
+    "unit": "键",
+    "condition": "提交 665f434 基线（红）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:91"
+   },
+   {
+    "metric": "triage fail（step 1 部分后）",
+    "value": "1989（B3 1768、B2 221）",
+    "unit": "键",
+    "condition": "提交 69bb3d0（仍红）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:92"
+   }
+  ],
+  "evaluation_zh": "基线以 665f434 为准：665f434 **替换**（amend）而非接续 750e458，两者无父子关系；750e458 仅存在于 reflog/对象库（git merge-base --is-ancestor 为假），二分请以 665f434 为基线（RUN_MANIFEST.md:84-85）。",
+  "caveats_zh": [
+   "750e458 是悬空对象，不参与后续二进制与二分（RUN_MANIFEST.md:78,84-85）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:74-92"
+  ]
+ },
+ {
+  "id": "m5/ledger_repair_d",
+  "title_zh": "修复分支进展 §D（D-2…D-44）：fence 判据、locator/pin 身份、case 用例、压力与 baccept",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "在 fix/zeroflush-recovery-visibility-fences 上逐 step 定位并修复陈旧读的机制：fence 输入消费判据、索引链按 seq 选择、locator 与读引用分离、generation 读引用与 retiring 门、压力组与 baccept 安装/排空验收，目标是让 scan/triage 与压力门禁全绿。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "zf_valcheck 常用 4 线程（40000 4 / 20000 4）；压力用例单线程逐轮（stress <group> <iterations>）（RUN_MANIFEST.md:24,129-130,664-674）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/zf_valcheck（附 librocksdb.so.11.2.0；各 step 记录 sha256）（RUN_MANIFEST.md:7-8,186-187,318-319,391-392,462-463）",
+   "workload": "40K 键 / 16 分区 / kSampled / epoch_target=16MB / partition_target=4MB；压力用例每轮独立新库 it_<group>_<i>、固定随机种子 20260916、30s watchdog；ZF_VC_PARTITION_TARGET_KB/MB 控制分区目标（RUN_MANIFEST.md:129-130,610,664-674）",
+   "rocksdb_options": "ZF_VC_KEEP_WAL=1；ZF_DBG_FENCE/ZF_DBG_GET/ZF_DBG_LOCATOR/ZF_READ_SHORT_RETRY；目标模式 forbid_l0_install=true（禁 L0）；ZF_TEST_PAUSE_AFTER_SELECT、ZF_TEST_FORCE_INSTALL_CONFLICT、ZF_TEST_DROP_OUTPUT、ZF_TEST_LEGACY_PIN_SLOT 等测试钩子（RUN_MANIFEST.md:124-127,193,506-507,974-975,1100）",
+   "other": "semtest 用例 case1–case8b；l0merge 显式归并实验；baccept phase1–5；drainprobe；frozen_f4 样本副本每份只跑一次（RUN_MANIFEST.md:188-190,234-235,320,367-368,495,972,1869-1870）"
+  },
+  "results": [
+   {
+    "metric": "triage fail",
+    "value": "2806（B2=240、B3=2566）",
+    "unit": "键",
+    "condition": "step 1c-2 后 db_fence4（fence 行 32/推进 16；db_fence3 = fence 行 28/推进 12、scan lost_overwrite 2444、B2=523 B3=1921）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:134-135"
+   },
+   {
+    "metric": "ACCEPTANCE（B2_records_with_gen_le_fence=0）",
+    "value": "PASS ×2（B2_records_with_gen_gt_fence=523）",
+    "unit": "",
+    "condition": "step 1c-2 fence 判据",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:137-146"
+   },
+   {
+    "metric": "scan mismatch / B2_in_wal",
+    "value": "2806 → 2566；B2 240 → 0",
+    "unit": "键",
+    "condition": "step 1e C 修复（链内按序列号选择）前后，同一 frozen 样本 db_fence4 独立副本",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:283-288"
+   },
+   {
+    "metric": "失败来源分桶（实际返回来源）",
+    "value": "SOURCE_all_fail: INDEX=1749 LSM=817；SOURCE_read_ok: INDEX=2171 LSM=15243",
+    "unit": "键",
+    "condition": "step 1e 后（A=索引返回旧值 / B=LSM 自身返回旧值）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:295-297"
+   },
+   {
+    "metric": "l0merge 显式归并实验",
+    "value": "LSM 返回旧值失败 817 → 0；总失败 2566 → 1749；L0=0 / L1=1；B2=0 / ACCEPTANCE PASS",
+    "unit": "键",
+    "condition": "step 1g（既有库一次性 L0→base 归并，仅显式模式）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:372-375"
+   },
+   {
+    "metric": "walread(20000,4) mismatch",
+    "value": "4043 / 4709 / 2563（修复前三次）→ 0",
+    "unit": "键",
+    "condition": "step 1h（读候选并集 + 跨候选 seq 最优 + 失败不吞 + WAL 句柄钉住）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:443-446"
+   },
+   {
+    "metric": "all 冒烟",
+    "value": "mismatch=425 miss=5597 → mismatch=1689 miss=0",
+    "unit": "键",
+    "condition": "step 1h 前后（miss=0 不能代替正确性通过）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:447"
+   },
+   {
+    "metric": "semtest case1–case4",
+    "value": "case1/2/3 PASS；case4a pause_then_resume PASS；case4b pause_then_unlink PASS；cases1-4: PASS (fails=0)",
+    "unit": "",
+    "condition": "step 1i/1j 四个确定性用例",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:498-503"
+   },
+   {
+    "metric": "case5 active_gen_survives_freeze",
+    "value": "PASS (status=OK correct=1 read_error=0 gen_before=0 gen_after=1 rotated=1)",
+    "unit": "",
+    "condition": "step 1k/1l（活跃代读引用跨 Freeze）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:564-566"
+   },
+   {
+    "metric": "LIVE_WINDOW_ASSERT 时序相关性",
+    "value": "0 → 981 → 661（同代码多次运行）",
+    "unit": "键",
+    "condition": "step 1k/1l 新发现：此前 PASS 属时序侥幸",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:576-581"
+   },
+   {
+    "metric": "case6 A_CLASS_REPRO",
+    "value": "BUG_PRESENT（index_seq=1 lsm_seq=20985 read_seq=20985 ins_ok=1 返回来源=INDEX correct=0），三次独立运行逐字一致",
+    "unit": "",
+    "condition": "step 1m（需 ZF_VC_PARTITION_TARGET_MB=1）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:612-615"
+   },
+   {
+    "metric": "压力五组（step 1n）",
+    "value": "组1/2/3/4 各 500 轮、组5 300 轮，failures=0 silent_stale=0 notfound=0 corruption=0 rotations>0 → PASS（组5 pin_ok=218 pin_active=0）",
+    "unit": "轮",
+    "condition": "step 1n case5 扩展压力（严格判定）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:679-689"
+   },
+   {
+    "metric": "目标库 scan/triage 首次双零",
+    "value": "write-only l0_install=0 l0_blocked=0 fallback_l0=0 forbid_l0=1；scan mismatch=0 / 20000；triage fail=0 B1=0 B2=0 B3=0",
+    "unit": "键",
+    "condition": "step 1o（db_tm3，目标模式禁 L0）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:731-737"
+   },
+   {
+    "metric": "压力（step 1p 保留契约）",
+    "value": "组1 200/200 PASS、组2 300/300 PASS、组3 200/200 PASS、组4 200/200 PASS、组5 298/300 notfound=2（0.7%）",
+    "unit": "轮",
+    "condition": "目标模式；组5 为唯一未过项",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:795-801"
+   },
+   {
+    "metric": "stress 门禁计数（step 1t）",
+    "value": "index_kept_uninstalled=11504 gen_release_before_install=0 handoff_at_release=3314 gen_lost_before_install=0；组5 400 轮全零 PASS、组1/2/3/4 各 300 轮 PASS",
+    "unit": "",
+    "condition": "step 1s/1t physical(13,gen0) 事件顺序修复后",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:929-934"
+   },
+   {
+    "metric": "baccept phase1–4",
+    "value": "phase2 forced-conflict PASS（batches=5 drained_flat=5 pending_flat=5 outputs_discarded=50 fences_unchanged=1）；phase3 PASS（drained=41948904>baseline）；phase4 PASS（registered_gens=0 reclaimed=41948904）；l0_install=0 fence_no_committed_output=3",
+    "unit": "",
+    "condition": "step 1u/1v 强制冲突验收（引擎侧逐批断言）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:979-986"
+   },
+   {
+    "metric": "安装集合判据收紧（step 1w/1x）",
+    "value": "phase2 PASS；phase3 FAIL（pending=38.4MB 不降、drained 停在 4.3MB）；phase4 FAIL（registered_gens=19）；phase5 FAIL（readable=0）；phase5b FAIL",
+    "unit": "",
+    "condition": "验收为红——工作树已回退到 dfa8644，尝试保存为 WIP_install_set.patch（15336 行）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1026-1043"
+   },
+   {
+    "metric": "write-only 记账（step 1y）",
+    "value": "pending=13496844 pending_recomputed=13496844 drift_events=0；drained=4.2MB；pending=12.9MB（其余保持 pending）；scan=0 / triage=0",
+    "unit": "B；键",
+    "condition": "提交成功后才认定安装",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1071-1077"
+   },
+   {
+    "metric": "in-flight 读失败 / 重启读",
+    "value": "all: mismatch 460–880、miss 465–662（反复运行为同量级）；同库另一进程 verify = checked=20064 mismatch=0 miss=0",
+    "unit": "键",
+    "condition": "step 1aa–1ac 截断读核对（持久化数据无丢失）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1158-1160"
+   },
+   {
+    "metric": "错误站点分布（step 1ae/1af）",
+    "value": "site=15(bad magic)=473、site=1(header 短读)=16、NOT_VISITED=0",
+    "unit": "",
+    "condition": "all 20000 4，短读重试关闭；97% 为 bad record magic（陈旧/错位 locator）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1218-1231"
+   },
+   {
+    "metric": "all 门禁",
+    "value": "checked=30064 mismatch=0 miss=0 unexpected_found=0 errors=0（连跑两次均全零）",
+    "unit": "键",
+    "condition": "step 1aj locator 与读引用分离的最小修复后",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1353-1354"
+   },
+   {
+    "metric": "case7 locator-pin-same-candidate",
+    "value": "新实现 PASS（sel/pin 同候选，exec[A=1 B=1 B_hit=1 B_lost=1]）；旧共享槽实现（ZF_TEST_LEGACY_PIN_SLOT=1）FAIL；case7 legacy-check: PASS",
+    "unit": "",
+    "condition": "step 1an 组件级隔离 fixture（含旧实现对照）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1469-1481"
+   },
+   {
+    "metric": "case5 real-reclaim",
+    "value": "PASS：refs_during=1、installed=1、file_during=1068、file_after=1068、reclaimed=1068、read status=OK correct=1 src=INDEX；semtest cases1-7: PASS",
+    "unit": "B",
+    "condition": "step 1ar（指定代封存入口 ForceSealForTest，真实回收闭环）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1607-1616"
+   },
+   {
+    "metric": "压力组短跑（step 1as 收口）",
+    "value": "组1 50 轮 PASS ms_avg=10142 ms_max=10154；组2 50 轮 PASS ms_avg=10144 ms_max=10169；组2 reclaimed_bytes=348168 reclaimed_gens=28",
+    "unit": "轮；ms",
+    "condition": "ZF_READ_SHORT_RETRY=0、watchdog=30s、ZF_VC_PARTITION_TARGET_KB=128",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1744-1757"
+   },
+   {
+    "metric": "baccept phase3/4 归因（本机 A/B）",
+    "value": "旧行为 phase3 pending=37612824 drained=4336080 → FAIL；修复版 phase3 pending=37612824 → FAIL（两版同数失败）；phase4 旧 registered_gens=18 / 修复版 registered_gens=22 均 FAIL",
+    "unit": "",
+    "condition": "只改两处生产行为（读引用是否交给胜出槽、销账是否推迟到 unlink 之后）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1788-1795"
+   },
+   {
+    "metric": "stress 组 1 完整组",
+    "value": "rounds=300 failures=0 silent_stale=0 notfound=0 corruption=0 rotations=300 ms_avg=10141 ms_max=10403 → PASS；gate index_kept_uninstalled=1119 handoff_at_release=366",
+    "unit": "轮",
+    "condition": "step 1as（观察窗关闭外部终止风险）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1844-1855"
+   },
+   {
+    "metric": "drainprobe（安装停滞定位）",
+    "value": "before pending=38383920 drained=0 registered=20 installed_epochs=0；after_drain_1 empty_edit=1 l0_blocked=2 skip=1；after_drain_2 empty_edit=2 l0_blocked=4 skip=2（pending 完全不动）",
+    "unit": "B",
+    "condition": "D-40 现场库 ledger/ba_drain_010931：规划输出判为 L0 × 禁装 L0 互锁",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1873-1884"
+   },
+   {
+    "metric": "stress 组 1 500 轮",
+    "value": "rounds=500 failures=0 silent_stale=0 notfound=0 corruption=0 rotations=500 ms_avg=10155 ms_max=10570 → PASS（exit=0）",
+    "unit": "轮；ms",
+    "condition": "step 1as 收口后的完整组",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1899-1907"
+   },
+   {
+    "metric": "五组压力全量（v3 build）",
+    "value": "各组 rounds=300 failures=0 silent_stale=0 notfound=0 corruption=0 rotations=300；组5 gens=660 / 62.98MB、acquire_rejected_retiring=112、pin_ok=219；组1 ms_avg=10142、组4 ms_avg=209",
+    "unit": "轮；ms",
+    "condition": "build 82032ce（发布证据分流 + case8a 真实化），/tmp/build_hash_v3.txt",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:1986-2008"
+   }
+  ],
+  "evaluation_zh": "本段的目标是让机制类失败（A 类索引返回旧值、B 类 LSM 自身返回旧值、fence 过早推进、读引用泄漏、retiring 竞态）逐步收敛：step 1e 把 B2 归零、step 1aj 让 all 全零、step 1ar 让 case5 真实回收闭环、D-44 五组压力 300 轮全绿；但 baccept phase3/4 在本段末尾仍然失败，且经 A/B 对照证明与本轮改动无关，根因收窄为\"目标模式禁 L0 × 规划输出层为 L0\"互锁（D-37/D-38/D-40），因此 B（安全安装）门禁保持红（RUN_MANIFEST.md:1783-1805,1866-1894,2011-2013）。",
+  "caveats_zh": [
+   "baccept phase3/4 在本段仍红（pending 不排空），不得记为通过（RUN_MANIFEST.md:1802-1805,1894）",
+   "压力运行常被外部 timeout 终止（exit=124）时必须记\"未完成\"，不能当已通过（RUN_MANIFEST.md:1642-1646）",
+   "300 轮压力运行的二进制哈希未留存（构建被后续 A/B 重建覆盖），只能以提交号为准（RUN_MANIFEST.md:1806-1808）",
+   "case6 的前提（索引里没有该键）在 step 1t 后不成立，被标 SETUP_INVALID / 不再是有效红灯（RUN_MANIFEST.md:1359-1361,1378-1383）",
+   "case5 早期用手工 unlink 构造，其通过/失败不能作为正常生命周期验收（D-27/D-28 记，后由 ForceSealForTest 改写）（RUN_MANIFEST.md:1416-1419,1450-1452）",
+   "case7 曾多轮 INCOMPLETE（exit=3）而非有效回归（RUN_MANIFEST.md:1431,1445-1448）",
+   "LIVE_WINDOW_ASSERT 与时序相关，单次 PASS 不能当作活跃读语义通过（RUN_MANIFEST.md:576-581）",
+   "l0merge/并集慢路径等均为显式/历史库专用，不得进自动打开流程（RUN_MANIFEST.md:403-406）",
+   "ZF_TEST_DROP_OUTPUT 首版只丢一个输出属部分提交，与整单元撤销不等价（RUN_MANIFEST.md:1082）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:87-2014"
+  ]
+ },
+ {
+  "id": "m5/ledger_b_step1",
+  "title_zh": "B step 1：把互锁缩成确定性用例（installtest 1/2）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "用新用例 installtest（禁 L0、封存一批、停止写入、只驱动正常物化）把\"hash 表 + 目标模式\"下覆盖写没有合法安装路径的问题缩成确定性复现，并量化性能线索（固定等待而非引擎慢）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "installtest 与压力用例；组1/组4 各 20 轮计时（RUN_MANIFEST.md:2056-2060）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/zf_valcheck（RUN_MANIFEST.md:7-8）",
+   "workload": "installtest <1|2> [轮数]：两批使用同一键区间；场景 2 为目标层有重叠；压力组1/组4 各 20 轮（RUN_MANIFEST.md:2019-2021,2058-2059）",
+   "rocksdb_options": "禁 L0（forbid_l0_install=1）、routing_mode=kSampled（hash 表 version 0）、--zf_base_merge=true；磁盘探测 ZFDBG-mergegate / ZFDBG-mm-plan / ZFDBG-pick（RUN_MANIFEST.md:2037-2043）",
+   "other": "新增属性 rocksdb.zeroflush.skip_reasons（原 zf_skip_* 为进程级 static，会同进程多库串味）；性能量化：install_wait_avg/timeouts（RUN_MANIFEST.md:2056-2068）"
+  },
+  "results": [
+   {
+    "metric": "installtest 场景 1（目标层无重叠）",
+    "value": "PASS：本批封存 part=1 gen 0→1 rc=0 pending=13884 drained=0 sst=0；pass=0 pending=0 drained=13884 delta=+13884 empty_edit=0 l0_install=0",
+    "unit": "B",
+    "condition": "installtest scen=1，kSampled + 禁 L0",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2024-2026"
+   },
+   {
+    "metric": "installtest 场景 2（目标层有重叠）",
+    "value": "FAIL：前置安装成功（fences_nonempty=18 sst=1 drained=+13884），本批 pending=13884 → 停写后 pending=413316 drained=13884 delta=+0（冻结），empty_edit +1/次、l0_blocked +2/次、skips +1/次；installtest scen=2: FAIL（真实安装=0 pending归零=0 l0_install=0 空edit=7）",
+    "unit": "B",
+    "condition": "installtest scen=2，kSampled + 禁 L0（hash 路由无 range 语义）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2027-2033"
+   },
+   {
+    "metric": "性能线索：固定等待占比",
+    "value": "组1 20 轮 ms_avg=10151 install_wait_avg=10010 install_wait_timeouts=20/20；组4 20 轮 ms_avg=215 install_wait_avg=0 install_wait_timeouts=0",
+    "unit": "ms；次",
+    "condition": "98.6% 的时间是测试的固定 10s 安装等待，每轮都等到超时",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2057-2062"
+   }
+  ],
+  "evaluation_zh": "B-step1 完成：确定性用例（installtest 1/2）+ 根因钉死 + 性能线索量化。根因不是某个 guard 太严，而是 **hash 路由与\"禁 L0 + range 安装检查\"在覆盖写场景下语义不相容**（既不能融合、也无法判定重叠文件归属、更不能装 L0），形成 pending 永不归零的自持死循环；semtest 复验仍全绿；B-step2（修规划）待决策后实施（RUN_MANIFEST.md:2035-2078）。",
+  "caveats_zh": [
+   "zf_skip_* 原为进程级 static，日志中的 dirconf/batchprev 会串味，不能作为\"本轮为何让位\"的证据（已改为按库隔离）（RUN_MANIFEST.md:2065-2068）",
+   "修复方向属路由/表语义（V0.6 固定路由范畴），待用户确认（RUN_MANIFEST.md:2070-2075）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2015-2078"
+  ]
+ },
+ {
+  "id": "m5/ledger_b_step2b",
+  "title_zh": "B step 2b：固定 range 路由持久化 + 多分区 installtest + 重启一致性",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "验证决定性的路由修复：固定 range（kStatic）边界一旦稳定，安装/排空/回收即可打通；并做固定路由协议的持久化、负例与多分区/重启一致性验收。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "压力汇总按用户口径同时报告读正确性与安装进展（RUN_MANIFEST.md:2186-2187）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/zf_valcheck（RUN_MANIFEST.md:7-8）",
+   "workload": "installtest 1..4（单分区/多分区 × 无重叠/有重叠）；压力五组各 300 轮；用例开关 ZF_VC_FIXED_ROUTING 自动启用 4 分区、边界 5000/10000/15000（RUN_MANIFEST.md:2149-2160,2174-2175,2189-2196）",
+   "rocksdb_options": "RoutingMode::kStatic（固定 range，边界显式配置、按实际比较器校验）；ZFPROPS v2（format_version=2、比较器名、分区数、边界、physical part_ids、current_version、CRC32C）；历史协议回退 ZF_VC_LEGACY_ROUTING=1；学习分支仅对 kSampled 开放（RUN_MANIFEST.md:2126-2139,2182-2185）",
+   "other": "新增诊断：routing_table、install_evidence/merge_input_files/install_delete_replaced、merge_inputs、pending_gens（RUN_MANIFEST.md:2172-2174）"
+  },
+  "results": [
+   {
+    "metric": "routingneg 负例",
+    "value": "A 配置冲突 → Invalid argument: fixed-routing boundaries conflict；C 协议不支持 → Invalid argument: ZFPROPS partitions mismatch；B 元数据损坏 → Corruption: ZFPROPS corrupt but zfwal non-empty；routingneg: PASS (fails=0/3)",
+    "unit": "",
+    "condition": "D-47 固定路由协议创建/重开/负例",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2141-2146"
+   },
+   {
+    "metric": "installtest 1..4",
+    "value": "场景 1/2/3/4 全 PASS（1 单分区无重叠 [0]；2 单分区有重叠 [0]；3 跨边界多分区无重叠 [0 1 2]；4 跨边界多分区有重叠含删除与快照读 [0 1 2]）",
+    "unit": "",
+    "condition": "固定 range 路由；判据 pending 归零 + registry 无未安装代 + 重启路由身份一致 + 逐键正确",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2155-2160"
+   },
+   {
+    "metric": "有重叠场景融合证据",
+    "value": "scen=2 第二遍 merge_input_files=1 add_file=2 delete_replaced=1 base_merge_count=1 rewritten_bytes=106742；scen=4 第二遍 merge_input_files=3 add_file=6 delete_replaced=3 base_merge_count=3 rewritten_bytes=176857",
+    "unit": "个；B（bytes）",
+    "condition": "D-48 安装证据（不只最终层号）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2164-2168"
+   },
+   {
+    "metric": "五组压力（固定路由，各 300 轮）",
+    "value": "组1 failures/silent_stale/notfound/corruption 全 0、rotations=300 ms_avg=103 ms_max=119 install_wait 8ms/0 回收 300 代/39.4MB；组2 123/140 8ms/0 900 代/118MB；组3 110/137 8ms/0 500 代/65.7MB；组4 162/179 0ms/0 1500 代/197MB；组5 156/172 17ms/0 1500 代/197MB",
+    "unit": "轮；ms",
+    "condition": "固定路由作为目标模式默认（禁 L0 新库默认 kStatic）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2189-2197"
+   },
+   {
+    "metric": "新库门禁两种路由对比",
+    "value": "固定路由 write pending=10.3MB drained=16.0MB / scan mismatch=0 / triage B2=0 / all pending=0.0MB drained=34.3MB reclaimed=26.2MB gens=2；历史协议 write pending=14.8MB drained=4.2MB / all pending=46.1MB drained=0.0MB reclaimed=0.0MB gens=33",
+    "unit": "B；键",
+    "condition": "同一 build、同一命令，仅路由不同",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2200-2210"
+   }
+  ],
+  "evaluation_zh": "决定性实验成立：同一用例/同一 build 只改路由模式时，installtest scen=1/2 在 kStatic（固定 range 边界）下全 PASS、在 kSampled（默认）下 FAIL；引擎的融合路径在稳定 range 边界下完全正确，B 的\"停止写入后能排空\"只差路由语义。固定路由作为目标模式默认后安装/排空/回收全部打通，五组 300 轮双通过（RUN_MANIFEST.md:2093-2103,2182-2210）。",
+  "caveats_zh": [
+   "学习窗口修复仍不足以解锁已写数据：hash 期（epoch ≤3）写下的代在 range 表下给不出覆盖区间，仍只能让位（RUN_MANIFEST.md:2104-2107）",
+   "固定路由下组 4/5 的 pin_ok=0 / pin_active=0——不再走到 sealed 代 pin / retiring 拒绝路径（旧配置是 219 次 pin、112 次拒绝），该路径覆盖改由 semtest 承担（RUN_MANIFEST.md:2212-2215）",
+   "代价：新库分区数/边界固定，后续调参需迁移（RUN_MANIFEST.md:2112-2113）",
+   "学习窗口改动后旧绿灯只作历史证据（RUN_MANIFEST.md:2179-2180）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2122-2215"
+  ]
+ },
+ {
+  "id": "m5/ledger_b_step3_4",
+  "title_zh": "B step 3–4 收口：失败语义验收（failaccept A/B/C）+ 同一 build 全面验收全绿",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "integration",
+  "purpose_zh": "验收安装失败的三种语义（整单元撤销、提交前失败、提交后失败）在注入仍生效时的合规性与重启后的持久语义，并在同一 build 上把安全安装与失败语义全部门禁标绿。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "压力五组各 300 轮（RUN_MANIFEST.md:2258,2260-2269）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/zf_valcheck（build 哈希 /tmp/build_hash_final.txt：zf_valcheck 2efa31bf…、librocksdb.so.11 60208545…）（RUN_MANIFEST.md:7-8,2219）",
+   "workload": "failaccept A|B|C 各做：写入 → 显式封存 → 注入 → 驱动安装 → 注入生效时读判据 → 重启 → 解除注入后安装/排空/回收；五组压力各 300 轮（RUN_MANIFEST.md:2223-2224,2258）",
+   "rocksdb_options": "ZF_TEST_DROP_OUTPUT（装配 edit/fence 之前整体撤销）、ZF_TEST_LNA_FAIL_PRE（共享提交路径、manifest 未写）、ZF_TEST_LNA_FAIL_POST_SYNC（manifest 已 sync、内存未应用）；env 存在期间持续失败；ZF_READ_SHORT_RETRY=0 ZF_VC_PARTITION_TARGET_KB=128（RUN_MANIFEST.md:2228-2230,2241-2242）",
+   "other": "新增 install_uncertain / install_reconciled；恢复期按 Version fence 对账（ForEachRegisteredGen + MarkGensInstalled）；判据用持久证据（Version 里的 installed_fences）而不是 fence_advance_count（RUN_MANIFEST.md:2243-2246）"
+  },
+  "results": [
+   {
+    "metric": "failaccept A（整单元撤销）",
+    "value": "PASS：无AddFile=1 无Delete=1 无fence=1 pending保持=1 drained不推进=1 可读=1；重启后逐键 bad=0/62；解除后 pending=0 无未安装代=1 reclaimed=65148",
+    "unit": "键；B",
+    "condition": "ZF_TEST_DROP_OUTPUT",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2233-2234"
+   },
+   {
+    "metric": "failaccept B（提交前失败）",
+    "value": "PASS：重启后 edit 未被承认（fences=(none)、pending=66216、gens=NONE+recovery）；解除后 pending=0 无未安装代=1 reclaimed=132432",
+    "unit": "B",
+    "condition": "ZF_TEST_LNA_FAIL_PRE",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2235-2236"
+   },
+   {
+    "metric": "failaccept C（提交后失败）",
+    "value": "PASS：install_uncertain>0；重启后承认该 edit（fences=p1=[0,0]b1068r1 p0=[0,0]b65148r61、pending=0、registered=0、逐键 62/62 正确）；解除后 pending=0 reclaimed=66216",
+    "unit": "",
+    "condition": "ZF_TEST_LNA_FAIL_POST_SYNC",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2237-2239"
+   },
+   {
+    "metric": "同一 build 完整验收",
+    "value": "semtest（cases1-7: PASS fails=0）；baccept phase1–4 PASS（phase1 pending=0；phase2 让位 5 批；phase3 pending=0 drained=42720000；phase4 registered_gens=0 reclaimed=42720000）；all/scan/triage PASS（pending=0.0MB drained=34.2MB reclaimed=26.2MB）；installtest 1–4 PASS；routingneg PASS 3/3；failaccept A/B/C PASS；五组压力各 300 轮 PASS",
+    "unit": "",
+    "condition": "build /tmp/build_hash_final.txt",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2250-2258"
+   },
+   {
+    "metric": "五组压力汇总（含安装进展口径）",
+    "value": "组1 ms_avg=103 install_wait_timeouts=0 pending_last=0 reclaimed_bytes=39409200 gens=300；组2 ms_avg=123 reclaimed=118227600 gens=900；组3 ms_avg=110 reclaimed=65686400 gens=500；组4 ms_avg=162 reclaimed=197046000 gens=1500（不要求安装）；组5 ms_avg=155 reclaimed=197046000 gens=1500",
+    "unit": "ms；B",
+    "condition": "各组 rounds=300、failures/silent_stale/notfound/corruption=0、断言全 0",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2260-2269"
+   }
+  ],
+  "evaluation_zh": "B（安全安装与失败语义）在本 build 上完整标绿：安装/排空/回收、跨分区与重启一致性、整单元撤销、提交前失败、提交后故障恢复、协议负例、五组压力全部通过（RUN_MANIFEST.md:2276-2277）。",
+  "caveats_zh": [
+   "固定路由下组 4/5 的 pin_ok/pin_active 为 0，不再自然触发 sealed 代 pin / retiring 路径；若压力门禁要求覆盖该路径需另加受控让位场景（RUN_MANIFEST.md:2271-2273）",
+   "组 1–3 每轮结束时 registry_last=2（当轮活跃/刚封存代），不是残留泄漏（pending_last=0）（RUN_MANIFEST.md:2274）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2217-2278"
+  ]
+ },
+ {
+  "id": "m5/ledger_aprobe",
+  "title_zh": "A 自然可达性判断：aprobe/mini 新用例与二分结果",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "用合法操作序列（写/覆盖/删除墓碑/snapshot/封存+安装+回收交接/重启）逐次 Get 判断 A 类错读（索引胜出且 seq 低于真值）在合法路径上是否自然可达，并二分暴露另一类读失败的触发步骤。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "aprobe <n> <iters>；LSM-only 对照用线程本地开关 get_trace::SetSkipIndex（不用 env，避免 getenv 竞争）（RUN_MANIFEST.md:2285-2290）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/zf_valcheck（RUN_MANIFEST.md:7-8）",
+   "workload": "aprobe 合法操作混负载（gets 620–1520）与 mini <batches> 干净最小序列（6 批 120 键、6 次封存）（RUN_MANIFEST.md:2285-2299）",
+   "rocksdb_options": "对照开关 ZF_AP_NO_PURGE、ZF_AP_NO_LSM_PROBE；A 命中判据 = source=INDEX 且 index_seq < 真值 seq 且需要 LSM 才正确（RUN_MANIFEST.md:2286-2287,2311）",
+   "other": "记录 read_sequence / index_sequence / truth_sequence / source / candidate_count / fence；首个错误处做重启审计（判定持久丢失 vs 内存状态）（RUN_MANIFEST.md:2286-2290）"
+  },
+  "results": [
+   {
+    "metric": "mini（干净最小序列）",
+    "value": "全 PASS（6 批 120 键、6 次封存、pending 归零、逐键全对）",
+    "unit": "",
+    "condition": "mini <batches>；证明写/封存/安装路径本身无问题",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2291-2292"
+   },
+   {
+    "metric": "aprobe 二分（base 全开）",
+    "value": "gets=1520 errors=410 A_hits=0 陈旧索引胜出(非快照)=0",
+    "unit": "次",
+    "condition": "base",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2296"
+   },
+   {
+    "metric": "aprobe 二分（no_delete）",
+    "value": "gets=1220 errors=846 A_hits=0 陈旧索引胜出=2",
+    "unit": "次",
+    "condition": "no_delete",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2297"
+   },
+   {
+    "metric": "aprobe 二分（no_snapshot）",
+    "value": "gets=920 errors=0 A_hits=0 陈旧索引胜出=0",
+    "unit": "次",
+    "condition": "no_snapshot（关闭 snapshot 步骤后整套混合负载零读错误）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2298"
+   },
+   {
+    "metric": "aprobe 二分（no_delete+no_snapshot）",
+    "value": "gets=620 errors=0 A_hits=0 陈旧索引胜出=5",
+    "unit": "次",
+    "condition": "no_delete+no_snapshot",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2299"
+   },
+   {
+    "metric": "snapshot 交互读失败（新发现）",
+    "value": "base/no_delete 下 errors=410/846（NotFound 与值不符都有），起点固定在 2–3 次封存附近（首个失败 read_seq≈206）；至少一次重启后该键仍缺失（重启审计: checked=42 仍缺失=1 → 持久丢失）",
+    "unit": "次",
+    "condition": "取快照→写入→用快照读→实时读→释放快照 的负载",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2305-2311"
+   }
+  ],
+  "evaluation_zh": "没有出现\"A 命中导致结果错误\"，且关闭 snapshot 步骤后整套混合负载零读错误；但暂不宣布 A 为 N/A/UNREACHABLE_UNDER_VALID_PROTOCOL——no_delete+no_snapshot 仍有 5 次\"索引 seq 低于真值\"需单独最小化，且 snapshot 交互导致的读失败（含一次重启后仍缺失）必须先解释掉（RUN_MANIFEST.md:2301-2314）。",
+  "caveats_zh": [
+   "A 步未完成（无命中但需先解释 snapshot 失败）（RUN_MANIFEST.md:2316）",
+   "B 仍以 e86a9fd 为候选基线，本段未改动（RUN_MANIFEST.md:2316）",
+   "ZF_AP_NO_PURGE / ZF_AP_NO_LSM_PROBE 均不能消除该失败，触发点锁定在 snapshot 路径（RUN_MANIFEST.md:2311）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2280-2316"
+  ]
+ },
+ {
+  "id": "m5/ledger_snapfix",
+  "title_zh": "snapshot 序列读失败定根因并修复（A 判定完成）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "用用户指定的最小用例 snapmini 定位\"快照后读不到刚写入键\"的根因（索引 active 代落后于 WAL active 代导致插入被静默丢弃），并做修复后的完整验收以结论化 A 的判定。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "semtest 20000（ZF_VC_PARTITION_TARGET_MB=1）；aprobe 300 轮 ×3（RUN_MANIFEST.md:2354-2355）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/zf_valcheck（build 哈希 /tmp/build_hash_snapfix.txt）（RUN_MANIFEST.md:7-8,2350）",
+   "workload": "snapmini：Put→Get→快照→Put→快照读→实时读→释放→Freeze+DrainNow→Get→重启→Get，逐步记录 read_sequence/source/index_sequence/truth/candidate_count/fence/WAL·LSM 存在性/registry；aprobe 合法路径 300 轮 ×3（共 4560 次 Get）（RUN_MANIFEST.md:2322-2324,2355）",
+   "rocksdb_options": "新增计数 index_resegmented / insert_dropped；读路径\"陈旧条目\"放行判据 = 发布证据 ∨ fence 覆盖 ∨（不在 registry 且 fence 不覆盖）（RUN_MANIFEST.md:2338-2347）",
+   "other": "snapmini 共 6 配置（全序列 + 四组开关 + 对照组），每配置 80–120 项检查、重启审计 0 bad（RUN_MANIFEST.md:2354）"
+  },
+  "results": [
+   {
+    "metric": "snapmini 根因现场",
+    "value": "第 0 轮（首次封存前）全部步骤 ok；第 1 轮起 Put 之后立即 Get = LSM_NOTFOUND，cands=0；registry: part=3 index_active_gen=2 wal_active_gen=4 insert_dropped=1（每次失败 +1）",
+    "unit": "",
+    "condition": "snapmini 单轮定位",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2326-2330"
+   },
+   {
+    "metric": "aprobe 合法路径 300 轮 ×3",
+    "value": "errors=0 / A_hits=0 / 陈旧索引胜出=0 / 持久丢失=0（共 4560 次 Get）",
+    "unit": "次",
+    "condition": "修复后（修复 1：EnsureActiveForGen；修复 2：陈旧条目放行）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2355"
+   },
+   {
+    "metric": "修复后完整验收",
+    "value": "snapmini 6 配置全 PASS；semtest cases1-7 PASS（case6 标 N/A/UNREACHABLE_UNDER_VALID_PROTOCOL）；baccept phase1–4 PASS（phase3 pending=0 drained=42720000；phase4 registered_gens=0 reclaimed=42720000）；all/scan/triage PASS（scan mismatch=0、B2=0、all pending=0.0MB reclaimed=26.2MB）；五组压力各 300 轮 PASS（install_wait_timeouts=0、pending_last=0）",
+    "unit": "",
+    "condition": "build /tmp/build_hash_snapfix.txt",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2352-2359"
+   }
+  ],
+  "evaluation_zh": "根因不是 snapshot，而是\"索引 active 代落后于 WAL active 代 ⇒ 插入被静默丢弃\"（snapshot 只是改变了写入模式把它暴露出来，上一轮的 snapshot 归因在此更正）；A 判定按用户判据为 **A: UNREACHABLE_UNDER_VALID_PROTOCOL**（合法路径 4560 次 Get 零错误、零陈旧索引胜出、零持久丢失），未对每次 Get 增加 LSM 查询（RUN_MANIFEST.md:2320-2336,2356-2364）。",
+  "caveats_zh": [
+   "上一轮把该失败归因成 snapshot 交互，本段明确更正（RUN_MANIFEST.md:2336）",
+   "读路径并集语义未收敛（\"陈旧条目\"放行是删掉最后一类拒绝，不是收敛）（RUN_MANIFEST.md:2343-2347）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2318-2364"
+  ]
+ },
+ {
+  "id": "m5/ledger_fixed_routing_perf",
+  "title_zh": "固定路由的性能与迁移收口：migrate 8/8、200k×1KB 性能对照、两个新阻断项",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "收口固定路由的迁移矩阵与性能对照：验证新库固定 range 路由/历史 hash 库/各类协议负例，并对照固定 range 与历史 hash 在 200k×1KB 下的吞吐、延迟与安装/排空/回收表现，同时识别新的阻断项。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "200k×1KB 基准：8 分区、4 线程（D-57）（RUN_MANIFEST.md:2397）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/db_bench（200k×1KB 性能对照）+ zf_valcheck（installtest/migrate）（RUN_MANIFEST.md:7-8,2397）",
+   "workload": "200k×1KB（200MB 输入）、8 分区、4 线程；installtest 3/4 边界键 5000/10000/15000 及其 ±1；migrate A–H 八用例（RUN_MANIFEST.md:2382-2389,2397-2398）",
+   "rocksdb_options": "--zf_base_merge=1；固定 range 路由（kStatic）vs 历史 hash；installtest 用 ZF_VC_FIXED_ROUTING（4 分区、边界 5000/10000/15000）（RUN_MANIFEST.md:2174-2175,2397,2413）",
+   "other": "新增诊断 routing_table / install_evidence / merge_input_files / pending_gens / union_skipped；复现脚本见各用例（RUN_MANIFEST.md:2172-2175,2395）"
+  },
+  "results": [
+   {
+    "metric": "migrate 迁移矩阵",
+    "value": "8/8 PASS；A 新库固定 range：open ✓、路由身份前后完全一致、pending=0、逐键 bad=0；B 历史 hash 库重开 PASS（用固定路由配置打开被拒绝 ZFPROPS partitions mismatch）；C 比较器名冲突 → InvalidArgument: ZFPROPS comparator mismatch；D 边界冲突 → InvalidArgument: fixed-routing boundaries conflict；E 分区数冲突 / F part_ids 损坏 / H CRC 损坏 → Corruption: ZFPROPS corrupt but zfwal non-empty；G format_version=99 → Corruption",
+    "unit": "",
+    "condition": "migrate A–H；fails=0、六类异常全部明确报错、无重建、无静默切换路由",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2370-2380"
+   },
+   {
+    "metric": "多分区边界回归（installtest 3/4）",
+    "value": "scen=3/4 PASS（第一遍/第二遍/重启前逐键/路由一致/重启后逐键/融合证据 全 1）；终点 pending=0 registered=0 pending_gens=n=0 旧代 WAL 残留=0",
+    "unit": "",
+    "condition": "新增指标（D-56）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2384-2386"
+   },
+   {
+    "metric": "额外候选分区查询",
+    "value": "328（未达成 0；已知性能项）",
+    "unit": "次",
+    "condition": "固定边界下路由分区唯一，但读路径仍做\"全部有链分区\"的候选并集",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2387,2391-2395"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "88 151 ops/s（45.0 µs/op，87.4 MB/s）",
+    "unit": "ops/s",
+    "condition": "固定 range；200k×1KB、8 分区、4 线程、--zf_base_merge=1",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2401"
+   },
+   {
+    "metric": "fillrandom 吞吐（历史 hash）",
+    "value": "30 262 ops/s（130.8 µs/op，30.0 MB/s）",
+    "unit": "ops/s",
+    "condition": "历史 hash 同参数",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2401"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "258 397 ops/s（15.4 µs/op，251.6 MB/s）",
+    "unit": "ops/s",
+    "condition": "固定 range",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2402"
+   },
+   {
+    "metric": "readrandom 吞吐（历史 hash）",
+    "value": "12 866 ops/s（306.9 µs/op，12.5 MB/s）",
+    "unit": "ops/s",
+    "condition": "历史 hash",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2402"
+   },
+   {
+    "metric": "写延迟 P50/P75/P99/P99.9",
+    "value": "16.1 / 21.9 / 50.8 / 352.9 µs",
+    "unit": "µs",
+    "condition": "固定 range",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2403"
+   },
+   {
+    "metric": "读延迟 P50/P75/P99/P99.9",
+    "value": "13.1 / 19.1 / 43.0 / 74.0 µs",
+    "unit": "µs",
+    "condition": "固定 range（历史 hash：313.2 / 347.1 / 379.5 / 564.4 µs）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2404"
+   },
+   {
+    "metric": "wall clock",
+    "value": "13.8 s",
+    "unit": "s",
+    "condition": "固定 range（历史 hash：91.2 s）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2405"
+   },
+   {
+    "metric": "安装/排空/回收",
+    "value": "固定 range：reclaimed=789MB、installed_epochs=75、empty_edit=0（另一次 200k 运行）；历史 hash：pending=839MB、reclaimed=0、installed_epochs=1、empty_edit=51",
+    "unit": "",
+    "condition": "两路由对照",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2406"
+   },
+   {
+    "metric": "物化写放大（阻断项 1）",
+    "value": "固定路由 200k×1KB（200MB 输入）prof_output_bytes=4.41GB（≈22×）、prof_merge_us=27.8s",
+    "unit": "GB",
+    "condition": "反复 base 融合重写是下一优化目标",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2411-2412"
+   },
+   {
+    "metric": "关闭时罕见段错误（阻断项 2）",
+    "value": "db_bench（固定路由、--zf_base_merge=1）约 1/7 次退出时 SIGSEGV；插桩定位到 ZFTD close-flush 返回 Corruption: ZF sealed WAL scan failed: IO error: ZeroFlush: scanner file not open（物化扫描与回收竞态）",
+    "unit": "",
+    "condition": "已挂后台复现循环（/tmp/crash_repro_iter*.log）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2413-2417"
+   }
+  ],
+  "evaluation_zh": "固定路由在读吞吐/延迟与排空回收上大幅领先（读 ~20×、写 ~2.9×），历史 hash 仍受既有\"装不上/不回收\"问题影响；但本 build **不标记 V0.6 候选**——两个新阻断项（关闭时罕见 SIGSEGV、物化写放大 22×）与一个已知性能项（额外候选分区收敛，实测 328）必须先关闭，核心正确性其余项目全绿（RUN_MANIFEST.md:2408-2431）。",
+  "caveats_zh": [
+   "\"额外候选分区查询=0\"未达成，实测 328；尝试实现后主动退回（会改变读路径语义、破坏 semtest 跨分区 fixture），按用户\"不再改读写语义\"指令列为后续性能项（RUN_MANIFEST.md:2391-2395）",
+   "写放大 22× 与关闭 SIGSEGV 为阻断候选标记的原因（RUN_MANIFEST.md:2430-2431）",
+   "perf 对照中\"安装/排空/回收\"一行的固定路由数字来自另一次 200k 运行（RUN_MANIFEST.md:2406）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2366-2431"
+  ]
+ },
+ {
+  "id": "m5/ledger_v06_p0",
+  "title_zh": "V0.6 收口：P0 关闭崩溃修复（closestress 1000 轮）+ P1 写放大度量 + P2 并集回退",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "修复关闭阶段崩溃（物化扫描 vs 回收竞态）并验收；度量 P1 物化写放大尝试找杠杆；尝试 P2 历史并集收敛两条式实现（破坏 case7 后回退）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "closestress 1000 轮；固定路由 200k×1KB 写基准（RUN_MANIFEST.md:2451-2463）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/{db_bench,zf_valcheck}（build 哈希 /tmp/build_hash_p0fix.txt）（RUN_MANIFEST.md:7-8,2451-2452,2487）",
+   "workload": "closestress：开库→写 2k 键→封存 4 分区→带 pending 关闭，×1000 轮；固定路由 200k×1KB（200MB 输入）基准；db_bench 定长循环（RUN_MANIFEST.md:2451-2452,2461-2462）",
+   "rocksdb_options": "目标模式禁 L0；--zf_base_merge=1；P1 参数扫描 min_ratio=0.25/1.0/2.0、收益攒批 cap 8/16；新增 ZF_DBG_MERGE=1（RUN_MANIFEST.md:2459,2464-2471）",
+   "other": "新增 RAII zeroflush::SealedCacheReadRefGuard；新增计数 scan_ref_held / scan_skipped_reclaimed；union_fallback_used 计数器保留（RUN_MANIFEST.md:2443-2447,2484）"
+  },
+  "results": [
+   {
+    "metric": "closestress 1000 轮",
+    "value": "零崩溃；db_bench 定长循环（固定路由、base_merge=1、200k×1KB）无 SIGSEGV（循环中途两次 exit=127 是循环运行时重建 db_bench 导致，非崩溃）",
+    "unit": "轮",
+    "condition": "P0 修复后（扫描前 TryAcquireGenReadRef + 已回收代跳过计数 scan_skipped_reclaimed）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2449-2455"
+   },
+   {
+    "metric": "P1 物化写放大度量",
+    "value": "prof_scan_bytes≈760MB、prof_output_bytes≈5.1GB（≈25×）、prof_tasks≈266、installed_epochs≈70、reclaimed≈795MB、pending 收尾≈53MB",
+    "unit": "GB",
+    "condition": "固定路由 200k×1KB（200MB 输入），度量新增 ZF_DBG_MERGE=1",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2460-2463"
+   },
+   {
+    "metric": "P1 参数尝试（写 ops/s / prof_output_bytes）",
+    "value": "默认（min_ratio 0.25）93 459 / 5.09 GB；min_ratio=1.0 → 51 264 / 5.21 GB；min_ratio=2.0 → 18 104 / 6.13 GB；收益攒批（ratio 0.25 + cap 8）102 108 / 5.18 GB；收益攒批（cap 16）104 174 / 5.11 GB",
+    "unit": "ops/s；GB",
+    "condition": "均未改善且降低写吞吐",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2464-2473"
+   },
+   {
+    "metric": "P2 并集收敛尝试",
+    "value": "实现\"路由∪别名优先，缺候选才查历史并集\"后 semtest case7 选错胜出者（得 part=3/seq=100，期望 part=2/seq=200）⇒ 已回退为单一并集",
+    "unit": "",
+    "condition": "union_fallback_used 计数器保留",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2479-2485"
+   },
+   {
+    "metric": "门禁（本 build）",
+    "value": "semtest cases1-7 PASS；aprobe 300 轮 PASS（errors=0 A_hits=0）；baccept phase1-4 PASS（phase3 pending=0 drained=42720000；phase4 registered=0 reclaimed=42720000）；installtest 1-4 PASS；migrate PASS 8/8；all/scan/triage PASS（pending=0.0MB reclaimed=26.2MB wal_read_delta=0）；五组压力各 300 轮 PASS；closestress 1000 轮 PASS",
+    "unit": "",
+    "condition": "/tmp/build_hash_p0fix.txt",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2488-2497"
+   }
+  ],
+  "evaluation_zh": "P0（关闭崩溃）已关闭 ⇒ 可进入受控功能测试；但 V0.6 候选仍不标记——P1（写放大 ~25×，缺杠杆）与 P2（额外候选分区 328）未达标，另需把\"目标模式下 --zf_base_merge=1\"变成安全默认（或启动时明确拒绝不安全配置），该条本轮未做（RUN_MANIFEST.md:2498-2501）。",
+  "caveats_zh": [
+   "P1 未找到杠杆：放大几乎与 min_ratio / 攒批 cap 两个 knob 无关，需下一轮专门追踪 plan.decision == kMergeBase 的赋值点与 ratio 实际取值（RUN_MANIFEST.md:2473-2477）",
+   "P2 回退：候选顺序/剪枝与显式候选路径的交互超出预期（RUN_MANIFEST.md:2481-2484）",
+   "db_bench 循环中两次 exit=127 被明确判为非崩溃（RUN_MANIFEST.md:2452-2454）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2433-2501"
+  ]
+ },
+ {
+  "id": "m5/ledger_v06_c1c2",
+  "title_zh": "V0.6 收口（三小提交）：C1 消除不安全默认、C2 定位 P1 根因并验证收益",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "消除目标模式下关闭融合的不安全默认配置（C1），并定位 P1 写放大根因（kMergeBase 赋值点无收益判据、se_part_bytes==new_input 否定\"累计值\"假设）并验证收益攒批的效果与代价（C2）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "写吞吐与读吞吐对照（200k×1KB 量级）（RUN_MANIFEST.md:2534-2536）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/{db_bench,zf_valcheck}（build 哈希 /tmp/build_hash_c1c2.txt）（RUN_MANIFEST.md:7-8,2550）",
+   "workload": "installtest scen=2 第二遍；历史 hash 库 fillrandom；写放大/写吞吐/读吞吐对照（RUN_MANIFEST.md:2515-2518,2534-2536）",
+   "rocksdb_options": "merge_into_base_level 三态（merge_into_base_level_explicit）；目标模式（forbid_l0_install）+ 固定 range 协议下未显式指定 ⇒ 默认开启，显式关闭 ⇒ InvalidArgument；ZF_VC_MERGE_OFF=1 负例；ZF_DBG_MERGE=1 逐计划决策日志（RUN_MANIFEST.md:2507-2512,2523-2524）",
+   "other": "收益阈值 = 目标模式 + 攒批允许则收益不足改攒批（带上限与收敛条件）；base_merge_skip_max_generations 默认 0（关闭）；UninstalledBytesOf(part) 已加（RUN_MANIFEST.md:2532,2540-2541）"
+  },
+  "results": [
+   {
+    "metric": "C1 负例（不安全配置）",
+    "value": "ZF_VC_MERGE_OFF=1 + 固定路由 ⇒ open failed: Invalid argument: … requires merge_into_base_level=true（不再出现启动成功但停止写入后永远排不空）",
+    "unit": "",
+    "condition": "C1 验收",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2514-2516"
+   },
+   {
+    "metric": "C1 正例",
+    "value": "未指定 ⇒ 融合默认开启：installtest scen=2 第二遍 融合输入=1/替换删除=1；历史 hash 库 + 显式 --zf_base_merge=0 仍可正常跑（fillrandom 211k ops/s）",
+    "unit": "ops/s",
+    "condition": "C1 验收",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2517-2518"
+   },
+   {
+    "metric": "C2 写放大根因实测",
+    "value": "part=7 new_input=104664 base_input=25923226 ratio=0.0040 decision=merge（为 104KB 新数据重写 25MB base）⇒ 写放大 ~24×；se_part_bytes == new_input（否定\"累计值被当作收益\"假设）",
+    "unit": "B",
+    "condition": "ZF_DBG_MERGE=1 逐计划决策；ratio 门槛只存在于从不被走到的 L0 融合分支",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2526-2530"
+   },
+   {
+    "metric": "C2 加收益阈值后",
+    "value": "写放大 prof_output_bytes 4.5–5.1GB → 355MB（≈24×→1.8×）；写吞吐 93–108k → 176k ops/s（175 MB/s）；但读吞吐 102–136k → 35k ops/s；收尾 pending=718MB 未排空",
+    "unit": "GB；ops/s",
+    "condition": "该策略把安装推迟到下一次封存，停写后无新封存 ⇒ 读阶段退化、pending 不归零",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2532-2537"
+   },
+   {
+    "metric": "最终门禁（本 build）",
+    "value": "closestress 1000 轮零崩溃；semtest cases1-7 PASS；snapmini / aprobe(300轮) PASS；baccept phase1-4 PASS；installtest 1-4 PASS；migrate PASS 8/8；all/scan/triage PASS（pending=0.0MB reclaimed=26.2MB）；五组压力各 300 轮 PASS；db_bench 退出循环 20 次 crash=0",
+    "unit": "",
+    "condition": "/tmp/build_hash_c1c2.txt",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2551-2560"
+   }
+  ],
+  "evaluation_zh": "C1 达成（错误配置不再静默停滞）、P0 关闭（关闭无崩溃）、P2 未动语义；P1 已量化并验证收益（24×→1.8×）但需\"积压驱动排空\"配套才能启用 ⇒ V0.6 候选仍不标记，下一步第一项即该配套（RUN_MANIFEST.md:2562-2564）。",
+  "caveats_zh": [
+   "收益攒批未启用：安装推迟导致读阶段退化、pending=718MB 不归零；base_merge_skip_max_generations 默认 0 = 关闭（RUN_MANIFEST.md:2537-2541）",
+   "P2 本轮未改并集，仍为单一并集实现（RUN_MANIFEST.md:2543-2548）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2503-2564"
+  ]
+ },
+ {
+  "id": "m5/ledger_v06_cand",
+  "title_zh": "V0.6 候选版本标记（P1 积压驱动排空机制就位但默认关闭；P2 测量细化）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "integration",
+  "purpose_zh": "在 P1 积压驱动排空机制加入但安全触发路径未完成的情况下，确认按用户口径保持安全默认，并对 P2 做仅测量的细化，最终标记本 build 为 V0.6 候选版本。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "installtest 2/3/4；压力组 1/2 各 100 轮；200k 基准（因挂死未完成）（RUN_MANIFEST.md:2579-2580）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/{db_bench,zf_valcheck}（build 哈希 /tmp/build_hash_v06cand.txt）（RUN_MANIFEST.md:7-8,2594,2609）",
+   "workload": "installtest 2/3/4；压力组 1/2 各 100 轮；200k 基准（挂死未完成）；边界回归读数（并集候选 列入=328 / 实际访问=0）（RUN_MANIFEST.md:2579-2589）",
+   "rocksdb_options": "NeedsBacklogDrain()（阈值 base_merge_skip_max_bytes、年龄上限 backlog_drain_max_age_micros 默认 30s）；收益攒批门禁纳入 backlog_drain_active()；ZF_VC_MERGE_BENEFIT=8（启用态实验）；base_merge_skip_max_generations 默认 0；union_parts_visited 精确化计数（RUN_MANIFEST.md:2570-2574,2589,2619-2620）",
+   "other": "install_progress_failures（关闭排空\"连续无进展\"计数，不伪造 installed / 空 edit / 推进 fence）（RUN_MANIFEST.md:2572-2573）"
+  },
+  "results": [
+   {
+    "metric": "启用态最小用例与压力（ZF_VC_MERGE_BENEFIT=8）",
+    "value": "installtest 2/3/4 PASS、压力组 1/2 各 100 轮 PASS、timeouts=0、pending=0；但 200k 基准因挂死未完成（900s 超时，exit=124）",
+    "unit": "",
+    "condition": "MaybeScheduleZfSink（持 DB mutex）里直接 FlushMemTable ⇒ 互斥重入挂死；已回退为只探测不触发",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2575-2581"
+   },
+   {
+    "metric": "P2 测量细化",
+    "value": "并集候选 列入=328 / 实际访问=0（被上界剪枝全部跳过）⇒ 真实读路径开销为 0，无需收敛改动",
+    "unit": "次",
+    "condition": "计数器仅测量、不改变结果（union_parts_visited）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2587-2592"
+   },
+   {
+    "metric": "最终门禁（本 build）",
+    "value": "closestress 1000 轮零崩溃；semtest cases1-7 PASS；snapmini PASS；aprobe 300 轮 PASS（errors=0 / A_hits=0 / 陈旧索引胜出=0 / 持久丢失=0）；baccept phase1–4 PASS（phase3 pending=0 drained=42720000；phase4 registered=0 reclaimed=42720000）；installtest 1–4 PASS；migrate PASS 8/8；all/scan/triage PASS（pending=0.0MB、reclaimed=26.2MB、wal_read_delta=0）；五组压力各 300 轮 PASS；db_bench 退出循环 20 次 crash=0",
+    "unit": "",
+    "condition": "/tmp/build_hash_v06cand.txt",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2596-2607"
+   }
+  ],
+  "evaluation_zh": "全部门禁通过、两个生产级问题均有明确结论与可回退实现 ⇒ 标记本 build 为 V0.6 候选版本（具备受控运行条件）；依据：错误配置不会静默停滞、关闭无崩溃、写放大量化完成但按用户口径保持安全默认、额外查询优化不改变语义（真实访问=0）（RUN_MANIFEST.md:2609-2623）。",
+  "caveats_zh": [
+   "P1 积压驱动排空的**安全触发路径未完成**：在持 DB mutex 的 MaybeScheduleZfSink 里直接 FlushMemTable 导致互斥重入挂死（200k 基准 900s 超时 exit=124），已回退为只探测不触发（RUN_MANIFEST.md:2575-2577）",
+   "base_merge_skip_max_generations 保持默认 0（关闭），候选版本使用当前安全默认（RUN_MANIFEST.md:2578-2581）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2566-2623"
+  ]
+ },
+ {
+  "id": "m5/ledger_a1a3",
+  "title_zh": "V0.6 下一轮（A1–A3）：判定收紧 + 后台排空机制（默认门控关闭）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "A1 把\"registry 里没有条目即视为已回收\"的危险推断收紧为必须有证据（发布证据 / fence 覆盖 / 合法回收墓碑）；A2/A3 实现后台排空调度机制与定时唤醒，并实证\"不开新写也能自动排空\"的缺口。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "停止写入后观察 pending 变化（ZF_ENABLE_BACKLOG_DRAIN=1 + ZF_VC_MERGE_BENEFIT=8 + 年龄 1s，autodrain 用例）；压力组 1 100 轮（RUN_MANIFEST.md:2651-2655,2675）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/zf_valcheck（build 哈希 /tmp/build_hash_a1a3.txt）（RUN_MANIFEST.md:7-8,2671）",
+   "workload": "autodrain 用例：停写后（无任何 Flush/DrainNow/close 调用）观察 pending；读校验 bad=0/20000（RUN_MANIFEST.md:2651-2655）",
+   "rocksdb_options": "reclaimed_by_flow_ 合法回收墓碑（PurgePending 真实 unlink 成功后登记，有界保留最近 64K 条）；三处判定必须有证据否则返回 Corruption 明确报错；调度点 MaybeScheduleZfDrainLocked()（持 DB mutex 只做探测/去重/env_->Schedule 入队）、BackgroundCallZfDrain()（回调不持 DB mutex，置 SetBacklogDrainActive(true)）、ZfDrainTimerThread（200ms 周期）；无进展退避 200ms + install_progress_failures（RUN_MANIFEST.md:2632-2637,2643-2649）",
+   "other": "自动触发默认门控关闭（ZF_ENABLE_BACKLOG_DRAIN 显式开启）（RUN_MANIFEST.md:2668-2669）"
+  },
+  "results": [
+   {
+    "metric": "A1 收紧验证",
+    "value": "semtest（case1/2/3/5/7/8a/8b 全覆盖）PASS、installtest scen 2/4 PASS、压力组 1 100 轮 PASS ⇒ 合法流程全部留下证据，收紧后零误报",
+    "unit": "",
+    "condition": "A1：必须有证据（发布证据 / fence 覆盖 / 合法回收墓碑）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2638-2639"
+   },
+   {
+    "metric": "A2/A3 停写后自动排空实测",
+    "value": "pending 10.68MB → 2.29MB；reclaimed 0 → 19 069 140；读校验 bad=0/20000；后台请求数 26k（定时器在工作）；但 pending **未归零**：残留 1 代 3:4(2.29MB, NONE+skip)",
+    "unit": "B",
+    "condition": "ZF_ENABLE_BACKLOG_DRAIN=1 + ZF_VC_MERGE_BENEFIT=8 + 年龄 1s，无任何 Flush/DrainNow/close 调用",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2652-2655"
+   },
+   {
+    "metric": "门禁（默认路径）",
+    "value": "semtest cases1-7 PASS；installtest scen 2 / 4 PASS；五组压力（此处跑组 1 100 轮）PASS（failures/silent_stale/notfound/corruption=0、timeouts=0、pending=0）",
+    "unit": "",
+    "condition": "/tmp/build_hash_a1a3.txt",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2672-2675"
+   }
+  ],
+  "evaluation_zh": "A1 判定收紧已落地（合法流程全部留下证据、零误报），A2/A3 后台排空机制完整实现但**默认不启用**：停写后 pending 能下降并触发回收，却始终不能归零（残留 1 代在 skip 集合，没有新 epoch 来收养），且关闭期生命周期竞态导致 SIGSEGV 未消除，故自动触发默认门控关闭（RUN_MANIFEST.md:2651-2669）。",
+  "caveats_zh": [
+   "定时器必须在任何调度点就启动，不能\"发现积压之后\"才启动，否则停写后无人再调用调度函数（实测 requests=0、pending 不动）（RUN_MANIFEST.md:2657-2659）",
+   "尝试\"排空模式禁止 kSkip（17 处一刀切改为 kMergeBase）\"导致段错误，已完整回退（NoSkipMode() 保留但无调用点）（RUN_MANIFEST.md:2660-2664）",
+   "关闭期生命周期竞态：autodrain 在重启/关闭处 SIGSEGV（定时器/任务与 DB 析构顺序），已加停止标志与无锁等待仍未消除（RUN_MANIFEST.md:2667-2669）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2625-2680"
+  ]
+ },
+ {
+  "id": "m5/p1_backlogdrain_exp",
+  "title_zh": "实验分支 P1BacklogDrain-exp：单任务状态机与关闭契约（A5）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "按用户契约实现排空任务的单任务状态机（IDLE→QUEUED→RUNNING→IDLE、至多一个 queued/running 任务）、生命周期引用与取消回调、固定顺序的关闭契约与退避，并在两个关闭窗口用例上验收。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "关闭等待耗时（3002ms / 1992ms）与计数有界性（RUN_MANIFEST.md:2706-2713）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "用例 B：执行中、扫描前暂停 → Close（RUNNING refs=1）；用例 A：已入队、未开始 → Close（QUEUED refs=1 tasks_started=0）（RUN_MANIFEST.md:2706-2707）",
+   "rocksdb_options": "env_->Schedule(..., tag=this, unschedCallback) + env_->UnSchedule(this, LOW)；回调开始与结束都检查 STOPPING；无进展写 next_deadline=now+200ms 交定时器；定向钩子 ZF_TEST_DRAIN_QUEUED_HOLD_MS、ZF_TEST_DRAIN_RUN_DELAY_MS（RUN_MANIFEST.md:2691-2700）",
+   "other": "新增属性 zf_drain_state、zf_drain_counters；计数 timer_wakeups / tasks_queued / tasks_started / coalesced_requests / no_progress_backoffs / tasks_cancelled（RUN_MANIFEST.md:2697-2698）"
+  },
+  "results": [
+   {
+    "metric": "用例 B（执行中、扫描前暂停 → Close）",
+    "value": "PASS：关闭等待 3002ms（等暂停任务退出）→ 关闭完成 → 重开逐键 6000/6000 正确；tasks_queued=1 tasks_started=1 timer_wakeups=1",
+    "unit": "ms",
+    "condition": "RUNNING refs=1",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2706"
+   },
+   {
+    "metric": "用例 A（已入队、未开始 → Close）",
+    "value": "未通过：修复一个真实死锁后关闭能完成（1992ms、重开逐键正确），但进程在收尾阶段 SIGSEGV",
+    "unit": "ms",
+    "condition": "QUEUED refs=1 tasks_started=0",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2707"
+   },
+   {
+    "metric": "调度风暴消除",
+    "value": "两个窗口内 timer_wakeups=1、tasks_queued=1（此前实测 26 121）",
+    "unit": "次",
+    "condition": "状态机实现后",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2713"
+   }
+  ],
+  "evaluation_zh": "状态机的关闭契约在用例 B 上通过；用例 A 暴露并修复了一个真实死锁（取消回调以 state == kQueued 为释放条件、而 Close 已置 STOPPING ⇒ 引用永不释放、关闭永久等待，实测 exit=124 超时），改按 ref_queued 归属标志释放后关闭契约成立，但进程仍在收尾阶段 SIGSEGV ⇒ 用例 A 未通过（RUN_MANIFEST.md:2706-2713）。",
+  "caveats_zh": [
+   "用例 A 收尾 SIGSEGV 未解决（RUN_MANIFEST.md:2707）",
+   "未做：AdoptSkippedGensForDrainLocked()；候选线 b4b17b3 的最终补充证据（closestress 1000 + 五组各 300 轮）尚未跑（RUN_MANIFEST.md:2715-2716）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2682-2716"
+  ]
+ },
+ {
+  "id": "m5/exp_a6a7",
+  "title_zh": "实验分支 A6/A7：关闭窗口契约 + 收尾崩溃根因（gdb 栈）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "证明两个缺陷（UnSchedule 的 tag 冲突会误取消 flush/compaction；DB 析构期解引用正在销毁的 Version 导致 SIGSEGV），并用三个真实关闭窗口（文件屏障 + 控制线程放行）验证关闭契约。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "关闭窗口用例（190ms / 191ms / 187ms）（RUN_MANIFEST.md:2747-2749）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "三个关闭窗口：1 真正排队未出队（LOW 池压到 1 线程 + 阻塞任务占住 worker）；2 已出队主体未执行（回调入口文件屏障暂停）；3 执行中扫描前（转 RUNNING 后文件屏障暂停）（RUN_MANIFEST.md:2745-2749）",
+   "rocksdb_options": "排空任务改用独立稳定 tag（zf_drain_tag_，堆地址稳定），仅在本 DB 真正入队过时才调用 UnSchedule；ZeroFlushContext::DetachFromDb() 在 CloseHelper 里排空任务停稳之后调用（RUN_MANIFEST.md:2722-2741）",
+   "other": "gdb 栈：#4 VersionStorageInfo::GetZfInstallFence ← #5 ZeroFlushContext::IsGenInstalled ← #6 ReleaseEpoch(epoch=2) ← #7 MemTable::~MemTable ← … ← #18 VersionSet::~VersionSet（RUN_MANIFEST.md:2728-2734）"
+  },
+  "results": [
+   {
+    "metric": "缺陷 1（tag 冲突）",
+    "value": "UnSchedule(this, LOW) 会误取消同优先级的 flush/compaction——BGWorkCompaction（LOW）与 BGWorkFlush（LOW）都以 this 为 tag；已改用独立稳定 tag",
+    "unit": "",
+    "condition": "源码核对",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2722-2725"
+   },
+   {
+    "metric": "缺陷 2（收尾崩溃根因）",
+    "value": "gdb 栈实证 DB 析构期 ~MemTable → ReleaseEpoch → IsGenInstalled → cfd_->current() 解引用正在销毁的 Version；触发条件 = 关闭时仍有未安装 epoch（候选线 closestress 之所以未暴露，是因为那里 epoch 在关闭前都已安装/释放）",
+    "unit": "",
+    "condition": "修复：DetachFromDb()（解挂 cfd_）；三个窗口进程退出全部 exit=0（此前 139）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2726-2741"
+   },
+   {
+    "metric": "三个关闭窗口终态",
+    "value": "窗口1 enqueued=1 cb_entered=0 cancel_entered=1 released=1 → PASS（190ms）；窗口2 cb_entered=1 cancel_entered=0 handover=0 stopping_exits=1 released=1 → PASS（191ms）；窗口3 handover=1 stopping_exits=1 released=1 → PASS（187ms）；三个窗口重开均 6000/6000、exit=0",
+    "unit": "ms",
+    "condition": "文件屏障 + 控制线程放行；Close 在控制线程里执行",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2745-2749"
+   }
+  ],
+  "evaluation_zh": "两个已证实的缺陷都不是\"停止标志不够多\"：一个是 UnSchedule tag 冲突（误取消 flush/compaction），一个是 DB 析构期解引用已销毁 Version（触发条件为关闭时仍有未安装 epoch）；修复后三个关闭窗口进程退出全部 exit=0 且通用不变量全部成立（cancel_entered + cb_entered == enqueued、released == enqueued、refs_at_close_return == 0、close_calls == 1）（RUN_MANIFEST.md:2720-2755）。",
+  "caveats_zh": [
+   "close_wait_rounds=0：屏障在 STOPPING 时即放行（保证无死锁的有界活性），窗口 2/3 表现为任务在 STOPPING 后迅速退出并恰好释放一次，而不是长时间等待（RUN_MANIFEST.md:2753-2755）",
+   "未做：AdoptSkippedGensForDrainLocked()；候选线最终压力证据（RUN_MANIFEST.md:2762-2763）",
+   "建议候选线 b4b17b3 补一个小后移 DetachFromDb()（~10 行），是否后移请用户定（RUN_MANIFEST.md:2760-2761）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2718-2763"
+  ]
+ },
+ {
+  "id": "m5/exp_a8",
+  "title_zh": "实验分支 A8：Close 等待的顺序证明（窗口 4）+ 释放语义收紧",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "按用户契约把\"释放必须是回调的最后一步 DB 访问\"落到代码顺序，用硬屏障（只由控制线程放行）证明 Close 确实进入等待且任务仍持引用，并做逐任务记录隔离 DB 实例计数。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "窗口 4 关闭耗时 508 ms、close_wait_rounds=285（RUN_MANIFEST.md:2790-2796）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "四个关闭窗口（1 真正排队/未出队、2 已出队/主体未执行、3 执行中/扫描前、4 Close 等待顺序证明）（RUN_MANIFEST.md:2783-2786）",
+   "rocksdb_options": "硬屏障 ZfWaitGateHard（只由控制线程创建放行文件才继续，不随 STOPPING 逃逸，带 120s 安全上限）；原 ZfWaitGate（STOPPING 即放行）保留给窗口 2/3（RUN_MANIFEST.md:2773-2775）",
+   "other": "新增 ZfDrainTaskRec{db_instance, task_id, phase} 环形记录与 ZfDrainDbInstanceSeq()；BackgroundCallZfDrain 重排为 ①进入/交接记账 → ②执行排空 → ③结果记账 → ④最后递减引用并记录 released → ⑤立即返回（RUN_MANIFEST.md:2769-2778）"
+  },
+  "results": [
+   {
+    "metric": "四个窗口最终结果",
+    "value": "窗口 1/2/3/4 全部 exit=0 符合契约、重开 6000/6000；窗口 4 顺序成立（Close 未返回 + 任务仍持引用）",
+    "unit": "",
+    "condition": "实验分支 A8（控制线程放行版）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2782-2786"
+   },
+   {
+    "metric": "窗口 4 实测",
+    "value": "关闭前 RUNNING refs=1 ev{enqueued=1 cb_entered=1 handover=1 released=0}；等待确认 close_未返回=1 放行前 released=0 handover=1（硬屏障 ⇒ 任务仍持引用）；关闭完成 耗时=508 ms ev{released=1 close_wait_rounds=285 stopping_exits=0 close_calls=1 refs_at_close_return=0}；不变量 唯一路径=1 引用归零=1 释放次数匹配=1",
+    "unit": "ms",
+    "condition": "窗口 4（硬屏障）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2788-2795"
+   }
+  ],
+  "evaluation_zh": "顺序\"任务持引用 → Close 进入等待且未返回 → 控制线程放行 → 任务完成最后一次访问 → 释放引用 → Close 返回\"已被直接观测（close_wait_rounds=285 即 Close 在等待中自旋，released 在放行后才追上 handover）；四个窗口全部符合契约、重开逐键正确（RUN_MANIFEST.md:2797-2799）。",
+  "caveats_zh": [
+   "硬屏障带 120s 安全上限（防止测试自身挂死）（RUN_MANIFEST.md:2773-2775）",
+   "待办：AdoptSkippedGensForDrainLocked()（仅剩 skip 时停写也能排空）；之后测完整生命周期写放大再决定是否合入候选线；候选线 0de022f 已收口，本轮未再改动（RUN_MANIFEST.md:2801-2804）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2765-2804"
+  ]
+ },
+ {
+  "id": "m5/exp_a9",
+  "title_zh": "实验分支 A9：skip 代排空出口（所有权交接已实现，调度缺口已定位）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "实现 skip 代的一次性完整所有权交接（TakeSkippedGensForDrain / RestoreSkippedGens）与收养入口 AdoptSkippedGensForDrainLocked，并在\"持续冲突→解除\"场景验证能否在不停写、不手工排空、不关闭 DB 的条件下完成安装。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "注入期 30s；case 2 观测（adopt calls 87 → 396）（RUN_MANIFEST.md:2825-2830）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "case 2（持续冲突→解除）：前置观察到 skip 归属=1、pending=6408000、drained=0；case 1（停写后只剩 skip）（RUN_MANIFEST.md:2823-2841）",
+   "rocksdb_options": "TakeSkippedGensForDrain 锁内原子取走、失败退回时不重置积压起始时间，且都不改变 pending/installed/drained；一致性计数 adopt_gen_not_in_skip / adopt_double_return；属性 adopt_stats；硬屏障 120s 上限超时记 hard_gate_timeouts 且用例判 FAIL（RUN_MANIFEST.md:2811-2819）",
+   "other": "排空任务在 ZfDrainNow() 之前调用收养（先转移归属，再走正常规划/冲突检查/安装）（RUN_MANIFEST.md:2818）"
+  },
+  "results": [
+   {
+    "metric": "case 2（持续冲突→解除）",
+    "value": "前置 skip 归属=1 pending=6408000 drained=0；注入期 30s 读 bad=0/6000、drained 变化=0、adopt calls=87（有界，退避生效）；等待结束 pending=6408000 adopt=[calls=87 rolled_back=0 gen_not_in_skip=0 double_return=0]；终态 pending=6408000 registered=5 reclaimed=0、pending_gens=[3:1(1369176B,epoch=3) 1:0(280884B,epoch=3)]、adopt calls=396 ⇒ FAIL(安装进展失败：前提成立但超时未排空)",
+    "unit": "B",
+    "condition": "实验分支 A9",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2823-2830"
+   },
+   {
+    "metric": "case 1（停写后只剩 skip）",
+    "value": "本轮未建成前置（两轮封存比例仍 > min_ratio ⇒ 直接融合、未产生 skip 归属）⇒ SETUP_INVALID",
+    "unit": "",
+    "condition": "需更小的第二轮批量或更低 base 阈值，属用例参数问题",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2839-2841"
+   }
+  ],
+  "evaluation_zh": "收养成功完成了所有权转移（gens 从 skip 集合进入 epoch=3、一致性计数全 0 ⇒ 单归属成立），但该 epoch 没有任何物化任务——物化批次由 flush/imm 驱动，收养出来的 epoch 没有对应 memtable/imm ⇒ 空尾封存不产生可规划任务；按用户口径报安装进展失败（FAIL），不记 INCOMPLETE（RUN_MANIFEST.md:2832-2837）。",
+  "caveats_zh": [
+   "case 1 记 SETUP_INVALID（用例参数问题，非引擎结论）（RUN_MANIFEST.md:2839-2841）",
+   "唯一缺口：需要为\"无 memtable 的 epoch\"实现真实的 drain work item 调度入口（不依赖 imm），要求走正常 overlap/compaction 注册与安装、冲突时退回可重试集合并退避、不改变 pending/installed/drained/fence（RUN_MANIFEST.md:2843-2848）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2806-2848"
+  ]
+ },
+ {
+  "id": "m5/exp_a10",
+  "title_zh": "实验分支 A10：收养的 skip 代已真正提交安装（case 2 达成核心交付）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "用三处最小改动让收养出来的 skip 代真正进入正常安装流程：强制为空尾产生真实批次、收养语义改为退回卡住 epoch 的 gens 并由真实封存原子采纳、只绕过收益不足等待而保留安全冲突检查。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "注入期 30s；终态读 6000/6000（RUN_MANIFEST.md:2869-2872）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "case 2（持续冲突→解除）：注入期 30s 读 bad=0/6000，解除冲突后观察 pending/drained；case 1（两轮封存 + 强制排空）（RUN_MANIFEST.md:2868-2884）",
+   "rocksdb_options": "新增 DBImpl::ZfDrainForceFlushEmptyEpoch()（置 zf_force_flush_empty_ 后调 FlushMemTable，越过两处\"空 memtable 不排批次\"门槛）；AdoptSkippedGensForDrainLocked() 只做\"退回卡住 epoch 的 gens\"（RequeueStuckEpochsForDrain）+ 报告是否还有待采纳 gens；不能封存后再 SwitchMemtable（会多出无 epoch 的 imm，ZF flush 报 immutable memtable without epoch in zf flush）（RUN_MANIFEST.md:2854-2865）",
+   "other": "只绕过\"收益不足\"的等待，避让/退避与安全冲突检查照常（RUN_MANIFEST.md:2865）"
+  },
+  "results": [
+   {
+    "metric": "case 2（持续冲突→解除）",
+    "value": "前置 skip 归属=1 pending=6408000 drained=0；注入期 30s 读 bad=0/6000、drained 变化=0（该批不销账）、收养尝试=75（有界）；解除冲突后 pending 6408000 → 0、drained 0 → 6408000（无新写入、无手工排空、不关闭）；终态 pending_gens=n=0、读 6000/6000 正确、单任务归属一致=1",
+    "unit": "B",
+    "condition": "drainwork 日志：flush-empty-epoch status=OK pending=0 drained=6408000",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2868-2875"
+   },
+   {
+    "metric": "仍差两点之一：最终回收未在窗口内发生",
+    "value": "registered=5、reclaimed=0（120s 窗口）——安装已完成，但 unlink/PurgePending 未被触发（或触发更晚）",
+    "unit": "",
+    "condition": "需查该路径下 purge 的触发条件",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2877-2880"
+   },
+   {
+    "metric": "仍差两点之二：case 1 挂住",
+    "value": "case 1 本轮挂住（exit=124），两轮封存 + 强制排空的组合下耗时超过 400s；日志停在第二轮封存后的等待",
+    "unit": "",
+    "condition": "怀疑 fo.wait=true 的强制 flush 在排空任务线程上等待自身（或与 drain 的批次互斥）；需用 ZF_DBG_DRAINWORK/ZFTD 阶段日志定位（RUN_MANIFEST.md:2881-2884）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2881-2884"
+   }
+  ],
+  "evaluation_zh": "用户本轮要求的\"停写后的 skip 代真正提交安装\"已达成（pending 6408000 → 0、drained 0 → 6408000），教训是不能在封存后再 SwitchMemtable、也不能把 gens 偷进自建 epoch（会造成永久 pending，实测 epoch=3）（RUN_MANIFEST.md:2857-2875）。",
+  "caveats_zh": [
+   "最终回收（unlink/PurgePending）未在 120s 窗口内发生（registered=5、reclaimed=0）（RUN_MANIFEST.md:2877-2880）",
+   "case 1 挂住 exit=124，原因未定位（RUN_MANIFEST.md:2881-2884）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2850-2884"
+  ]
+ },
+ {
+  "id": "m5/exp_a11",
+  "title_zh": "实验分支 A11：四个真实缺陷修复后 case 1 / case 2 闭环达成",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "修复四个有直接证据的真实缺陷（年龄判据时钟永不复位、ZfSwitchMemtable 入队不触发调度、Compaction 构造即 MarkFilesBeingCompacted 而放弃出口不解除、排空强制封存与 drain 标记窗口），使 case 1（停写后 skip 代自行安装+回收）与 case 2 闭环。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "case 1 第一轮 100 ms（RUN_MANIFEST.md:2929）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "build 哈希 /tmp/build_hash_final_a17.txt（zf_valcheck 9197c61b…、librocksdb.so.11 88a3c2a3…）（RUN_MANIFEST.md:2890）",
+   "workload": "skipdrain case=1/2；drainlife win=1..4；installtest 2/3/4；failaccept A/B/C；case 1 用 ZF_VC_BACKLOG_AGE_MS=60000 把积压年龄阈值抬到高于第二轮规划延迟（观察期内无排空任务在飞、active=0）（RUN_MANIFEST.md:2928-2947,2952-2961）",
+   "rocksdb_options": "命令：ZF_VC_MERGE_BENEFIT=8 ZF_VC_BACKLOG_AGE_MS=<各用例> ./zf_valcheck <db> <mode> <n> <arg>；诊断开关 ZF_DBG_MERGE/ZF_DBG_MM/ZF_DBG_DRAINWORK/ZF_TRACE_IMM/ZF_DBG_MARK_BT（默认无输出）；ZF_TEST_DRAIN_GATE_ENTER / ZF_TEST_DRAIN_GATE_RUN 文件屏障（RUN_MANIFEST.md:2891-2894,2969-2971）",
+   "other": "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu 用于绕开 anaconda 的旧 libstdc++（RUN_MANIFEST.md:2892-2893）"
+  },
+  "results": [
+   {
+    "metric": "缺陷 1：年龄判据时钟永不复位",
+    "value": "TouchBacklogAge() 全仓无调用点 ⇒ backlog_since_micros_ 首次置位后永不复位、30s 后恒真 ⇒ 排空任务长期在飞 ⇒ 规划点恒走 drain 模式；证据 ZFDBG-skipgate 首次出现 drain_mode=0 … gate=1",
+    "unit": "",
+    "condition": "修复：年龄改由周期检查点（200ms 定时器 + 各调度点）就地维护\"当前这段连续积压\"的年龄",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2898-2904"
+   },
+   {
+    "metric": "缺陷 2：封存入队不触发调度",
+    "value": "ZfSwitchMemtable 入队 flush 请求后不唤醒 worker（enqueue=1 → flushq=1 unschedflush=1 bgflush=0 maxflush=4），30s 无任何批次被规划，直到关闭路径才被调度 ⇒ 停写后已封存代永不物化",
+    "unit": "",
+    "condition": "修复：封存路径自行调度",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2905-2910"
+   },
+   {
+    "metric": "缺陷 3：being_compacted 泄漏",
+    "value": "Compaction 构造函数内部即 MarkFilesBeingCompacted(true)，放弃融合的两条出口直接 continue ⇒ 输入 L1 文件永久 being_compacted（ZFDBG-mm-mark set=1 inputs=[9] 后无对应 set=0）⇒ 排空陷入 frz 空尾 → adopt skip → tasks=0 死循环（实测 36 次 adopt、pending 不减）",
+    "unit": "",
+    "condition": "修复：收益门禁移到 RegisterCompaction 之前并显式 unmark + 引入注册台账 registered_compactions_",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2911-2920"
+   },
+   {
+    "metric": "case 1（停写后 skip 代自行安装 + 回收）",
+    "value": "PASS：第一轮 完成=1 耗时=100 ms pending=0 drained=6408000；第二轮 封存完成后 pending=2136；终态 pending=0 registered=0 reclaimed=6410136 pending_gens=n=0；adopt=[calls=1 rolled_back=0 gen_not_in_skip=0 double_return=0]；case=1: PASS（pending归零=1 registry=0=1 回收>0=1 读正确=1 单任务归属一致=1）",
+    "unit": "ms；B",
+    "condition": "唯一外部动作=放行（年龄到点自动入队）；adopt calls 从 36（死循环）降到 1",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2928-2941"
+   },
+   {
+    "metric": "case 2 + 四个关闭窗口 + 撤销/提交失败（同一 build）",
+    "value": "skipdrain case=2: PASS；drainlife win=1 PASS（QUEUED enqueued=1 cb_entered=0 cancel_entered=1 released=1）；win=2 PASS（RUNNING cb_entered=1 handover=0 stopping_exits=1）close_wait_rounds=282；win=3 PASS close_wait_rounds=274；win=4 PASS close_wait_rounds=272（硬屏障不随 STOPPING 放行 ⇒ 证明 Close 真的等）；四窗口共同：硬屏障超时=0、重开逐键 bad=0/6000、进程 exit=0；installtest 2/3/4 PASS；failaccept A/B/C PASS",
+    "unit": "",
+    "condition": "build /tmp/build_hash_final_a17.txt",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2951-2961"
+   }
+  ],
+  "evaluation_zh": "四个真实缺陷修复后，case 1 / case 2 的安装+回收+无挂起/重复消费闭环达成（用户交付线闭环）；两处夹具修正（关闭窗口的\"持久积压\"造法与屏障由运行命令提供）是因引擎行为变化而必须做，不是引擎回归（RUN_MANIFEST.md:2964-2975）。",
+  "caveats_zh": [
+   "ZF_ENABLE_BACKLOG_DRAIN 是死变量（引擎不读，仅测试侧出现）；用 ZF_TEST_DRAIN_GATE_RUN 拦排空会占住后台 worker（本 fork flush 与排空共用池）导致第二轮批次被饿死（RUN_MANIFEST.md:2943-2946）",
+   "漏设 ZF_TEST_DRAIN_GATE_ENTER / ZF_TEST_DRAIN_GATE_RUN 时屏障不生效（任务直接跑完）⇒ 窗口 2/4 会误报 FAIL（RUN_MANIFEST.md:2969-2971）",
+   "尚未测含最终排空在内的全生命周期写放大、积压峰值、停写后立即读延迟、排空耗时、no_progress_backoffs / forced_merge 计数（RUN_MANIFEST.md:2973-2977）",
+   "候选线 0de022f 未动（RUN_MANIFEST.md:2978）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2886-2978"
+  ]
+ },
+ {
+  "id": "m5/exp_a12",
+  "title_zh": "实验分支 A12：全生命周期写放大对照（含最终排空）——收益真实但大规模下立即读退化",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "用新用例 lifecycle（写入 → 停写 → 不调 Flush/DrainNow、不关闭 DB → 等后台 pending=0 并采样峰值 → 立即读 → 重开再读 → 确认旧代 WAL 清零）对照基线（攒批关）与实验组（ZF_VC_MERGE_BENEFIT=8 + 积压年龄），量化收益攒批的写放大收益与立即读代价。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "4 写线程 / 4 读线程（RUN_MANIFEST.md:2988）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/zf_valcheck（build 哈希 /tmp/build_hash_lc_final2.txt）（RUN_MANIFEST.md:2989）",
+   "workload": "lifecycle <n> <threads>：200k×1KB（输入 208,000,000 B）与 500k×1KB（输入 520,000,000 B）；固定 range 路由 4 分区（边界按 n 等分 ⇒ 键均匀落盘）、4 写线程 / 4 读线程（RUN_MANIFEST.md:2984-2988,3010,3032）",
+   "rocksdb_options": "基线 = 不设 ZF_VC_MERGE_BENEFIT；实验 = ZF_VC_MERGE_BENEFIT=8 + ZF_VC_BACKLOG_AGE_MS=2000（RUN_MANIFEST.md:2986-2987）",
+   "other": "新增度量口径：install_wait_stats{rounds,timeouts}、drain_forced_merges、insert_dropped / index_resegmented、4 线程读吞吐（立即读 / 排空后各一次）（RUN_MANIFEST.md:2991-2993）"
+  },
+  "results": [
+   {
+    "metric": "restart_read_errors（数据安全缺陷，本轮首次暴露）",
+    "value": "restart_read_errors=6/20000、last_seq 比真实最大 seq 少 2–3；修复（ZfCloseFlush 入口无条件 wal()->SyncAll()）后 4 组全部 restart_read_errors=0",
+    "unit": "键",
+    "condition": "干净关闭后丢失每个分区最后 0–3 条已确认写入；失败键固定为各分区尾部记录（4998/4999、9998/9999、19997–19999）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2997-3008"
+   },
+   {
+    "metric": "200k×1KB write_ms / out_bytes",
+    "value": "基线 1425 / 1,291,679,259；实验 2141 / 712,193,067",
+    "unit": "ms；B",
+    "condition": "4 分区 / 4 线程（输入 208,000,000 B）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3014-3015"
+   },
+   {
+    "metric": "200k×1KB wa_out（out/input）",
+    "value": "基线 6.21；实验 3.42（−45%）",
+    "unit": "",
+    "condition": "lifecycle 200k",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3016"
+   },
+   {
+    "metric": "200k×1KB 立即读吞吐（4T）",
+    "value": "基线 205,997 ops/s；实验 212,422 ops/s（bad=0）；排空后读 213,363 / 208,383",
+    "unit": "ops/s",
+    "condition": "lifecycle 200k",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3020-3021"
+   },
+   {
+    "metric": "200k×1KB pending 峰值 / drain_ms",
+    "value": "基线 50,294,256 / 700；实验 50,285,712 / 200",
+    "unit": "B；ms",
+    "condition": "lifecycle 200k",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3018-3019"
+   },
+   {
+    "metric": "500k×1KB wa_out",
+    "value": "基线 7.00；实验 2.38（−66%）",
+    "unit": "",
+    "condition": "输入 520,000,000 B、4 分区 / 4 线程",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3038"
+   },
+   {
+    "metric": "500k×1KB 立即读吞吐（4T）",
+    "value": "基线 160,286 ops/s；实验 98,118 ops/s（−39%）",
+    "unit": "ops/s",
+    "condition": "lifecycle 500k（立即读退化）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3042"
+   },
+   {
+    "metric": "500k×1KB 排空后读吞吐（4T）",
+    "value": "基线 201,284；实验 228,394（+13%）",
+    "unit": "ops/s",
+    "condition": "lifecycle 500k",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3043"
+   },
+   {
+    "metric": "500k×1KB pending 峰值 / drain_ms",
+    "value": "基线 83,621,196 / 1402；实验 282,562,896（3.4×）/ 2704",
+    "unit": "B；ms",
+    "condition": "lifecycle 500k",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3040-3041"
+   },
+   {
+    "metric": "四组共同",
+    "value": "drained=1（自动排空）、pending_before_close=0、old_wal_after=0（旧代 WAL 清零）、立即/排空后/重启读全部 0 错误、进程 exit=0",
+    "unit": "",
+    "condition": "lifecycle 200k/500k × 基线/实验",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3054-3055"
+   },
+   {
+    "metric": "同一 build 的 P1 验收回归",
+    "value": "skipdrain case=1 PASS、case=2 PASS；drainlife win=1/2/3/4 符合契约（硬屏障超时=0）重开逐键 bad=0/6000 PASS；installtest 2/3/4 PASS；failaccept A/B/C PASS",
+    "unit": "",
+    "condition": "SyncAll() 关闭修复后必须复跑（close_wait_rounds≈270-282 仍成立）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3071-3079"
+   }
+  ],
+  "evaluation_zh": "写放大确实下降（6.21→3.42、7.00→2.38，规模越大收益越大）、自动排空 + 回收 + 重启全部正确、调度请求量无风暴（tasks_queued ≤ 2、timer_wakeups ≤ 29、no_progress_backoffs=0）；但\"立即读吞吐明显下降\"在 500k 出现（−39%，对应积压峰值 282.6MB 与排空耗时 2704ms）⇒ 按用户既定标准不设为默认，仅保留实验开关（ZF_VC_MERGE_BENEFIT>0 + 积压年龄）（RUN_MANIFEST.md:3057-3066）。",
+  "caveats_zh": [
+   "数据安全缺陷由该度量首次暴露：干净关闭 + 重启才丢失尾部写入（进程内读没问题，因为走内存索引）（RUN_MANIFEST.md:2995-3007）",
+   "500k 立即读吞吐退化 −39% 是\"不设默认\"的直接依据（RUN_MANIFEST.md:3062-3065）",
+   "候选线 0de022f 未动（RUN_MANIFEST.md:3066）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:2980-3079"
+  ]
+ },
+ {
+  "id": "m5/exp_a13",
+  "title_zh": "实验分支 A13 / 候选线 P1-A12：尾部数据安全修复入候选线 + 积压阈值参数扫描",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "capacity_sweep",
+  "purpose_zh": "把 SyncAll() 关闭尾部刷新（数据安全修复）打进候选线并验收；在实验分支上扫描 base_merge_skip_max_bytes（8/16/32MB）在 200k/500k×1KB 下的写放大、立即读吞吐、pending 峰值与排空表现，按预先判据决定是否设默认。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "4 分区、4 线程（RUN_MANIFEST.md:3106-3107）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/zf_valcheck（候选线 build zf_valcheck e4d6069d… / librocksdb.so.11 aa004829…；扫描 build zf_valcheck e60f5c32…）（RUN_MANIFEST.md:3087,3106）",
+   "workload": "固定 200k/500k × 1KB；流程严格为 写入 → 停写 → 自动排空（不调 Flush/DrainNow/Close）→ 立即读 → 等回收 → 重启读（RUN_MANIFEST.md:3104-3109）",
+   "rocksdb_options": "base_merge=1；ZF_VC_SKIP_MAX_MB 新增工具开关（8/16/32MB）；积压年龄阈值统一取部署默认 30s（上一轮曾用 2s，实测该阈值会同时改变基线行为 ⇒ 不能作为对照混用）（RUN_MANIFEST.md:3106-3108）",
+   "other": "候选线改动只有 1 处引擎代码（db_impl.cc 的 ZfCloseFlush 入口无条件 wal()->SyncAll()）与 1 个新用例 tailflush（RUN_MANIFEST.md:3085-3086）"
+  },
+  "results": [
+   {
+    "metric": "候选线门禁（SyncAll 修复）",
+    "value": "tailflush PASS（①基线 5.2MB/分区 → pending=0；②Sync 后追加 3 条/分区（3132B < 4KB，断言仅存于内存缓冲）；③关闭→重开逐键 12/12 + 基线抽样 800 ✓ + 账实对照 4/4 分区）；detachreg PASS（关闭未崩溃 + 重开逐键 bad=0/4000）；closestress 1000 ok=1000 timeout=0 other=0",
+    "unit": "",
+    "condition": "build zf_valcheck e4d6069d… / librocksdb.so.11 aa004829…",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3089-3096"
+   },
+   {
+    "metric": "参数扫描（200k/500k × 8/16/32MB）",
+    "value": "base_200k: 写放大 6.20 / 立即读 210,077 / 峰值 48.0MB / 排空 700ms / 安装超时 10 / 空桩 0；base_500k: 5.53 / 171,452 / 93.5MB / 26,042ms / 57 / 8；skip8_200k: 6.21 / 200,825（−4%）/ 32.0MB / 500ms / 6 / 0；skip8_500k: 6.93 / 120,122（−30%）/ 125.9MB / 1101ms / 71 / 0；skip16_200k: 3.42 / 215,873（+3%）/ 48.0MB / 200ms / 1 / 0；skip16_500k: 7.97 / 96,694（−44%）/ 48.0MB / 1302ms / 68 / 0；skip32_200k: 3.42 / 206,862（−2%）/ 48.0MB / 200ms / 1 / 0；skip32_500k: 3.69 / 206,230（+20%）/ 47.9MB / 200ms / 6 / 0",
+    "unit": "ops/s；MB；ms",
+    "condition": "八组全部满足 pending=0、非空旧代 WAL 清零、立即/排空后/重启读 0 错误、no_progress_backoffs=0、tasks_queued ≤ 3",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3113-3123"
+   },
+   {
+    "metric": "500k 单配置重复运行差异",
+    "value": "skip16_500k 早前一轮 2.00、本轮 7.97；base_500k 三轮 7.00/3.12/5.53",
+    "unit": "",
+    "condition": "参数效应小于运行间波动",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3137-3139"
+   },
+   {
+    "metric": "附带发现（0 字节 WAL 桩）",
+    "value": "排空的\"强制空尾封存\"每轮每分区留下 1 个 0 字节 WAL 文件桩（实测一次 500k 运行残留 8–12 个，全部 0 字节、无数据）",
+    "unit": "个",
+    "condition": "空间无损但长期运行会累积 inode；建议后续在 purge 路径把 0 字节旧代文件一并删除",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3144-3150"
+   }
+  ],
+  "evaluation_zh": "按预先判据没有参数通过筛选 ⇒ 不设默认，保留实验开关：\"安装超时为 0\"无一组通过且基线也不通过（10/57，判据写法需重定）；\"立即读吞吐下降 ≤10%\"仅 200k 三档与 500k 的 32MB 满足；\"写放大明显低于安全基线\"500k 只有 32MB 达标（8/16MB 反而高于基线）；且 500k 单配置重复运行差异极大 ⇒ 当前扫描不足以支持\"设默认\"的决策。候选线 e7a6552 只含数据安全修复，不含任何性能实验代码（RUN_MANIFEST.md:3125-3142）。",
+  "caveats_zh": [
+   "候选线自身\"小尾 + 关闭\"路径会因关闭期 imm 刷盘顺带封存，因此 tailflush 在修复前后均通过——它的价值是不变量守卫；缺陷的可复现证据在实验分支（restart_read_errors=6/20000 → 0）（RUN_MANIFEST.md:3098-3102）",
+   "500k 单配置重复运行波动大（skip16_500k 2.00 vs 7.97；base_500k 7.00/3.12/5.53），参数效应小于运行间波动（RUN_MANIFEST.md:3137-3139）",
+   "lifecycle 用例的回收判据已修正为\"非空旧代文件 = 0\"（原先把 0 字节桩误判为未回收，导致随机 FAIL）（RUN_MANIFEST.md:3149-3150）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3081-3150"
+  ]
+ },
+ {
+  "id": "m5/candidate_a14",
+  "title_zh": "候选线 A14：e7a6552 完整门禁（含重启校验）+ 固定排空时序 3 次重复",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "integration",
+  "purpose_zh": "对候选线提交 e7a6552 跑完整门禁（all/verify/scan/triage/semtest/baccept/migrate/stress/tailflush/detachreg/closestress），并把排空年龄固定为 1s、每档重复 3 次取中位数与波动，以消除排空节奏作为混淆因素后复核\"收益攒批是否设默认\"。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "4 分区 / 4 线程；stress 1–5 ×300 轮；closestress 1000 轮（RUN_MANIFEST.md:3154-3166,3177-3178）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "source/rocksdb-zeroflush/build_rel/zf_valcheck（门禁 build zf_valcheck e4d6069d… / librocksdb.so.11 aa004829…；重复测量 build zf_valcheck 8b932eb9…）（RUN_MANIFEST.md:3154,3179）",
+   "workload": "all 6000 / verify 6000 / scan 6000 / triage 6000（ZF_VC_KEEP_WAL=1）/ semtest 20000（ZF_VC_PARTITION_TARGET_MB=1）/ baccept 20000 / migrate A–H / stress 1–5 ×300 / tailflush / detachreg / closestress 1000；参数扫描：200k 与 500k ×1KB、base_merge=1（RUN_MANIFEST.md:3156-3166,3177-3179）",
+   "rocksdb_options": "ZF_READ_SHORT_RETRY=0 ZF_VC_PARTITION_TARGET_KB=128（stress）；ZF_VC_BACKLOG_AGE_MS=1000（固定排空节奏，替换会随规模漂移的默认 30s）（RUN_MANIFEST.md:3165,3177）",
+   "other": "semtest case7 在本线缺实验分支专属逐候选 visitor 插桩 ⇒ 记 N/A/IDENTITY_PASS（RUN_MANIFEST.md:3168-3173）"
+  },
+  "results": [
+   {
+    "metric": "all 6000（写+封存+安装+读）",
+    "value": "exit=0；checked=9064 mismatch=0 miss=0 errors=0；pending=0 drained、gens=0",
+    "unit": "键",
+    "condition": "候选线门禁",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3158"
+   },
+   {
+    "metric": "scan 6000 / triage 6000",
+    "value": "scan exit=0；mismatch=0 (lost_overwrite=0 unexpected_overwrite=0 other=0)/6000；index_insert_dropped=0；triage exit=0；ACCEPTANCE: B2_records_with_gen_le_fence=0 → PASS(no over-advanced fence)；B3_stale_seq=0；来源 INDEX=2997",
+    "unit": "键",
+    "condition": "triage 用 ZF_VC_KEEP_WAL=1",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3160-3161"
+   },
+   {
+    "metric": "semtest 20000",
+    "value": "case1–6、case8a/8b PASS；case7 FAIL（非正确性：身份断言全部成立，唯一原因是候选线缺 visitor 插桩 ⇒ exec[A=0 B=0 B_hit=0 B_lost=0] 恒为 0）",
+    "unit": "",
+    "condition": "ZF_VC_PARTITION_TARGET_MB=1",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3162,3168-3173"
+   },
+   {
+    "metric": "baccept 20000",
+    "value": "exit=0；phase2 PASS（batches=5 drained_flat=5 pending_flat=5 outputs_discarded=2）；phase3 pending=0 drained=42,720,000 (>baseline) PASS；phase4 registered=0 reclaimed=42,720,000 PASS；l0_install=0 gen_lost_before_install=0",
+    "unit": "",
+    "condition": "候选线门禁",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3163"
+   },
+   {
+    "metric": "stress 1–5 ×300",
+    "value": "五组全部 rounds=300 failures=0 silent_stale=0 notfound=0 corruption=0 rotations=300 propagated=0 install_wait_timeouts=0 → PASS；组4 明确不要求安装（registry_last=0）；组1–3/5 pending_last=0",
+    "unit": "轮",
+    "condition": "ZF_READ_SHORT_RETRY=0 ZF_VC_PARTITION_TARGET_KB=128",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3165"
+   },
+   {
+    "metric": "固定 1s 排空节奏 ×3 次重复（写放大中位[范围] / 立即读 / 峰值 / 排空 / 安装超时中位 / 最终安装失败合计）",
+    "value": "base_200k 5.66 [5.39–6.21] / 209,194 / 32.0MB / 600ms / 6 / 1；skip8_200k 6.21 [6.21–6.21] / 207,751 / 48.0MB / 600ms / 10 / 0；skip16_200k 5.73 [3.50–5.73] / 164,770 / 32.0MB / 500ms / 6 / 0；skip32_200k 4.36 [4.36–6.34] / 147,531 / 27.8MB / 300ms / 2 / 0；base_500k 8.61 [6.30–10.39] / 105,178 / 90.4MB / 1802ms / 80 / 2；skip8_500k 7.00 [6.73–7.23] / 100,848 / 63.9MB / 4407ms / 66 / 4；skip16_500k 10.47 [7.59–10.48] / 114,857 / 83.6MB / 6711ms / 145 / 2；skip32_500k 8.77 [8.04–9.44] / 107,927 / 80.0MB / 4405ms / 114 / 1",
+    "unit": "ops/s；MB；ms",
+    "condition": "ZF_VC_BACKLOG_AGE_MS=1000；24 次运行 restart_read_errors 全 0",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3183-3190"
+   },
+   {
+    "metric": "migrate A–H / tailflush / detachreg / closestress",
+    "value": "migrate 8/8 exit=0，migrate: PASS (fails=0)；tailflush PASS / detachreg PASS / closestress 1000 ok=1000 timeout=0 other=0",
+    "unit": "",
+    "condition": "候选线门禁",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3164-3166"
+   }
+  ],
+  "evaluation_zh": "固定 1s 节奏下攒批不再有稳定收益（200k 的 8/16MB 写放大反而 +10%/+1%、500k 的 16MB +22%，只有 32MB@200k −23% 与 8MB@500k −19% 两个孤立点）；排空节奏是一阶因素（把年龄阈值从 30s 改为 1s 后基线自身也变差：500k WA 5.53→8.61、立即读 171k→105k，且出现 2 次最终安装失败）⇒ 上一轮\"32MB 在 500k 更好\"的观测撤回；按用户既定规则**没有任何一档同时满足**，保持实验开关、不设默认（RUN_MANIFEST.md:3208-3221）。",
+  "caveats_zh": [
+   "case7 判 FAIL 的唯一原因是候选线缺实验分支的逐候选 visitor 插桩（exec 计数恒为 0），不得当作正确性失败，也不得当作通过；记 N/A（缺少实验专属 visitor 插桩），交由用户决定是否移植（RUN_MANIFEST.md:3168-3173）",
+   "wait[rounds/timeouts] 是有界 100ms 等待到期后重试（正常退避），install_progress_failures 才是最终安装失败；两者都不得单独作为\"安装不可用\"判据（RUN_MANIFEST.md:3203-3206,3247-3255）",
+   "固定 1s 节奏下基线自身也变差且有 2 次最终安装失败 ⇒ 排空节奏混淆了上一轮结论（RUN_MANIFEST.md:3213-3216）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3152-3222"
+  ]
+ },
+ {
+  "id": "m5/release_c59fc41",
+  "title_zh": "发布报告：候选线冻结 c59fc41（tag v0.6-candidate-c59fc41）门禁与口径",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "integration",
+  "purpose_zh": "发布候选线冻结内容（e7a6552 引擎数据安全修复 + c59fc41 仅测试工具）并汇总门禁结果、指标口径与遗留项。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "stress 1–5 ×300；closestress 1000（RUN_MANIFEST.md:3244-3245）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "引擎 build 哈希 librocksdb.so.11 aa004829e6009a729266aa5da091f1bb（c59fc41 只改 tools/zf_valcheck.cc，引擎哈希与门禁时完全一致 ⇒ 门禁结论对该提交继续有效）（RUN_MANIFEST.md:3229-3230）",
+   "workload": "all 6000 / verify 6000 / scan 6000 / triage 6000 / semtest 20000 / baccept 20000 / migrate A–H / stress 1–5 ×300 / tailflush / detachreg / closestress 1000（RUN_MANIFEST.md:3234-3245）",
+   "rocksdb_options": "默认关闭收益攒批：需显式 ZF_VC_MERGE_BENEFIT>0（且按需 ZF_VC_SKIP_MAX_MB）才启用（RUN_MANIFEST.md:3257-3259）",
+   "other": "冻结内容 = e7a6552（引擎：关闭前无条件刷 ZF WAL 尾部）+ c59fc41（仅测试工具：semtest case7 缺实验插桩时记 N/A/IDENTITY_PASS）（RUN_MANIFEST.md:3227-3228）"
+  },
+  "results": [
+   {
+    "metric": "候选线门禁（R1，全部通过）",
+    "value": "all 6000 checked=9064 mismatch=0 miss=0 errors=0 pending=0 gens=0；verify 6000 PASS；scan 6000 mismatch=0/6000 index_insert_dropped=0；triage 6000 B2_records_with_gen_le_fence=0 → PASS、B3_stale_seq=0；semtest 20000 PASS（fails=0 setup_incomplete=0 n/a=1）；baccept 20000 phase2/3/4 PASS、l0_install=0、gen_lost_before_install=0；migrate A–H 8/8 PASS；stress 1–5 ×300 五组 failures=0 silent_stale=0 notfound=0 corruption=0 rotations=300 install_wait_timeouts=0；tailflush PASS / detachreg PASS / closestress 1000 ok=1000 timeout=0 other=0",
+    "unit": "",
+    "condition": "候选线 c59fc41",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3232-3245"
+   },
+   {
+    "metric": "semtest case7 口径",
+    "value": "N/A/IDENTITY_PASS —— locator/pin/sealed 读取身份全部正确；缺实验分支专属的逐候选 visitor 插桩（不把插桩移入候选线）；既不计通过也不计失败",
+    "unit": "",
+    "condition": "R1",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3240-3241"
+   },
+   {
+    "metric": "指标口径（R2）",
+    "value": "wait[timeouts]（install_wait_stats.timeouts）= 安装准入的有界 100ms 等待到期后因进度推进而重试（正常退避）；实测（实验分支 lifecycle，固定 1s 排空节奏）中位 2–145 次/运行；install_progress_failures = 最终安装失败（连续无进展），同一批运行 0–4 次/3 次运行（基线 1–2 次）；候选线门禁中二者均为 0",
+    "unit": "次",
+    "condition": "发布报告必须分开陈述",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3247-3255"
+   },
+   {
+    "metric": "遗留项（R4）",
+    "value": "0 字节 WAL 文件桩（排空\"强制空尾封存\"每轮每分区留 1 个 0 字节旧代文件，实测一次 500k 运行残留 8–12 个；无数据、不占空间，仅累积 inode）；实验分支继续保留积压排空/收益攒批/skip 收养与全部 ZF_VC_* 开关，候选线不含任何性能实验代码",
+    "unit": "个",
+    "condition": "低优先级、不阻塞发布",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3268-3274"
+   }
+  ],
+  "evaluation_zh": "候选线冻结 c59fc41：门禁全部通过（含 stress 1–5 与 closestress 1000）；收益攒批被明确为实验特性、默认关闭，且\"不要用当前数据选默认阈值\"（固定 1s 排空节奏下 3 次重复的中位数无稳定赢家，且基线自身在该节奏下也变差；上一轮\"32MB 在 500k 更好\"的观测已按 D-108 撤回）（RUN_MANIFEST.md:3232-3266）。",
+  "caveats_zh": [
+   "semtest case7 在候选线记 N/A/IDENTITY_PASS（缺实验插桩），未判定通过或失败（RUN_MANIFEST.md:3241）",
+   "全部 24 次测量运行的安全项成立：restart_read_errors=0、pending=0、非空旧代 WAL 清零、三处读 0 错误（R3）（RUN_MANIFEST.md:3265-3266）",
+   "遗留 0 字节 WAL 桩与实验分支保留项不阻塞发布（RUN_MANIFEST.md:3268-3274）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3225-3274"
+  ]
+ },
+ {
+  "id": "m5/c59fc41_50gb_1kb",
+  "title_zh": "受控运行 1：50GB/1KB 读写（候选线 c59fc41）—— ZF 臂写入停滞",
+  "engine": [
+   "zeroflush",
+   "native"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在冻结候选线 c59fc41 上跑与历史同口径的 50GB/1KB fill+read（48M 键 × 16B key + 1KB value，16 线程 × 3M 写），并跑 native 臂作同窗环境参照，判断 ZF 是否具备进入 100GB 的条件。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "--threads=16（db_bench 写线程）；现场共 44 线程（RUN_MANIFEST.md:3283-3284,3299-3303）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "ZF 臂：/home/embed/hyl/zf_cand/source/rocksdb-zeroflush/db_bench（db_bench 7f6672cd…、librocksdb.so.11 aa004829… = 冻结引擎）；native 臂：source/rocksdb/build/db_bench（RUN_MANIFEST.md:3289-3293）",
+   "workload": "--benchmarks=fillrandom --key_size=16 --value_size=1024 --num=48000000 --writes=3000000 --threads=16 --seed=20260914 --compression_type=none --cache_size=536870912 --max_background_jobs=24 --subcompactions=16 --histogram=true --statistics=false（约 50GB 数据集：48M ×(1KB+16B)）（RUN_MANIFEST.md:3283-3285）",
+   "rocksdb_options": "ZF 臂附加：ZF_L0_TRIGGER=100000000 --zeroflush --zf_partitions=16 --zf_routing=sampled --zf_value_cache_mb=64 --zf_base_merge=true；native 臂同参数、无 ZF 开关；读阶段 --benchmarks=readrandom --reads=8000000（RUN_MANIFEST.md:3286-3287,3292）",
+   "other": "目录 c59fc41_50gb_1kb/ 与 native_50gb_c59fc41/（RUN_MANIFEST.md:3291-3293）"
+  },
+  "results": [
+   {
+    "metric": "ZF 臂写入进度（停滞）",
+    "value": "写入停在 2.6GB / 48M 键空间；11:44:53 启动 fill → 11:45:00 之后 LOG 再无任何新行；11:52 终止（fill_rc=143）",
+    "unit": "GB",
+    "condition": "候选线 c59fc41，ZF 臂（零进展，非慢）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3297-3298"
+   },
+   {
+    "metric": "ZF 臂停滞现场（pending）",
+    "value": "pending 累积到 1079.5MB 且再也无法安装；每批\"构造融合 → 让位 → 移交 recovery\"；16 个写线程中 15 个在 WriteThread::AwaitState、1 个（组长）在 DBImpl::DelayWrite 的 TimedWait，全部后台线程空闲",
+    "unit": "MB",
+    "condition": "LOG 告警：output part=0/1 would land in L0 (level=-1) — yielding batch；FIFO bypass blocked at install: part=1 oldest_pending=0 < install_min=2；empty-edit: submit VersionEdit without AddFile (pending=1079.5MB, lm=11)",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3299-3315"
+   },
+   {
+    "metric": "native 臂 fill",
+    "value": "48,000,000 ops  23,343 ops/s  23.2 MB/s  2056.2s(34.3min)；P50 25.71µs P75 32.54µs P99 82.58µs P99.9 374.99µs P99.99 998,125µs(≈1s 停顿)",
+    "unit": "ops/s；min",
+    "condition": "native 臂（同窗口、同参数、无 ZF 开关）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3348-3349"
+   },
+   {
+    "metric": "native 臂 read",
+    "value": "128,000,000 ops 877,373 ops/s 18.09µs/op 145.9s；P50 14.62µs P75 19.60µs P99 55.45µs P99.9 75.92µs P99.99 170.02µs；hit=6,161,212/8,000,000 = 77%",
+    "unit": "ops/s；s",
+    "condition": "native 臂",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3350-3352"
+   },
+   {
+    "metric": "native 臂 DB 规模",
+    "value": "32GB、SST 573 个（31.86GB）、WAL 1 个",
+    "unit": "GB",
+    "condition": "native 臂",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3353"
+   },
+   {
+    "metric": "历史对照：zf_50gb_noprobe（2026-09-14）",
+    "value": "17:32→18:24 = 52min、32GB、656 个 SST（当时代码含\"积压排空/skip 收养\"机制）",
+    "unit": "min；GB",
+    "condition": "同一 workload/同一参数的历史 50GB 运行（历史对照臂 zf_50gb_noprobe）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3316-3318"
+   },
+   {
+    "metric": "历史对照：merge_on_accept_v2（2026-09-14）",
+    "value": "31min、31GB",
+    "unit": "min；GB",
+    "condition": "历史 50GB 级运行（含排空/收养机制时代）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3317-3318"
+   },
+   {
+    "metric": "窗口可比性：native_50gb_samewindow（2026-09-14）",
+    "value": "只用 17 分钟（本次 native fill 34.3 分钟）⇒ 本机当前吞吐约为当时的 50%（缓存/IO 状态差异）",
+    "unit": "min",
+    "condition": "native 同参数同机历史运行",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3356-3357"
+   }
+  ],
+  "evaluation_zh": "ZF 臂无法给出 50GB 吞吐/延迟：候选线 c59fc41 在该 workload 上写入停滞（pending 1079.5MB、批次反复让位、组提交停摆、后台全空闲）；停滞不是机器问题（同窗口 native 臂正常完成）；根因指向候选线缺失\"放弃融合时解除 being_compacted\"的修复（D-111，该修复在实验分支已存在并有单测级证据但不在候选线）⇒ 不满足进入条件（\"表现优于 rocksdb 再做 100GB\"），100GB 未启动（RUN_MANIFEST.md:3360-3369）。",
+  "caveats_zh": [
+   "根因判断待确定性复现确认（源码级 + 已有实验分支证据）（RUN_MANIFEST.md:3320-3333）",
+   "窗口可比性警告：本次 native fill 34.3min vs 2026-09-14 的 17min ⇒ 本机当前吞吐约为当时 50%，跨窗口数字不可直接比较，后续 ZF/native 对照必须同窗执行（RUN_MANIFEST.md:3356-3358）",
+   "复测通过前 50GB/100GB 的 ZF 侧吞吐与延迟结论不成立；native 臂数据仅作环境参照（RUN_MANIFEST.md:3342-3343）",
+   "100GB 不启动（用户规则：ZF 未优于 baseline 前不进入更大规模）（RUN_MANIFEST.md:3343）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3278-3371"
+  ]
+ },
+ {
+  "id": "m5/fix_50gb_static",
+  "title_zh": "受控运行 2：修复分支 fix/c59fc41-abandon-unmark（routingguard + 固定路由 50GB 复测）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "从冻结 tag 另开修复分支落地最小补丁（非固定路由自动关闭禁 L0；Compaction 构造即入台账、放弃即 unmark、按台账释放），并用 routingguard 与 50GB 固定 range 路由复测验证阻塞点是否前移。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "同 50GB 口径 --threads=16；现场 15 写线程 AwaitState + 1 组长 DelayWrite（RUN_MANIFEST.md:3415-3419）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "db_bench e59c7db6… / so 3dbd0469…（50GB 复测）；定向门禁 zf_valcheck 64812cad…、librocksdb.so.11 3dbd0469…（RUN_MANIFEST.md:3397,3414）",
+   "workload": "routingguard（默认 20 万键：写入→封存→正常关闭→重开，断言 forbid_l0_install、pending==0、抽样逐键）；50GB 复测参数与 D-109 完全一致，仅 routing 改为 --zf_routing=static --zf_static_span=48000000（RUN_MANIFEST.md:3388-3389,3413-3414）",
+   "rocksdb_options": "①forbid_l0_install && routing != kStatic ⇒ 自动关闭 + WARN（后于 D-120 改为明确拒绝）；②Compaction 构造即入台账 + 放弃即 unmark + FinishPlansLocked 按台账释放；EXPECT=reject/allow/target 三期望；ZF_VC_ALLOW_L0=1（RUN_MANIFEST.md:3379-3384,3449-3451）",
+   "other": "目录 archive/zeroflush_m5_perf/fix_50gb_static/；routingguard 三期望由 runner 给定（RUN_MANIFEST.md:3413,3447）"
+  },
+  "results": [
+   {
+    "metric": "routingguard（修复前后）",
+    "value": "sampled：修复前 FAIL（forbid_l0=1；关闭前 pending=205MB、重开后仍 209MB）→ 修复后 PASS（forbid_l0=0；重开后 pending=0；抽样读错 0/28572）；hash：修复前 FAIL（202MB→209MB）→ 修复后 PASS；static：修复前 PASS（forbid_l0=1 目标模式不变）→ 修复后 PASS（未被扩大化）",
+    "unit": "MB",
+    "condition": "commit ec096ab（交付物 2）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3391-3395"
+   },
+   {
+    "metric": "定向门禁（同一 build）",
+    "value": "routingguard sampled/hash/static PASS/PASS/PASS；installtest 2/3/4 PASS；baccept 20000 PASS（phase2/3/4，0 个 FAIL）；failaccept A/B/C PASS；all 6000 / verify / scan / triage PASS（checked=9064 mismatch=0；scan mismatch=0；B2=0）；semtest 20000 PASS（fails=0 setup_incomplete=0 n/a=1）；migrate A–H 8/8 PASS；tailflush / detachreg PASS（重开逐键 bad=0/4000）；closestress 1000 ok=1000 other=0",
+    "unit": "",
+    "condition": "zf_valcheck 64812cad… / librocksdb.so.11 3dbd0469…",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3399-3408"
+   },
+   {
+    "metric": "50GB 复测（固定 range 路由）",
+    "value": "前 1 分钟写入 8.8GB（≈150MB/s，远快于 sampled 臂的停滞曲线），随后放缓，14:37 起在 13.4GB 完全停滞（du 两次采样一致）",
+    "unit": "GB",
+    "condition": "目录 fix_50gb_static/，--zf_routing=static --zf_static_span=48000000；现场 hang_static13gb.LOG + 线程栈 /tmp/fix50_hang_bt.txt",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3413-3417"
+   },
+   {
+    "metric": "50GB 停滞的直接证据（FIFO 拦截）",
+    "value": "flush_job.cc:1855 ZeroFlush FIFO bypass blocked at install: part=6 oldest_pending=25 < install_min=26；[JOB 295] materialize install overlap detected; batched yielded to recovery；ZeroFlush empty-edit (pending=717.4MB)；全日志另有 skipped N partition gens 116 次",
+    "unit": "MB",
+    "condition": "某分区的较老代（part=6 gen=25）没有任何批次在安装，FIFO 规则禁止跳过它安装更新的代",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3420-3430"
+   },
+   {
+    "metric": "D-120 纠正 1 落地（commit 8141108）",
+    "value": "sampled/hash + EXPECT=reject：修复前 FAIL（打开成功，不安全组合被静默接受）→ 修复后 PASS（InvalidArgument: forbid_l0_install (target mode) requires fixed range routing (kStatic)…）；sampled/hash + 显式 ZF_VC_ALLOW_L0=1（EXPECT=allow）：PASS（重开后 pending=0、抽样读错 0/28572）；static + EXPECT=target：PASS（effective_options=[routing=1 forbid_l0=1 merge_into_base=1 merge_explicit=1 partitions=4 skip_batching=1]）",
+    "unit": "",
+    "condition": "自动降级已删除；选项规范化前移到 ZeroFlushContext 构造之前",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3447-3456"
+   }
+  ],
+  "evaluation_zh": "路由互锁（①）与释放台账（②）都是必要的，但不充分：50GB 复测虽把写入推到 13.4GB（阻塞点前移并定位为\"被让位/滞留的旧代没有重新入队的执行者\"，part=6 gen=25 被 FIFO 规则 oldest_pending(25) < install_min(26) 卡住）；实验分支的\"收养 + 排空 work item\"正是为此而建（候选线清洗时移出），按用户要求不整包合入；另撤回 ec096ab 的\"释放台账\"为本次 50GB 停滞的必要修复（保留为独立加固），并把 C1 互锁对 options 拷贝的修改前移（RUN_MANIFEST.md:3431-3433,3445-3459）。",
+  "caveats_zh": [
+   "50GB 吞吐/延迟与 100GB：均等下一步（旧代重新入队）完成并通过 50GB 后再谈（RUN_MANIFEST.md:3439-3443）",
+   "同源缺陷：zeroflush_db.cc 中 C1 互锁对 options 拷贝的修改在 ctx 构造之后（空操作），需同 ① 一样前移（RUN_MANIFEST.md:3440-3441）",
+   "本轮只修 forbid_l0 这一条互锁，C1 的同类问题记入待办（RUN_MANIFEST.md:3382-3384）",
+   "定向回归与 50GB 复跑待第 2/3 步（旧代执行者追踪 + 事件驱动重新入队）完成后一并进行（RUN_MANIFEST.md:3458-3459）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3373-3481"
+  ]
+ },
+ {
+  "id": "m5/bench100g",
+  "title_zh": "受控运行 3：100GB/30GB 全量运行与背压驱动取证（bench100g_full / med2 / med3 / smoke）",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在 bench-100g 工作树上做 fifostrand 确定性再现、30GB（~12GB 停滞点）与 100GB 全量运行，逐代追踪\"旧代无执行者\"假设是否成立，定位真正的阻塞点（ZF 账本背压无人推进），并实现/评估背压驱动与记账绑定。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "100GB 现场：15×AwaitState + 1×DelayWrite + 26×BGThread 空闲 + Timer + RunBenchmark；进程 30% CPU（空转）（RUN_MANIFEST.md:3671-3674）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": "db_bench e59c7db6…、so ce9372b2…（100GB 全量）；db_bench 207bdf40… + so f84588cd…（含只读属性 stall_snapshot 与探针 --zf_stall_probe_ms）；db_bench e59c7db6…（bench-100g 工作树）（RUN_MANIFEST.md:3516-3517,3657-3658,3665,3693-3694}",
+   "workload": "100GB：--num=100000000（16×6.25M 写）、固定 range 路由（--zf_routing=static --zf_static_span=100000000）、--zf_base_merge=true，目录 archive/zeroflush_m5_perf/bench100g_full/；30GB 参数复现于 bench100g_med2/med3（~12GB 处停滞）；fifostrand 固定路由/目标模式/4 分区/20 万键（RUN_MANIFEST.md:3488-3490,3666-3667,3694）",
+   "rocksdb_options": "ZF_BENCH_ORPHAN_RECOVER=1；ZF_BP_DRIVER_DISABLE=1（对照）；水低水位用例 stop=256MB/resume=192MB、2GB；--zf_stall_probe_ms 探针；目标模式禁 L0、固定 range 路由（RUN_MANIFEST.md:3665-3666,3741-3744）",
+   "other": "目录 archive/zeroflush_m5_perf/bench100g_full|med|med2|med3|smoke10gb；现场保留 bench100g_full/hang_12_8GB.LOG 与各 med 的 fill.log 与快照（RUN_MANIFEST.md:3667,3694,3727-3728）"
+  },
+  "results": [
+   {
+    "metric": "fifostrand base 阶段再现",
+    "value": "连续 8 轮\"全部落封存 + 有界等待\"，pending_materialize_bytes 恒为 28,229,376 B（零进展）；pending_gens = n=6 bytes=24034272（全部 NONE+skip，每代 ~4MB）；fifo_bypass=0 skip_count=20 empty_edit=0 install_progress_failures=0",
+    "unit": "B",
+    "condition": "无需冲突注入、无需 50GB 的小规模再现（与 50GB 现场 pending=717MB~1079MB 同源）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3488-3499"
+   },
+   {
+    "metric": "\"旧代无执行者\"假设被推翻",
+    "value": "ZFDBG-frz part=3 gen=13 size=0（空尾也被封存并登记 epoch）；ZFDBG-adopt skip_gens=6 epoch=50（6 个 skip 代被收养进新 epoch，有执行者）；ZFDBG-scan pid=3 … n=1 bytes=29008955 ok=1 bskip=0 l1n=4",
+    "unit": "",
+    "condition": "D-122 逐代链路取证（新属性 gen_chain:<part>:<gen>）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3502-3512"
+   },
+   {
+    "metric": "skip 原因（第二次修正）",
+    "value": "ZFDBG-skip no_merge=0 busy=0 batch_l0=0 l0busy=0 dirconf=0 **batchprev=8** bytes=0 sink=0 cross=0 act=1；fifo_bypass=0 skip_count=22 empty_edit=0 install_progress_failures=0；gen_chain: owner=NONE（skip 集合）queued=0 running=0 waiting_commit=0 commit_uncertain=0，epochs_in_flight_total=0，事件链 epoch_queued→task_started→(无 finished/installed)",
+    "unit": "",
+    "condition": "唯一增长的跳因是 batchprev（齐批占位/批内互斥），不是\"收益不足\"（候选线已移除收益攒批分支）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3530-3548"
+   },
+   {
+    "metric": "batchprev 推进实现（RED）",
+    "value": "fifostrand 200000 跑 4 次：3 次 pending=0（等待 100 ms）、读错 0、重开读错 0、FIFO拦截 0、forced=0；1 次 90s 窗口内 pending 完全不降（FIFO拦截 1）；reclaimed_bytes 始终 0（含 60s 回收等待窗）",
+    "unit": "",
+    "condition": "commit wip(zeroflush): batchprev 专用事件驱动推进 + 逐代取证；进展判据严格下降（<= 会空转：实测 forced=154 而 pending 不变）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3568-3587"
+   },
+   {
+    "metric": "fifostrand 三次一致现场（仍失败）",
+    "value": "pending_gens = n=9 bytes=32,424,480 → 全部 partition 0，全部 owner=epoch:64；skip_reasons = batch_prev=8/11/10（唯一增长项）skips=30/37；fifo_blocked_detail=(none) fifo_bypass=0；batchprev_latched=4 reskip=8/11/10 forced=0 backoff=1；wakeup req=40 coal=6~9 started=40 consumed=0",
+    "unit": "B",
+    "condition": "ZF_TEST_PAUSE_AFTER_PLAN_PART=<part> 前置；唤醒任务已执行 40 次却零进展",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3610-3627"
+   },
+   {
+    "metric": "孤儿转移诊断",
+    "value": "orphan_diag = orphans_moved_gens=0 handoffs=0 consumed_gens=0 adoption_epoch_id=0 | snap_epochs=1 snap_max=43 moved=0；flight_ledger: in_flight=[] uncertain=[]；pending_gens → 9 代全部 owner=epoch:64；gen_chain: refs(epoch=64)=1（归属引用）",
+    "unit": "",
+    "condition": "EpochSnapshot 看不到 epoch 64（只见 43），残留代被指向不存在 epoch 的归属引用钉住",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3633-3642"
+   },
+   {
+    "metric": "D-128 修复（一行）后 fifostrand",
+    "value": "fifostrand 200k（门控开）pending=0（此前 4 轮 32.4MB 不动 90s）、reclaimed=234~238MB、实时/重启读 0 错 ⇒ 停写后自动排空达成；orphans_moved_gens=0 / consumed=0",
+    "unit": "",
+    "condition": "修复：ZfSwitchMemtable 入队后 MaybeScheduleFlushOrCompaction（恢复路径封存出的 epoch 没有批次规划）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3649-3659"
+   },
+   {
+    "metric": "100GB 全量运行",
+    "value": "启动 22:02；58 分钟只写入 ≈12.8GB（du 两次采样完全相同）；LOG 自 22:52:24 起不再增长（size 5,598,696 不变）；进程 30% CPU 空转；ZFDBG-skip: no_merge=0 busy=118 batch_l0=0 l0busy=0 dirconf=0 batchprev=0 sink=332 act=4；compaction start summary/started 184 次、finished 184 次；ZFDBG-sched: bgc=2 → 之后 bgc=0",
+    "unit": "GB",
+    "condition": "bench-100g 工作树、db_bench e59c7db6…、so ce9372b2…、ZF_BENCH_ORPHAN_RECOVER=1、--num=100000000",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3663-3679"
+   },
+   {
+    "metric": "双组取证：真正的阻塞点",
+    "value": "限写条件快照（207 次采样）：needs_delay=0 is_stopped=0 unsched_flush=0 bg_flush_sched=0 bg_comp_sched=0 flush_queue=0 imm_not_flushed=0；L0_files=0 L1_files=12 L2_files=72 L2_bytes=4.28GB；zf_pending=861,140,148B（连续 4 次采样冻结）zf_registered=35 zf_epochs_in_flight=0 zf_batchprev_latched=0 zf_pending_unlink=0；being_compacted 仅 9/207 次非空且全部是 L2 文件、hold=0",
+    "unit": "B",
+    "condition": "复现 bench100g_med2/med3（30GB 参数，~12GB 处连续 3 次停滞，看门狗抓现场）",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3697-3709"
+   },
+   {
+    "metric": "背压驱动实现与崩溃",
+    "value": "驱动开启：fill_rc=139（SIGSEGV）3/3（gdb 下 1/1 正常跑完）；驱动禁用（ZF_BP_DRIVER_DISABLE=1）：rc=0 3/3、257k/252k/258k ops/sec",
+    "unit": "ops/s",
+    "condition": "低水位小用例 stop=256MB/resume=192MB、2GB；后经 D-132 更正为探针缺陷",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3741-3744"
+   },
+   {
+    "metric": "D-132 崩溃归因更正（探针四组对照）",
+    "value": "开/开 fill_rc=139 3/3；关/开 rc=0 3/3；开/关 rc=0 3/3（258k/241k/266k ops/s）；开/关（手动 2 次）rc=0 2/2；修复探针后原始复现条件 3 连跑 rc=0 3/3（245k/249k/247k ops/s），peak_pending_bytes = 215.7M / 215.7M / 296.1M",
+    "unit": "ops/s；B",
+    "condition": "原因：DBImpl::GetProperty 对该属性不持锁 + 探针线程此前未 join（可能在 DB 析构后仍调用 GetProperty ⇒ use-after-free）；已改为持 DB mutex 复制标量 + 增加 stop 标志并 join",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3761-3778"
+   },
+   {
+    "metric": "D-133 记账绑定实验",
+    "value": "门禁版：fifostrand rc=124（超时）；撤销门禁后（恢复原辅助断言）rc=124（仍超时）；撤销门禁 + 驱动禁用 rc=124（仍超时）；卡点：前置已成立（batchprev reskip=9 latch=4），随后 90s 等待窗内未排空",
+    "unit": "",
+    "condition": "把\"输出确在当前 Version\"从辅助断言升级为销账门禁的尝试被否（超时与它无关）；当前树在 fifostrand 排空阶段存在回归/抖动，最后一次已知全绿是 3de900a",
+    "source": "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3795-3809"
+   }
+  ],
+  "evaluation_zh": "推翻\"旧代无执行者\"假设：被卡住的 6 个代确实被后续 epoch 收养并进入正常规划，真实机制是设计内的\"齐批占位/批内互斥（batchprev）\"让位在停写后无法收敛（进展依赖下一次写入）；进一步的双组取证把 100GB 的阻塞点定为 DBImpl::DelayWrite 里的 ZF pending 账本背压无人推进（zf_pending=861MB、epochs_in_flight=0 ⇒ drained 永不增长 ⇒ 写线程空转至 zf_timeout 后返回 Incomplete）；D-128 的一行修复（封存入队后触发调度）让 fifostrand 停写后自动排空达成，但 100GB 仍未跑通（INCOMPLETE/FAIL），且 D-132 更正 SIGSEGV 归因于诊断探针（use-after-free）而非背压驱动（RUN_MANIFEST.md:3510-3521,3691-3725,3756-3779,3811-3815）。",
+  "caveats_zh": [
+   "100GB 未跑通（写入未完成 ⇒ 四项收尾无从判定），按 INCOMPLETE 记录；候选线与原 tag 未动、30GB/100GB 暂停（RUN_MANIFEST.md:3686-3689,3816）",
+   "SIGSEGV 来源暂不声称已完全证明（无 core、gdb 下不复现）；只记\"探针缺陷已修、原复现条件未再崩溃\"（RUN_MANIFEST.md:3777-3779）",
+   "本轮三跑中两次峰值 215MB < stop=256MB ⇒ 未进入背压，按用户规则只能标\"未覆盖\"；要确定性覆盖需把 stop 降到峰值以下并在结束时读取 backpressure_entered/peak（db_bench 结束态目前不打印该属性）（RUN_MANIFEST.md:3781-3786）",
+   "D-124 排空可达成但不稳定（同参数同二进制 3:1）、reclaimed_bytes 始终 0 属测量错误（缺回收等待窗 + 重开后读实例专属计数）；已改为重开前取样 + 有界回收等待（RUN_MANIFEST.md:3585-3587,3591-3596）",
+   "D-126 附带异常待查：wakeup started=40 时 consumed=0 && no_progress=0（疑似属性与计数器映射不一致）（RUN_MANIFEST.md:3626-3627）",
+   "D-133 结论：当前树在 fifostrand 排空阶段存在回归/抖动，最后一次已知全绿是 3de900a；须先在该基线复跑 3× 再逐项带回 post-3de900a 改动（06a1654 背压驱动、backpressure_entered 计数、128687e 探针持锁）（RUN_MANIFEST.md:3807-3814）",
+   "零 imm 入口（从 FlushJob 抽取最小共用执行段）已批准但未开始（RUN_MANIFEST.md:3788-3791）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/RUN_MANIFEST.md:3484-3816"
+  ]
+ },
+ {
+  "id": "m5/b4b17b3_50gb_1kb",
+  "title_zh": "b4b17b3 分支 50GB/1KB KV 读写测试（勘察与计划，未执行）",
+  "engine": [
+   "zeroflush",
+   "native"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "对分支/提交 b4b17b3 运行与历史同口径的 50GB / 1KB KV 读写测试（ZF 臂 + native 同窗对照），以验证候选线清洗后的代码在该 workload 上是否可完成；本文档为执行前的勘察记录与既定计划。",
+  "environment": {
+   "host": null,
+   "cpu": "CPU 36 核（B4B17B3_50GB_TASK_PROGRESS.md:56）",
+   "cores_threads": "36 核（同上）；测试口径 --threads=16",
+   "ram": "内存 62GB（available ≈58GB）（B4B17B3_50GB_TASK_PROGRESS.md:56）",
+   "device": "/dev/nvme0n1p3：1.8T，已用 927G，可用 813G（50GB 数据集 + 压实放大足够）（B4B17B3_50GB_TASK_PROGRESS.md:57）",
+   "filesystem": null,
+   "engine_version": "目标提交 b4b17b3ca14f054bb2a7ac5619c81c63b5081df5（chore(zeroflush): 候选线清洗——实验性积压排空/收益攒批移出候选（含全部 env 开关））；归属分支仅 fix/zeroflush-recovery-visibility-fences 且为该分支 tip（B4B17B3_50GB_TASK_PROGRESS.md:18-26）",
+   "binary_path": "ZF 臂：source/rocksdb-zeroflush/build_rel/db_bench（脚本 archive/zeroflush_m5_perf/zf_50gb_noprobe/run.sh）；native 对照：source/rocksdb/build/db_bench（脚本 archive/zeroflush_m5_perf/native_50gb_samewindow/run.sh）（B4B17B3_50GB_TASK_PROGRESS.md:31-34）",
+   "workload": "--benchmarks=fillrandom --key_size=16 --value_size=1024 --num=48000000 --writes=3000000 --threads=16 --seed=20260914 --compression_type=none --cache_size=536870912 --max_background_jobs=24 --subcompactions=16；读阶段 --benchmarks=readrandom --reads=8000000（--use_existing_db=1）；规模口径 48M × (1KB value + 16B key) ≈ 50GB 数据集（B4B17B3_50GB_TASK_PROGRESS.md:36-49）",
+   "rocksdb_options": "ZF 臂附加：ZF_L0_TRIGGER=100000000（写阶段）+ --zeroflush --zf_partitions=16 --zf_routing=sampled --zf_value_cache_mb=64 --zf_base_merge=true；构建口径 ZF 侧 CMAKE_BUILD_TYPE=RelWithDebInfo、PORTABLE=0，native 侧 Release（历史即为此不对称，沿用以免破坏可比性）（B4B17B3_50GB_TASK_PROGRESS.md:45-52）",
+   "other": "该提交移除了实验性开关 ZF_VC_MERGE_BENEFIT、--zf_base_merge_skip_max_generations（候选线上不存在可达崩溃路径）；与当前 HEAD（677d753 P1BacklogDrain-exp）为兄弟关系，共同父提交 debdbad ⇒ 不能复用主工作树已有构建产物，必须独立构建；隔离约束：必须全程在独立 worktree + 独立 build 目录 + 独立 DB 目录中进行（主工作树 source/rocksdb-zeroflush/ 为 in-source cmake 构建，该目录及其构建产物不得触碰）（B4B17B3_50GB_TASK_PROGRESS.md:22-25,61-68）"
+  },
+  "results": [
+   {
+    "metric": "任务状态",
+    "value": "已暂停（用户指示），未执行任何构建或测试；存档时间 2026-09-17 19:0x",
+    "unit": "",
+    "condition": "本文件的当时状态",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_TASK_PROGRESS.md:7-9"
+   },
+   {
+    "metric": "已执行动作与副作用",
+    "value": "仅执行只读勘察命令（git log/branch/worktree list、ps、df/free、cat/ls）；未创建 worktree（git worktree add 调用被用户中止，未落地）；未构建、未跑测试、未删除任何文件；主工作树文件状态与进程状态未被本任务改变（git worktree list 仍只有主树）",
+    "unit": "",
+    "condition": "§3",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_TASK_PROGRESS.md:72-76"
+   },
+   {
+    "metric": "环境资源",
+    "value": "CPU 36 核；内存 62GB（available ≈58GB）；/dev/nvme0n1p3 可用 813G；无 ccache（worktree 全新构建需全量编译 RocksDB）；无残留 db_bench 进程",
+    "unit": "",
+    "condition": "§2.3",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_TASK_PROGRESS.md:56-59"
+   },
+   {
+    "metric": "恢复时的执行计划",
+    "value": "①独立检出 git worktree add /home/embed/hyl/wt_b4b17b3 b4b17b3；②独立构建（刻意用 -j12 为用户 -j16 构建留出 CPU）：cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo && make -j12 db_bench；③结果目录 archive/zeroflush_m5_perf/b4b17b3_50gb_1kb/，以 zf_50gb_noprobe/run.sh 为模板改 BIN/RUN/DB 路径；④采集 fill/read 的 run.log、du -sh、sst/log 计数与体积、DB/LOG → fill.LOG/read.LOG；⑤与 native_50gb_samewindow/ 同窗对照；⑥清理 DB 目录并按需 git worktree remove",
+    "unit": "",
+    "condition": "§4（尚未执行）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_TASK_PROGRESS.md:78-92"
+   },
+   {
+    "metric": "遗留判断点",
+    "value": "①是否需要干净吞吐数值（并发 make -j16 会争抢 36 核与单块 NVMe，吞吐/延迟不可作为验收依据，仅可作功能通过性证据）；②臂的选择（仅跑 ZF 臂还是同时重跑 native 同窗对照）；③是否追加正确性校验 zf_valcheck 在 50GB 库上",
+    "unit": "",
+    "condition": "§5（恢复前需确认）",
+    "source": "archive/zeroflush_m5_perf/B4B17B3_50GB_TASK_PROGRESS.md:96-101"
+   }
+  ],
+  "evaluation_zh": "本文档已被取代：任务已于 2026-09-19 执行完毕，结果见 B4B17B3_50GB_100GB_REPORT.md；下方内容保留为当时的勘察记录与计划，其中 §4/§5 的待定项已在正式报告中给出结论（B4B17B3_50GB_TASK_PROGRESS.md:3-5）。本文件本身状态为\"已暂停、未执行任何构建或测试\"（B4B17B3_50GB_TASK_PROGRESS.md:7）。",
+  "caveats_zh": [
+   "未创建 worktree、未构建、未跑测试、未删除任何文件；git worktree list 仍只有主树（B4B17B3_50GB_TASK_PROGRESS.md:73-75）",
+   "与当前 HEAD 是兄弟关系（b4b17b3 与 677d753 共同父提交 debdbad）⇒ 不能复用主工作树已有的构建产物，必须独立构建（B4B17B3_50GB_TASK_PROGRESS.md:22-25）",
+   "并发编译会污染 NVMe 吞吐数值：与用户的 make -j16 并发跑时吞吐/延迟数据不可作为验收依据，仅可作功能跑通与数据正确的通过性证据（B4B17B3_50GB_TASK_PROGRESS.md:96-98）",
+   "隔离约束：主工作树 source/rocksdb-zeroflush/ 是 in-source cmake 构建，该目录及其构建产物不得触碰；本任务须用独立 worktree + 独立 build 目录 + 独立 DB 目录（B4B17B3_50GB_TASK_PROGRESS.md:63-68）",
+   "构建口径不对称（ZF RelWithDebInfo / native Release）为历史沿用，以免破坏可比性（B4B17B3_50GB_TASK_PROGRESS.md:51-52）"
+  ],
+  "sources": [
+   "archive/zeroflush_m5_perf/B4B17B3_50GB_TASK_PROGRESS.md:1-101"
+  ]
+ }
+]

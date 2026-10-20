@@ -1,0 +1,1698 @@
+// l0bench -- instrumented workload driver for the L0 investigation (native RocksDB).
+//
+// This is a CLIENT program that links against an UNMODIFIED RocksDB shared library.
+// It does not patch or recompile RocksDB: every measurement below comes from public
+// APIs (Options/EventListener/Properties/Statistics/PerfContext/ColumnFamilyMetaData)
+// plus the driver's own clocks and the OS.
+//
+// Measurement surface (see bench/CAMPAIGN.md for which experiment uses what):
+//   * closed-loop (saturation) and open-loop (fixed arrival rate, with bursts)
+//     request generation, so queueing/end-to-end latency is separated from engine
+//     latency: two latency histograms per op, sched->done and submit->done.
+//   * exact accounting of application-confirmed write bytes (U), so every write
+//     amplification number has a real denominator.
+//   * per-op PerfContext deltas on a sampled subset (or all ops) -- the only way to
+//     see actual data block reads / filter probes per request without patching.
+//   * EventListener capture: flush/compaction/subcompaction/stall/memtable-sealed,
+//     with per-level input file and byte breakdown and per-output-file rows.
+//   * periodic sampling: LSM layout per level and per file (key ranges, size,
+//     being_compacted), DB properties, ~65 statistics tickers, process RSS/CPU,
+//     block-device counters, and the DB directory's allocated blocks.
+//
+// Build: bench/build.sh      Usage: --help
+//
+// NOTE ON HONESTY: the summary JSON distinguishes measured from unmeasured. Fields
+// that RocksDB does not expose through public APIs (e.g. exact per-level probe counts
+// inside a Get) are NOT invented here; they are reconstructed analytically in the
+// analysis scripts from the sampled layout, and that reconstruction is labelled.
+
+#include <algorithm>
+#include <atomic>
+#include <cctype>
+#include <cstdarg>
+#include <chrono>
+#include <cmath>
+#include <csignal>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <dirent.h>
+#include <map>
+#include <mutex>
+#include <random>
+#include <string>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <thread>
+#include <unistd.h>
+#include <vector>
+
+#include "rocksdb/cache.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
+#include "rocksdb/filter_policy.h"
+#include "rocksdb/listener.h"
+#include "rocksdb/options.h"
+#include "rocksdb/perf_context.h"
+#include "rocksdb/statistics.h"
+#include "rocksdb/table.h"
+#include "rocksdb/version.h"
+#include "rocksdb/write_batch.h"
+
+using namespace rocksdb;
+
+// ---------------------------------------------------------------------------
+// utilities
+// ---------------------------------------------------------------------------
+static uint64_t NowNs() {
+  return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+             std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+static double WallSec() {
+  return std::chrono::duration<double>(
+             std::chrono::system_clock::now().time_since_epoch()).count();
+}
+static std::string Fmt(const char* fmt, ...) {
+  char buf[8192];
+  va_list ap; va_start(ap, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  return std::string(buf);
+}
+static std::string NS(uint64_t v) { return std::to_string(v); }
+static std::string NS(int v) { return std::to_string(v); }
+static std::string NS(int64_t v) { return std::to_string(v); }
+static std::string NS(double v) { return Fmt("%.6f", v); }
+static uint64_t ParseU64(const std::string& s) {
+  if (s.empty()) return 0;
+  char suf = s.back();
+  double mult = 1.0;
+  std::string num = s;
+  if (isalpha((unsigned char)suf)) {
+    num = s.substr(0, s.size() - 1);
+    switch (toupper((unsigned char)suf)) {
+      case 'K': mult = 1024.0; break;
+      case 'M': mult = 1024.0 * 1024; break;
+      case 'G': mult = 1024.0 * 1024 * 1024; break;
+      case 'T': mult = 1024.0 * 1024 * 1024 * 1024; break;
+      default: mult = 1.0;
+    }
+  }
+  return (uint64_t)(strtod(num.c_str(), nullptr) * mult);
+}
+static std::vector<std::string> Split(const std::string& s, char d) {
+  std::vector<std::string> out; size_t p = 0;
+  while (true) {
+    size_t q = s.find(d, p);
+    if (q == std::string::npos) { out.push_back(s.substr(p)); break; }
+    out.push_back(s.substr(p, q - p)); p = q + 1;
+  }
+  return out;
+}
+static uint64_t DirSizeBytes(const std::string& dir) {
+  DIR* d = opendir(dir.c_str());
+  if (!d) return 0;
+  uint64_t total = 0; struct dirent* e;
+  while ((e = readdir(d)) != nullptr) {
+    if (e->d_name[0] == '.') continue;
+    struct stat st;
+    if (stat((dir + "/" + e->d_name).c_str(), &st) == 0 && S_ISREG(st.st_mode))
+      total += (uint64_t)st.st_size;
+  }
+  closedir(d);
+  return total;
+}
+
+// ---------------------------------------------------------------------------
+// log-linear histogram: exact below `SMALL`, then MANTB mantissa bits per octave
+// ---------------------------------------------------------------------------
+template <int SMALL, int MANTB>
+struct HistT {
+  static constexpr int kBits = MANTB;
+  static constexpr int kGroup = 1 << MANTB;
+  static constexpr int kBaseBit = (SMALL == 256) ? 8 : 6;
+  static constexpr int kBuckets = SMALL + (64 - kBaseBit) * kGroup;
+  std::vector<uint64_t> b;
+  uint64_t count = 0, sum = 0, mn = UINT64_MAX, mx = 0;
+  HistT() : b(kBuckets, 0) {}
+  static inline int Idx(uint64_t v) {
+    if (v < (uint64_t)SMALL) return (int)v;
+    int bl = 64 - __builtin_clzll(v);
+    int oct = bl - kBaseBit;
+    int sh = bl - MANTB;
+    int mant = (int)((v >> sh) & (uint64_t)(kGroup - 1));
+    int i = SMALL + oct * kGroup + mant;
+    return i < kBuckets ? i : kBuckets - 1;
+  }
+  static inline double Val(int i) {
+    if (i < SMALL) return (double)i;
+    int k = i - SMALL;
+    int oct = k / kGroup, mant = k % kGroup;
+    int bl = kBaseBit + oct;
+    int sh = bl - MANTB;
+    uint64_t v = (uint64_t)(mant | kGroup) << sh;
+    return (double)v;
+  }
+  inline void Add(uint64_t v) {
+    b[Idx(v)]++; count++; sum += v;
+    if (v < mn) mn = v;
+    if (v > mx) mx = v;
+  }
+  void Merge(const HistT& o) {
+    for (int i = 0; i < kBuckets; i++) b[i] += o.b[i];
+    count += o.count; sum += o.sum;
+    if (o.mn < mn) mn = o.mn;
+    if (o.mx > mx) mx = o.mx;
+  }
+  double Pct(double p) const {
+    if (count == 0) return 0;
+    uint64_t target = (uint64_t)(p * (double)count);
+    if (target == 0) target = 1;
+    uint64_t acc = 0;
+    for (int i = 0; i < kBuckets; i++) { acc += b[i]; if (acc >= target) return Val(i); }
+    return Val(kBuckets - 1);
+  }
+  void Reset() { std::fill(b.begin(), b.end(), 0); count = sum = mx = 0; mn = UINT64_MAX; }
+};
+using Hist = HistT<256, 4>;
+using Coarse = HistT<64, 2>;
+
+// ---------------------------------------------------------------------------
+// keys: 16 bytes = 8-byte big-endian space tag + 8-byte big-endian id
+// ---------------------------------------------------------------------------
+static constexpr uint64_t kTagMain = 0x0101010101010101ull;
+static constexpr uint64_t kTagNeg = 0x0202020202020202ull;
+static inline void EncodeKey(uint64_t tag, uint64_t id, char* out) {
+  for (int i = 0; i < 8; i++) out[i] = (char)((tag >> (56 - 8 * i)) & 0xFF);
+  for (int i = 0; i < 8; i++) out[8 + i] = (char)((id >> (56 - 8 * i)) & 0xFF);
+}
+static inline uint64_t DecodeKeyId(const char* k) {
+  uint64_t v = 0;
+  for (int i = 8; i < 16; i++) v = (v << 8) | (unsigned char)k[i];
+  return v;
+}
+static inline uint64_t DecodeKeyTag(const char* k) {
+  uint64_t v = 0;
+  for (int i = 0; i < 8; i++) v = (v << 8) | (unsigned char)k[i];
+  return v;
+}
+static std::string HexKey(const std::string& k) {
+  static const char* h = "0123456789abcdef";
+  std::string o; o.reserve(k.size() * 2);
+  for (unsigned char c : k) { o.push_back(h[c >> 4]); o.push_back(h[c & 15]); }
+  return o;
+}
+static void FillValue(uint64_t id, uint64_t salt, int size, std::string* v) {
+  v->resize(size);
+  uint64_t x = id * 0x9E3779B97F4A7C15ull + salt * 0xD1B54A32D192ED03ull;
+  char* p = &(*v)[0];
+  for (int i = 0; i < size; i += 8) {
+    x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+    int n = std::min(8, size - i);
+    memcpy(p + i, &x, n);
+  }
+}
+static bool CheckValue(uint64_t id, uint64_t salt, const Slice& got) {
+  std::string want;
+  FillValue(id, salt, (int)got.size(), &want);
+  return want.compare(got.ToString()) == 0;
+}
+
+// ---------------------------------------------------------------------------
+// configuration
+// ---------------------------------------------------------------------------
+struct Burst { double start, end, mult; };
+struct Cfg {
+  std::string db_path = "./db";
+  std::string out_prefix = "run";
+  std::string mode = "fill";
+  int64_t universe = 48000000;
+  int64_t num_ops = -1;
+  double duration_s = 0;
+  int threads = 16;
+  int key_size = 16;
+  int value_size = 1024;
+  bool use_existing_db = false;
+  std::string dist = "uniform";
+  std::string order = "identity";
+  double zipf_theta = 0.99;
+  double hot_fraction = 0.10, hot_share = 0.80;
+  int64_t locality_window = 1000000;
+  std::string read_mix = "recent:0.4,deep:0.4,neg:0.2";
+  int64_t recent_span = 0, deep_span = 0, scan_len = 10;
+  std::string arrival = "closed";
+  double rate = 0;
+  std::vector<Burst> bursts;
+  bool sync = false;
+  bool perf_detail = false;
+  double detail_rate = 0.0;
+  int64_t detail_max_rows = 2000000;
+  double read_log_rate = 0.0;
+  int sample_ms = 1000, layout_ms = 10000, dirscan_ms = 10000, progress_ms = 2000;
+  int read_pct = -1;               // mix ratio for --mode=mix
+  // rocksdb options
+  uint64_t write_buffer_size = 256ull << 20;
+  int max_write_buffer_number = 4;
+  int level0_trigger = 8, level0_slowdown = 20, level0_stop = 36;
+  uint64_t target_file_size_base = 64ull << 20;
+  int max_background_jobs = 8, max_subcompactions = 8;
+  // Per-stage capacity control (bottleneck campaign). Defaults -1 = derive from
+  // max_background_jobs (flush = max(1, jobs/4), compaction = jobs - flush).
+  // Setting either to >= 1 switches RocksDB to the explicit branch where both
+  // pools are sized independently (GetBGJobLimits compatibility path).
+  int max_background_flushes = -1, max_background_compactions = -1;
+  bool dynamic_level_bytes = true;
+  uint64_t cache_size = 8ull << 30;
+  int bloom_bits = 10;
+  std::string compression = "none";
+  bool disable_auto_compactions = false;
+  uint64_t max_total_wal_size = 0, max_compaction_bytes = 0;
+  int num_levels = 0;
+  uint64_t bytes_per_sync = 0;
+  bool use_direct_io = false;
+  bool disable_wal = false;
+  bool manual_wal_flush = false;
+  uint64_t max_bytes_for_level_base = 0;
+  int stats_dump_period_sec = 60;   // periodic full statistics block in the DB LOG
+  // phases
+  double drain_observe_s = 0;
+  bool final_flush = false;
+  double final_flush_observe_s = 0;
+  bool wait_for_drain = false;
+  double wait_for_drain_max_s = 1800;
+  // fault injection
+  int64_t kill_after_ops = -1;
+  double kill_at_s = -1;
+  std::string kill_at_event;
+  int64_t kill_after_event_n = 1;
+  // backlog mode
+  int backlog_files = 16;
+  int64_t backlog_keys_per_file = 131072;
+  std::string backlog_overlap = "wide";
+  int64_t backlog_region = 0;
+  // verify
+  int64_t verify_step = 99991;
+  uint64_t verify_salt = 1;
+  int64_t verify_from = -1, verify_to = -1;
+  int seed = 20260914;
+  // Runtime option interventions: --set_opt=AT_S:name=value[,...]
+  struct SetOpt { double at; std::string name, value; };
+  std::vector<SetOpt> set_opts;
+};
+
+static Cfg g;
+
+static const char* kUsage =
+"l0bench -- instrumented RocksDB workload driver (native RocksDB, no source patches)\n"
+"\n"
+"General:  --db=PATH --out=PREFIX --mode=MODE --universe=N [--num_ops=N | --duration_s=S]\n"
+"          --threads=T --value_size=B --use_existing_db=0|1 --seed=N\n"
+"  modes:  fill overwrite read mix scan backlog open verify compact flush\n"
+"Workload: --dist=uniform|monotonic|locality|zipf|hotspot   --order=identity|shuffle\n"
+"          --read_mix=recent:w,deep:w,neg:w,uniform:w,scan:w\n"
+"          --recent_span=N --deep_span=N --scan_len=N --read_pct=0..100\n"
+"          --zipf_theta=F --hot_fraction=F --hot_share=F --locality_window=N\n"
+"          --read_log_rate=F (0=off)\n"
+"Arrival:  --arrival=closed|open --rate=OPS_S --burst=S:E:MULT[,...] --sync=0|1\n"
+"Measure:  --perf_detail=0|1 --detail_rate=F --detail_max_rows=N\n"
+"          --sample_ms=N --layout_ms=N --dirscan_ms=N --progress_ms=N\n"
+"          --drain_observe_s=S --final_flush=0|1 --final_flush_observe_s=S\n"
+"          --wait_for_drain=0|1 --wait_for_drain_max_s=S\n"
+"Fault:    --kill_after_ops=N --kill_at_s=S --kill_at_event=flush_installed|compaction_installed --kill_after_event_n=N\n"
+"Options:  --write_buffer_size=B --max_write_buffer_number=N --level0_trigger=N\n"
+"          --level0_slowdown=N --level0_stop=N --target_file_size_base=B\n"
+"          --max_background_jobs=N --max_subcompactions=N --dynamic_level_bytes=0|1\n"
+"          --max_background_flushes=N --max_background_compactions=N   (-1 = derive from jobs)\n"
+"          --cache_size=B --bloom_bits=N --compression=none|lz4|zstd|snappy\n"
+"          --disable_auto_compactions=0|1 --max_total_wal_size=B --max_compaction_bytes=B\n"
+"          --num_levels=N --max_bytes_for_level_base=B --bytes_per_sync=B\n"
+"          --use_direct_io=0|1 --disable_wal=0|1 --manual_wal_flush=0|1\n"
+"Backlog:  --backlog_files=K --backlog_keys_per_file=N --backlog_overlap=wide|narrow --backlog_region=N\n"
+"Verify:   --verify_step=N --verify_salt=S\n";
+
+static void ParseArgs(int argc, char** argv) {
+  for (int i = 1; i < argc; i++) {
+    std::string a = argv[i];
+    if (a == "--help" || a == "-h") { printf("%s", kUsage); exit(0); }
+    if (a.rfind("--", 0) != 0) { fprintf(stderr, "bad arg: %s\n", a.c_str()); exit(2); }
+    a = a.substr(2);
+    std::string k, v;
+    size_t eq = a.find('=');
+    if (eq == std::string::npos) { k = a; v = "1"; } else { k = a.substr(0, eq); v = a.substr(eq + 1); }
+    auto B = [&]() { return v == "1" || v == "true"; };
+    if (k == "db") g.db_path = v;
+    else if (k == "out") g.out_prefix = v;
+    else if (k == "mode") g.mode = v;
+    else if (k == "universe") g.universe = (int64_t)ParseU64(v);
+    else if (k == "num_ops") g.num_ops = (int64_t)ParseU64(v);
+    else if (k == "duration_s") g.duration_s = atof(v.c_str());
+    else if (k == "threads") g.threads = atoi(v.c_str());
+    else if (k == "key_size") g.key_size = atoi(v.c_str());
+    else if (k == "value_size") g.value_size = atoi(v.c_str());
+    else if (k == "use_existing_db") g.use_existing_db = B();
+    else if (k == "dist") g.dist = v;
+    else if (k == "order") g.order = v;
+    else if (k == "zipf_theta") g.zipf_theta = atof(v.c_str());
+    else if (k == "hot_fraction") g.hot_fraction = atof(v.c_str());
+    else if (k == "hot_share") g.hot_share = atof(v.c_str());
+    else if (k == "locality_window") g.locality_window = (int64_t)ParseU64(v);
+    else if (k == "read_mix") g.read_mix = v;
+    else if (k == "recent_span") g.recent_span = (int64_t)ParseU64(v);
+    else if (k == "deep_span") g.deep_span = (int64_t)ParseU64(v);
+    else if (k == "scan_len") g.scan_len = (int64_t)ParseU64(v);
+    else if (k == "read_pct") g.read_pct = atoi(v.c_str());
+    else if (k == "arrival") g.arrival = v;
+    else if (k == "rate") g.rate = atof(v.c_str());
+    else if (k == "burst") {
+      for (auto& part : Split(v, ',')) {
+        auto f = Split(part, ':');
+        if (f.size() == 3) g.bursts.push_back({atof(f[0].c_str()), atof(f[1].c_str()), atof(f[2].c_str())});
+      }
+    }
+    else if (k == "sync") g.sync = B();
+    else if (k == "perf_detail") g.perf_detail = B();
+    else if (k == "detail_rate") g.detail_rate = atof(v.c_str());
+    else if (k == "detail_max_rows") g.detail_max_rows = (int64_t)ParseU64(v);
+    else if (k == "read_log_rate") g.read_log_rate = atof(v.c_str());
+    else if (k == "sample_ms") g.sample_ms = atoi(v.c_str());
+    else if (k == "layout_ms") g.layout_ms = atoi(v.c_str());
+    else if (k == "dirscan_ms") g.dirscan_ms = atoi(v.c_str());
+    else if (k == "progress_ms") g.progress_ms = atoi(v.c_str());
+    else if (k == "write_buffer_size") g.write_buffer_size = ParseU64(v);
+    else if (k == "max_write_buffer_number") g.max_write_buffer_number = atoi(v.c_str());
+    else if (k == "level0_trigger") g.level0_trigger = atoi(v.c_str());
+    else if (k == "level0_slowdown") g.level0_slowdown = atoi(v.c_str());
+    else if (k == "level0_stop") g.level0_stop = atoi(v.c_str());
+    else if (k == "target_file_size_base") g.target_file_size_base = ParseU64(v);
+    else if (k == "max_background_jobs") g.max_background_jobs = atoi(v.c_str());
+    else if (k == "max_subcompactions") g.max_subcompactions = atoi(v.c_str());
+    else if (k == "max_background_flushes") g.max_background_flushes = atoi(v.c_str());
+    else if (k == "max_background_compactions") g.max_background_compactions = atoi(v.c_str());
+    else if (k == "dynamic_level_bytes") g.dynamic_level_bytes = B();
+    else if (k == "cache_size") g.cache_size = ParseU64(v);
+    else if (k == "bloom_bits") g.bloom_bits = atoi(v.c_str());
+    else if (k == "compression") g.compression = v;
+    else if (k == "disable_auto_compactions") g.disable_auto_compactions = B();
+    else if (k == "max_total_wal_size") g.max_total_wal_size = ParseU64(v);
+    else if (k == "max_compaction_bytes") g.max_compaction_bytes = ParseU64(v);
+    else if (k == "num_levels") g.num_levels = atoi(v.c_str());
+    else if (k == "max_bytes_for_level_base") g.max_bytes_for_level_base = ParseU64(v);
+    else if (k == "stats_dump_period_sec") g.stats_dump_period_sec = atoi(v.c_str());
+    else if (k == "bytes_per_sync") g.bytes_per_sync = ParseU64(v);
+    else if (k == "use_direct_io") g.use_direct_io = B();
+    else if (k == "disable_wal") g.disable_wal = B();
+    else if (k == "manual_wal_flush") g.manual_wal_flush = B();
+    else if (k == "drain_observe_s") g.drain_observe_s = atof(v.c_str());
+    else if (k == "final_flush") g.final_flush = B();
+    else if (k == "final_flush_observe_s") g.final_flush_observe_s = atof(v.c_str());
+    else if (k == "wait_for_drain") g.wait_for_drain = B();
+    else if (k == "wait_for_drain_max_s") g.wait_for_drain_max_s = atof(v.c_str());
+    else if (k == "kill_after_ops") g.kill_after_ops = (int64_t)ParseU64(v);
+    else if (k == "kill_at_s") g.kill_at_s = atof(v.c_str());
+    else if (k == "kill_at_event") g.kill_at_event = v;
+    else if (k == "kill_after_event_n") g.kill_after_event_n = (int64_t)ParseU64(v);
+    else if (k == "backlog_files") g.backlog_files = atoi(v.c_str());
+    else if (k == "backlog_keys_per_file") g.backlog_keys_per_file = (int64_t)ParseU64(v);
+    else if (k == "backlog_overlap") g.backlog_overlap = v;
+    else if (k == "backlog_region") g.backlog_region = (int64_t)ParseU64(v);
+    else if (k == "verify_step") g.verify_step = (int64_t)ParseU64(v);
+    else if (k == "verify_salt") g.verify_salt = ParseU64(v);
+    else if (k == "verify_from") g.verify_from = (int64_t)ParseU64(v);
+    else if (k == "verify_to") g.verify_to = (int64_t)ParseU64(v);
+    else if (k == "set_opt") {
+      for (auto& part : Split(v, ',')) {
+        size_t c1 = part.find(':'), c2 = part.find('=', c1 + 1);
+        if (c1 == std::string::npos || c2 == std::string::npos) { fprintf(stderr, "bad --set_opt %s\n", part.c_str()); exit(2); }
+        g.set_opts.push_back({atof(part.substr(0, c1).c_str()),
+                              part.substr(c1 + 1, c2 - c1 - 1), part.substr(c2 + 1)});
+      }
+    }
+    else { fprintf(stderr, "unknown flag: --%s\n", k.c_str()); exit(2); }
+  }
+  if (g.recent_span == 0) g.recent_span = std::max<int64_t>(1000, g.universe / 20);
+  if (g.deep_span == 0) g.deep_span = std::max<int64_t>(1000, g.universe / 5);
+  if (g.mode == "fill" || g.mode == "overwrite") {
+    if (g.num_ops < 0 && g.duration_s <= 0) g.num_ops = g.universe;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CSV sinks
+// ---------------------------------------------------------------------------
+struct Csv {
+  FILE* f = nullptr;
+  std::mutex mu;
+  void Open(const std::string& path, const std::string& header) {
+    f = fopen(path.c_str(), "w");
+    if (!f) { fprintf(stderr, "cannot open %s\n", path.c_str()); exit(1); }
+    fprintf(f, "%s\n", header.c_str());
+  }
+  void Row(const std::string& s) {
+    std::lock_guard<std::mutex> lk(mu);
+    if (f) { fputs(s.c_str(), f); fputc('\n', f); }
+  }
+  void Close() { std::lock_guard<std::mutex> lk(mu); if (f) { fclose(f); f = nullptr; } }
+};
+static Csv c_detail, c_persec, c_samples, c_layout, c_layout_levels, c_events,
+    c_event_files, c_reads, c_dirscan, c_stalls, c_compactions, c_summary_extra;
+
+// ---------------------------------------------------------------------------
+// shared run state
+// ---------------------------------------------------------------------------
+struct Shared {
+  std::atomic<int64_t> ops_started{0}, ops_done{0}, ops_ok{0}, ops_err{0};
+  std::atomic<int64_t> reads_issued{0}, reads_hit{0}, reads_notfound{0}, writes_ok{0};
+  std::atomic<int64_t> bytes_written_logical{0}, bytes_read_returned{0};
+  std::atomic<int64_t> detail_rows{0}, read_rows{0};
+  std::atomic<int64_t> stall_begin_events{0}, stall_end_events{0};
+  std::atomic<int64_t> flush_installed{0}, compaction_installed{0};
+  std::atomic<bool> stop{false};
+  std::atomic<int64_t> killed_at_ops{-1};
+  double t0 = 0;
+};
+static Shared S;
+static uint64_t g_dev_wr0 = 0, g_dev_rd0 = 0;
+
+struct PerSec {
+  std::mutex mu;
+  std::vector<Hist> h_eng, h_e2e;      // engine latency (submit->done) and e2e (sched->done)
+  std::vector<uint64_t> ops, bytes, wops, rops, rhit;
+  void Ensure(int64_t sec) {
+    while ((int64_t)h_eng.size() <= sec) {
+      h_eng.emplace_back(); h_e2e.emplace_back();
+      ops.push_back(0); bytes.push_back(0); wops.push_back(0); rops.push_back(0); rhit.push_back(0);
+    }
+  }
+};
+static PerSec PS;
+
+// ---------------------------------------------------------------------------
+// request generators
+// ---------------------------------------------------------------------------
+struct Gen {
+  std::vector<uint64_t> perm;
+  bool has_perm = false;
+  std::vector<double> zipf_cdf;
+  void Build() {
+    uint64_t U = (uint64_t)g.universe;
+    if (g.dist == "uniform" || g.dist == "hotspot" ||
+        (g.dist == "monotonic" && g.order == "shuffle")) {
+      perm.resize(U);
+      for (uint64_t i = 0; i < U; i++) perm[i] = i;
+      std::mt19937_64 rng((uint64_t)g.seed * 2654435761ull + 7);
+      for (uint64_t i = U; i > 1; i--) { uint64_t j = rng() % i; std::swap(perm[i - 1], perm[j]); }
+      has_perm = true;
+    }
+    if (g.dist == "zipf") {
+      size_t n = (size_t)std::min<uint64_t>(U, 1000000);
+      zipf_cdf.resize(n);
+      double s = 0;
+      for (size_t i = 0; i < n; i++) { s += 1.0 / std::pow((double)(i + 1), g.zipf_theta); zipf_cdf[i] = s; }
+      for (auto& x : zipf_cdf) x /= s;
+    }
+  }
+  inline uint64_t Uniform(uint64_t lo, uint64_t hi, std::mt19937_64& rng) {
+    if (hi <= lo) return lo;
+    return lo + rng() % (hi - lo);
+  }
+  inline uint64_t Zipf(std::mt19937_64& rng) {
+    if (zipf_cdf.empty()) return 0;
+    double u = (rng() >> 11) * (1.0 / 9007199254740992.0);
+    auto it = std::lower_bound(zipf_cdf.begin(), zipf_cdf.end(), u);
+    uint64_t idx = (uint64_t)(it - zipf_cdf.begin());
+    return idx * (uint64_t)g.universe / std::max<size_t>(1, zipf_cdf.size());
+  }
+  inline uint64_t WriteKey(int64_t i, std::mt19937_64& rng) {
+    const uint64_t U = (uint64_t)g.universe;
+    if (g.dist == "monotonic") return has_perm ? perm[(uint64_t)i % U] : (uint64_t)i % U;
+    if (g.dist == "locality") {
+      uint64_t w = (uint64_t)std::max<int64_t>(1, g.locality_window);
+      uint64_t blk = (uint64_t)i / w, off = (uint64_t)i % w;
+      uint64_t span = U > w ? U - w : 1;
+      uint64_t start = (blk * 0x9E3779B97F4A7C15ull) % span;
+      return start + off;
+    }
+    if (g.dist == "zipf") return Zipf(rng);
+    if (g.dist == "hotspot") {
+      double u = (rng() >> 11) * (1.0 / 9007199254740992.0);
+      uint64_t hot = (uint64_t)((double)U * g.hot_fraction);
+      if (u < g.hot_share && hot > 0) return Uniform(0, hot, rng);
+      return Uniform(0, U, rng);
+    }
+    if (has_perm) return perm[(uint64_t)i % U];
+    return Uniform(0, U, rng);
+  }
+};
+static Gen G;
+
+struct MixPart { std::string name; double w; };
+static std::vector<MixPart> g_read_mix;
+static void ParseReadMix() {
+  g_read_mix.clear();
+  double tot = 0;
+  for (auto& p : Split(g.read_mix, ',')) {
+    auto f = Split(p, ':');
+    if (f.size() != 2) continue;
+    MixPart m{f[0], atof(f[1].c_str())};
+    tot += m.w;
+    g_read_mix.push_back(m);
+  }
+  if (tot > 0) for (auto& m : g_read_mix) m.w /= tot;
+}
+
+// open-loop pacer with burst schedule
+struct Pacer {
+  std::mutex mu;
+  uint64_t next_ns = 0;
+  double base = 0, t0_mono = 0;
+  void Init() { base = g.rate; t0_mono = (double)NowNs(); next_ns = (uint64_t)(t0_mono + 1e9 / g.rate); }
+  double MultAt(double elapsed) const {
+    double m = 1.0;
+    for (auto& b : g.bursts) if (elapsed >= b.start && elapsed < b.end) m = b.mult;
+    return m;
+  }
+  uint64_t Next() {
+    std::lock_guard<std::mutex> lk(mu);
+    uint64_t t = next_ns;
+    double elapsed = ((double)t - t0_mono) / 1e9;
+    double m = MultAt(elapsed);
+    double per = 1e9 / (base * (m > 0 ? m : 1e-9));
+    next_ns = t + (uint64_t)std::max(1.0, per);
+    return t;
+  }
+};
+static Pacer PACE;
+
+// ---------------------------------------------------------------------------
+// EventListener
+// ---------------------------------------------------------------------------
+static const char* FlushReasonStr(FlushReason r) {
+  switch (r) {
+    case FlushReason::kOthers: return "Others";
+    case FlushReason::kGetLiveFiles: return "GetLiveFiles";
+    case FlushReason::kShutDown: return "ShutDown";
+    case FlushReason::kExternalFileIngestion: return "ExternalFileIngestion";
+    case FlushReason::kManualCompaction: return "ManualCompaction";
+    case FlushReason::kWriteBufferManager: return "WriteBufferManager";
+    case FlushReason::kWriteBufferFull: return "WriteBufferFull";
+    case FlushReason::kTest: return "Test";
+    case FlushReason::kDeleteFiles: return "DeleteFiles";
+    case FlushReason::kAutoCompaction: return "AutoCompaction";
+    case FlushReason::kManualFlush: return "ManualFlush";
+    case FlushReason::kErrorRecovery: return "ErrorRecovery";
+    case FlushReason::kErrorRecoveryRetryFlush: return "ErrorRecoveryRetryFlush";
+    case FlushReason::kWalFull: return "WalFull";
+    default: return "Unknown";
+  }
+}
+static const char* CompactionReasonStr(CompactionReason r) {
+  switch (r) {
+    case CompactionReason::kUnknown: return "Unknown";
+    case CompactionReason::kLevelL0FilesNum: return "LevelL0FilesNum";
+    case CompactionReason::kLevelMaxLevelSize: return "LevelMaxLevelSize";
+    case CompactionReason::kUniversalSizeAmplification: return "UniversalSizeAmplification";
+    case CompactionReason::kUniversalSizeRatio: return "UniversalSizeRatio";
+    case CompactionReason::kUniversalSortedRunNum: return "UniversalSortedRunNum";
+    case CompactionReason::kFIFOMaxSize: return "FIFOMaxSize";
+    case CompactionReason::kFIFOReduceNumFiles: return "FIFOReduceNumFiles";
+    case CompactionReason::kFIFOTtl: return "FIFOTtl";
+    case CompactionReason::kManualCompaction: return "ManualCompaction";
+    case CompactionReason::kFilesMarkedForCompaction: return "FilesMarkedForCompaction";
+    case CompactionReason::kBottommostFiles: return "BottommostFiles";
+    case CompactionReason::kTtl: return "Ttl";
+    case CompactionReason::kFlush: return "Flush";
+    case CompactionReason::kExternalSstIngestion: return "ExternalSstIngestion";
+    case CompactionReason::kPeriodicCompaction: return "PeriodicCompaction";
+    case CompactionReason::kChangeTemperature: return "ChangeTemperature";
+    case CompactionReason::kForcedBlobGC: return "ForcedBlobGC";
+    case CompactionReason::kRoundRobinTtl: return "RoundRobinTtl";
+    case CompactionReason::kRefitLevel: return "RefitLevel";
+    default: return "Other";
+  }
+}
+static constexpr int kMaxLvl = 7;
+static std::string JoinInts(const std::vector<int>& v) {
+  std::string s;
+  for (size_t i = 0; i < v.size(); i++) { if (i) s += "|"; s += std::to_string(v[i]); }
+  return s;
+}
+// fixed-width event row (17 columns)
+static void Ev(const char* kind, int job, const std::string& cf,
+               const std::string& ilev = "", const std::string& ninf = "",
+               const std::string& inb = "", const std::string& olvl = "",
+               const std::string& outb = "", const std::string& noutf = "",
+               const std::string& wall = "", const std::string& cpu = "",
+               const std::string& ninr = "", const std::string& nour = "",
+               const std::string& inbs = "", const std::string& outbs = "",
+               const std::string& extra = "") {
+  c_events.Row(Fmt("%.6f,%s,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s", WallSec(), kind, job,
+                   cf.c_str(), ilev.c_str(), ninf.c_str(), inb.c_str(), olvl.c_str(), outb.c_str(),
+                   noutf.c_str(), wall.c_str(), cpu.c_str(), ninr.c_str(), nour.c_str(),
+                   inbs.c_str(), outbs.c_str(), extra.c_str()));
+}
+
+struct CompStart { double ts; std::string reason; double score; uint64_t in_files[kMaxLvl]; uint64_t in_bytes[kMaxLvl]; std::string trigger; };
+
+class L0Listener : public EventListener {
+ public:
+  void OnFlushBegin(DB* db, const FlushJobInfo& info) override {
+    { std::lock_guard<std::mutex> lk(map_mu_); flush_begin_ts_[info.job_id] = WallSec(); }
+    Ev("flush_begin", info.job_id, info.cf_name, "", "", "", "", "", "", "", "", "", "", "", "",
+       Fmt("reason=%s file=%llu", FlushReasonStr(info.flush_reason),
+           (unsigned long long)info.file_number));
+  }
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+    double t0 = WallSec();
+    { std::lock_guard<std::mutex> lk(map_mu_); auto itf = flush_begin_ts_.find(info.job_id); if (itf != flush_begin_ts_.end()) t0 = itf->second; }
+    uint64_t l0 = 0;  // filled by the sampler, not from the callback thread
+    (void)db;
+    Ev("flush_installed", info.job_id, info.cf_name, "", "1", "",
+       "0", NS((uint64_t)info.table_properties.data_size), "1",
+       Fmt("%.0f", (WallSec() - t0) * 1e6), "", NS((uint64_t)info.table_properties.num_entries), "",
+       "", "", Fmt("reason=%s frontend_slowdown=%d frontend_stop=%d L0_after=%llu bytes_relaxed=%llu seqno=[%llu,%llu]",
+                   FlushReasonStr(info.flush_reason), (int)info.triggered_writes_slowdown,
+                   (int)info.triggered_writes_stop, (unsigned long long)l0,
+                   (unsigned long long)info.table_properties.data_size,
+                   (unsigned long long)info.smallest_seqno, (unsigned long long)info.largest_seqno));
+    S.flush_installed.fetch_add(1);
+    MaybeKill("flush_installed");
+  }
+  void OnCompactionBegin(DB* db, const CompactionJobInfo& ci) override {
+    CompStart cs;
+    cs.ts = WallSec();
+    cs.reason = CompactionReasonStr(ci.compaction_reason);
+    cs.score = 0;
+    for (int i = 0; i < kMaxLvl; i++) { cs.in_files[i] = 0; cs.in_bytes[i] = 0; }
+    for (size_t i = 0; i < ci.input_file_infos.size(); i++) {
+      int lv = ci.input_file_infos[i].level;
+      if (lv < 0 || lv >= kMaxLvl) continue;
+      cs.in_files[lv]++;
+      auto it = ci.table_properties.find(ci.input_files[i]);
+      if (it != ci.table_properties.end()) cs.in_bytes[lv] += it->second->data_size;
+    }
+    cs.trigger = "";
+    { std::lock_guard<std::mutex> lk(map_mu_); comp_starts_[ci.job_id] = cs; }
+    std::vector<int> ilev;
+    for (auto& f : ci.input_file_infos) ilev.push_back(f.level);
+    std::sort(ilev.begin(), ilev.end());
+    ilev.erase(std::unique(ilev.begin(), ilev.end()), ilev.end());
+    Ev("compaction_begin", ci.job_id, ci.cf_name, JoinInts(ilev), NS(ci.input_file_infos.size()),
+       "", "", "", "", "", "", "", "", "", "", Fmt("reason=%s", cs.reason.c_str()));
+  }
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
+    CompStart cs{};
+    { std::lock_guard<std::mutex> lk(map_mu_); auto itc = comp_starts_.find(ci.job_id); if (itc != comp_starts_.end()) cs = itc->second; }
+    const CompactionJobStats& st = ci.stats;
+    uint64_t out_files[kMaxLvl];
+    for (int i = 0; i < kMaxLvl; i++) out_files[i] = 0;
+    uint64_t out_bytes = 0;
+    for (size_t i = 0; i < ci.output_file_infos.size(); i++) {
+      int lv = ci.output_file_infos[i].level;
+      if (lv >= 0 && lv < kMaxLvl) out_files[lv]++;
+      auto it = ci.table_properties.find(ci.output_files[i]);
+      uint64_t fsz = (it != ci.table_properties.end()) ? it->second->data_size : 0;
+      out_bytes += fsz;
+      c_event_files.Row(Fmt("%.6f,%d,out,%d,%llu,%llu,%llu", WallSec(), ci.job_id, lv,
+                            (unsigned long long)ci.output_file_infos[i].file_number,
+                            (unsigned long long)fsz,
+                            (unsigned long long)(it != ci.table_properties.end() ? it->second->num_entries : 0)));
+    }
+    for (size_t i = 0; i < ci.input_file_infos.size(); i++) {
+      auto it = ci.table_properties.find(ci.input_files[i]);
+      c_event_files.Row(Fmt("%.6f,%d,in,%d,%llu,%llu,%llu", WallSec(), ci.job_id,
+                            ci.input_file_infos[i].level,
+                            (unsigned long long)ci.input_file_infos[i].file_number,
+                            (unsigned long long)(it != ci.table_properties.end() ? it->second->data_size : 0),
+                            (unsigned long long)(it != ci.table_properties.end() ? it->second->num_entries : 0)));
+    }
+    (void)db;
+    std::string lsm = "NA";   // per-level file counts come from the sampler
+    // rich per-job row (E1/E2/E4/E8 core table)
+    {
+      std::string row = Fmt("%.6f,%.6f,%d,%s,%s,", cs.ts, WallSec(), ci.job_id, ci.cf_name.c_str(),
+                            cs.reason.c_str());
+      uint64_t tot_in_files = 0, tot_in_bytes = 0;
+      for (int lv = 0; lv < kMaxLvl; lv++) { tot_in_files += cs.in_files[lv]; tot_in_bytes += cs.in_bytes[lv]; }
+      row += Fmt("%llu,%llu,", (unsigned long long)tot_in_files, (unsigned long long)tot_in_bytes);
+      for (int lv = 0; lv < kMaxLvl; lv++) row += Fmt("%llu,", (unsigned long long)cs.in_files[lv]);
+      for (int lv = 0; lv < kMaxLvl; lv++) row += Fmt("%llu,", (unsigned long long)cs.in_bytes[lv]);
+      row += Fmt("%d,%zu,%llu,", ci.output_level, ci.output_file_infos.size(),
+                 (unsigned long long)out_bytes);
+      for (int lv = 0; lv < kMaxLvl; lv++) row += Fmt("%llu,", (unsigned long long)out_files[lv]);
+      row += Fmt("%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%s,%s",
+                 (unsigned long long)st.num_input_records, (unsigned long long)st.num_output_records,
+                 (unsigned long long)st.num_records_replaced,
+                 (unsigned long long)st.total_skipped_input_bytes,
+                 (unsigned long long)st.total_input_bytes,
+                 (unsigned long long)st.total_output_bytes,
+                 (unsigned long long)st.elapsed_micros, (unsigned long long)st.cpu_micros,
+                 (unsigned long long)st.file_write_nanos, (unsigned long long)st.file_fsync_nanos,
+                 (unsigned long long)st.num_input_deletion_records,
+                 lsm.c_str(),
+                 ci.base_input_level >= 0 ? std::to_string(ci.base_input_level).c_str() : "NA");
+      c_compactions.Row(row);
+    }
+    Ev("compaction_installed", ci.job_id, ci.cf_name, "", NS(ci.input_file_infos.size()),
+       NS(st.total_input_bytes), NS(ci.output_level), NS(out_bytes),
+       NS((uint64_t)ci.output_file_infos.size()), NS(st.elapsed_micros), NS(st.cpu_micros),
+       NS(st.num_input_records), NS(st.num_output_records),
+       NS(st.num_records_replaced), NS(st.total_skipped_input_bytes),
+       Fmt("reason=%s base_input_level=%d subcompactions=%zu lsm=%s aborted=%d",
+           cs.reason.c_str(), ci.base_input_level, ci.output_file_infos.size(), lsm.c_str(),
+           (int)ci.aborted));
+    S.compaction_installed.fetch_add(1);
+    MaybeKill("compaction_installed");
+  }
+  void OnSubcompactionBegin(const SubcompactionJobInfo& si) override {
+    Ev("subcompaction_begin", si.job_id, si.cf_name, "", "", "", "", "", "", "", "", "", "", "", "",
+       Fmt("sub=%d base_in=%d out=%d reason=%s", si.subcompaction_job_id, si.base_input_level,
+           si.output_level, CompactionReasonStr(si.compaction_reason)));
+    (void)si;
+  }
+  void OnSubcompactionCompleted(const SubcompactionJobInfo& si) override {
+    Ev("subcompaction_end", si.job_id, si.cf_name, "", "", "", NS(si.output_level), "", "", 
+       NS(si.stats.elapsed_micros), NS(si.stats.cpu_micros), NS(si.stats.num_input_records),
+       NS(si.stats.num_output_records), NS(si.stats.total_input_bytes), NS(si.stats.total_output_bytes),
+       Fmt("sub=%d base_in=%d reason=%s", si.subcompaction_job_id, si.base_input_level,
+           CompactionReasonStr(si.compaction_reason)));
+  }
+  void OnStallConditionsChanged(const WriteStallInfo& info) override {
+    const char* st = "?";
+    bool begin = false;
+    switch (info.condition.cur) {
+      case WriteStallCondition::kNormal: st = "normal"; break;
+      case WriteStallCondition::kDelayed: st = "delayed"; begin = true; break;
+      case WriteStallCondition::kStopped: st = "stopped"; begin = true; break;
+    }
+    if (begin) S.stall_begin_events.fetch_add(1); else S.stall_end_events.fetch_add(1);
+    c_stalls.Row(Fmt("%.6f,%s,%s,%d", WallSec(), info.cf_name.c_str(), st, (int)info.condition.cur));
+  }
+  void OnTableFileCreated(const TableFileCreationInfo& info) override {
+    std::string base = info.file_path;
+    size_t slash = base.find_last_of('/');
+    if (slash != std::string::npos) base = base.substr(slash + 1);
+    uint64_t num = strtoull(base.c_str(), nullptr, 10);
+    c_event_files.Row(Fmt("%.6f,%d,created,%d,%llu,%llu,%llu", WallSec(), info.job_id, -1,
+                          (unsigned long long)num, (unsigned long long)info.file_size,
+                          (unsigned long long)info.table_properties.num_entries));
+  }
+  void OnTableFileDeleted(const TableFileDeletionInfo& info) override {
+    // FileDeletionInfo carries only the path; recover the file number from it.
+    std::string base = info.file_path;
+    size_t slash = base.find_last_of('/');
+    if (slash != std::string::npos) base = base.substr(slash + 1);
+    uint64_t num = strtoull(base.c_str(), nullptr, 10);
+    Ev("file_deleted", info.job_id, "", "", "", "", "", "", "", "", "", "", "", "", "",
+       Fmt("file=%llu path=%s status=%s", (unsigned long long)num, base.c_str(),
+           info.status.ToString().c_str()));
+  }
+  void OnMemTableSealed(const MemTableInfo& info) override {
+    Ev("memtable_sealed", -1, info.cf_name, "", "", "", "", "", "", "", "", NS(info.num_entries),
+       "", "", "", Fmt("first_seq=%llu earliest_seq=%llu",
+                       (unsigned long long)info.first_seqno, (unsigned long long)info.earliest_seqno));
+    MaybeKill("memtable_sealed");
+  }
+  void OnBackgroundError(BackgroundErrorReason reason, Status*) override {
+    Ev("background_error", -1, "", "", "", "", "", "", "", "", "", "", "", "", "",
+       Fmt("reason=%d", (int)reason));
+  }
+
+ private:
+  void MaybeKill(const char* ev) {
+    if (g.kill_at_event.empty() || g.kill_at_event != ev) return;
+    static std::atomic<int64_t> n{0};
+    int64_t k = n.fetch_add(1) + 1;
+    if (k == g.kill_after_event_n) {
+      int64_t confirmed = S.ops_ok.load();
+      int64_t done_ = S.ops_done.load();
+      S.killed_at_ops.store(confirmed);
+      // The confirmation record: with a single writer thread the confirmed key set is
+      // exactly [0, confirmed). Flush everything before dying so it survives SIGKILL.
+      c_summary_extra.Row(Fmt("kill_confirmation,%lld,%lld,%.6f", (long long)confirmed,
+                              (long long)done_, WallSec()));
+      Ev("kill_triggered", -1, "", "", "", "", "", "", "", "", "", "", "", "", "",
+         Fmt("%s confirmed_ops=%lld ops_done=%lld wall=%.3f", ev, (long long)confirmed,
+             (long long)done_, WallSec()));
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      fflush(nullptr);
+      kill(getpid(), SIGKILL);
+    }
+  }
+  std::mutex map_mu_;
+  std::map<int, double> flush_begin_ts_;
+  std::map<int, CompStart> comp_starts_;
+};
+
+// ---------------------------------------------------------------------------
+// sampled tickers / properties
+// ---------------------------------------------------------------------------
+struct TickerDef { const char* name; Tickers t; };
+static const TickerDef kTickers[] = {
+  {"stall_micros", STALL_MICROS},
+  {"db_mutex_wait_micros", DB_MUTEX_WAIT_MICROS},
+  {"memtable_hit", MEMTABLE_HIT}, {"memtable_miss", MEMTABLE_MISS},
+  {"keys_written", NUMBER_KEYS_WRITTEN}, {"keys_read", NUMBER_KEYS_READ},
+  {"keys_updated", NUMBER_KEYS_UPDATED},
+  {"bytes_written", BYTES_WRITTEN}, {"bytes_read", BYTES_READ},
+  {"iter_bytes_read", ITER_BYTES_READ},
+  {"db_seek", NUMBER_DB_SEEK}, {"db_next", NUMBER_DB_NEXT},
+  {"wal_file_bytes", WAL_FILE_BYTES}, {"wal_file_synced", WAL_FILE_SYNCED},
+  {"write_done_by_self", WRITE_DONE_BY_SELF}, {"write_done_by_other", WRITE_DONE_BY_OTHER},
+  {"write_with_wal", WRITE_WITH_WAL},
+  {"compact_read_bytes", COMPACT_READ_BYTES}, {"compact_write_bytes", COMPACT_WRITE_BYTES},
+  {"flush_write_bytes", FLUSH_WRITE_BYTES},
+  {"compact_read_bytes_marked", COMPACT_READ_BYTES_MARKED},
+  {"compact_write_bytes_marked", COMPACT_WRITE_BYTES_MARKED},
+  {"compact_read_bytes_periodic", COMPACT_READ_BYTES_PERIODIC},
+  {"compact_write_bytes_periodic", COMPACT_WRITE_BYTES_PERIODIC},
+  {"compact_read_bytes_ttl", COMPACT_READ_BYTES_TTL},
+  {"compact_write_bytes_ttl", COMPACT_WRITE_BYTES_TTL},
+  {"compaction_cpu_total_time", COMPACTION_CPU_TOTAL_TIME},
+  {"key_drop_newer_entry", COMPACTION_KEY_DROP_NEWER_ENTRY},
+  {"key_drop_obsolete", COMPACTION_KEY_DROP_OBSOLETE},
+  {"key_drop_range_del", COMPACTION_KEY_DROP_RANGE_DEL},
+  {"key_drop_user", COMPACTION_KEY_DROP_USER},
+  {"range_del_drop_obsolete", COMPACTION_RANGE_DEL_DROP_OBSOLETE},
+  {"block_cache_miss", BLOCK_CACHE_MISS}, {"block_cache_hit", BLOCK_CACHE_HIT},
+  {"block_cache_index_miss", BLOCK_CACHE_INDEX_MISS}, {"block_cache_index_hit", BLOCK_CACHE_INDEX_HIT},
+  {"block_cache_filter_miss", BLOCK_CACHE_FILTER_MISS}, {"block_cache_filter_hit", BLOCK_CACHE_FILTER_HIT},
+  {"block_cache_data_miss", BLOCK_CACHE_DATA_MISS}, {"block_cache_data_hit", BLOCK_CACHE_DATA_HIT},
+  {"block_cache_bytes_read", BLOCK_CACHE_BYTES_READ}, {"block_cache_bytes_write", BLOCK_CACHE_BYTES_WRITE},
+  {"bloom_filter_useful", BLOOM_FILTER_USEFUL},
+  {"bloom_filter_full_positive", BLOOM_FILTER_FULL_POSITIVE},
+  {"bloom_filter_full_true_positive", BLOOM_FILTER_FULL_TRUE_POSITIVE},
+  {"no_file_opens", NO_FILE_OPENS}, {"no_file_errors", NO_FILE_ERRORS},
+  {"read_amp_estimate_useful_bytes", READ_AMP_ESTIMATE_USEFUL_BYTES},
+  {"read_amp_total_read_bytes", READ_AMP_TOTAL_READ_BYTES},
+  {"last_level_read_bytes", LAST_LEVEL_READ_BYTES}, {"last_level_read_count", LAST_LEVEL_READ_COUNT},
+  {"non_last_level_read_bytes", NON_LAST_LEVEL_READ_BYTES},
+  {"non_last_level_read_count", NON_LAST_LEVEL_READ_COUNT},
+  {"last_level_seek_data", LAST_LEVEL_SEEK_DATA},
+  {"non_last_level_seek_data", NON_LAST_LEVEL_SEEK_DATA},
+  {"block_compressed", NUMBER_BLOCK_COMPRESSED}, {"block_decompressed", NUMBER_BLOCK_DECOMPRESSED},
+  {"bytes_compressed_from", BYTES_COMPRESSED_FROM}, {"bytes_compressed_to", BYTES_COMPRESSED_TO},
+  {"num_iterators_new", NO_ITERATOR_CREATED}, {"num_iterators_del", NO_ITERATOR_DELETED},
+  {"number_multiget_calls", NUMBER_MULTIGET_CALLS},
+  {"number_multiget_keys_read", NUMBER_MULTIGET_KEYS_READ},
+  {"number_multiget_bytes_read", NUMBER_MULTIGET_BYTES_READ},
+  {"number_superversion_acquires", NUMBER_SUPERVERSION_ACQUIRES},
+  {"number_superversion_cleanups", NUMBER_SUPERVERSION_CLEANUPS},
+  {"number_direct_load_table_properties", NUMBER_DIRECT_LOAD_TABLE_PROPERTIES},
+  {"files_deleted_immediately", FILES_DELETED_IMMEDIATELY},
+};
+static const size_t kNumTickers = sizeof(kTickers) / sizeof(kTickers[0]);
+static const char* kProps[] = {
+  "rocksdb.num-files-at-level0", "rocksdb.num-files-at-level1", "rocksdb.num-files-at-level2",
+  "rocksdb.num-files-at-level3", "rocksdb.num-files-at-level4", "rocksdb.num-files-at-level5",
+  "rocksdb.num-files-at-level6",
+  "rocksdb.estimate-pending-compaction-bytes", "rocksdb.num-immutable-mem-table",
+  "rocksdb.mem-table-flush-pending", "rocksdb.compaction-pending",
+  "rocksdb.cur-size-all-mem-tables", "rocksdb.size-all-mem-tables",
+  "rocksdb.num-entries-active-mem-table", "rocksdb.num-entries-imm-mem-tables",
+  "rocksdb.total-sst-files-size", "rocksdb.estimate-live-data-size", "rocksdb.estimate-num-keys",
+  "rocksdb.base-level", "rocksdb.num-live-versions", "rocksdb.num-snapshots",
+  "rocksdb.is-write-stopped", "rocksdb.actual-delayed-write-rate", "rocksdb.background-errors",
+  "rocksdb.oldest-snapshot-time",
+  "rocksdb.estimate-table-readers-mem", "rocksdb.block-cache-usage",
+  "rocksdb.size-all-mem-tables", "rocksdb.num-running-compactions",
+  "rocksdb.num-running-flushes", "rocksdb.estimate-oldest-key-time",
+};
+static const size_t kNumProps = sizeof(kProps) / sizeof(kProps[0]);
+
+// ---------------------------------------------------------------------------
+// process / device counters
+// ---------------------------------------------------------------------------
+static void ReadProcStat(uint64_t* ut, uint64_t* st_) {
+  *ut = *st_ = 0;
+  FILE* f = fopen("/proc/self/stat", "r");
+  if (!f) return;
+  char buf[4096];
+  size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+  fclose(f);
+  buf[n] = 0;
+  char* p = strrchr(buf, ')');
+  if (!p) return;
+  p++;
+  int field = 2;
+  char* tok = strtok(p, " ");
+  while (tok) {
+    field++;
+    if (field == 14) *ut = strtoull(tok, nullptr, 10);
+    if (field == 15) { *st_ = strtoull(tok, nullptr, 10); break; }
+    tok = strtok(nullptr, " ");
+  }
+}
+static uint64_t ReadRssBytes() {
+  FILE* f = fopen("/proc/self/status", "r");
+  if (!f) return 0;
+  char line[512];
+  uint64_t v = 0;
+  while (fgets(line, sizeof(line), f))
+    if (strncmp(line, "VmRSS:", 6) == 0) { v = strtoull(line + 6, nullptr, 10) * 1024ull; break; }
+  fclose(f);
+  return v;
+}
+static void ReadDiskStats(uint64_t* wr_sect, uint64_t* wr_ios, uint64_t* rd_sect, uint64_t* rd_ios,
+                          uint64_t* io_ticks_ms) {
+  *wr_sect = *wr_ios = *rd_sect = *rd_ios = 0;
+  if (io_ticks_ms) *io_ticks_ms = 0;
+  FILE* f = fopen("/proc/diskstats", "r");
+  if (!f) return;
+  char line[512];
+  while (fgets(line, sizeof(line), f)) {
+    char dev[64];
+    // /proc/diskstats: major minor name reads_completed reads_merged sectors_read
+    // ms_reading writes_completed writes_merged sectors_written ms_writing ...
+    // field 13 (io_ticks, ms doing I/O) needs the two extra %llu slots below.
+    unsigned long long maj, mi, rc, rm, sr, mr, wc, wm, sw, mw, infl, ticks;
+    int n = sscanf(line, "%llu %llu %63s %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu",
+                   &maj, &mi, dev, &rc, &rm, &sr, &mr, &wc, &wm, &sw, &mw, &infl, &ticks);
+    if (n < 11) continue;
+    if (strcmp(dev, "nvme0n1") == 0) {
+      *rd_ios = rc; *rd_sect = sr; *wr_ios = wc; *wr_sect = sw;
+      if (io_ticks_ms && n >= 13) *io_ticks_ms = ticks;
+      break;
+    }
+  }
+  fclose(f);
+}
+
+// ---------------------------------------------------------------------------
+// sampler
+// ---------------------------------------------------------------------------
+static DB* g_db = nullptr;
+static Statistics* g_stats = nullptr;
+static Options g_eff;   // effective options as read back from the opened DB
+
+struct Sampler {
+  std::atomic<bool> stop{false};
+  void Run() {
+    uint64_t ut = 0, st_ = 0;
+    double last_layout = 0, last_dir = 0;
+    double t_start = WallSec();
+    while (!stop.load()) {
+      double now = WallSec();
+      std::string row = Fmt("%.6f,%.3f", now, now - t_start);
+      for (size_t i = 0; i < kNumProps; i++) {
+        uint64_t v = 0;
+        if (g_db->GetIntProperty(kProps[i], &v)) {
+          row += Fmt(",%llu", (unsigned long long)v);
+        } else {
+          // some properties (notably rocksdb.num-files-at-level<N>) are registered
+          // as *string* properties; read them and parse.
+          std::string sv;
+          if (g_db->GetProperty(kProps[i], &sv) && !sv.empty()) {
+            char* end = nullptr;
+            unsigned long long pv = strtoull(sv.c_str(), &end, 10);
+            row += (end && end != sv.c_str()) ? Fmt(",%llu", pv) : ",-1";
+          } else {
+            row += ",-1";
+          }
+        }
+      }
+      for (size_t i = 0; i < kNumTickers; i++)
+        row += Fmt(",%llu", (unsigned long long)g_stats->getTickerCount(kTickers[i].t));
+      ReadProcStat(&ut, &st_);
+      row += Fmt(",%llu,%llu,%llu", (unsigned long long)ReadRssBytes(),
+                 (unsigned long long)ut, (unsigned long long)st_);
+      uint64_t ws, wi, rs, ri, iot;
+      ReadDiskStats(&ws, &wi, &rs, &ri, &iot);
+      row += Fmt(",%llu,%llu,%llu,%llu,%llu", (unsigned long long)ws, (unsigned long long)wi,
+                 (unsigned long long)rs, (unsigned long long)ri, (unsigned long long)iot);
+      // per-stage service histograms (wall time per job; cumulative since open)
+      HistogramData fh{}, ch{};
+      g_stats->histogramData(FLUSH_TIME, &fh);
+      g_stats->histogramData(COMPACTION_TIME, &ch);
+      row += Fmt(",%llu,%llu,%.1f,%.1f,%llu,%llu,%.1f,%.1f",
+                 (unsigned long long)fh.count, (unsigned long long)fh.sum,
+                 fh.median, fh.percentile99,
+                 (unsigned long long)ch.count, (unsigned long long)ch.sum,
+                 ch.median, ch.percentile99);
+      row += Fmt(",%lld,%lld,%lld,%lld,%lld,%lld,%.6f", (long long)S.ops_ok.load(),
+                 (long long)S.ops_err.load(), (long long)S.bytes_written_logical.load(),
+                 (long long)S.bytes_read_returned.load(), (long long)S.ops_started.load(),
+                 (long long)S.ops_done.load(), now);
+      c_samples.Row(row);
+      if (now - last_layout >= g.layout_ms / 1000.0) { last_layout = now; SampleLayout(now); }
+      if (now - last_dir >= g.dirscan_ms / 1000.0) { last_dir = now; SampleDir(now); }
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+  }
+  void SampleLayout(double now) {
+    ColumnFamilyMetaData cf;
+    g_db->GetColumnFamilyMetaData(&cf);
+    std::string base = Fmt("%.6f", now);
+    for (auto& lv : cf.levels) {
+      c_layout_levels.Row(Fmt("%s,%d,%zu,%llu,%llu", base.c_str(), lv.level, lv.files.size(),
+                              (unsigned long long)lv.size, (unsigned long long)cf.size));
+      if (lv.level <= 2) {
+        for (auto& f : lv.files) {
+          c_layout.Row(Fmt("%s,%d,%llu,%llu,%llu,%d,%llu,%s,%s", base.c_str(), lv.level,
+                           (unsigned long long)f.file_number, (unsigned long long)f.size,
+                           (unsigned long long)f.num_entries, f.being_compacted ? 1 : 0,
+                           (unsigned long long)f.file_creation_time,
+                           HexKey(f.smallestkey).c_str(), HexKey(f.largestkey).c_str()));
+        }
+      }
+    }
+  }
+  void SampleDir(double now) {
+    uint64_t sst_b = 0, sst_a = 0, wal_b = 0, wal_a = 0, oth_b = 0, oth_a = 0;
+    uint64_t n_sst = 0, n_wal = 0, n_oth = 0;
+    DIR* d = opendir(g.db_path.c_str());
+    if (d) {
+      struct dirent* e;
+      while ((e = readdir(d)) != nullptr) {
+        std::string name = e->d_name;
+        if (name == "." || name == "..") continue;
+        struct stat stx;
+        if (stat((g.db_path + "/" + name).c_str(), &stx) != 0 || !S_ISREG(stx.st_mode)) continue;
+        uint64_t alloc = (uint64_t)stx.st_blocks * 512;
+        bool is_sst = name.size() > 4 && name.compare(name.size() - 4, 4, ".sst") == 0;
+        bool is_log = name.size() > 4 && name.compare(name.size() - 4, 4, ".log") == 0;
+        if (is_sst) { sst_b += stx.st_size; sst_a += alloc; n_sst++; }
+        else if (is_log) { wal_b += stx.st_size; wal_a += alloc; n_wal++; }
+        else { oth_b += stx.st_size; oth_a += alloc; n_oth++; }
+      }
+      closedir(d);
+    }
+    c_dirscan.Row(Fmt("%.6f,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu", now,
+                      (unsigned long long)sst_b, (unsigned long long)sst_a, (unsigned long long)n_sst,
+                      (unsigned long long)wal_b, (unsigned long long)wal_a, (unsigned long long)n_wal,
+                      (unsigned long long)oth_b, (unsigned long long)oth_a, (unsigned long long)n_oth,
+                      (unsigned long long)DirSizeBytes(g.db_path)));
+  }
+};
+static Sampler SAMPLER;
+
+// ---------------------------------------------------------------------------
+// DB open
+// ---------------------------------------------------------------------------
+static DB* OpenDb(Status* st_out) {
+  Options o;
+  o.create_if_missing = !g.use_existing_db;
+  o.write_buffer_size = (size_t)g.write_buffer_size;
+  o.max_write_buffer_number = g.max_write_buffer_number;
+  o.level0_file_num_compaction_trigger = g.level0_trigger;
+  o.level0_slowdown_writes_trigger = g.level0_slowdown;
+  o.level0_stop_writes_trigger = g.level0_stop;
+  o.target_file_size_base = g.target_file_size_base;
+  o.max_background_jobs = g.max_background_jobs;
+  o.max_subcompactions = g.max_subcompactions;
+  if (g.max_background_flushes >= 0) o.max_background_flushes = g.max_background_flushes;
+  if (g.max_background_compactions >= 0) o.max_background_compactions = g.max_background_compactions;
+  o.level_compaction_dynamic_level_bytes = g.dynamic_level_bytes;
+  o.disable_auto_compactions = g.disable_auto_compactions;
+  if (g.max_total_wal_size) o.max_total_wal_size = g.max_total_wal_size;
+  if (g.max_compaction_bytes) o.max_compaction_bytes = g.max_compaction_bytes;
+  if (g.num_levels) o.num_levels = g.num_levels;
+  if (g.max_bytes_for_level_base) o.max_bytes_for_level_base = g.max_bytes_for_level_base;
+  if (g.bytes_per_sync) o.bytes_per_sync = g.bytes_per_sync;
+  o.use_direct_io_for_flush_and_compaction = g.use_direct_io;
+  o.manual_wal_flush = g.manual_wal_flush;
+  if (g.compression == "none") o.compression = kNoCompression;
+  else if (g.compression == "lz4") o.compression = kLZ4Compression;
+  else if (g.compression == "zstd") o.compression = kZSTD;
+  else if (g.compression == "snappy") o.compression = kSnappyCompression;
+  else { fprintf(stderr, "unknown compression %s\n", g.compression.c_str()); exit(2); }
+  o.bottommost_compression = o.compression;
+  BlockBasedTableOptions t;
+  t.block_cache = NewLRUCache((size_t)g.cache_size);
+  if (g.bloom_bits > 0) t.filter_policy.reset(NewBloomFilterPolicy(g.bloom_bits, false));
+  o.table_factory.reset(NewBlockBasedTableFactory(t));
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  stats->set_stats_level(StatsLevel::kAll);
+  o.statistics = stats;
+  o.stats_dump_period_sec = g.stats_dump_period_sec;
+  o.listeners.push_back(std::shared_ptr<EventListener>(new L0Listener()));
+  o.info_log_level = InfoLogLevel::INFO_LEVEL;
+  std::vector<ColumnFamilyDescriptor> cfd{ColumnFamilyDescriptor(kDefaultColumnFamilyName, o)};
+  std::vector<ColumnFamilyHandle*> handles;
+  std::unique_ptr<DB> dbptr;
+  Status st = DB::Open(DBOptions(o), g.db_path, cfd, &handles, &dbptr);
+  *st_out = st;
+  if (st.ok()) {
+    g_db = dbptr.release();
+    g_stats = stats.get();
+    std::shared_ptr<Logger> logger;
+    Env::Default()->NewLogger((g.out_prefix + ".options.txt").c_str(), &logger);
+    if (logger) {
+      Options eff = g_db->GetOptions();
+      eff.Dump(logger.get());
+    }
+    g_eff = g_db->GetOptions();
+    {  // explicit, guaranteed-nonempty record of the settings that matter here
+      FILE* f = fopen((g.out_prefix + ".effective.txt").c_str(), "w");
+      if (f) {
+        const Options* e = &g_eff;
+        fprintf(f, "write_buffer_size=%zu\nmax_write_buffer_number=%d\n", e->write_buffer_size, e->max_write_buffer_number);
+        fprintf(f, "level0_file_num_compaction_trigger=%d\nlevel0_slowdown=%d\nlevel0_stop=%d\n",
+                e->level0_file_num_compaction_trigger, e->level0_slowdown_writes_trigger, e->level0_stop_writes_trigger);
+        fprintf(f, "target_file_size_base=%llu\nmax_background_jobs=%d\nmax_subcompactions=%d\n"
+                   "max_background_flushes=%d\nmax_background_compactions=%d\n",
+                (unsigned long long)e->target_file_size_base, e->max_background_jobs, e->max_subcompactions,
+                e->max_background_flushes, e->max_background_compactions);
+        fprintf(f, "level_compaction_dynamic_level_bytes=%d\ndisable_auto_compactions=%d\n",
+                (int)e->level_compaction_dynamic_level_bytes, (int)e->disable_auto_compactions);
+        fprintf(f, "compression=%d\nnum_levels=%d\nmax_bytes_for_level_base=%llu\n",
+                (int)e->compression, e->num_levels, (unsigned long long)e->max_bytes_for_level_base);
+        fprintf(f, "max_total_wal_size=%llu\nmax_compaction_bytes=%llu\nbytes_per_sync=%llu\n",
+                (unsigned long long)e->max_total_wal_size, (unsigned long long)e->max_compaction_bytes,
+                (unsigned long long)e->bytes_per_sync);
+        fprintf(f, "max_open_files=%d\nuse_direct_io=%d\nmanual_wal_flush=%d\n",
+                e->max_open_files, (int)e->use_direct_io_for_flush_and_compaction, (int)e->manual_wal_flush);
+        fclose(f);
+      }
+    }
+  }
+  return g_db;
+}
+
+// ---------------------------------------------------------------------------
+// workers
+// ---------------------------------------------------------------------------
+struct WorkerStat {
+  Hist h_eng, h_e2e;
+  int64_t ops = 0, ok = 0, err = 0, reads = 0, hits = 0, writes = 0, details = 0;
+  int64_t bytes_w = 0, bytes_r = 0;
+};
+
+static void WriteDetail(const char* op, uint64_t id, uint64_t tag, uint64_t sched,
+                        uint64_t submit, uint64_t done, const std::string& status,
+                        int64_t vlen, PerfContext* pc) {
+  if (S.detail_rows.load() >= g.detail_max_rows) return;
+  S.detail_rows.fetch_add(1);
+  c_detail.Row(Fmt("%s,%llu,%llu,%llu,%llu,%llu,%s,%lld,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu",
+                   op, (unsigned long long)id, (unsigned long long)tag,
+                   (unsigned long long)sched, (unsigned long long)submit, (unsigned long long)done,
+                   status.c_str(), (long long)vlen,
+                   (unsigned long long)(pc ? pc->block_read_count : 0),
+                   (unsigned long long)(pc ? pc->block_read_byte : 0),
+                   (unsigned long long)(pc ? pc->block_cache_hit_count : 0),
+                   (unsigned long long)(pc ? pc->block_cache_filter_hit_count : 0),
+                   (unsigned long long)(pc ? pc->filter_block_read_count : 0),
+                   (unsigned long long)(pc ? pc->index_block_read_count : 0),
+                   (unsigned long long)(pc ? pc->bloom_sst_hit_count : 0),
+                   (unsigned long long)(pc ? pc->bloom_sst_miss_count : 0),
+                   (unsigned long long)(pc ? pc->get_from_memtable_count : 0),
+                   (unsigned long long)(pc ? pc->internal_key_skipped_count : 0),
+                   (unsigned long long)(pc ? pc->get_read_bytes : 0),
+                   (unsigned long long)(pc ? pc->user_key_comparison_count : 0)));
+}
+
+// rocksdb.num-files-at-level<N> is a *string* property in this RocksDB version.
+static uint64_t LevelFileCount(DB* db, int level) {
+  std::string v;
+  if (!db->GetProperty("rocksdb.num-files-at-level" + std::to_string(level), &v)) return 0;
+  return strtoull(v.c_str(), nullptr, 10);
+}
+
+static void MaybeKillLoops() {
+  if (g.kill_after_ops > 0 && S.ops_ok.load() >= g.kill_after_ops) {
+    c_summary_extra.Row(Fmt("kill_confirmation,%lld,%lld,%.6f", (long long)S.ops_ok.load(),
+                            (long long)S.ops_done.load(), WallSec()));
+    Ev("kill_after_ops", -1, "", "", "", "", "", "", "", "", "", "", "", "", "",
+       Fmt("confirmed_ops=%lld", (long long)S.ops_ok.load()));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    fflush(nullptr);
+    kill(getpid(), SIGKILL);
+  }
+  if (g.kill_at_s > 0 && (WallSec() - S.t0) >= g.kill_at_s) {
+    c_summary_extra.Row(Fmt("kill_confirmation,%lld,%lld,%.6f", (long long)S.ops_ok.load(),
+                            (long long)S.ops_done.load(), WallSec()));
+    Ev("kill_at_s", -1, "", "", "", "", "", "", "", "", "", "", "", "", "",
+       Fmt("wall=%.3f confirmed_ops=%lld", WallSec() - S.t0, (long long)S.ops_ok.load()));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    fflush(nullptr);
+    kill(getpid(), SIGKILL);
+  }
+}
+
+static void WorkLoop(int tid, WorkerStat* ws) {
+  std::mt19937_64 rng((uint64_t)g.seed * 131 + 977 * (tid + 1));
+  const bool open_loop = (g.arrival == "open" && g.rate > 0);
+  DB* db = g_db;
+  int read_pct = g.mode == "read" ? 100 : (g.mode == "mix" ? (g.read_pct >= 0 ? g.read_pct : 50) : 0);
+  int64_t stride = g.detail_rate > 0 ? std::max<int64_t>(1, (int64_t)llround(1.0 / g.detail_rate)) : 0;
+  int64_t rstride = g.read_log_rate > 0 ? std::max<int64_t>(1, (int64_t)llround(1.0 / g.read_log_rate)) : 0;
+  char key[16];
+  std::string val;
+  const uint64_t U = (uint64_t)g.universe;
+  const double deadline = g.duration_s > 0 ? S.t0 + g.duration_s : 0;
+
+  while (!S.stop.load()) {
+    uint64_t sched = 0;
+    if (open_loop) {
+      sched = PACE.Next();
+      while (!S.stop.load() && NowNs() < sched)
+        std::this_thread::sleep_for(std::chrono::microseconds(20));
+    }
+    int64_t i = S.ops_started.fetch_add(1);
+    if (g.num_ops > 0 && i >= g.num_ops) { S.ops_started.fetch_sub(1); break; }
+    if (deadline > 0 && WallSec() > deadline) { S.ops_started.fetch_sub(1); break; }
+    MaybeKillLoops();
+
+    uint64_t submit = NowNs();
+    bool is_read = read_pct > 0 && ((i * 2654435761u) % 100) < (uint64_t)read_pct;
+    bool want_detail = (stride > 0 && (i % stride) == 0);
+    PerfContext* pc = nullptr;
+    if (want_detail && g.perf_detail) {
+      SetPerfLevel(PerfLevel::kEnableCount);
+      get_perf_context()->Reset();
+      pc = get_perf_context();
+    }
+    uint64_t id = 0, tag = kTagMain;
+    std::string status = "OK";
+    int64_t vlen = 0;
+    if (!is_read) {
+      id = G.WriteKey(i, rng);
+      EncodeKey(kTagMain, id, key);
+      FillValue(id, 1, g.value_size, &val);
+      WriteOptions wo;
+      wo.sync = g.sync;
+      wo.disableWAL = g.disable_wal;
+      Status st = db->Put(wo, Slice(key, 16), Slice(val));
+      vlen = g.value_size;
+      if (st.ok()) {
+        ws->writes++; S.writes_ok.fetch_add(1);
+        ws->bytes_w += g.value_size + 16; S.bytes_written_logical.fetch_add(g.value_size + 16);
+      } else { ws->err++; S.ops_err.fetch_add(1); status = "ERR:" + st.ToString(); }
+    } else {
+      double u = (rng() >> 11) * (1.0 / 9007199254740992.0);
+      double acc = 0;
+      std::string comp = g_read_mix.empty() ? "uniform" : g_read_mix.back().name;
+      for (auto& m : g_read_mix) { acc += m.w; if (u <= acc) { comp = m.name; break; } }
+      if (comp == "recent") {
+        uint64_t lo = U > (uint64_t)g.recent_span ? U - (uint64_t)g.recent_span : 0;
+        id = G.Uniform(lo, U, rng);
+        EncodeKey(kTagMain, id, key);
+      } else if (comp == "deep") {
+        id = G.Uniform(0, (uint64_t)g.deep_span, rng);
+        EncodeKey(kTagMain, id, key);
+      } else if (comp == "neg") {
+        id = G.Uniform(0, U, rng);
+        EncodeKey(kTagNeg, id, key);
+      } else {
+        id = G.Uniform(0, U, rng);
+        EncodeKey(kTagMain, id, key);
+      }
+      ReadOptions ro;
+      if (comp == "scan") {
+        auto* it = db->NewIterator(ro);
+        it->Seek(Slice(key, 16));
+        int64_t n = 0;
+        while (it->Valid() && n < g.scan_len) { vlen += (int64_t)it->value().size(); n++; it->Next(); }
+        delete it;
+        ws->reads++; S.reads_issued.fetch_add(1);
+        if (n > 0) { ws->hits++; S.reads_hit.fetch_add(1); }
+        status = "SCAN";
+        vlen = n * 1000 + (vlen % 1000);
+      } else {
+        std::string out;
+        Status st = db->Get(ro, Slice(key, 16), &out);
+        ws->reads++; S.reads_issued.fetch_add(1);
+        if (st.ok()) {
+          ws->hits++; S.reads_hit.fetch_add(1);
+          vlen = (int64_t)out.size();
+          ws->bytes_r += vlen; S.bytes_read_returned.fetch_add(vlen);
+        } else if (st.IsNotFound()) { S.reads_notfound.fetch_add(1); vlen = -1; status = "NOTFOUND"; }
+        else { ws->err++; S.ops_err.fetch_add(1); status = "ERR:" + st.ToString(); }
+      }
+      if (rstride && (i % rstride) == 0 && S.read_rows.load() < g.detail_max_rows) {
+        S.read_rows.fetch_add(1);
+        c_reads.Row(Fmt("%.6f,%llu,%llu,%s,%s,%lld", WallSec(), (unsigned long long)id,
+                        (unsigned long long)tag, comp.c_str(), status.c_str(), (long long)vlen));
+      }
+    }
+    uint64_t done = NowNs();
+    ws->ops++;
+    ws->h_eng.Add(done - submit);
+    ws->h_e2e.Add(sched ? done - sched : done - submit);
+    S.ops_done.fetch_add(1);
+    S.ops_ok.fetch_add(1);
+    if (want_detail) {
+      ws->details++;
+      const char* opname = is_read ? "read" : "write";
+      WriteDetail(opname, id, tag, sched, submit, done, status, vlen, pc);
+      if (g.perf_detail) SetPerfLevel(PerfLevel::kDisable);
+    }
+    {
+      std::lock_guard<std::mutex> lk(PS.mu);
+      int64_t sec = (int64_t)(WallSec() - S.t0);
+      if (sec >= 0) {
+        PS.Ensure(sec);
+        PS.h_eng[sec].Add(done - submit);
+        PS.h_e2e[sec].Add(sched ? done - sched : done - submit);
+        PS.ops[sec]++;
+        if (is_read) { PS.rops[sec]++; if (status == "OK" || status == "SCAN") PS.rhit[sec]++; }
+        else { PS.wops[sec]++; PS.bytes[sec] += (uint64_t)(g.value_size + 16); }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// modes
+// ---------------------------------------------------------------------------
+static void RunWorkload() {
+  S.t0 = WallSec();
+  if (g.arrival == "open" && g.rate > 0) PACE.Init();
+  std::vector<WorkerStat> ws(g.threads);
+  std::vector<std::thread> th;
+  for (int t = 0; t < g.threads; t++) th.emplace_back(WorkLoop, t, &ws[t]);
+  double last = WallSec();
+  int64_t last_ops = 0;
+  while (true) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(g.progress_ms));
+    double now = WallSec();
+    int64_t ops = S.ops_done.load();
+    if (now > last + 0.001) {
+      uint64_t imm = 0, l0 = 0, pend = 0, stopw = 0;
+      g_db->GetIntProperty("rocksdb.num-immutable-mem-table", &imm);
+      l0 = LevelFileCount(g_db, 0);
+      g_db->GetIntProperty("rocksdb.estimate-pending-compaction-bytes", &pend);
+      g_db->GetIntProperty("rocksdb.is-write-stopped", &stopw);
+      fprintf(stderr,
+              "PROGRESS %.1fs ops=%lld (%.0f/s) U=%.2fGB L0=%llu imm=%llu pend=%.2fGB "
+              "reads=%lld hit=%.1f%% stall_events=%lld\n",
+              now - S.t0, (long long)ops, (ops - last_ops) / (now - last),
+              S.bytes_written_logical.load() / 1073741824.0, (unsigned long long)l0,
+              (unsigned long long)imm, pend / 1073741824.0, (long long)S.reads_issued.load(),
+              S.reads_issued.load() ? 100.0 * S.reads_hit.load() / S.reads_issued.load() : 0.0,
+              (long long)S.stall_begin_events.load());
+    }
+    // scheduled runtime option interventions (E5/E6 targeted mitigation)
+    for (auto& so : g.set_opts) {
+      if (!so.name.empty() && (now - S.t0) >= so.at) {
+        // A few knobs (max_background_jobs, ...) live in DBOptions and are only mutable
+        // through SetDBOptions; most per-CF knobs go through SetOptions. Try the DB-level
+        // call first and fall back, so the intervention cannot silently no-op.
+        Status ss = g_db->SetDBOptions({{so.name, so.value}});
+        const char* via = "SetDBOptions";
+        if (!ss.ok()) {
+          Status s2 = g_db->SetOptions({{so.name, so.value}});
+          if (s2.ok()) { ss = s2; via = "SetOptions"; }
+          else { via = "REJECTED"; ss = s2; }
+        }
+        Ev("set_option", -1, "", "", "", "", "", "", "", "", "", "", "", "", "",
+           Fmt("at=%.1f %s=%s via=%s %s", now - S.t0, so.name.c_str(), so.value.c_str(), via,
+               ss.ToString().c_str()));
+        so.name.clear();
+      }
+    }
+    last = now; last_ops = ops;
+    if (g.num_ops > 0 && S.ops_started.load() >= g.num_ops) break;
+    if (g.duration_s > 0 && (now - S.t0) >= g.duration_s) break;
+  }
+  S.stop.store(true);
+  for (auto& x : th) if (x.joinable()) x.join();
+  // store exact whole-run histograms
+  static Hist g_eng, g_e2e;
+  for (auto& x : ws) { g_eng.Merge(x.h_eng); g_e2e.Merge(x.h_e2e); }
+  c_summary_extra.Row(Fmt("total_hist,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%llu", g_eng.Pct(0.5),
+                          g_eng.Pct(0.9), g_eng.Pct(0.99), g_eng.Pct(0.999), g_eng.Pct(0.9999),
+                          g_eng.count ? (double)g_eng.sum / g_eng.count : 0.0,
+                          (unsigned long long)g_eng.mx));
+  c_summary_extra.Row(Fmt("e2e_hist,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%llu", g_e2e.Pct(0.5),
+                          g_e2e.Pct(0.9), g_e2e.Pct(0.99), g_e2e.Pct(0.999), g_e2e.Pct(0.9999),
+                          g_e2e.count ? (double)g_e2e.sum / g_e2e.count : 0.0,
+                          (unsigned long long)g_e2e.mx));
+  // also dump the raw bucket list of the engine histogram for offline plotting
+  {
+    FILE* f = fopen((g.out_prefix + ".hist.csv").c_str(), "w");
+    if (f) {
+      fprintf(f, "ns,engine_count,e2e_count\n");
+      for (int i = 0; i < Hist::kBuckets; i++) {
+        if (g_eng.b[i] == 0 && g_e2e.b[i] == 0) continue;
+        fprintf(f, "%.0f,%llu,%llu\n", Hist::Val(i), (unsigned long long)g_eng.b[i],
+                (unsigned long long)g_e2e.b[i]);
+      }
+      fclose(f);
+    }
+  }
+}
+
+static void RunBacklog() {
+  const uint64_t K = (uint64_t)g.backlog_files;
+  const uint64_t per = (uint64_t)g.backlog_keys_per_file;
+  const uint64_t M = g.backlog_region > 0 ? (uint64_t)g.backlog_region : K * per;
+  const uint64_t U = (uint64_t)g.universe;
+  if (M > U) { fprintf(stderr, "backlog region > universe\n"); exit(2); }
+  DB* db = g_db;
+  S.t0 = WallSec();
+  fprintf(stderr, "BACKLOG start K=%llu keys_per_file=%llu M=%llu region=[%llu,%llu) overlap=%s\n",
+          (unsigned long long)K, (unsigned long long)per, (unsigned long long)M,
+          (unsigned long long)(U - M), (unsigned long long)U, g.backlog_overlap.c_str());
+  std::vector<uint64_t> ids(M);
+  for (uint64_t j = 0; j < M; j++) ids[j] = U - M + j;
+  std::string val;
+  for (uint64_t f = 0; f < K; f++) {
+    WriteOptions wo;
+    wo.sync = g.sync;
+    int64_t n = 0;
+    uint64_t first = 0, last = 0;
+    const bool narrow = (g.backlog_overlap == "narrow");
+    uint64_t j0 = narrow ? f * per : f;
+    uint64_t j1 = narrow ? std::min<uint64_t>((f + 1) * per, M) : M;
+    for (uint64_t j = j0; j < j1; j += (narrow ? 1 : K)) {
+      uint64_t id = ids[j];
+      if (n == 0) first = id;
+      last = id;
+      char key[16];
+      EncodeKey(kTagMain, id, key);
+      FillValue(id, 2, g.value_size, &val);
+      Status st = db->Put(wo, Slice(key, 16), Slice(val));
+      if (st.ok()) { S.bytes_written_logical.fetch_add(g.value_size + 16); S.ops_ok.fetch_add(1); }
+      else fprintf(stderr, "put error: %s\n", st.ToString().c_str());
+      n++;
+    }
+    FlushOptions fo;
+    fo.wait = true;
+    double t0 = WallSec();
+    Status fs = db->Flush(fo);
+    uint64_t l0 = 0;
+    l0 = LevelFileCount(db, 0);
+    fprintf(stderr, "BACKLOG file %llu/%llu keys=%lld id_range=[%llu,%llu] flush=%.3fs %s L0=%llu\n",
+            (unsigned long long)(f + 1), (unsigned long long)K, (long long)n,
+            (unsigned long long)first, (unsigned long long)last, WallSec() - t0,
+            fs.ToString().c_str(), (unsigned long long)l0);
+  }
+  double hold = std::max(3.0, g.layout_ms / 1000.0 * 2);
+  fprintf(stderr, "BACKLOG frozen; holding %.1fs\n", hold);
+  double t = WallSec();
+  while (WallSec() - t < hold) std::this_thread::sleep_for(std::chrono::milliseconds(300));
+}
+
+static void RunCompact() {
+  S.t0 = WallSec();
+  if (g.mode == "flush") {
+    FlushOptions fo; fo.wait = true;
+    Status st = g_db->Flush(fo);
+    fprintf(stderr, "FLUSH %s\n", st.ToString().c_str());
+  } else {
+    CompactRangeOptions cro;
+    cro.exclusive_manual_compaction = false;
+    Status st = g_db->CompactRange(cro, nullptr, nullptr);
+    fprintf(stderr, "COMPACTRANGE %s\n", st.ToString().c_str());
+  }
+}
+
+static int RunVerify() {
+  Status st;
+  DB* db = OpenDb(&st);
+  if (!st.ok()) { fprintf(stderr, "open failed: %s\n", st.ToString().c_str()); return 1; }
+  int64_t checked = 0, ok = 0, missing = 0, bad = 0;
+  std::string v;
+  const uint64_t U = (uint64_t)g.universe;
+  const uint64_t vf = g.verify_from >= 0 ? (uint64_t)g.verify_from : 0;
+  const uint64_t vt = g.verify_to >= 0 ? (uint64_t)g.verify_to : U;
+  ReadOptions ro;
+  for (uint64_t id = vf; id < vt; id += (uint64_t)g.verify_step) {
+    char key[16];
+    EncodeKey(kTagMain, id, key);
+    checked++;
+    Status s = db->Get(ro, Slice(key, 16), &v);
+    if (s.ok()) { if (CheckValue(id, g.verify_salt, Slice(v))) ok++; else bad++; }
+    else missing++;
+  }
+  printf("VERIFY checked=%lld ok=%lld missing=%lld badvalue=%lld salt=%llu\n", (long long)checked,
+         (long long)ok, (long long)missing, (long long)bad, (unsigned long long)g.verify_salt);
+  fflush(stdout);
+  return bad == 0 ? 0 : 1;
+}
+
+int main(int argc, char** argv) {
+  ParseArgs(argc, argv);
+  ParseReadMix();
+  if (g.key_size != 16) { fprintf(stderr, "only key_size=16 supported\n"); return 2; }
+  G.Build();   // permutation / zipf tables referenced by every key selection
+  FILE* cfgf = fopen((g.out_prefix + ".config.txt").c_str(), "w");
+  if (cfgf) {
+    fprintf(cfgf, "argv:");
+    for (int i = 0; i < argc; i++) fprintf(cfgf, " %s", argv[i]);
+    fprintf(cfgf, "\nrocksdb_version=%d.%d.%d\n", ROCKSDB_MAJOR, ROCKSDB_MINOR, ROCKSDB_PATCH);
+    fprintf(cfgf, "start_wall=%.6f\npid=%d\nhost=%s\n", WallSec(), (int)getpid(), Fmt("").c_str());
+    fclose(cfgf);
+  }
+  if (g.mode == "verify") return RunVerify();
+
+  std::string hdr_props, hdr_tick;
+  for (size_t i = 0; i < kNumProps; i++) hdr_props += "," + std::string(kProps[i]).substr(8);
+  for (size_t i = 0; i < kNumTickers; i++) hdr_tick += "," + std::string(kTickers[i].name);
+  c_samples.Open(g.out_prefix + ".samples.csv",
+                 "ts,elapsed" + hdr_props + hdr_tick +
+                 ",rss_bytes,utime_ticks,stime_ticks,dev_wr_sectors,dev_wr_ios,dev_rd_sectors,"
+                 "dev_rd_ios,dev_io_ticks_ms,flush_time_cnt,flush_time_sum_us,flush_time_p50_us,"
+                 "flush_time_p99_us,comp_time_cnt,comp_time_sum_us,comp_time_p50_us,"
+                 "comp_time_p99_us,u_ops,u_err,u_bytes,u_read_bytes,ops_started,ops_done,ts_dup");
+  c_layout.Open(g.out_prefix + ".layout_files.csv",
+                "ts,level,file_number,file_size,num_entries,being_compacted,file_creation_time,"
+                "smallest_hex,largest_hex");
+  c_layout_levels.Open(g.out_prefix + ".layout_levels.csv",
+                       "ts,level,num_files,total_bytes,cf_total_bytes");
+  c_dirscan.Open(g.out_prefix + ".dirscan.csv",
+                 "ts,sst_bytes,sst_alloc_bytes,n_sst,wal_bytes,wal_alloc_bytes,n_wal,other_bytes,"
+                 "other_alloc_bytes,n_other,db_total_bytes");
+  c_detail.Open(g.out_prefix + ".detail.csv",
+                "op,key_id,key_tag,sched_ns,submit_ns,done_ns,status,value_len,block_read_count,"
+                "block_read_byte,block_cache_hit,block_cache_filter_hit,filter_block_read,"
+                "index_block_read,bloom_sst_hit,bloom_sst_miss,get_from_memtable_count,"
+                "internal_key_skipped,get_read_bytes,user_key_cmp");
+  c_persec.Open(g.out_prefix + ".per_sec.csv",
+                "ts,sec,ops,wops,rops,rhit,bytes,eng_p50_us,eng_p90_us,eng_p99_us,eng_p999_us,"
+                "eng_max_us,e2e_p50_us,e2e_p90_us,e2e_p99_us,e2e_p999_us,e2e_max_us");
+  c_reads.Open(g.out_prefix + ".read_keys.csv", "ts,key_id,key_tag,component,status,value_len");
+  c_events.Open(g.out_prefix + ".events.csv",
+                "ts,kind,job,cf,input_levels,num_input_files,input_bytes,output_level,output_bytes,"
+                "num_output_files,wall_us,cpu_us,num_input_records,num_output_records,"
+                "input_bytes_stats,output_bytes_stats,extra");
+  c_event_files.Open(g.out_prefix + ".event_files.csv",
+                     "ts,job,dir,level,file_number,data_size,num_entries");
+  c_stalls.Open(g.out_prefix + ".stalls.csv", "ts,cf,condition,condition_code");
+  {
+    std::string h = "ts_begin,ts_end,job,cf,reason,num_input_files,total_input_bytes,";
+    for (int l = 0; l < kMaxLvl; l++) h += Fmt("in_files_%d,", l);
+    for (int l = 0; l < kMaxLvl; l++) h += Fmt("in_bytes_%d,", l);
+    h += "output_level,num_output_files,output_bytes,";
+    for (int l = 0; l < kMaxLvl; l++) h += Fmt("out_files_%d,", l);
+    h += "num_input_records,num_output_records,num_records_replaced,skipped_input_bytes,"
+         "stats_total_input_bytes,stats_total_output_bytes,elapsed_us,cpu_us,file_write_ns,"
+         "file_fsync_ns,num_input_deletion_records,lsm_state_after,base_input_level";
+    c_compactions.Open(g.out_prefix + ".compactions.csv", h);
+  }
+  c_summary_extra.Open(g.out_prefix + ".summary_extra.csv", "name,p50_ns,p90_ns,p99_ns,p999_ns,p9999_ns,mean_ns,max_ns");
+
+  { uint64_t wi0, rs0; ReadDiskStats(&g_dev_wr0, &wi0, &g_dev_rd0, &rs0, nullptr); }
+  S.t0 = WallSec();
+  double t_open0 = WallSec();
+  Status st;
+  DB* db = OpenDb(&st);
+  double open_seconds = WallSec() - t_open0;
+  if (!st.ok()) { fprintf(stderr, "OPEN FAILED: %s\n", st.ToString().c_str()); return 1; }
+  if (strcmp(g.mode.c_str(), "open") == 0 || strcmp(g.mode.c_str(), "verify") == 0) {
+    printf("OPEN_OK=1 open_seconds=%.6f\n", open_seconds);
+    c_summary_extra.Row(Fmt("open_seconds,%.6f", open_seconds));
+    fflush(stdout);
+  }
+  std::thread sampler([]() { SAMPLER.Run(); });
+
+  const char* m = g.mode.c_str();
+  if (strcmp(m, "backlog") == 0) RunBacklog();
+  else if (strcmp(m, "compact") == 0 || strcmp(m, "flush") == 0) RunCompact();
+  else if (strcmp(m, "open") == 0) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); }
+  else RunWorkload();
+
+  if (g.drain_observe_s > 0) {
+    double t = WallSec();
+    fprintf(stderr, "DRAIN observing %.1fs\n", g.drain_observe_s);
+    while (WallSec() - t < g.drain_observe_s) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
+  if (g.wait_for_drain) {
+    double t = WallSec();
+    while (WallSec() - t < g.wait_for_drain_max_s) {
+      uint64_t l0 = 0, pend = 0, imm = 0, cp = 0;
+      l0 = LevelFileCount(g_db, 0);
+      g_db->GetIntProperty("rocksdb.estimate-pending-compaction-bytes", &pend);
+      g_db->GetIntProperty("rocksdb.num-immutable-mem-table", &imm);
+      g_db->GetIntProperty("rocksdb.compaction-pending", &cp);
+      if (l0 == 0 && pend == 0 && imm == 0 && cp == 0) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    fprintf(stderr, "DRAIN waited %.1fs\n", WallSec() - t);
+  }
+  if (g.final_flush) {
+    FlushOptions fo; fo.wait = true;
+    double t0 = WallSec();
+    Status fs = g_db->Flush(fo);
+    fprintf(stderr, "FINAL_FLUSH %s in %.3fs\n", fs.ToString().c_str(), WallSec() - t0);
+    if (g.final_flush_observe_s > 0) {
+      double t = WallSec();
+      while (WallSec() - t < g.final_flush_observe_s) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+  }
+  double t_end = WallSec();
+  SAMPLER.SampleLayout(t_end);
+  SAMPLER.SampleDir(t_end);
+  SAMPLER.stop.store(true);
+  sampler.join();
+
+  {
+    std::lock_guard<std::mutex> lk(PS.mu);
+    for (size_t i = 0; i < PS.h_eng.size(); i++) {
+      c_persec.Row(Fmt("%.6f,%zu,%llu,%llu,%llu,%llu,%llu,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f",
+                       S.t0 + (double)i, i, (unsigned long long)PS.ops[i], (unsigned long long)PS.wops[i],
+                       (unsigned long long)PS.rops[i], (unsigned long long)PS.rhit[i],
+                       (unsigned long long)PS.bytes[i],
+                       PS.h_eng[i].Pct(0.5) / 1000.0, PS.h_eng[i].Pct(0.9) / 1000.0,
+                       PS.h_eng[i].Pct(0.99) / 1000.0, PS.h_eng[i].Pct(0.999) / 1000.0,
+                       PS.h_eng[i].mx / 1000.0,
+                       PS.h_e2e[i].Pct(0.5) / 1000.0, PS.h_e2e[i].Pct(0.9) / 1000.0,
+                       PS.h_e2e[i].Pct(0.99) / 1000.0, PS.h_e2e[i].Pct(0.999) / 1000.0,
+                       PS.h_e2e[i].mx / 1000.0));
+    }
+  }
+  double dur = t_end - S.t0;
+  uint64_t ws_, wi, rs, ri, iot_;
+  ReadDiskStats(&ws_, &wi, &rs, &ri, &iot_);
+  {
+    FILE* f = fopen((g.out_prefix + ".summary.json").c_str(), "w");
+    if (f) {
+      fprintf(f, "{\n");
+      fprintf(f, "  \"mode\": \"%s\",\n  \"duration_s\": %.6f,\n", g.mode.c_str(), dur);
+      fprintf(f, "  \"ops_started\": %lld,\n  \"ops_done\": %lld,\n  \"ops_ok\": %lld,\n  \"ops_err\": %lld,\n",
+              (long long)S.ops_started.load(), (long long)S.ops_done.load(),
+              (long long)S.ops_ok.load(), (long long)S.ops_err.load());
+      fprintf(f, "  \"throughput_ops_s\": %.6f,\n", dur > 0 ? S.ops_ok.load() / dur : 0.0);
+      fprintf(f, "  \"reads_issued\": %lld,\n  \"reads_hit\": %lld,\n  \"reads_notfound\": %lld,\n",
+              (long long)S.reads_issued.load(), (long long)S.reads_hit.load(),
+              (long long)S.reads_notfound.load());
+      fprintf(f, "  \"writes_ok\": %lld,\n  \"U_bytes\": %lld,\n  \"read_return_bytes\": %lld,\n",
+              (long long)S.writes_ok.load(), (long long)S.bytes_written_logical.load(),
+              (long long)S.bytes_read_returned.load());
+      fprintf(f, "  \"flush_installed\": %lld,\n  \"compaction_installed\": %lld,\n",
+              (long long)S.flush_installed.load(), (long long)S.compaction_installed.load());
+      fprintf(f, "  \"stall_begin_events\": %lld,\n  \"stall_end_events\": %lld,\n",
+              (long long)S.stall_begin_events.load(), (long long)S.stall_end_events.load());
+      fprintf(f, "  \"device_write_bytes\": %llu,\n  \"device_read_bytes\": %llu,\n",
+              (unsigned long long)(ws_ - g_dev_wr0) * 512ull,
+              (unsigned long long)(rs - g_dev_rd0) * 512ull);
+      fprintf(f, "  \"db_dir_total_bytes\": %llu,\n", (unsigned long long)DirSizeBytes(g.db_path));
+      fprintf(f, "  \"killed_at_ops\": %lld\n", (long long)S.killed_at_ops.load());
+      fprintf(f, "}\n");
+      fclose(f);
+    }
+  }
+  fprintf(stderr, "DONE ops=%lld ok=%lld err=%lld dur=%.1fs thr=%.0f/s U=%.2fGB devwrite=%.2fGB\n",
+          (long long)S.ops_started.load(), (long long)S.ops_ok.load(), (long long)S.ops_err.load(),
+          dur, dur > 0 ? S.ops_ok.load() / dur : 0.0,
+          S.bytes_written_logical.load() / 1073741824.0,
+          (ws_ - g_dev_wr0) * 512.0 / 1073741824.0);
+  fflush(nullptr);
+  c_detail.Close(); c_persec.Close(); c_samples.Close(); c_layout.Close();
+  c_layout_levels.Close(); c_events.Close(); c_event_files.Close(); c_reads.Close();
+  c_dirscan.Close(); c_stalls.Close(); c_compactions.Close(); c_summary_extra.Close();
+  printf("done\n");
+  return 0;
+}

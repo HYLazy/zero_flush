@@ -1,0 +1,15 @@
+== E4b concurrent-compaction range conflict (from being_compacted flags) ==
+run,n_snapshots,frac_snapshots_with_busy,max_busy_files,mean_busy_files,concurrent_busy_pairs,overlapping_pairs,overlap_pair_frac
+100gb_fill_r5,276,0.3623,17,2.6630,2842,2842,1.0000
+100gb_overwrite,530,0.1566,10,0.6302,537,537,1.0000
+100gb_read,10,0.0000,0,0,0,0,None
+50gb_fill_r1,52,0.6154,18,6.8846,2140,2140,1.0000
+50gb_fill_r11,80,0.6375,18,6.1625,2567,2567,1.0000
+50gb_fill_r12,78,0.7308,21,7.0128,2938,2938,1.0000
+50gb_fill_static,113,0.9912,73,29.2301,36699,2714,0.0740
+50gb_mix,36,0.4167,5,1.5556,82,82,1.0000
+50gb_overwrite,119,0.2941,10,1.8739,626,626,1.0000
+50gb_read,7,0.0000,0,0,0,0,None
+50gb_read_cold,4,0.0000,0,0,0,0,None
+50gb_scan,2,0.0000,0,0,0,0,None
+

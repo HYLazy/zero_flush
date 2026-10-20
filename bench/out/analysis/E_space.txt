@@ -1,0 +1,9 @@
+== E9 space accounting ==
+run,mode,U_GiB,peak_sst_GiB,peak_sst_alloc_GiB,peak_wal_GiB,peak_db_total_GiB,final_live_sst_GiB,space_amp_peak_over_live,wal_over_sst_at_peak,peak_n_sst,rsst_peak_mib
+e_kcomp.reopen,open,0.000,0.100,0.100,0.000,0.100,0.100,1.000,0.000,5.000,174.641
+e_kflush.reopen,open,0.000,0.050,0.050,0.000,0.050,0.050,1.000,0.000,2.000,174.148
+e_kflush_sync.reopen,open,0.000,0.015,0.015,0.000,0.015,0.015,1.000,0.000,2.000,173.906
+e_kseal.reopen,open,0.000,0.045,0.045,0.000,0.045,0.045,1.000,0.000,3.000,174.305
+e_ktime.reopen,open,0.000,2.589,2.590,0.000,2.590,2.589,1.000,0.000,159.000,196.082
+e_ktime_sync.reopen,open,0.000,0.009,0.009,0.000,0.009,0.009,1.000,0.000,1.000,173.977
+

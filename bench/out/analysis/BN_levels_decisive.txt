@@ -1,0 +1,31 @@
+== bn_default_r1  F=2 C=6 time=533.651s
+   start->out   jobs   in@start     in@out  out_bytes    wall_s     cpu_s   triv
+   L0->L0         4       4.37       0.00       4.37      33.0      11.8      0
+   L0->L3         8      12.60       8.06      20.66      95.5      68.3      0
+   L3->L4       109      12.57       3.92      16.49     325.3      35.4     46
+   L4->L5       160      12.52      12.36      24.88     818.8      69.4     27
+   L5->L6       209      12.05      33.31      37.87    1731.3     240.9      0
+   device: wr 179 MB/s + rd 11 MB/s, busy 95.1%, devWA 9.10 | arr 71179 ops/s, t_arr 180s
+
+== bn_noc_r1  F=2 C=6 time=59.874s
+   start->out   jobs   in@start     in@out  out_bytes    wall_s     cpu_s   triv
+   device: wr 530 MB/s + rd 0 MB/s, busy 54.5%, devWA 1.02 | arr 474000 ops/s, t_arr 27s
+
+== bn_mc8g_r1  F=2 C=6 time=672.122s
+   start->out   jobs   in@start     in@out  out_bytes    wall_s     cpu_s   triv
+   L0->L0         2       2.91       0.00       2.91      63.0       8.5      0
+   L0->L3         9      12.60       8.53      21.12     210.0      76.1      0
+   L3->L4        96      12.68       4.36      17.04     507.4      41.8     32
+   L4->L5       154      12.66       9.71      22.37     823.4      69.4     31
+   L5->L6       217      12.19      35.54      40.24    2113.3     252.6      0
+   device: wr 168 MB/s + rd 8 MB/s, busy 94.5%, devWA 9.07 | arr 35356 ops/s, t_arr 362s
+
+== bn_mult20_r1  F=2 C=6 time=641.285s
+   start->out   jobs   in@start     in@out  out_bytes    wall_s     cpu_s   triv
+   L0->L0         2       1.94       0.00       1.94      48.4       5.7      0
+   L0->L3         9      12.60       8.50      21.10     175.1      74.1      0
+   L3->L4       108      12.54       4.33      16.87     537.0      39.1     41
+   L4->L5       172      12.45      14.73      27.18    1175.1      84.6     15
+   L5->L6       192      10.72      25.30      29.61    1608.7     197.9      0
+   device: wr 173 MB/s + rd 8 MB/s, busy 95.5%, devWA 8.63 | arr 42348 ops/s, t_arr 302s
+

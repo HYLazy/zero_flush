@@ -1,0 +1,2410 @@
+[
+ {
+  "id": "m3/cmp_1kb50",
+  "title_zh": "1KB/50GB 同窗对比（ZeroFlush vs 原生）",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在 1KB 值、50GB 规模的 fillrandom + readrandom 上，于同一时间窗内对比 ZeroFlush（sampled + base_merge + value_cache 64MB）与原生 RocksDB 的吞吐与读命中率，检验 ZF 是否追平原生且数据零丢失（archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:1-4,8-11）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:3）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "ZF = sampled + base_merge + value_cache 64MB（b2bd1fe + R59C/R59D，43821f6/332fda3）（archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:4）",
+   "binary_path": null,
+   "workload": "1KB 值（key 16B）、50GB、fillrandom 与 readrandom 命中率（archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:1-3,8-11）",
+   "rocksdb_options": "compression=none、cache 512MB、bg=24、subcompactions=16（archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:3）",
+   "other": "日期 2026-09-02；同窗负载 2-33；ZF 运行时 load ~3-8、native 运行时 load 33（archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:1,14-15）"
+  },
+  "results": [
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "27,066",
+    "unit": "ops/s",
+    "condition": "ZeroFlush（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:10"
+   },
+   {
+    "metric": "fillrandom 写带宽",
+    "value": "26.8",
+    "unit": "MB/s",
+    "condition": "ZeroFlush（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:10"
+   },
+   {
+    "metric": "fillrandom wall",
+    "value": "1,773s",
+    "unit": "s",
+    "condition": "ZeroFlush（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:10"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.18%",
+    "unit": "%",
+    "condition": "ZeroFlush（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:10"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "26,409",
+    "unit": "ops/s",
+    "condition": "原生 RocksDB（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:11"
+   },
+   {
+    "metric": "fillrandom 写带宽",
+    "value": "26.2",
+    "unit": "MB/s",
+    "condition": "原生 RocksDB（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:11"
+   },
+   {
+    "metric": "fillrandom wall",
+    "value": "1,818s",
+    "unit": "s",
+    "condition": "原生 RocksDB（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:11"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.16%",
+    "unit": "%",
+    "condition": "原生 RocksDB（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:11"
+   },
+   {
+    "metric": "ZF/native 吞吐比",
+    "value": "1.025×",
+    "unit": "×",
+    "condition": "同窗（27,066 vs 26,409）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:13"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "12,260",
+    "unit": "ops/s",
+    "condition": "R59 前（zeroflush0.8），历史",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:21"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "22,634",
+    "unit": "ops/s",
+    "condition": "b2bd1fe（9/1），历史",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:22"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "27,066",
+    "unit": "ops/s",
+    "condition": "本轮（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:23"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "26,409",
+    "unit": "ops/s",
+    "condition": "原生同窗",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:24"
+   }
+  ],
+  "evaluation_zh": "ZF 在 1KB/50GB 上与原生同窗持平并小幅领先（1.025×），且数据零丢失（readrandom 63.18% = 理论期望）；ZF 从 R59 前落后 2.2× → 持平原生，净改善 ~2.2 倍（12.3K → 27.1K）；R59C/R59D（防御性/align 修正）对 sampled 无代码路径差异——本轮提升主要来自负载条件（ZF 运行时 load 3-8），严格同负载对比需交替复测；物化滞留（skip 4049）仍是剩余瓶颈（archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:28-33）。",
+  "caveats_zh": [
+   "负载差异：本次负载较低（ZF 运行时 load ~3-8，native 运行时 load 33）——负载差异对 ZF 更有利，但两者同处磁盘瓶颈区间，接近持平（archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:13-15）。",
+   "严格同负载对比需交替复测（archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:31-32）。",
+   "物化滞留（skip 4049）仍是剩余瓶颈——若消除（批内收养），预期再上一档（archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:33）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/cmp_1kb50/RESULTS.md:1-33"
+  ]
+ },
+ {
+  "id": "m3/cmp_1kb100",
+  "title_zh": "1KB/100GB 同窗对比（ZeroFlush vs 原生）",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在 1KB 值、100GB 规模的同窗条件下对比 ZeroFlush 与原生 RocksDB 的 fillrandom 吞吐与 readrandom 命中率，并与 50GB 结果一起考查规模增大时 ZF 的相对变化（archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:1-4,8-11,17-25）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:3）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "ZF = sampled + base_merge + value_cache 64MB（b2bd1fe + R59C/R59D）（archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:4）",
+   "binary_path": null,
+   "workload": "1KB 值（key 16B）、100GB、fillrandom 与 readrandom 命中率（archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:1-3,8-11）",
+   "rocksdb_options": "compression=none、cache 512MB、bg=24、subcompactions=16（archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:3）",
+   "other": "日期 2026-09-02；负载 3-30（ZF 期间 load 3-8，native 期间 19-30）（archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:1,13-14）"
+  },
+  "results": [
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "19,701",
+    "unit": "ops/s",
+    "condition": "ZeroFlush（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:10"
+   },
+   {
+    "metric": "fillrandom 写带宽",
+    "value": "19.5",
+    "unit": "MB/s",
+    "condition": "ZeroFlush（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:10"
+   },
+   {
+    "metric": "fillrandom wall",
+    "value": "4,873s",
+    "unit": "s",
+    "condition": "ZeroFlush（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:10"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.22%",
+    "unit": "%",
+    "condition": "ZeroFlush（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:10"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "21,725",
+    "unit": "ops/s",
+    "condition": "原生 RocksDB（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:11"
+   },
+   {
+    "metric": "fillrandom 写带宽",
+    "value": "21.5",
+    "unit": "MB/s",
+    "condition": "原生 RocksDB（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:11"
+   },
+   {
+    "metric": "fillrandom wall",
+    "value": "4,419s",
+    "unit": "s",
+    "condition": "原生 RocksDB（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:11"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.11%",
+    "unit": "%",
+    "condition": "原生 RocksDB（同窗）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:11"
+   },
+   {
+    "metric": "ZF/native 吞吐比",
+    "value": "0.907×",
+    "unit": "×",
+    "condition": "同窗 100GB（19,701 vs 21,725）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:13"
+   },
+   {
+    "metric": "ZF/native 吞吐比",
+    "value": "1.025×",
+    "unit": "×",
+    "condition": "50GB（ZF 领先）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:21"
+   },
+   {
+    "metric": "ZF/native 吞吐比",
+    "value": "0.907×",
+    "unit": "×",
+    "condition": "100GB（ZF 落后 10%）",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:22"
+   },
+   {
+    "metric": "ZF 决策统计（100GB）",
+    "value": "merge 484 / 直装 373 / fallback 1605 / skip 6260 / 物化 3,789s（78% wall）",
+    "unit": "计数/秒",
+    "condition": "ZeroFlush 100GB",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:29"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.22%（= 期望，零丢失）",
+    "unit": "%",
+    "condition": "ZeroFlush 100GB/1KB",
+    "source": "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:33"
+   }
+  ],
+  "evaluation_zh": "ZF 100GB/1KB 零丢失（63.22% = 期望）；同窗 0.907×（落后 10%）——50GB 持平（1.025×）而 100GB 落后：物化滞留的规模放大是主因（skip 6260 → 多代收养物化），消除滞留（批内收养）是弥合 100GB 差距的关键；ZF 从 R59 前 9.7K → 19.7K（2.0×），native 同窗 21.7K（archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:31-37）。",
+  "caveats_zh": [
+   "负载差异小（ZF 期间 load 3-8，native 期间 19-30，对 native 略不利但仍领先）（archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:13-15）。",
+   "规模增大 ZF 相对退化：物化滞留（skip 6260、物化占 wall 78%）随规模线性放大——100GB 时物化成为更紧的瓶颈；native 的深层 compaction 摊薄更充分（archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:24-25）。",
+   "历史值条带：ZF 矩阵旧值 9.7K（R59 前）→ b2bd1fe 14.0K → 本轮 19.7K（+41%，含负载）；native 9/1 同窗 24.6K → 本轮 21.7K（负载更高）（archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:15）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/cmp_1kb100/RESULTS.md:1-37"
+  ]
+ },
+ {
+  "id": "m3/cmp_50gb_planA",
+  "title_zh": "方案 A（L0 排他所有权）50GB 验证",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "验证方案 A（L0 排他所有权：A1 = zeroflush::Open 覆盖 level0 trigger/slowdown/stop=1e8 使原生永不消费 L0；A2 = materialize l0 融合兜底，L0 字节≥64MB 或文件数≥8 时无视 ratio 融合）在 50GB/1KB 下能否打破 ZF 的 L0 循环并带来吞吐收益（archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:1-5,16-24）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:5）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "方案 A = A1（zeroflush::Open 覆盖 L0 trigger/slowdown/stop=1e8）+ A2（materialize l0 融合兜底）（archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:3-4）",
+   "binary_path": null,
+   "workload": "1KB 值、50GB 与 5GB（对照）fillrandom + readrandom 命中（archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:5,9-14）",
+   "rocksdb_options": "16 线程、1KB、sampled/16、base_merge、skip_batching=false、value_cache 64MB（archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:5）",
+   "other": "日期 2026-09-03；同窗参数（archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:1,5）"
+  },
+  "results": [
+   {
+    "metric": "fill ops/s",
+    "value": "20,030",
+    "unit": "ops/s",
+    "condition": "方案 A 50GB",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:11"
+   },
+   {
+    "metric": "lvl1/lvl0",
+    "value": "1321/961 (42% L0)",
+    "unit": "文件数(占比)",
+    "condition": "方案 A 50GB",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:11"
+   },
+   {
+    "metric": "读命中",
+    "value": "631,918/1M (63.2%)",
+    "unit": "命中/读",
+    "condition": "方案 A 50GB",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:11"
+   },
+   {
+    "metric": "fill ops/s",
+    "value": "27,066",
+    "unit": "ops/s",
+    "condition": "默认基线 50GB（历史 27,066）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:12"
+   },
+   {
+    "metric": "读命中",
+    "value": "63.3%",
+    "unit": "%",
+    "condition": "默认基线 50GB（历史）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:12"
+   },
+   {
+    "metric": "fill ops/s",
+    "value": "26,146",
+    "unit": "ops/s",
+    "condition": "native 50GB（本批 26,146）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:13"
+   },
+   {
+    "metric": "读命中",
+    "value": "63.3%",
+    "unit": "%",
+    "condition": "native 50GB（本批）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:13"
+   },
+   {
+    "metric": "fill ops/s",
+    "value": "64,905 (+47%)",
+    "unit": "ops/s",
+    "condition": "方案 A 5GB（对照）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:14"
+   },
+   {
+    "metric": "lvl1/lvl0",
+    "value": "16/254 (94% L0)",
+    "unit": "文件数(占比)",
+    "condition": "方案 A 5GB（对照）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:14"
+   },
+   {
+    "metric": "l0busy",
+    "value": "689→91",
+    "unit": "计数",
+    "condition": "方案 A 排他生效",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:19"
+   },
+   {
+    "metric": "回归结果",
+    "value": "35 PASS + 3 既有 FAIL",
+    "unit": "用例数",
+    "condition": "回滚后回归",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:24"
+   }
+  ],
+  "evaluation_zh": "证伪（50GB -26%）。5GB 的正收益再次不迁移（同 trigger=32 模式）。机制：排他生效（l0busy 689→91，L0 不再被原生占用）但 L0 由 ZF 清理时堆积数百文件 → (a) PlanLocked 每分区持锁全层扫描 L0 文件（O(L0 文件数)）成瓶颈；(b) force 融合每 8 文件重写整个分区 overlap（50GB 时分区累积大）→ 写放大风暴。L0 循环无法靠「L0 管理策略」（延迟原生消费 / 排他 + ZF 兜底融合）解决——两种策略的 50GB 负收益同型。数据完整性全绿（63.2%，零丢失）。已回滚（archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:16-24）。",
+  "caveats_zh": [
+   "证伪：方案 A 50GB 为 20,030 ops/s，相对默认基线 27,066 为 -26%（archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:11-13,18）。",
+   "5GB 对照的 +47% 正收益不迁移到 50GB（同 trigger=32 模式）（archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:14,18）。",
+   "已回滚（回归恢复 35 PASS + 3 既有 FAIL）（archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:24）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/cmp_50gb_planA/RESULTS.md:1-24"
+  ]
+ },
+ {
+  "id": "m3/cmp_50gb_skipbatch",
+  "title_zh": "skip_batching=true 50GB 同窗参数格",
+  "engine": [
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "在 50GB/1KB 同窗参数格下验证 skip_batching=true（默认值）相对 skip_batching=false 的吞吐影响，观察 skip 分布与装 L0 比例，并附带做 ratio（0.25/0.15/0.10）的 5GB 快筛（archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:1-4,8-11,19-28）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:3）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "ZF sampled/16 + base_merge + value_cache 64MB；skip_batching=true（默认值）；默认 trigger=4（archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:3-4）",
+   "binary_path": null,
+   "workload": "1KB 值、50GB fillrandom + readrandom 读命中；另附 5GB ratio 快筛（archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:3,8-11,19-25）",
+   "rocksdb_options": "16 线程、1KB、sampled/16、base_merge、value_cache 64MB、subcompactions=16、compression=none、cache 512MB、bg=24、默认 trigger=4（archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:3-4）",
+   "other": "日期 2026-09-03；同窗参数格 1（archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:1）"
+  },
+  "results": [
+   {
+    "metric": "fill ops/s",
+    "value": "22,012",
+    "unit": "ops/s",
+    "condition": "skip_batching=true",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:10"
+   },
+   {
+    "metric": "lvl1/lvl0",
+    "value": "686/1209 (64% L0)",
+    "unit": "文件数(占比)",
+    "condition": "skip_batching=true",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:10"
+   },
+   {
+    "metric": "读命中",
+    "value": "631,919/1M (63.2%)",
+    "unit": "命中/读",
+    "condition": "skip_batching=true",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:10"
+   },
+   {
+    "metric": "skip 分布",
+    "value": "busy=487 l0busy=2073 ratio=29",
+    "unit": "计数",
+    "condition": "skip_batching=true",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:10"
+   },
+   {
+    "metric": "fill ops/s",
+    "value": "27,066",
+    "unit": "ops/s",
+    "condition": "skip_batching=false（历史 27,066）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:11"
+   },
+   {
+    "metric": "读命中",
+    "value": "63.3%",
+    "unit": "%",
+    "condition": "skip_batching=false（历史）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:11"
+   },
+   {
+    "metric": "l0busy",
+    "value": "689",
+    "unit": "计数",
+    "condition": "skip_batching=false（历史）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:11"
+   },
+   {
+    "metric": "fill ops/s（5GB ratio 快筛）",
+    "value": "44.1K",
+    "unit": "ops/s",
+    "condition": "ratio=0.25（默认）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:23"
+   },
+   {
+    "metric": "lvl1/lvl0（5GB ratio 快筛）",
+    "value": "47/312",
+    "unit": "文件数",
+    "condition": "ratio=0.25（默认）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:23"
+   },
+   {
+    "metric": "fill ops/s（5GB ratio 快筛）",
+    "value": "42.0K",
+    "unit": "ops/s",
+    "condition": "ratio=0.15",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:24"
+   },
+   {
+    "metric": "lvl1/lvl0（5GB ratio 快筛）",
+    "value": "33/335",
+    "unit": "文件数",
+    "condition": "ratio=0.15",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:24"
+   },
+   {
+    "metric": "fill ops/s（5GB ratio 快筛）",
+    "value": "50.2K (+14%)",
+    "unit": "ops/s",
+    "condition": "ratio=0.10",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:25"
+   },
+   {
+    "metric": "lvl1/lvl0（5GB ratio 快筛）",
+    "value": "37/315",
+    "unit": "文件数",
+    "condition": "ratio=0.10",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:25"
+   }
+  ],
+  "evaluation_zh": "证伪：skip_batching=true 比 false 差 19%。skip 数据收养后多代物化输出更大，撞 L0/base 冲突更频（l0busy 2073、busy 487 vs false 的 689/0）→ 装 L0 反升至 64%。零丢失。数据完整性全绿。附带的 ratio 5GB 快筛为弱正信号但 scale 不可靠，且 ratio 不控制装 L0 主路径，不作为优先验证格（archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:15-17,27-28）。",
+  "caveats_zh": [
+   "对照基线 skip_batching=false 的 27,066 ops/s / l0busy=689 为历史值，非同一时刻同窗测量（archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:11）。",
+   "5GB ratio 快筛为弱正信号但 scale 不可靠（trigger=32 前车之鉴）；ratio 不控制装 L0 主路径（kDirect 安装期回落不经融合判据）→ 不作为优先验证格（archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:27-28）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/cmp_50gb_skipbatch/RESULTS.md:1-28"
+  ]
+ },
+ {
+  "id": "m3/cmp_50gb_tr32",
+  "title_zh": "trigger=32 实验（50GB 1KB fillrandom 同窗）",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "diagnosis",
+  "purpose_zh": "在 50GB/1KB fillrandom 同窗下验证 ZF 侧 --level0_file_num_compaction_trigger=32（slowdown=100、stop=200）相对原生默认（26,146）与 ZF 默认 trigger=4 历史基线（27,066）的效果，检验 5GB 下 trigger=32 曾经 +49% 的优势是否迁移（archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:1-6,8-16）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:3）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "HEAD（cdcbdac）（archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:22）",
+   "binary_path": null,
+   "workload": "1KB 值、50GB fillrandom 与 readrandom 命中（archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:1-3,8-13）",
+   "rocksdb_options": "16 线程、1KB、sampled/16 分区、base_merge、skip_batching=false、value_cache 64MB、subcompactions=16、compression=none、cache 512MB、bg=24；ZF 侧附加 --level0_file_num_compaction_trigger=32 --level0_slowdown_writes_trigger=100 --level0_stop_writes_trigger=200；native 默认（archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:3-6）",
+   "other": "日期 2026-09-03；同窗（archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:1）"
+  },
+  "results": [
+   {
+    "metric": "fill ops/s",
+    "value": "19,056",
+    "unit": "ops/s",
+    "condition": "ZF trigger=32",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:12"
+   },
+   {
+    "metric": "read 命中",
+    "value": "633,070/1M (63.3%)",
+    "unit": "命中/读",
+    "condition": "ZF trigger=32",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:12"
+   },
+   {
+    "metric": "LSM 终态",
+    "value": "lvl1=1281 lvl0=1017, l0busy=689",
+    "unit": "文件数/计数",
+    "condition": "ZF trigger=32",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:12"
+   },
+   {
+    "metric": "fill ops/s",
+    "value": "26,146",
+    "unit": "ops/s",
+    "condition": "native 默认",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:13"
+   },
+   {
+    "metric": "read 命中",
+    "value": "632,543/1M",
+    "unit": "命中/读",
+    "condition": "native 默认",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:13"
+   },
+   {
+    "metric": "fill ops/s",
+    "value": "27,066",
+    "unit": "ops/s",
+    "condition": "ZF 默认 trigger=4 的 50GB 历史基线（≈ native 26,409）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:15"
+   },
+   {
+    "metric": "5GB 下 trigger=32 曾显示",
+    "value": "65.9K vs 44.1K",
+    "unit": "ops/s",
+    "condition": "5GB 对照（+49%）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:16"
+   },
+   {
+    "metric": "50GB 同窗",
+    "value": "ZF 27.1K ≈ native 26.4K（持平）",
+    "unit": "ops/s",
+    "condition": "HEAD（cdcbdac）默认 trigger=4",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:23"
+   },
+   {
+    "metric": "100GB 同窗",
+    "value": "ZF 19.7K vs native 21.7K（-9%，此前 r59_rerun）",
+    "unit": "ops/s",
+    "condition": "HEAD（cdcbdac）默认 trigger=4",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:23"
+   },
+   {
+    "metric": "R59X 越界 L0 吸收插桩验证",
+    "value": "21/21 失败",
+    "unit": "试验数",
+    "condition": "吸收与原生消费竞争（配套实验）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:25"
+   },
+   {
+    "metric": "R59X 越界 L0 吸收插桩验证",
+    "value": "11/11 成功但 L0 增长无界",
+    "unit": "试验数",
+    "condition": "关闭原生消费（配套实验）",
+    "source": "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:26"
+   }
+  ],
+  "evaluation_zh": "trigger=32 的 5GB 优势不迁移到 50GB——小规模下原生频繁小消费的固定开销占比高；大规模下 L0 延迟到 32 文件才触发的大批量原生 L0→L1 消费产出全范围 L1 文件，反而加重直装受阻。默认 trigger=4 仍是最优。HEAD（cdcbdac）保持最佳状态：50GB ZF 27.1K ≈ native 26.4K（持平）；100GB ZF 19.7K vs native 21.7K（-9%）。配套的 R59X 越界 L0 吸收净收益为负，已回滚（archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:18-26）。",
+  "caveats_zh": [
+   "5GB 下 trigger=32 的 +49%（65.9K vs 44.1K）为历史对照，未在 50GB 迁移（archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:15-20）。",
+   "对比用的 ZF 默认 trigger=4 的 50GB 基线 27,066 与 native 26,409 为历史值（archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:15）。",
+   "配套实验 R59X 越界 L0 吸收：插桩验证吸收与原生消费竞争 21/21 失败；关闭原生消费后 11/11 成功但 L0 增长无界 → 净收益为负，已回滚（archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:25-26）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/cmp_50gb_tr32/RESULTS.md:1-26"
+  ]
+ },
+ {
+  "id": "m3/zf09_100gb_1kb",
+  "title_zh": "zeroflush0.9 分支 100GB/1KB 读写测试",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在 zeroflush0.9 分支（HEAD 1e544f3，代码 = cdcbdac R59E 归因后最优态，零改动）上用与 cmp_1kb100 完全相同的同窗参数做 100GB/1KB fillrandom + readrandom，记录吞吐、写/读延迟分布，并与同日同时段 native 对照（archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:1-7,45-53）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:4）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "分支 zeroflush0.9（HEAD 1e544f3，代码 = cdcbdac R59E 归因后最优态，零改动）（archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:3）",
+   "binary_path": null,
+   "workload": "100GB/1KB；fill 100M ops（每线程 6.25M），readrandom 独立进程 1M reads/线程（archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:6-7）",
+   "rocksdb_options": "16 线程、1KB 值、sampled/16 分区、base_merge、skip_batching=false、value_cache 64MB、subcompactions=16、compression=none、cache 512MB、bg=24、histogram + statistics 开启（archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:4-6）",
+   "other": "同窗对比时段 2026-09-03 18:04-19:27（archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:45）"
+  },
+  "results": [
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "17,098",
+    "unit": "ops/s",
+    "condition": "ZeroFlush (0.9)",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:13"
+   },
+   {
+    "metric": "fillrandom 写带宽",
+    "value": "17.0",
+    "unit": "MB/s",
+    "condition": "ZeroFlush (0.9)",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:13"
+   },
+   {
+    "metric": "fillrandom wall",
+    "value": "5,849s (97.5min)",
+    "unit": "s",
+    "condition": "ZeroFlush (0.9)",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:13"
+   },
+   {
+    "metric": "l0busy",
+    "value": "4717",
+    "unit": "计数",
+    "condition": "ZeroFlush (0.9) fillrandom",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:13"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "43,113",
+    "unit": "ops/s",
+    "condition": "ZeroFlush (0.9)",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:14"
+   },
+   {
+    "metric": "readrandom 读带宽",
+    "value": "27.0",
+    "unit": "MB/s",
+    "condition": "ZeroFlush (0.9)",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:14"
+   },
+   {
+    "metric": "readrandom wall",
+    "value": "371s",
+    "unit": "s",
+    "condition": "ZeroFlush (0.9)",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:14"
+   },
+   {
+    "metric": "读命中",
+    "value": "632,007/1M = 63.2%（零丢失）",
+    "unit": "命中/读",
+    "condition": "ZeroFlush (0.9)",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:14"
+   },
+   {
+    "metric": "同参历史对照",
+    "value": "cmp_1kb100 ZF 19,701 / native 21,725——本次 -13%",
+    "unit": "ops/s",
+    "condition": "ZeroFlush (0.9) vs 同参历史",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:16"
+   },
+   {
+    "metric": "写延迟 P50/P75/P99/P99.9/P99.99/max",
+    "value": "294.8 / 358.1 / 5,034 / 32,091 / 694,145 / >750,000（桶尾）",
+    "unit": "µs",
+    "condition": "ZeroFlush (0.9) fillrandom",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:23"
+   },
+   {
+    "metric": "写占比",
+    "value": "83.7% 写 < 380µs",
+    "unit": "%",
+    "condition": "ZeroFlush (0.9) fillrandom",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:25"
+   },
+   {
+    "metric": "日志 long op 最高",
+    "value": "7.6s",
+    "unit": "s",
+    "condition": "ZeroFlush (0.9)（尾延迟源 = 周期物化/融合停顿）",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:25"
+   },
+   {
+    "metric": "读延迟 P50/P75/P99/P99.9/P99.99",
+    "value": "330.3 / 446.5 / 856.1 / 4,372 / 21,197",
+    "unit": "µs",
+    "condition": "ZeroFlush (0.9) readrandom",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:32"
+   },
+   {
+    "metric": "读占比",
+    "value": "95.4% 读 < 580µs",
+    "unit": "%",
+    "condition": "ZeroFlush (0.9) readrandom",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:34"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "21,680",
+    "unit": "ops/s",
+    "condition": "native（同日同时段 4,612s）",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:51"
+   },
+   {
+    "metric": "ZF/native fillrandom",
+    "value": "0.79×（-21%）",
+    "unit": "×",
+    "condition": "100GB 同窗",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:51"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "48,390",
+    "unit": "ops/s",
+    "condition": "native（同日同时段）",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:52"
+   },
+   {
+    "metric": "ZF/native readrandom",
+    "value": "0.89×（-11%）",
+    "unit": "×",
+    "condition": "100GB 同窗",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:52"
+   },
+   {
+    "metric": "读命中",
+    "value": "632,297/1M（63.2%）",
+    "unit": "命中/读",
+    "condition": "native（同日同时段）",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:53"
+   },
+   {
+    "metric": "写延迟 P50（ZF/native 比）",
+    "value": "294.8 vs 23.1 = 12.8×",
+    "unit": "µs",
+    "condition": "100GB 同窗",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:59"
+   },
+   {
+    "metric": "写延迟 P99（ZF/native 比）",
+    "value": "5,034 vs 73.9 = 68×",
+    "unit": "µs",
+    "condition": "100GB 同窗",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:61"
+   },
+   {
+    "metric": "写延迟 P99.99（ZF/native 比）",
+    "value": "694,145 vs 1,738,636 = 0.40×",
+    "unit": "µs",
+    "condition": "100GB 同窗",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:63"
+   },
+   {
+    "metric": "读延迟 P99（ZF/native 比）",
+    "value": "856.1 vs 2,719.9 = 0.31×",
+    "unit": "µs",
+    "condition": "100GB 同窗",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:61"
+   },
+   {
+    "metric": "读延迟 P99.99（ZF/native 比）",
+    "value": "21,197 vs 179,058 = 0.12×",
+    "unit": "µs",
+    "condition": "100GB 同窗",
+    "source": "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:63"
+   }
+  ],
+  "evaluation_zh": "fill 吞吐落后 native 21%；注意窗口方差：9/2 同代码同参 ZF 19,701（0.91×）、native 两次几乎不变（21,725/21,680）→ ZF 侧运行方差 ~13%，本次同窗为 0.79×。写延迟存在架构性差距：ZF P50 295µs vs native 23µs（13×，ZF 写路径的封存 epoch 滚动 fsync/rename 与组提交粒度高于原生 memtable 组提交），P99 68× 来自周期物化停顿，但写尾延迟（P99.99）ZF 反而优于 native（原生 compaction 风暴更长）。读延迟 ZF P50/P75 慢 ~1.9×（读路径多层：分区索引 + 值缓存 + L0 层文件多），但 P99 起显著优于 native（856µs vs 2.7ms；P99.99 0.12×）——ZF 直装 L1 分区文件的有序读 + 无原生级联 compaction 干扰。命中 63.2% 与 native 基线一致 → 数据完整性验证通过（archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:34-35,65-74）。",
+  "caveats_zh": [
+   "run1（zf_fill.log）fill 于 43% 段错误（rc=139，崩溃前正安装 25-67MB 大 L0 文件；read 在残缺库上命中 43.2% → 结果作废）；run2 完整通过且无 core——与历史记录的偶发崩溃（L1 重叠类，非确定性）一致，未复现不可调试；不影响结论（run2 全绿）（archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:39-41）。",
+   "本次同窗为 0.79×；ZF 侧运行方差 ~13%（9/2 同代码同参 ZF 19,701 = 0.91×，native 两次几乎不变）（archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:16,67-68）。",
+   "写延迟 max 列 >750,000 为直方图桶尾值（archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:23）。",
+   "读长尾（>100ms 桶 0.002%）为缺页/compaction 干扰（archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:34）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:1-43",
+   "archive/zeroflush_m3_perf/zf09_100gb_1kb/RESULTS.md:45-74"
+  ]
+ },
+ {
+  "id": "m3/m5_50gb_fix",
+  "title_zh": "M5 50GB 验收实测（数据丢失修复后）",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "M5 验收：在 50GB 同窗参数下实测 zeroflush0.98（dc2843c + 本轮数据丢失修复）的读命中、吞吐与 LSM 终态，确认修复前 32.8% 命中（丢 ~50%）的问题是否由 §3.5 recovery 转换循环造成并已解决（archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:1-6,8-16,18-28,30-36）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:4）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "分支 zeroflush0.98（dc2843c + 本轮丢失修复），Release 构建（archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:3）",
+   "binary_path": null,
+   "workload": "50GB = num=50M 键空间 × 50M 随机写（--num=50000000 --writes=3125000×16）；1KB 值；fillrandom + 跨进程 readrandom（archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:4-6,14）",
+   "rocksdb_options": "16 线程、1KB 值、sampled/16 分区、base_merge、skip_batching=false、value_cache 64MB、cache 512MB、bg=24、subcompactions=16、compression=none（archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:4-5）",
+   "other": "日期 2026-09-07；数据丢失修复后（archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:1,3）"
+  },
+  "results": [
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "15,452",
+    "unit": "ops/s",
+    "condition": "ZeroFlush（修复后，3,236s）",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:12"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "20,752",
+    "unit": "ops/s",
+    "condition": "native 同窗（2,409s）",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:12"
+   },
+   {
+    "metric": "ZF/native fillrandom",
+    "value": "0.74×",
+    "unit": "×",
+    "condition": "50GB 同窗",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:12"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "188,086",
+    "unit": "ops/s",
+    "condition": "ZeroFlush（修复后）",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:13"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "137,972",
+    "unit": "ops/s",
+    "condition": "native 同窗",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:13"
+   },
+   {
+    "metric": "读命中",
+    "value": "316,320/500K = 63.26%",
+    "unit": "命中/读",
+    "condition": "ZeroFlush（修复后）",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:13"
+   },
+   {
+    "metric": "读命中门",
+    "value": "63.26% ≈ 63.2% 期望（零丢失 ✓）",
+    "unit": "%",
+    "condition": "ZeroFlush（修复后）vs native 63.27%",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:14"
+   },
+   {
+    "metric": "L0 终态",
+    "value": "3 文件 / 0.02GB",
+    "unit": "文件数/GB",
+    "condition": "ZeroFlush（修复后）",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:15"
+   },
+   {
+    "metric": "LSM 终态",
+    "value": "L1 152×9.9GB / L2 180×9.8GB / L3 352×18.2GB",
+    "unit": "文件数×大小",
+    "condition": "ZeroFlush（修复后）",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:16"
+   },
+   {
+    "metric": "读命中",
+    "value": "32.8%（丢 ~50%）",
+    "unit": "%",
+    "condition": "修复前（同配置，本日实测）",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:22"
+   },
+   {
+    "metric": "install_fallback_l0",
+    "value": "1999",
+    "unit": "计数",
+    "condition": "修复前",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:23"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "15,477",
+    "unit": "ops/s",
+    "condition": "修复前（与修复后持平）",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:24"
+   },
+   {
+    "metric": "规模扫描读命中",
+    "value": "10GB 61.4% ✓（转换 0.8/epoch）",
+    "unit": "%",
+    "condition": "修复前",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:26"
+   },
+   {
+    "metric": "规模扫描读命中",
+    "value": "25GB 32.7% ✗（4.4/epoch）",
+    "unit": "%",
+    "condition": "修复前",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:26"
+   },
+   {
+    "metric": "规模扫描读命中",
+    "value": "50GB 32.8% ✗（4.0/epoch）",
+    "unit": "%",
+    "condition": "修复前",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:27"
+   },
+   {
+    "metric": "规模扫描读命中",
+    "value": "25GB 63.16% ✓（转换 1086→90）",
+    "unit": "%",
+    "condition": "修复后",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:27"
+   },
+   {
+    "metric": "规模扫描读命中",
+    "value": "50GB 63.26% ✓（转换 1999→48）",
+    "unit": "%",
+    "condition": "修复后",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:27-28"
+   },
+   {
+    "metric": "同配置 native 50GB baseline",
+    "value": "20.75K",
+    "unit": "ops/s",
+    "condition": "当前同窗基准",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:40-41"
+   },
+   {
+    "metric": "ZF/native 比",
+    "value": "15.45K = 0.74× native",
+    "unit": "ops/s/×",
+    "condition": "50GB 同窗",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:41-42"
+   },
+   {
+    "metric": "物化占墙钟",
+    "value": "73% 墙钟在 materialize",
+    "unit": "%",
+    "condition": "ZeroFlush（修复后）",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:42"
+   },
+   {
+    "metric": "L1 结构",
+    "value": "152 文件 vs 设计 16/range",
+    "unit": "文件数",
+    "condition": "ZeroFlush（修复后）",
+    "source": "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:42"
+   }
+  ],
+  "evaluation_zh": "修复后 50GB 读命中 63.26% ≈ 63.2% 期望（零丢失 ✓），修复前为 32.8%（丢 ~50%），根因是 §3.5 recovery 转换循环（install_fallback_l0 1999）。修复内容：规划基版本刷新移到学习窗串行等待之后；§3.5 定层冲突从「丢弃 + recovery 移交」改为一律回落 L0 安装（0.9 语义）。规模扫描显示修复后 25GB 63.16%、50GB 63.26% 均达标；base_level 漂移假设被 base=1 证据证伪。吞吐 15.45K = 0.74× native（当前同窗基准 20.75K）——物化流水（73% 墙钟在 materialize）与 L1 结构（152 文件 vs 设计 16/range）为下一步优化方向（archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:14,26-28,30-36,38-43）。",
+  "caveats_zh": [
+   "修复前同配置（本日实测）读命中 32.8%（丢 ~50%）；fillrandom 15,477 ops/s 与修复后持平——丢失不省时间（数据在 recovery 循环里反复重物化）（archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:18-24）。",
+   "27.1K 目标来自旧配置时代（不同 keyspace/线程语义），当前同窗基准 = 20.75K（archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:40-42）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/m5_50gb_fix/RESULTS.md:1-43"
+  ]
+ },
+ {
+  "id": "m3/bench_matrix",
+  "title_zh": "ZeroFlush vs 原生性能矩阵（KV × 规模）",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "capacity_sweep",
+  "purpose_zh": "构建 ZeroFlush vs 原生 RocksDB 的完整性能矩阵：value 128/256/1024/2048B × 规模 10/50/100GB 的 fillrandom 与 readrandom，统计写/读延迟百分位与读命中率（archive/zeroflush_m3_perf/bench_matrix_report.md:1-8,10-25,27-42）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（archive/zeroflush_m3_perf/bench_matrix_report.md:3）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "ZF：sampled 路由 + base_merge + value_cache 64MB（archive/zeroflush_m3_perf/bench_matrix_report.md:4）",
+   "binary_path": null,
+   "workload": "workload = 所有线程写入数据总和（num = GB/(16B+value)，16 线程均分）；readrandom = fill 后独立进程 100 万读/线程（随机写覆盖后命中率期望 63.2%）（archive/zeroflush_m3_perf/bench_matrix_report.md:4-6）",
+   "rocksdb_options": "16 线程、key 16B、compression=none、cache 512MB、max_background_jobs=24、subcompactions=16（archive/zeroflush_m3_perf/bench_matrix_report.md:3）",
+   "other": "日期 2026-08-27/29；规模 10GB ≈ 页缓存内（热）、50GB/100GB 超出（磁盘瓶颈）；系统常驻负载 5-45 波动（grafana/prometheus/ceph）（archive/zeroflush_m3_perf/bench_matrix_report.md:6-8）"
+  },
+  "results": [
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "268,815",
+    "unit": "ops/s",
+    "condition": "native，128B，10GB（ZF/native 3.14x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:14"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "85,548",
+    "unit": "ops/s",
+    "condition": "zf，128B，10GB（ZF MB/s 11.7）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:14"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "380,976",
+    "unit": "ops/s",
+    "condition": "native，256B，10GB（ZF/native 5.53x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:15"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "68,920",
+    "unit": "ops/s",
+    "condition": "zf，256B，10GB（ZF MB/s 17.9）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:15"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "27,833",
+    "unit": "ops/s",
+    "condition": "native，1024B，10GB（ZF/native 1.31x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:16"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "21,285",
+    "unit": "ops/s",
+    "condition": "zf，1024B，10GB（ZF MB/s 21.1）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:16"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "40,473",
+    "unit": "ops/s",
+    "condition": "native，2048B，10GB（ZF/native 3.83x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:17"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "10,554",
+    "unit": "ops/s",
+    "condition": "zf，2048B，10GB（ZF MB/s 20.8）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:17"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "80,954",
+    "unit": "ops/s",
+    "condition": "native，128B，50GB（ZF/native 1.23x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:18"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "65,897",
+    "unit": "ops/s",
+    "condition": "zf，128B，50GB（ZF MB/s 9.0）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:18"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "45,087",
+    "unit": "ops/s",
+    "condition": "native，256B，50GB（ZF/native 1.20x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:19"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "37,552",
+    "unit": "ops/s",
+    "condition": "zf，256B，50GB（ZF MB/s 9.7）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:19"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "12,865",
+    "unit": "ops/s",
+    "condition": "native，1024B，50GB（ZF/native 1.25x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:20"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "10,289",
+    "unit": "ops/s",
+    "condition": "zf，1024B，50GB（ZF MB/s 10.2）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:20"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "6,920",
+    "unit": "ops/s",
+    "condition": "native，2048B，50GB（ZF/native 1.27x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:21"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "5,447",
+    "unit": "ops/s",
+    "condition": "zf，2048B，50GB（ZF MB/s 10.7）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:21"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "68,503",
+    "unit": "ops/s",
+    "condition": "native，128B，100GB（ZF/native 1.22x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:22"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "56,014",
+    "unit": "ops/s",
+    "condition": "zf，128B，100GB（ZF MB/s 7.7）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:22"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "42,699",
+    "unit": "ops/s",
+    "condition": "native，256B，100GB（ZF/native 1.39x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:23"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "30,632",
+    "unit": "ops/s",
+    "condition": "zf，256B，100GB（ZF MB/s 7.9）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:23"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "12,396",
+    "unit": "ops/s",
+    "condition": "native，1024B，100GB（ZF/native 1.27x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:24"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "9,728",
+    "unit": "ops/s",
+    "condition": "zf，1024B，100GB（ZF MB/s 9.6）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:24"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "4,752",
+    "unit": "ops/s",
+    "condition": "native，2048B，100GB（ZF/native 1.04x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:25"
+   },
+   {
+    "metric": "fillrandom 吞吐",
+    "value": "4,551",
+    "unit": "ops/s",
+    "condition": "zf，2048B，100GB（ZF MB/s 9.0）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:25"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "744,409",
+    "unit": "ops/s",
+    "condition": "native，128B，10GB（ZF/native 7.25x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:31"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "102,644",
+    "unit": "ops/s",
+    "condition": "zf，128B，10GB（ZF 命中率 63.1%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:31"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.1%",
+    "unit": "%",
+    "condition": "zf，128B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:31"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "700,064",
+    "unit": "ops/s",
+    "condition": "native，256B，10GB（ZF/native 6.80x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:32"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "102,875",
+    "unit": "ops/s",
+    "condition": "zf，256B，10GB（ZF 命中率 63.3%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:32"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.3%",
+    "unit": "%",
+    "condition": "zf，256B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:32"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "572,584",
+    "unit": "ops/s",
+    "condition": "native，1024B，10GB（ZF/native 5.74x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:33"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "99,703",
+    "unit": "ops/s",
+    "condition": "zf，1024B，10GB（ZF 命中率 63.0%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:33"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.0%",
+    "unit": "%",
+    "condition": "zf，1024B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:33"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "494,348",
+    "unit": "ops/s",
+    "condition": "native，2048B，10GB（ZF/native 4.35x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:34"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "113,677",
+    "unit": "ops/s",
+    "condition": "zf，2048B，10GB（ZF 命中率 63.1%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:34"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.1%",
+    "unit": "%",
+    "condition": "zf，2048B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:34"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "122,450",
+    "unit": "ops/s",
+    "condition": "native，128B，50GB（ZF/native 1.39x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:35"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "87,964",
+    "unit": "ops/s",
+    "condition": "zf，128B，50GB（ZF 命中率 63.1%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:35"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.1%",
+    "unit": "%",
+    "condition": "zf，128B，50GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:35"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "115,522",
+    "unit": "ops/s",
+    "condition": "native，256B，50GB（ZF/native 1.33x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:36"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "86,779",
+    "unit": "ops/s",
+    "condition": "zf，256B，50GB（ZF 命中率 63.2%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:36"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.2%",
+    "unit": "%",
+    "condition": "zf，256B，50GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:36"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "121,186",
+    "unit": "ops/s",
+    "condition": "native，1024B，50GB（ZF/native 1.61x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:37"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "75,303",
+    "unit": "ops/s",
+    "condition": "zf，1024B，50GB（ZF 命中率 63.2%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:37"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.2%",
+    "unit": "%",
+    "condition": "zf，1024B，50GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:37"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "124,757",
+    "unit": "ops/s",
+    "condition": "native，2048B，50GB（ZF/native 1.85x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:38"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "67,568",
+    "unit": "ops/s",
+    "condition": "zf，2048B，50GB（ZF 命中率 63.2%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:38"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.2%",
+    "unit": "%",
+    "condition": "zf，2048B，50GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:38"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "40,044",
+    "unit": "ops/s",
+    "condition": "native，128B，100GB（ZF/native 0.87x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:39"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "45,811",
+    "unit": "ops/s",
+    "condition": "zf，128B，100GB（ZF 命中率 63.2%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:39"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.2%",
+    "unit": "%",
+    "condition": "zf，128B，100GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:39"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "41,737",
+    "unit": "ops/s",
+    "condition": "native，256B，100GB（ZF/native 0.96x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:40"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "43,300",
+    "unit": "ops/s",
+    "condition": "zf，256B，100GB（ZF 命中率 63.2%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:40"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.2%",
+    "unit": "%",
+    "condition": "zf，256B，100GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:40"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "37,215",
+    "unit": "ops/s",
+    "condition": "native，1024B，100GB（ZF/native 0.90x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:41"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "41,539",
+    "unit": "ops/s",
+    "condition": "zf，1024B，100GB（ZF 命中率 63.3%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:41"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.3%",
+    "unit": "%",
+    "condition": "zf，1024B，100GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:41"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "18,838",
+    "unit": "ops/s",
+    "condition": "native，2048B，100GB（ZF/native 0.45x）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:42"
+   },
+   {
+    "metric": "readrandom 吞吐",
+    "value": "41,524",
+    "unit": "ops/s",
+    "condition": "zf，2048B，100GB（ZF 命中率 63.2%）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:42"
+   },
+   {
+    "metric": "readrandom 命中率",
+    "value": "63.2%",
+    "unit": "%",
+    "condition": "zf，2048B，100GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:42"
+   },
+   {
+    "metric": "写延迟 P50",
+    "value": "22",
+    "unit": "µs",
+    "condition": "native，1024B，100GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:68"
+   },
+   {
+    "metric": "写延迟 P50",
+    "value": "280",
+    "unit": "µs",
+    "condition": "zf，1024B，100GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:69"
+   },
+   {
+    "metric": "写延迟 P99.9",
+    "value": "7,868",
+    "unit": "µs",
+    "condition": "native，2048B，100GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:70"
+   },
+   {
+    "metric": "写延迟 P99.9",
+    "value": "99,673",
+    "unit": "µs",
+    "condition": "zf，2048B，100GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:71"
+   },
+   {
+    "metric": "读延迟 P50",
+    "value": "18",
+    "unit": "µs",
+    "condition": "native，128B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:77"
+   },
+   {
+    "metric": "读延迟 P50",
+    "value": "147",
+    "unit": "µs",
+    "condition": "zf，128B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:78"
+   },
+   {
+    "metric": "读延迟 P99",
+    "value": "2,622",
+    "unit": "µs",
+    "condition": "native，128B，100GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:93"
+   },
+   {
+    "metric": "读延迟 P99",
+    "value": "809",
+    "unit": "µs",
+    "condition": "zf，128B，100GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_report.md:94"
+   }
+  ],
+  "evaluation_zh": "写（磁盘瓶颈规模 50/100GB）：ZF 差距 1.04-1.39×——接近原生（历史 1.92×，M4.11 切片 + R57 修复后大幅收窄）；写（页缓存热 10GB）：固定开销显性放大（1.3-5.5×，272B 小值最差——每 op 固定开销占比高）；读：50GB 差距 1.33-1.85×（布隆优化后；10GB 热读 4-7× 为索引/固定开销上界）；100GB 读 ZF 反超原生（0.45-0.96×）——原生 L0→L6 大 compaction 积压下读放大更高，ZF 分区文件布局 + 活跃段索引在小页缓存下更稳；命中率全部 63.1-63.3% = 随机写覆盖期望（1-1/e），无数据丢失；R57 已修复，128B 50/100GB 复测通过（archive/zeroflush_m3_perf/bench_matrix_report.md:104-110）。",
+  "caveats_zh": [
+   "系统常驻负载 5-45 波动（grafana/prometheus/ceph）；10GB 为页缓存内（热）、50GB/100GB 超出（磁盘瓶颈）（archive/zeroflush_m3_perf/bench_matrix_report.md:6-8）。",
+   "bench_matrix.json 中 zf 各运行记录 errors=2（archive/zeroflush_m3_perf/bench_matrix.json:52,104,156）；zf 侧 128B/50GB 的 fill_rc=-11、128B/100GB 的 fill_rc=-15，无 fill/read 数值（archive/zeroflush_m3_perf/bench_matrix.json:398,594）。",
+   "ZF 128B 50/100GB 历史曾因 R57（索引内存计数器竞态）大规模爆发/崩溃，已修复并复测通过（archive/zeroflush_m3_perf/bench_matrix_report.md:110）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/bench_matrix_report.md:1-110",
+   "archive/zeroflush_m3_perf/bench_matrix.json:1"
+  ]
+ },
+ {
+  "id": "m3/bench_matrix_v2",
+  "title_zh": "性能矩阵 v2（ZF 大规模全部失败）",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "capacity_sweep",
+  "purpose_zh": "重跑 ZeroFlush vs 原生 RocksDB 的 db_bench 矩阵（kv_value 128/256/1024/2048、scale_gb 10/50/100），逐格记录两引擎的 fillrandom/readrandom 指标、命中数与返回码，用于与首轮 bench_matrix 结果比对（archive/zeroflush_m3_perf/bench_matrix_v2.json:1-8,29-34,393-398）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": null,
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "kv_value 128/256/1024/2048（kv_total 144/272/1040/2064）、scale_gb 10/50/100，每格 fillrandom + readrandom（read 16,000,000 ops，found/read 1,000,000 抽样）（archive/zeroflush_m3_perf/bench_matrix_v2.json:3-6,16-22）",
+   "rocksdb_options": null,
+   "other": "本文件为机器可读结果，未附参数/硬件说明（archive/zeroflush_m3_perf/bench_matrix_v2.json:1）"
+  },
+  "results": [
+   {
+    "metric": "fillrandom ops_s",
+    "value": "115158",
+    "unit": "ops/s",
+    "condition": "native，2048B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:12"
+   },
+   {
+    "metric": "readrandom ops_s",
+    "value": "872397",
+    "unit": "ops/s",
+    "condition": "native，2048B，10GB（found 632605）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:18"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "19263",
+    "unit": "ops/s",
+    "condition": "zf，2048B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:38"
+   },
+   {
+    "metric": "readrandom ops_s",
+    "value": "116841",
+    "unit": "ops/s",
+    "condition": "zf，2048B，10GB（found 632381）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:44"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "130105",
+    "unit": "ops/s",
+    "condition": "native，1024B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:64"
+   },
+   {
+    "metric": "readrandom ops_s",
+    "value": "582641",
+    "unit": "ops/s",
+    "condition": "native，1024B，10GB（found 632398）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:70"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "36045",
+    "unit": "ops/s",
+    "condition": "zf，1024B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:90"
+   },
+   {
+    "metric": "readrandom ops_s",
+    "value": "116710",
+    "unit": "ops/s",
+    "condition": "zf，1024B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:96"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "311212",
+    "unit": "ops/s",
+    "condition": "native，256B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:116"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "73805",
+    "unit": "ops/s",
+    "condition": "zf，256B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:142"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "410900",
+    "unit": "ops/s",
+    "condition": "native，128B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:168"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "73348",
+    "unit": "ops/s",
+    "condition": "zf，128B，10GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:194"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "13693",
+    "unit": "ops/s",
+    "condition": "native，2048B，50GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:220"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "27232",
+    "unit": "ops/s",
+    "condition": "native，1024B，50GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:246"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "83394",
+    "unit": "ops/s",
+    "condition": "native，256B，50GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:272"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "164766",
+    "unit": "ops/s",
+    "condition": "native，128B，50GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:298"
+   },
+   {
+    "metric": "fillrandom ops_s",
+    "value": "10949",
+    "unit": "ops/s",
+    "condition": "zf，2048B，50GB",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:376"
+   },
+   {
+    "metric": "readrandom ops_s",
+    "value": "54336",
+    "unit": "ops/s",
+    "condition": "zf，2048B，50GB（found 632159）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:382"
+   },
+   {
+    "metric": "fill_rc",
+    "value": "127",
+    "unit": "返回码",
+    "condition": "zf，1024B，50GB（read_rc=null，无 fill/read 数据）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:398"
+   },
+   {
+    "metric": "fill_rc",
+    "value": "127",
+    "unit": "返回码",
+    "condition": "zf，256B，50GB（read_rc=null，无 fill/read 数据）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:412"
+   },
+   {
+    "metric": "fill_rc",
+    "value": "127",
+    "unit": "返回码",
+    "condition": "zf，128B，50GB（read_rc=null，无 fill/read 数据）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:426"
+   },
+   {
+    "metric": "fill_rc",
+    "value": "127",
+    "unit": "返回码",
+    "condition": "zf，2048B，100GB（read_rc=null，无 fill/read 数据）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:440"
+   },
+   {
+    "metric": "fill_rc",
+    "value": "127",
+    "unit": "返回码",
+    "condition": "zf，1024B，100GB（read_rc=null，无 fill/read 数据）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:454"
+   },
+   {
+    "metric": "fill_rc",
+    "value": "127",
+    "unit": "返回码",
+    "condition": "zf，256B，100GB（read_rc=null，无 fill/read 数据）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:468"
+   },
+   {
+    "metric": "fill_rc",
+    "value": "127",
+    "unit": "返回码",
+    "condition": "zf，128B，100GB（read_rc=null，无 fill/read 数据）",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:482"
+   },
+   {
+    "metric": "native 参照",
+    "value": "9735",
+    "unit": "ops/s",
+    "condition": "native，2048B，100GB fillrandom",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:324"
+   },
+   {
+    "metric": "native 参照",
+    "value": "19299",
+    "unit": "ops/s",
+    "condition": "native，1024B，100GB fillrandom",
+    "source": "archive/zeroflush_m3_perf/bench_matrix_v2.json:350"
+   }
+  ],
+  "evaluation_zh": null,
+  "caveats_zh": [
+   "zf 侧 50GB/100GB 的全部 7 个规模点 fill_rc=127（失败）、read_rc=null，无 fill/read 结果数据（archive/zeroflush_m3_perf/bench_matrix_v2.json:398,412,426,440,454,468,482）。",
+   "本文件为机器可读结果数组，未包含报告文本、参数或硬件说明（archive/zeroflush_m3_perf/bench_matrix_v2.json:1）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/bench_matrix_v2.json:1-489"
+  ]
+ },
+ {
+  "id": "m3/integrated_report",
+  "title_zh": "原生 RocksDB 写路径与 ZeroFlush 对照综合实验报告",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "integration",
+  "purpose_zh": "汇总原生 RocksDB 100GB 写路径画像（E1 写停顿基线与线程缩放、E2 compaction 耗时、E3 L1 放大、E4 结构串行性、E5 触发阈值剂量-响应）、ZeroFlush vs 原生 24 配置矩阵（E6）与 ZF 读路径优化（E7），构成「L0→L1 是唯一串行汇流点」的证据链与 ZeroFlush 分区直装设计的动机闭环（archive/zeroflush_m3_perf/integrated_report/REPORT.md:3-11,115-122,166-175）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（线程缩放实验除外）（archive/zeroflush_m3_perf/integrated_report/REPORT.md:3-4）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": null,
+   "binary_path": null,
+   "workload": "fillrandom、key 16B、100GB 用户数据（num=103,244,288）、16 线程、seed=1（archive/zeroflush_m3_perf/integrated_report/REPORT.md:3-7）",
+   "rocksdb_options": "compression=none、cache 512MB、max_background_jobs=24、subcompactions=16、seed=1（archive/zeroflush_m3_perf/integrated_report/REPORT.md:3-7）",
+   "other": "全部实验零插桩——数据取自 RocksDB LOG 的 stats_dump（每 60s：Compaction Stats 表 + Write Stall 计数）与 EVENT_LOG 的 compaction_started/finished 事件（archive/zeroflush_m3_perf/integrated_report/REPORT.md:5-7）"
+  },
+  "results": [
+   {
+    "metric": "写放大（cumulative，L0）",
+    "value": "184.8",
+    "unit": "GB（1.85×，1950 次 compaction）",
+    "condition": "原生 100GB/1KB，16 线程默认配置",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:20"
+   },
+   {
+    "metric": "写放大（cumulative，L1）",
+    "value": "121.9",
+    "unit": "GB（1.22×，99 次）",
+    "condition": "原生 100GB/1KB，16 线程默认配置",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:21"
+   },
+   {
+    "metric": "写放大（cumulative，L2）",
+    "value": "285.7",
+    "unit": "GB（2.86×，1702 次）",
+    "condition": "原生 100GB/1KB，16 线程默认配置",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:22"
+   },
+   {
+    "metric": "写放大（cumulative，L3）",
+    "value": "371.0",
+    "unit": "GB（3.71×，1505 次）",
+    "condition": "原生 100GB/1KB，16 线程默认配置",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:23"
+   },
+   {
+    "metric": "写放大（cumulative，L4）",
+    "value": "16.9",
+    "unit": "GB（0.17×，135 次）",
+    "condition": "原生 100GB/1KB，16 线程默认配置",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:24"
+   },
+   {
+    "metric": "写放大（合计）",
+    "value": "980.3",
+    "unit": "GB（9.80×，5,391 次 compaction）",
+    "condition": "原生 100GB/1KB，16 线程默认配置",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:25"
+   },
+   {
+    "metric": "吞吐/停顿占比/memtable stop/L0 delay/总写放大",
+    "value": "13,978 / 94.6% / 2,605 / 6 / 980.3×",
+    "unit": "ops/s / % / 计数",
+    "condition": "原生 16 线程",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:34"
+   },
+   {
+    "metric": "吞吐/停顿占比/总写放大",
+    "value": "12,558 / 93.7% / 1007.0×",
+    "unit": "ops/s / %",
+    "condition": "原生 8 线程",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:35"
+   },
+   {
+    "metric": "吞吐/停顿占比/总写放大",
+    "value": "11,424 / 91.4% / 1029.5×",
+    "unit": "ops/s / %",
+    "condition": "原生 4 线程",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:36"
+   },
+   {
+    "metric": "吞吐/停顿占比/总写放大",
+    "value": "10,539 / 81.1% / 651.0×",
+    "unit": "ops/s / %",
+    "condition": "原生 2 线程",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:37"
+   },
+   {
+    "metric": "E2 L0→L1 jobs",
+    "value": "99",
+    "unit": "jobs",
+    "condition": "原生 16 线程",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:47"
+   },
+   {
+    "metric": "E2 单 job 平均/P99/max 耗时",
+    "value": "15.7s / 28.2s / 28.2s（L0→L1）；24.4s / 67.8s / 91.4s（L1 以下合计）",
+    "unit": "s",
+    "condition": "原生 16 线程",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:48"
+   },
+   {
+    "metric": "E2 累计耗时（占 wall）",
+    "value": "1558s（21%）L0→L1；82244s（1114%）L1 以下",
+    "unit": "s / %",
+    "condition": "原生 16 线程",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:49"
+   },
+   {
+    "metric": "E2 分层最大耗时层",
+    "value": "L2→L3 累计 48,530s（deep 的 59%）",
+    "unit": "s",
+    "condition": "原生 16 线程",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:52"
+   },
+   {
+    "metric": "E3 吞吐（同窗）",
+    "value": "28,374 / 27,694 / 35,402",
+    "unit": "ops/s",
+    "condition": "L1=256MB / L1=1GB / L1=4GB",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:64"
+   },
+   {
+    "metric": "E3 L0→L1 单 job 平均输入 SST",
+    "value": "11.0 / 27.0 / 80.0（max 135）",
+    "unit": "SST",
+    "condition": "L1=256MB / 1GB / 4GB",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:65"
+   },
+   {
+    "metric": "E3 L0→L1 单 job 平均 / P99 耗时",
+    "value": "8.9s / 18.9s；13.0s / 24.4s；28.3s / 50.2s",
+    "unit": "s",
+    "condition": "L1=256MB / 1GB / 4GB",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:66"
+   },
+   {
+    "metric": "E3 L0→L1 写出（占比）",
+    "value": "121GB（12.5%）/ 170GB（20.0%）/ 280GB（41.1%）",
+    "unit": "GB",
+    "condition": "L1=256MB / 1GB / 4GB",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:67"
+   },
+   {
+    "metric": "E3 L0 delay",
+    "value": "14 / 18 / 130",
+    "unit": "计数",
+    "condition": "L1=256MB / 1GB / 4GB",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:68"
+   },
+   {
+    "metric": "E3 L2→L3 jobs",
+    "value": "1,501 / 1,013 / 0",
+    "unit": "jobs",
+    "condition": "L1=256MB / 1GB / 4GB",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:69"
+   },
+   {
+    "metric": "E3 总写放大",
+    "value": "9.7× / 8.5× / 6.8×",
+    "unit": "×",
+    "condition": "L1=256MB / 1GB / 4GB",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:70"
+   },
+   {
+    "metric": "E4 最大并发（L0→L1）",
+    "value": "1（L0→L1 jobs 99；车道利用率 21.1%；深层最大并发 18）",
+    "unit": "并发数",
+    "condition": "默认 dynamic 16 线程",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:86"
+   },
+   {
+    "metric": "E4 最大并发（L0→L1）",
+    "value": "1（jobs 65；车道利用率 42.3%；深层最大并发 18）",
+    "unit": "并发数",
+    "condition": "L1=4GB,T=16",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:93"
+   },
+   {
+    "metric": "E4 汇总",
+    "value": "625 个 L0→L1 job、约 20 小时，最大并发恒为 1",
+    "unit": "jobs",
+    "condition": "8 组运行重建全部 compaction job 区间",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:95"
+   },
+   {
+    "metric": "E5 剂量-响应",
+    "value": "43,530（0.78×，停顿 84.7%，L0 delay 100，利用率 62.3%，L0→L1 写出 431GB）",
+    "unit": "ops/s",
+    "condition": "T=2（同窗 T 扫描，L1=4GB）",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:104"
+   },
+   {
+    "metric": "E5 剂量-响应",
+    "value": "45,839（0.82×，停顿 76.2%，L0 delay 598，利用率 42.3%，L0→L1 写出 336GB）",
+    "unit": "ops/s",
+    "condition": "T=16（同窗 T 扫描，L1=4GB）",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:107"
+   },
+   {
+    "metric": "E6 写吞吐",
+    "value": "268,815 vs 85,548（3.14×）；80,954 vs 65,897（1.23×）；68,503 vs 56,014（1.22×）",
+    "unit": "ops/s",
+    "condition": "128B，10GB / 50GB / 100GB（原生 vs ZF）",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:129"
+   },
+   {
+    "metric": "E6 写吞吐",
+    "value": "40,473 vs 10,554（3.83×）；6,920 vs 5,447（1.27×）；4,752 vs 4,551（1.04×）",
+    "unit": "ops/s",
+    "condition": "2048B，10GB / 50GB / 100GB（原生 vs ZF）",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:132"
+   },
+   {
+    "metric": "E6 磁盘瓶颈规模写差距",
+    "value": "1.04-1.39×",
+    "unit": "×",
+    "condition": "50/100GB（历史 1.92×）",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:134"
+   },
+   {
+    "metric": "E6 读吞吐",
+    "value": "744,409 vs 102,644（7.25×）；122,450 vs 87,964（1.39×）；40,044 vs 45,811（0.87×）",
+    "unit": "ops/s",
+    "condition": "128B，10GB / 50GB / 100GB（原生 vs ZF）",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:141"
+   },
+   {
+    "metric": "E6 读吞吐",
+    "value": "494,348 vs 113,677（4.35×）；124,757 vs 67,568（1.85×）；18,838 vs 41,524（0.45×）",
+    "unit": "ops/s",
+    "condition": "2048B，10GB / 50GB / 100GB（原生 vs ZF）",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:144"
+   },
+   {
+    "metric": "E6 100GB 读",
+    "value": "ZF 全面反超（0.45-0.96×）",
+    "unit": "×",
+    "condition": "100GB 读吞吐",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:146"
+   },
+   {
+    "metric": "E7 ZF 读路径开销",
+    "value": "16%（GetFromPartitionIndex 每 Get 执行）+ DB 布局 6%",
+    "unit": "%",
+    "condition": "受控对照（同负载窗口、同 DB）",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:152-153"
+   },
+   {
+    "metric": "E7 布隆预过滤后",
+    "value": "perf 跳表查询 8.85%→~0、索引开销 18.5%→6.43%、readrandom 69.4K→85.7K ops/s（净收益 ~10%）",
+    "unit": "ops/s",
+    "condition": "分区布隆预过滤（M4.11c）",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:153-154"
+   },
+   {
+    "metric": "缺陷修复 R54",
+    "value": "50GB+ 物化安装与并发 compaction 的 5 层竞态（L1 重叠/删除错层/重复删除崩溃）→ 切片扩展 + 安装期冲突复查 + 按实际层删除/去重；验证 50GB 零错误跑通",
+    "unit": "—",
+    "condition": "实验过程中发现并修复",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:161"
+   },
+   {
+    "metric": "缺陷修复 R55",
+    "value": "布隆只增不减 → 位集饱和假阳性 100% → frozen 释放时 RebuildBloom；perf 确认生效",
+    "unit": "—",
+    "condition": "实验过程中发现并修复",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:162"
+   },
+   {
+    "metric": "缺陷修复 R57",
+    "value": "索引内存计数器并发记账竞态（虚增 11B/op → 4GB 触发正反馈爆发）→ Insert 输出精确增量；1 亿 ops imem 平稳 78MB",
+    "unit": "—",
+    "condition": "实验过程中发现并修复",
+    "source": "archive/zeroflush_m3_perf/integrated_report/REPORT.md:163"
+   }
+  ],
+  "evaluation_zh": "（结论）原生写路径画像：100GB/1KB fillrandom 总写放大 9.8×（L2/L3 占 68%），写停顿 89-95% 且 100% 为 memtable stop，深层 compaction 累计线程时间 = wall 的 ~11 倍；L0→L1 结构性瓶颈的证据链（三角度互证）：并发恒 1 的单服务器级（625 job/20h）、单 job 代价 O(|L1|)（放大 L1 后 80 SST/28s/占全部写出 41%）、剂量-响应倒 U 且默认在顶点、11 组参数停顿无一逃逸——L0 是每字节必经的唯一串行汇流点；ZeroFlush 对照：磁盘瓶颈规模写差距收窄至 1.04-1.39×；100GB 读全面反超且尾部延迟低一个量级；命中率全部等于理论期望（无数据丢失）。上述构成 ZeroFlush「分区直装消除串行汇流」设计的完整动机与效果闭环（archive/zeroflush_m3_perf/integrated_report/REPORT.md:166-175）。",
+  "caveats_zh": [
+   "环境方差 ±30%（同配置跨时间窗复跑 35.4K vs 55.7K）；E3 三点为同一早晨背靠背、E5 四点为另一同窗背靠背——跨 E3/E5 的吞吐绝对值不可直接比较（REPORT.md:75-78）。",
+   "E5 停顿占比 76-95%，11 组参数（L1×T×线程数）无一逃逸（REPORT.md:108-113）。",
+   "R54/R55/R57 为实验过程中发现并修复的 ZeroFlush 缺陷（REPORT.md:157-163）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/integrated_report/REPORT.md:1-193"
+  ]
+ },
+ {
+  "id": "m3/rocksdb_vs_zeroflush_comparison",
+  "title_zh": "ZeroFlush vs 原生 RocksDB 对比实验报告（M4.8/M4.9）",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "mechanism",
+  "purpose_zh": "对 2026-08-26 master（M4.8 + M4.9 优化尝试）的 ZF 与原生 RocksDB 做 2.2GB/10GB 与 50GB 对比，拆解写/读差距构成（写路径固有开销、物化、L0 循环、负载效应），并记录 L0 自管深挖发现的 M4.3d 批次封存路径接线缺口（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:1-15,42-71,103-136）。",
+  "environment": {
+   "host": null,
+   "cpu": null,
+   "cores_threads": "16 线程（--writes=num/16/线程）（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:12）",
+   "ram": null,
+   "device": null,
+   "filesystem": null,
+   "engine_version": "原生 RocksDB 11.2.0；ZF = ZeroFlush 当前版（分支 master，M4.8 + M4.9 优化尝试）（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:3,9-10）",
+   "binary_path": "原生 source/rocksdb/build/db_bench；ZF source/rocksdb-zeroflush/build/db_bench（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:9-10）",
+   "workload": "值大小 1KB（key 16 + value 1024）/ 272B（key 16 + value 256）；规模 2.2GB / 10GB total（--num × 1KB）；读为 fill 后分开进程 readrandom --use_existing_db=true --reads=1000000/线程（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:11-12,15）",
+   "rocksdb_options": "compression=none、disable_wal=false、cache 512MB、max_background_jobs=24；ZF 专属 --zeroflush --zf_partitions=16 --zf_routing=align_l1 --zf_base_merge --zf_skip_batching=false --zf_value_cache_mb=64 --subcompactions=16（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:13-14）",
+   "other": "日期 2026-08-26；分支 master（M4.8 + M4.9 优化尝试）；系统负载 ~25（含 grafana/prometheus/ceph 常驻）（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:3）"
+  },
+  "results": [
+   {
+    "metric": "fillrandom",
+    "value": "原生 251.6K / ZF 80.0K（位图优化后）",
+    "unit": "ops/s",
+    "condition": "2.2GB / 1KB（差距 3.1×）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:23"
+   },
+   {
+    "metric": "fillrandom",
+    "value": "原生 109.7K / ZF 32.3K（位图优化后）",
+    "unit": "ops/s",
+    "condition": "10GB / 1KB（差距 3.4×）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:24"
+   },
+   {
+    "metric": "fillrandom",
+    "value": "原生 851.7K / ZF 109.0K",
+    "unit": "ops/s",
+    "condition": "10GB / 272B（差距 7.8×）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:25"
+   },
+   {
+    "metric": "readrandom",
+    "value": "原生 457.6K / ZF 105.6K（位图优化后）",
+    "unit": "ops/s",
+    "condition": "10GB / 1KB（命中率 63.3%）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:32"
+   },
+   {
+    "metric": "readrandom",
+    "value": "原生 982.7K / ZF 140.1K",
+    "unit": "ops/s",
+    "condition": "10GB / 272B（命中率 63.2%）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:33"
+   },
+   {
+    "metric": "fillrandom（参考）",
+    "value": "原生 66.9K（49 分钟）/ ZF 39.2K（83 分钟，1.7×）",
+    "unit": "ops/s",
+    "condition": "50GB / 272B（R44 配置，历史）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:39-40"
+   },
+   {
+    "metric": "物化占比（ZF 侧）",
+    "value": "146.8s / 440s = 33%（物化吞吐 68MB/s，2.2GB 时 183MB/s）",
+    "unit": "%",
+    "condition": "10GB / 1KB 瓶颈分解",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:56"
+   },
+   {
+    "metric": "写停（stall）占比",
+    "value": "23.9s / 440s = 5.4%（db.write.stall P50 2.1ms）",
+    "unit": "%",
+    "condition": "10GB / 1KB 瓶颈分解",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:57"
+   },
+   {
+    "metric": "写路径纯上限 vs 原生",
+    "value": "144K（纯写路径上限）——1.7× vs 原生 251K；10GB 有效 37K",
+    "unit": "ops/s",
+    "condition": "10GB / 1KB",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:58"
+   },
+   {
+    "metric": "AddRecord 开销",
+    "value": "ZF 6.9µs/op vs 原生 4µs/op（写路径固有 1.7×）",
+    "unit": "µs/op",
+    "condition": "10GB / 1KB 差距构成",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:62"
+   },
+   {
+    "metric": "kMaxBatch 提到全部分区",
+    "value": "物化 -43%（6.8s vs 12s@2.2GB）但 fallback 增多（127 vs 79）、停写变长，净吞吐更差",
+    "unit": "s/计数",
+    "condition": "物化批次大小权衡",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:65"
+   },
+   {
+    "metric": "fallback",
+    "value": "391",
+    "unit": "计数",
+    "condition": "10GB（L0 循环）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:66"
+   },
+   {
+    "metric": "位图优化（fecd043）",
+    "value": "纯写路径 144K → 170K（+18%）；2.2GB/1KB 56.3K → 80.0K（+43%）；10GB/1KB 21.6K → 32.3K（+45%）、读 80.9K → 105.6K（+30%）",
+    "unit": "ops/s",
+    "condition": "写路径触达分区集合 hash → uint64_t 位图",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:77"
+   },
+   {
+    "metric": "kMaxBatch 全冻结",
+    "value": "2.2GB 44.9K（更差——fallback 127、停写长）；已回滚",
+    "unit": "ops/s",
+    "condition": "M4.9 优化尝试（epoch 大 275MB）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:89"
+   },
+   {
+    "metric": "历史对照 R47e",
+    "value": "1KB/100GB 原生 23.8K vs ZF 12.4K（1.92×）",
+    "unit": "ops/s",
+    "condition": "磁盘瓶颈场景",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:46-47"
+   },
+   {
+    "metric": "fillrandom",
+    "value": "原生 14.0K（13.9 MB/s）/ ZF 12.3K（12.2 MB/s）",
+    "unit": "ops/s",
+    "condition": "50GB / 1KB（2026-08-27，M4.11b + R54b，差距 1.14×）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:147"
+   },
+   {
+    "metric": "readrandom",
+    "value": "原生 157.0K（98.5 MB/s）/ ZF 74.6K（46.8 MB/s）",
+    "unit": "ops/s",
+    "condition": "50GB / 1KB（差距 2.10×）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:148"
+   },
+   {
+    "metric": "命中率",
+    "value": "63.2% / 63.2%",
+    "unit": "%",
+    "condition": "50GB / 1KB（原生 / ZF，均 = 随机写覆盖期望）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:149"
+   },
+   {
+    "metric": "fill 差距收窄",
+    "value": "从 1.92× 收窄至 1.14×",
+    "unit": "×",
+    "condition": "1KB/100GB 历史 → 50GB（M4.11 切片消除全范围污染 + R54b 竞态修复）",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:151"
+   },
+   {
+    "metric": "受控读对照",
+    "value": "ZF 模式读 /tmp/zf50 69.4K；原生模式读 /tmp/zf50 80.2K（ZF 路径纯开销 16%）；原生模式读 /tmp/native50 85.4K（DB 布局差异仅 6%，文件 650 vs 569）",
+    "unit": "ops/s",
+    "condition": "2026-08-27 晚，负载 ~13 同窗口交替测量",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:171-173"
+   },
+   {
+    "metric": "真实 read 差距",
+    "value": "≈ 1.23×（85.4/69.4）",
+    "unit": "×",
+    "condition": "受控对照修正后的 50GB/1KB 读差距",
+    "source": "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:175"
+   }
+  ],
+  "evaluation_zh": "272B 小值场景差距 ~1.7×（50GB 历史对比，负载 25）；1KB 大值场景差距 4.5-4.9×（10GB 页缓存热时原生写路径优势显性化）。参数级优化收益有限（<20%）；根本差距在：写路径固定开销（1.7×）、物化/compaction 的 CPU 竞争、L0 循环的调度。后续方向（按收益排序）：写路径剖析（perf）；L0 循环根治（物化输出与 L0 compaction 的竞争仲裁，或 ZF 自管 L0 消费）；物化批次流水线（epoch 冻结全分区 + 物化与写并行度解耦）。50GB/1KB 一节另记：fill 差距从 1.92× 收窄至 1.14×，read 受控对照后真实差距 ≈1.23×（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:126-136,151-153,175）。",
+  "caveats_zh": [
+   "系统负载 ~25（含 grafana/prometheus/ceph 常驻）；2.2GB / 1KB 场景读未跑（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:3,31）。",
+   "M4.9 L0 融合（物化输出合并 L0 文件→替换→直装 L1）已实现但实测未触发——决策时 L0 文件几乎总被 compaction 占用（being_compacted）→ 等待/回落分支（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:66-70）。",
+   "kMaxBatch 全冻结（epoch 大 275MB）净吞吐更差（44.9K，fallback 127、停写长）——已回滚（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:65,89）。",
+   "50GB fill 用时：native 57 分钟（受早期测试竞争拖累）、ZF 65 分钟（无竞争，负载 8-45 波动）（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:162）。",
+   "4.7 节记录两条 M4.3d 批次封存路径接线缺口（R49 实测确认）：采样学习/L1 对齐未接入 FreezeBatchPartitions；表切换与 parallel 写的竞态——修复路线尚在进行中（archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:103-125）。"
+  ],
+  "sources": [
+   "archive/zeroflush_m3_perf/rocksdb_vs_zeroflush_comparison.md:1-194"
+  ]
+ },
+ {
+  "id": "m3/benchmark_native_zeroflush",
+  "title_zh": "50GB 原生与 ZeroFlush 基准（256B、1KB）",
+  "engine": [
+   "native",
+   "zeroflush"
+  ],
+  "category": "benchmark",
+  "purpose_zh": "在 50GB 逻辑数据、key 16B、16 线程、write_buffer_size=67108864、compression=none 的配置下，分别用原生（source/rocksdb/build/db_bench）与 ZeroFlush（source/rocksdb-zeroflush/build/db_bench）跑 db_bench fillrandom + readrandom，记录 value_size 256 与 1024 两个点的吞吐、延迟百分位、磁盘占用与写放大（archive/zeroflush_m3_perf/benchmark_native.json:1-12,20-53；archive/zeroflush_m3_perf/benchmark_zeroflush.json:1-12,20-53）。",
+  "environment": {
+   "host": null,
+   "cpu": "Intel(R) Core(TM) i9-10980XE CPU @ 3.00GHz（benchmark_native.json:14；benchmark_zeroflush.json:14）",
+   "cores_threads": "cpu_cores 36；config threads 16（benchmark_native.json:15,8；benchmark_zeroflush.json:15,8）",
+   "ram": "62.48 GB（memory_gb）（benchmark_native.json:16；benchmark_zeroflush.json:16）",
+   "device": null,
+   "filesystem": null,
+   "engine_version": "原生 = source/rocksdb/build/db_bench；零冲洗 = source/rocksdb-zeroflush/build/db_bench（benchmark_native.json:2-3；benchmark_zeroflush.json:2-3）",
+   "binary_path": "native: /home/embed/hyl/metadata_offload/source/rocksdb/build/db_bench；zeroflush: /home/embed/hyl/metadata_offload/source/rocksdb-zeroflush/build/db_bench（benchmark_native.json:3；benchmark_zeroflush.json:3）",
+   "workload": "total_data_gb 50.0、key_size 16、threads 16、reads_limit 1000000；runs 的 value_size 为 256（num_keys 197379011）与 1024（num_keys 51622203），各含 fill 与 read 阶段（benchmark_native.json:6-9,22-23,55-56）",
+   "rocksdb_options": "write_buffer_size 67108864、compression none（benchmark_native.json:10-11；benchmark_zeroflush.json:10-11）",
+   "other": "timestamp native 2026-08-20T03:15:40.160336+00:00、zeroflush 2026-08-21T03:20:14.366251+00:00；os GNU/Linux、kernel 6.8.0-124-generic（benchmark_native.json:4,17-18；benchmark_zeroflush.json:4,17-18）"
+  },
+  "results": [
+   {
+    "metric": "fill us/op",
+    "value": "128.864",
+    "unit": "us/op",
+    "condition": "native，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:26"
+   },
+   {
+    "metric": "fill ops/sec",
+    "value": "124125.0",
+    "unit": "ops/sec",
+    "condition": "native，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:27"
+   },
+   {
+    "metric": "fill MB/s",
+    "value": "32.2",
+    "unit": "MB/s",
+    "condition": "native，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:28"
+   },
+   {
+    "metric": "fill seconds",
+    "value": "1590.161",
+    "unit": "seconds",
+    "condition": "native，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:29"
+   },
+   {
+    "metric": "read ops/sec",
+    "value": "11599.0",
+    "unit": "ops/sec",
+    "condition": "native，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:40"
+   },
+   {
+    "metric": "read us/op",
+    "value": "1363.274",
+    "unit": "us/op",
+    "condition": "native，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:39"
+   },
+   {
+    "metric": "disk_size_gb",
+    "value": "40.56",
+    "unit": "GB",
+    "condition": "native，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:51"
+   },
+   {
+    "metric": "write_amplification",
+    "value": "0.81",
+    "unit": "×",
+    "condition": "native，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:52"
+   },
+   {
+    "metric": "fill ops/sec",
+    "value": "30255.0",
+    "unit": "ops/sec",
+    "condition": "native，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:60"
+   },
+   {
+    "metric": "fill us/op",
+    "value": "528.823",
+    "unit": "us/op",
+    "condition": "native，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:59"
+   },
+   {
+    "metric": "read ops/sec",
+    "value": "30250.0",
+    "unit": "ops/sec",
+    "condition": "native，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:73"
+   },
+   {
+    "metric": "read us/op",
+    "value": "527.462",
+    "unit": "us/op",
+    "condition": "native，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:72"
+   },
+   {
+    "metric": "disk_size_gb",
+    "value": "40.76",
+    "unit": "GB",
+    "condition": "native，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:84"
+   },
+   {
+    "metric": "write_amplification",
+    "value": "0.82",
+    "unit": "×",
+    "condition": "native，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_native.json:85"
+   },
+   {
+    "metric": "fill ops/sec",
+    "value": "3387.0",
+    "unit": "ops/sec",
+    "condition": "zeroflush，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:27"
+   },
+   {
+    "metric": "fill us/op",
+    "value": "4722.751",
+    "unit": "us/op",
+    "condition": "zeroflush，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:26"
+   },
+   {
+    "metric": "fill seconds",
+    "value": "58261.865",
+    "unit": "seconds",
+    "condition": "zeroflush，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:29"
+   },
+   {
+    "metric": "read ops/sec",
+    "value": "96554.0",
+    "unit": "ops/sec",
+    "condition": "zeroflush，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:40"
+   },
+   {
+    "metric": "disk_size_gb",
+    "value": "35.16",
+    "unit": "GB",
+    "condition": "zeroflush，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:51"
+   },
+   {
+    "metric": "write_amplification",
+    "value": "0.7",
+    "unit": "×",
+    "condition": "zeroflush，value_size 256",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:52"
+   },
+   {
+    "metric": "fill ops/sec",
+    "value": "1919.0",
+    "unit": "ops/sec",
+    "condition": "zeroflush，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:60"
+   },
+   {
+    "metric": "fill us/op",
+    "value": "8333.254",
+    "unit": "us/op",
+    "condition": "zeroflush，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:59"
+   },
+   {
+    "metric": "fill seconds",
+    "value": "26887.681",
+    "unit": "seconds",
+    "condition": "zeroflush，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:62"
+   },
+   {
+    "metric": "read ops/sec",
+    "value": "4115.0",
+    "unit": "ops/sec",
+    "condition": "zeroflush，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:73"
+   },
+   {
+    "metric": "read us/op",
+    "value": "3860.477",
+    "unit": "us/op",
+    "condition": "zeroflush，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:72"
+   },
+   {
+    "metric": "disk_size_gb",
+    "value": "35.2",
+    "unit": "GB",
+    "condition": "zeroflush，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:84"
+   },
+   {
+    "metric": "write_amplification",
+    "value": "0.7",
+    "unit": "×",
+    "condition": "zeroflush，value_size 1024",
+    "source": "archive/zeroflush_m3_perf/benchmark_zeroflush.json:85"
+   }
+  ],
+  "evaluation_zh": null,
+  "caveats_zh": [],
+  "sources": [
+   "archive/zeroflush_m3_perf/benchmark_native.json:1-87",
+   "archive/zeroflush_m3_perf/benchmark_zeroflush.json:1-87"
+  ]
+ }
+]
