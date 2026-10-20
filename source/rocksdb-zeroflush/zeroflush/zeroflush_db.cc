@@ -195,6 +195,10 @@ ZeroFlushContext::ZeroFlushContext(const ZeroFlushOptions& zfo,
       std::max<uint32_t>(1, zfo_.governance_max_actions_per_tick);
   cfg.merge_idle_after_us = zfo_.governance_merge_idle_micros;
   governance_policy_.reset(new GovernancePolicy(cfg));
+  // ---- V2：物化后端（归并排序执行体）----
+  // 设备不可用 ⇒ 这里拿到的是 host 后端（fallback/probe 计数已记）；仅当
+  // csd_fallback_policy=kFail 且设备不可用时返回 nullptr，由 Open 报错。
+  materialize_backend_ = CreateMaterializeBackend(zfo_, &backend_stats_);
 }
 
 ZeroFlushContext::~ZeroFlushContext() = default;
@@ -499,6 +503,10 @@ int ZeroFlushContext::AdoptSkippedGensForDrainLocked() {
   if (sealed_cache_ != nullptr) {
     sealed_cache_->ForEachEpoch([&](uint64_t ep,
                                     const std::vector<std::pair<uint32_t, uint32_t>>& gens) {
+      // 用户契约（V0.6-A11）：**"未安装"≠"可退回"**——只有明确**没有执行者**、
+      // 允许重新规划的 epoch 才能转移归属。排除：在飞（排队/执行/等待提交）、
+      // 提交结果不确定（保持到恢复对账）。
+      if (EpochInFlight(ep)) return;
       for (const auto& [p, g] : gens) {
         if (!sealed_cache_->GenInstalledPublished(p, g) && !IsGenInstalled(p, g)) {
           stuck.push_back(ep);
@@ -532,20 +540,28 @@ bool ZeroFlushContext::NeedsBacklogDrain() const {
   const uint64_t now = env_ != nullptr ? env_->NowMicros() : 0;
   for (uint32_t p = 0; p < P; ++p) {
     const uint64_t bytes = sealed_cache_->UninstalledBytesOf(p);
-    if (bytes == 0) {
-      continue;
-    }
-    if (bytes >= zfo_.base_merge_skip_max_bytes) {
-      return true;
-    }
-    // 年龄：首次观察到该分区有积压时登记时刻（惰性维护，调度检查周期调用）。
+    // 年龄必须度量**当前这段连续积压**的年龄，而不是"第一次见到积压"以来的时间。
+    // 实测缺陷（case 1 前置不可达的根因）：`TouchBacklogAge()` 在生产路径上
+    // **没有任何调用点**（`grep` 全仓仅声明+定义）⇒ `since` 一旦被本函数首次置位
+    // 就**永不复位**，30s 之后 `now - since >= age` 恒真 ⇒ 年龄判据退化为"恒需排空"：
+    // 排空任务长期在飞（`backlog_drain_active=true`）⇒ 规划点恒走 drain 模式 ⇒
+    // "收益不足 ⇒ skip"在合法路径上不可达（也掩盖了"停写后靠年龄唤醒"的真实语义）。
+    // 修复：本函数是周期检查点（200ms 定时器 + 各调度点），就地维护不变量——
+    // 积压归零 ⇒ 复位；有积压且未登记 ⇒ 登记。语义与设计注释一致（"清零时复位"）。
     {
       std::lock_guard<std::mutex> l(backlog_age_mu_);
       if (p >= backlog_since_micros_.size()) {
         backlog_since_micros_.resize(p + 1, 0);
       }
       uint64_t& since = backlog_since_micros_[p];
+      if (bytes == 0) {
+        since = 0;
+        continue;
+      }
       if (since == 0 && now > 0) since = now;
+      if (bytes >= zfo_.base_merge_skip_max_bytes) {
+        return true;
+      }
       if (zfo_.backlog_drain_max_age_micros > 0 && since != 0 && now > since &&
           now - since >= zfo_.backlog_drain_max_age_micros) {
         return true;
@@ -967,6 +983,12 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(DrainedMaterializeBytes());
   } else if (prop == "rocksdb.zeroflush.reclaimed_bytes") {
     *value = std::to_string(ReclaimedBytes());
+  } else if (prop == "rocksdb.zeroflush.install_wait_stats") {
+    // step V0.6-P1 度量：安装准入等待（rounds=有界等待次数，timeouts=到期无进度）。
+    *value = "rounds=" + std::to_string(install_wait_rounds()) +
+             " timeouts=" + std::to_string(install_wait_timeouts());
+  } else if (prop == "rocksdb.zeroflush.drain_forced_merges") {
+    *value = std::to_string(drain_forced_merges());
   } else if (prop == "rocksdb.zeroflush.peak_pending_bytes") {
     *value = std::to_string(PeakPendingBytes());
   } else if (prop == "rocksdb.zeroflush.registered_gens") {
@@ -987,6 +1009,27 @@ bool ZeroFlushContext::GetProperty(const std::string& prop,
     *value = std::to_string(fifo_blocked());
   } else if (prop == "rocksdb.zeroflush.fifo_bypass") {
     *value = std::to_string(fifo_bypass());
+  } else if (prop == "rocksdb.zeroflush.engine_profile") {
+    // V2 档标记（校验器/基准据此判定"固定范围 + 无动态分区 + WAL→L1 融合"）。
+    *value = zfo_.v2_fixed_range ? "v2" : "v0";
+  } else if (prop == "rocksdb.zeroflush.materialize_backend") {
+    *value = materialize_backend_ != nullptr ? materialize_backend_->Name()
+                                             : "none";
+  } else if (prop == "rocksdb.zeroflush.csd_tasks") {
+    *value = std::to_string(
+        backend_stats_.tasks.load(std::memory_order_relaxed));
+  } else if (prop == "rocksdb.zeroflush.csd_device_tasks") {
+    *value = std::to_string(
+        backend_stats_.device_tasks.load(std::memory_order_relaxed));
+  } else if (prop == "rocksdb.zeroflush.csd_fallbacks") {
+    *value = std::to_string(
+        backend_stats_.fallbacks.load(std::memory_order_relaxed));
+  } else if (prop == "rocksdb.zeroflush.csd_probe_failures") {
+    *value = std::to_string(
+        backend_stats_.probe_failures.load(std::memory_order_relaxed));
+  } else if (prop == "rocksdb.zeroflush.csd_micros") {
+    *value =
+        std::to_string(backend_stats_.micros.load(std::memory_order_relaxed));
   } else if (prop == "rocksdb.zeroflush.fence_hole_advance_count") {
     *value = std::to_string(fence_hole_advance_count());
   } else if (prop == "rocksdb.zeroflush.fence_gap_count") {
@@ -1254,7 +1297,7 @@ size_t ZeroFlushContext::ActiveMaterializeParts() const {
 bool ZeroFlushContext::AcquireInstallLock() {
   // 默认开启（2026-09-14 决策）：死锁已修复——前序门保证持锁者不会在
   // TryInstall 里等待别人，等待前序时释放 gen0 槽避免"持槽等前序"自锁
-  // （gdb 实证见 output/zeroflush_m5_perf/materialize_lag/
+  // （gdb 实证见 archive/zeroflush_m5_perf/materialize_lag/
   //  PROTOCOL_FIX_ATTEMPT.md 附录 B）。
   // 验证：原 M4.9 崩溃配置（256 分区/16T/16 轮）3/3 通过、4M 写 13.5s
   // 零让位、zf_test ALL PASSED。
@@ -3088,6 +3131,8 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
   }
   ROCKSDB_NAMESPACE::SequenceNumber max_seq = 0;
   size_t recovered = 0;
+  struct ReplayedCnt { uint32_t part; uint32_t gen; uint64_t n; };
+  std::vector<ReplayedCnt> replayed_cnt;  // 诊断：逐代实际重放条数
   // M3.0：按最小 seq 排序文件，而非按 (part,gen)。序列号是跨分区
   // 交织分配的（如分区 0 的 seq 从 4 开始，分区 1 的 seq 从 1 开始），
   // 按 (part,gen) 顺序插入会导致 MemTable::Add 的 "s >= first_seqno_"
@@ -3218,12 +3263,83 @@ ROCKSDB_NAMESPACE::Status ZeroFlushContext::Recover(ROCKSDB_NAMESPACE::DBImpl* d
         max_seq = h.seq;
       }
       ++recovered;
+      {
+        bool found = false;
+        for (auto& rc : replayed_cnt) {
+          if (rc.part == part && rc.gen == gen) { ++rc.n; found = true; break; }
+        }
+        if (!found) replayed_cnt.push_back({part, gen, 1});
+      }
     }
   }
   // I4：recovered seq 永远 ≥ 旧 LastSequence（物化路径只会更高），但取 max
   // 防止退化（如 SetLastSequence 之前有更晚的写入）。
   recovery_filtered_gens_ = filtered_gens;
   recovery_filtered_bytes_ = filtered_bytes;
+  std::vector<ReplayedCnt> scanned_cnt;  // 诊断：逐代 WalScanner 实际读出条数
+  if (getenv("ZF_DBG_RECOVER") != nullptr) {
+    // 取证（lifecycle 重启后读错误定位）：每分区的 fence 覆盖、各代是否被重放、
+    // 实际重放条数 vs 文件内实际记录数、以及 max_seq 与旧 LastSequence 的关系。
+    for (uint32_t p : all_parts) {
+      ROCKSDB_NAMESPACE::VersionEdit::ZfInstallFence fz;
+      const bool has_f = vs_fence->GetZfInstallFence(p, &fz);
+      const std::optional<uint32_t> ag = wal_->ActiveGenOpt(p);
+      std::string per;
+      for (const auto& [pp, gg] : files) {
+        if (pp != p) continue;
+        // 文件内实际记录数（按 magic 统计，独立于扫描器）
+        uint64_t magic_cnt = 0;
+        {
+          WalScanner sc(env_, wal_dir_, pp, gg);
+          ZfRecordHeader hh;
+          ROCKSDB_NAMESPACE::Slice kk, vv;
+          while (sc.Next(&hh, &kk, &vv)) ++magic_cnt;
+        }
+        scanned_cnt.push_back({pp, gg, magic_cnt});
+        const bool inst = zf_gen_installed(pp, gg);
+        uint64_t inserted = 0;
+        for (const auto& e2 : replayed_cnt) {
+          if (e2.part == pp && e2.gen == gg) inserted = e2.n;
+        }
+        per += " g" + std::to_string(gg) + "{installed=" + (inst ? "1" : "0") +
+               ",scanned=" + std::to_string(magic_cnt) +
+               ",replayed=" + std::to_string(inserted) + "}";
+      }
+      fprintf(stderr,
+              "ZFDBG-recover part=%u fence=%d(last_gen=%u) active=%s%s\n", p,
+              (int)has_f, has_f ? fz.last_generation : 0u,
+              ag.has_value() ? std::to_string(*ag).c_str() : "nullopt",
+              per.c_str());
+    }
+    {
+      // 决定性对照：扫描到的记录数 × 记录长度 vs **文件系统报告的字节数**
+      // （short-read / 尺寸快照假设的判别）。本用例记录定长（16+1024+28=1068）。
+      for (const auto& [pp, gg] : files) {
+        uint64_t fsz = 0;
+        const rocksdb::Status gs =
+            env_->GetFileSize(wal_dir_ + "/" + std::string("zf-wal-") +
+                                  std::to_string(pp) + "-" + std::to_string(gg) +
+                                  ".log",
+                              &fsz);
+        uint64_t scanned_n = 0;
+        for (const auto& e2 : scanned_cnt) {
+          if (e2.part == pp && e2.gen == gg) scanned_n = e2.n;
+        }
+        fprintf(stderr,
+                "ZFDBG-recover-filesize part=%u gen=%u fs_size=%llu "
+                "scanned_records=%llu scanned_bytes=%llu ok=%d\n",
+                pp, gg, (unsigned long long)fsz, (unsigned long long)scanned_n,
+                (unsigned long long)(scanned_n * 1068), gs.ok() ? 1 : 0);
+      }
+    }
+    fprintf(stderr,
+            "ZFDBG-recover totals replayed=%zu max_seq=%llu prev_last_seq=%llu "
+            "final_last_seq=%llu filtered_gens=%llu\n",
+            recovered, (unsigned long long)max_seq,
+            (unsigned long long)db->GetLatestSequenceNumber(),
+            (unsigned long long)std::max(db->GetLatestSequenceNumber(), max_seq),
+            (unsigned long long)filtered_gens);
+  }
   db->SetZeroFlushLastSequence(
       std::max(db->GetLatestSequenceNumber(), max_seq));
   return ROCKSDB_NAMESPACE::Status::OK();
@@ -4051,9 +4167,128 @@ ROCKSDB_NAMESPACE::Status StopGovernance(ROCKSDB_NAMESPACE::DB* db) {
 // Open / Close
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// ZeroFlush V2：固定范围分区档的规范化与校验。
+//
+// 必须在 ZeroFlushContext 构造（乃至 DB::Open）**之前**调用：ctx 持有
+// options 的拷贝，构造之后再写 options 是空操作（V0.6-C1 的教训 D-119）。
+// 语义 = 「按固定范围决定 key 属于哪个 partition」+「无动态分区」+
+// 「WAL→L1 融合安装」这一条确定路径：
+//   · kStatic 固定范围（显式边界或 P=1），拒绝 hash/采样/对齐模式；
+//   · 动态分区三项开关全关（后台治理控制器 / 偏斜自动拆分 / 生长拆分）；
+//   · 禁 L0 目标模式 + 强制融合（否则封存数据没有合法安装出口）；
+//   · 关闭"收益攒批"（不留 WAL 滞留窗口，V2 不做攒批优化）。
+static ROCKSDB_NAMESPACE::Status NormalizeV2Options(ZeroFlushOptions* zfo) {
+  if (!zfo->v2_fixed_range) {
+    return ROCKSDB_NAMESPACE::Status::OK();
+  }
+  if (zfo->routing_mode != ZeroFlushOptions::RoutingMode::kStatic) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush V2: fixed-range partitioning requires routing_mode=kStatic");
+  }
+  if (zfo->static_boundaries.empty() && zfo->partitions != 1) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush V2: fixed-range partitioning requires explicit "
+        "static_boundaries (partitions-1 keys) or partitions=1");
+  }
+  if (zfo->dynamic_governance) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush V2: dynamic partitioning is disabled "
+        "(dynamic_governance must be false)");
+  }
+  if (zfo->split_after_skewed_epochs != 0) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush V2: dynamic partitioning is disabled "
+        "(split_after_skewed_epochs must be 0)");
+  }
+  // 生长拆分阈值默认 32MB（V0 语义）；V2 档下强制归零 = 关闭动态分区能力，
+  // 而不是把默认值当成"用户显式要求动态分区"而拒绝打开。
+  zfo->growth_split_min_bytes = 0;
+  if (zfo->merge_into_base_level_explicit && !zfo->merge_into_base_level) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush V2: merge_into_base_level=false is invalid in V2 "
+        "(sealed WAL data would have no legal install path)");
+  }
+  zfo->forbid_l0_install = true;      // 目标模式：输出只进 base level
+  zfo->merge_into_base_level = true;  // 强制融合（V2 唯一安装路径）
+  // **收益攒批必须开启**（2026-10-16 50GB 实测修正）。
+  // 融合路径在 `forbid_l0_install` 下没有 L0 出口：若关掉攒批，每个 64MB
+  // epoch 都会把该分区整段 L1（50GB/16 分区时约 3GB）重写一遍 ⇒ 写放大约
+  // 50×、单批 merge 6–35s（`ZFDBG-slowmerge` 486 次）、物化吞吐降到 ~5MB/s
+  // ⇒ imm 堆积到上限、写路径周期性停写。
+  // 攒批由"代数 / 字节 / 年龄"三重上限保证最终一定融合、WAL 保留有界。
+  // 单分区最多攒 32 代（≈32×partition_target）——每轮累积越大，融合重写整段
+  // L1 切片的代价被摊销得越好（50GB 实测：8 代 → 平均 ~10–16k ops/s；
+  // 32 代 + 水位/在途扩容 → 23,194 ops/s，超同机原生基线 16,587）。
+  zfo->base_merge_skip_max_generations = 32;
+  // 背压水位：写路径在 `pending > ledger_stop` 时停写（DBImpl::DelayWrite），
+  // 而 pending 只能靠"下一次封存 → 融合安装"下降。若攒批/排空触发阈值 ≥ 水位，
+  // 就形成闭环死锁：写被挡住 → 没有新封存 → 攒批到不了阈值 → 排空不触发 →
+  // pending 不降（实测：阈值 2GB vs 默认水位 1GB ⇒ 30.9% 处 45 线程全睡死锁、
+  // 账本 882MB 冻结、>40 分钟零进展）。
+  // V2 默认把水位提到 8GiB（给 16 分区 × 512MiB 的攒批留空间）；调用方显式
+  // 设置过水位则不覆盖。
+  const uint64_t kDefaultLedgerStop = 1ull << 30;    // ZeroFlushOptions 默认
+  const uint64_t kDefaultLedgerResume = 768ull << 20;
+  if (zfo->ledger_stop_bytes == kDefaultLedgerStop &&
+      zfo->ledger_resume_bytes == kDefaultLedgerResume) {
+    // 32GiB/24GiB：V2 让"每轮累积 ≥1–2GiB/分区"成为可能（重写量 ≈ S²/(2·P·累积)），
+    // 同时给在途 WAL/索引留出空间（50GB 实测的关键；8GiB 时只能攒 ~512MiB/分区）。
+    zfo->ledger_stop_bytes = 32ull << 30;    // 32GiB
+    zfo->ledger_resume_bytes = 24ull << 30;  // 24GiB（滞回）
+    // 在途 epoch 上限随水位等比放大（Open 会设 max_write_buffer_number = +1）。
+    if (zfo->max_pending_epochs < 128) {
+      zfo->max_pending_epochs = 128;
+    }
+  }
+  // 触发阈值**由水位推导**，从构造上保证"排空可在背压之前触发"：
+  // 取 min(水位/4, 512MiB)，下限 8MiB（避免阈值过碎导致每次融合都被迫重写）。
+  {
+    // 上限 2GiB（V2）：每轮累积越多，"融合重写整段 L1 切片"被摊销得越好
+    // （重写量 ≈ S²/(2·P·每轮累积)，见 V2_DESIGN §1.1 R2 的推导）。
+    uint64_t fuse = zfo->ledger_stop_bytes / 4;
+    if (fuse > (2ull << 30)) fuse = 2ull << 30;
+    if (fuse < (8ull << 20)) fuse = 8ull << 20;
+    zfo->base_merge_skip_max_bytes = fuse;
+    if (zfo->ledger_resume_bytes > zfo->ledger_stop_bytes) {
+      zfo->ledger_resume_bytes = zfo->ledger_stop_bytes;
+    }
+  }
+  // 年龄兜底：显著大于典型融合窗口（否则每次融合都变成"被迫重写"）。
+  zfo->backlog_drain_max_age_micros = 600ull * 1000 * 1000;  // 10min
+  // 融合/下沉的让位阈值：抬到 1GiB（> 攒批字节上限 512MiB），使"蓄满一批
+  // 再融合"成为常态、下沉退化为 L1 切片变大时的兜底（详见选项注释）。
+  // 让位（=下沉）阈值：V2 默认放到"水位/2"（32GiB 水位 ⇒ 16GiB）。实测
+  // 下沉会把 L1 切片合并进 L2 并**反复重写整段 L2 切片**（500MB/次，
+  // 放大 20–40×、5–16k ops/s）；不放宽则 L1 独占、融合只重写自己的切片
+  // （每轮 1–2GiB 累积时放大 ≈1×）。50GB 量级下该阈值等价于"不下沉"，
+  // 更大规模仍会触发以保证 L1 有界（ZF_SINK_YIELD_MB 可显式覆盖做对照）。
+  zfo->sink_yield_threshold_bytes = zfo->ledger_stop_bytes / 2;
+  // 注意（2026-10-17 实测）：**不要**把 read_union_max_parts 置 0。虽然 V2 的
+  // 固定范围表永不换代（无学习/无 split/无 merge），但读路径对"已物化键"的
+  // 定位仍依赖并集回查：置 0 后 Zipfian 热读 87% 变为 NotFound（正确性破坏）。
+  // 读路径的这一结构代价见 V2_DESIGN §5.6 / RUN_MANIFEST D-142。
+  // 实验/调参覆盖（受控对照用）：ZF_SINK_YIELD_MB=0 ⇒ 永不触发下沉让位
+  // （L1 独占整段，融合只重写自己的切片）；未设置则用上面的 V2 默认。
+  if (const char* sh = getenv("ZF_SINK_YIELD_MB")) {
+    const long v = strtol(sh, nullptr, 10);
+    if (v >= 0) {
+      zfo->sink_yield_threshold_bytes = static_cast<uint64_t>(v) << 20;
+    }
+  }
+  return ROCKSDB_NAMESPACE::Status::OK();
+}
+
 ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
                                ZeroFlushOptions zfo, const std::string& dbname,
                                std::unique_ptr<ROCKSDB_NAMESPACE::DB>* db) {
+  // 0) V2 档规范化（必须先于任何 ctx/DB 构造；见 NormalizeV2Options 注释）。
+  {
+    const ROCKSDB_NAMESPACE::Status vs = NormalizeV2Options(&zfo);
+    if (!vs.ok()) {
+      return vs;
+    }
+  }
   // 1) 替换 memtable factory（Slim，索引-only）
   ROCKSDB_NAMESPACE::Options zf_opt = opt;
   zf_opt.memtable_factory = std::make_shared<SlimMemTableRepFactory>();
@@ -4191,11 +4426,25 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   // compaction 持续运行，与 ZF 物化抢文件（being_compacted 冲突 → kSkip），
   // 物化积压（sealed_wal 37.9GB）后写路径卡滞。调大该值可隔离验证。
   zf_opt.max_bytes_for_level_base = 1ull << 30;
+  bool l1_bytes_env_set = false;
   if (const char* env_l1 = getenv("ZF_MAX_L1_BYTES")) {
     const unsigned long long v = strtoull(env_l1, nullptr, 10);
     if (v > 0) {
       zf_opt.max_bytes_for_level_base = v;
+      l1_bytes_env_set = true;
     }
+  }
+  // V2 档：**ZF 独占 base level（L1）**。
+  // V2 的物化与融合都落在 base level（forbid_l0_install + 强制 merge），而原生
+  // L1→L2 会在 ZF 规划/安装同一批 L1 文件时把它们标记为 being_compacted ⇒
+  // 规划期持续让位（`ZFDBG-skip ... busy=N`）、批次产出 `tasks=0`、pending 只增
+  // 不减 ⇒ imm 堆积到 max_write_buffer_number ⇒ 停写。50GB 实测（2026-10-16）：
+  // 18–19% 处停滞，pending 1.03GB、empty_edit=19、imm 8→9、stdout 6 分钟无进展。
+  // 因此 V2 档把 L1 目标容量放大到不可达（= 不触发原生 L1→L2）：L1 的消费只由
+  // ZF 自己的 sink 路径负责。需要做"原生 L1→L2 对照"实验时仍可用
+  // ZF_MAX_L1_BYTES 显式覆盖（显式设置优先）。
+  if (zfo.v2_fixed_range && !l1_bytes_env_set) {
+    zf_opt.max_bytes_for_level_base = 1ull << 50;  // 1PB：原生 L1→L2 不触发
   }
 
   // 2) 原生 Open（MANIFEST/VersionSet/SuperVersion 全复用）
@@ -4275,6 +4524,13 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
     zfo.merge_into_base_level = true;
   }
   ctx->set_ucmp(ucmp);
+  // V2：csd_fallback_policy=kFail 且设备不可用 ⇒ ctx 里没有后端 ⇒ 明确拒绝
+  // （默认策略是 host，此时 ctx 拿到的是回退后的 host 后端，不拒绝打开）。
+  if (ctx->materialize_backend() == nullptr) {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "ZeroFlush V2: csd_fallback_policy=fail requires an available "
+        "materialize device backend (check csd_devices / csd_kernel_path)");
+  }
   // 创建 PartitionTableSet。
   auto table_set = std::unique_ptr<PartitionTableSet>(new PartitionTableSet());
   // 根据路由模式创建初始表（version 0）。
@@ -4480,6 +4736,10 @@ ROCKSDB_NAMESPACE::Status Open(const ROCKSDB_NAMESPACE::Options& opt,
   // 默认 nullptr 时 ROCKS_LOG_* 为 no-op）。
   if (zfo.use_logger && zf_opt.info_log != nullptr) {
     ctx->wal()->SetInfoLog(zf_opt.info_log.get());
+    // V2：物化后端（CSD 回退/探测失败）也走同一 info log。
+    if (ctx->materialize_backend() != nullptr) {
+      ctx->materialize_backend()->SetLogger(zf_opt.info_log.get());
+    }
   }
   // M4.7b：value cache（LRU，键 = locator 16B）
   if (zfo.value_cache_bytes > 0) {

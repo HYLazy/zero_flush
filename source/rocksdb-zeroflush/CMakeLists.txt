@@ -1061,6 +1061,7 @@ set(SOURCES
         zeroflush/sealed_file_cache.cc
         zeroflush/slim_memtable.cc
         zeroflush/materialize_job.cc
+        zeroflush/materialize_backend.cc
         zeroflush/repartition_controller.cc
         zeroflush/zeroflush_db.cc)
 
@@ -1711,6 +1712,11 @@ if(WITH_BENCHMARK_TOOLS)
   add_executable(zf_test${ARTIFACT_SUFFIX}
     tools/zf_test.cc)
   target_link_libraries(zf_test${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
+
+  add_executable(zf_zipf_bench${ARTIFACT_SUFFIX}
+    tools/zf_zipf_bench.cc)
+  target_link_libraries(zf_zipf_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
   add_executable(zf_valcheck${ARTIFACT_SUFFIX}

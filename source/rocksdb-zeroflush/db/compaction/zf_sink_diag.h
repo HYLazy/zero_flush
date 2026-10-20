@@ -1,6 +1,6 @@
 // ZeroFlush step 0a 诊断（临时，仅用于定位"窄区间 sink 构造失败"）。
 //
-// 背景：受控实验（output/zeroflush_m5_perf/sink_tuning/REPORT.md）发现
+// 背景：受控实验（archive/zeroflush_m5_perf/sink_tuning/REPORT.md）发现
 // 窄区间下沉臂的 compaction 完成数为 0，而失败日志是 DEBUG 级所以静默。
 // 本文件把 picker 的 nullptr 返回点分类回传给调用方（MaybeScheduleZfSink
 // 与 picker 在同一线程同步调用，故用 thread_local 传递，不改任何签名），

@@ -2,7 +2,7 @@
 
 > 决策（用户 2026-09-15）：**方案 1（VersionEdit 安装覆盖元数据）作为 V0.6 主路径**；
 > reconciliation 只用于旧库兼容或诊断，不做正常恢复路径。
-> 背景与证据：`output/zeroflush_m5_perf/ledger/REPORT_0B.md` §9/§10。
+> 背景与证据：`archive/zeroflush_m5_perf/ledger/REPORT_0B.md` §9/§10。
 > 目标门禁：`B3_in_L0=0`、`B3_in_L1plus=0`、`lost_overwrite=0`、`other=0`、
 > `active_gen` 无跨 physical part 误匹配、fence 只在真实 AddFile 后推进、空 edit 不推进 fence。
 

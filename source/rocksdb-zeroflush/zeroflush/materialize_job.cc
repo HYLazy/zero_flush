@@ -75,70 +75,9 @@ std::string MakeInternalKey(const rocksdb::Slice& user_key, uint64_t seq,
   return ik;
 }
 
-// M4.6e：物化排序优化——Bytewise user comparator 时构造"memcmp 可排序"
-// 的编码键（连续缓冲 + 偏移视图，无逐键堆分配——首版 string 编码因
-// 堆分配/移动开销反更慢，R45 实测 684s vs 基线 596s），替代
-// InternalKeyComparator 的逐次比较（每次比较都做 user key 提取 + seq
-// 解码，是物化排序的大头：R42 实测 561s/50GB、占 wall 15.7%）。
-// 编码 = 4B user key 长度（大端，保证变长 key 的"短者小"语义）+ user
-// key 字节 + 8B ~(seq<<8|type)（从最高字节逆序取反，使 seq 降序语义变
-// 为 memcmp 升序——低位优先会导致排序错误，R3 实测 CompactionIterator
-// 顺序断言失败）。比较 = memcmp(pa, pb, min(la,lb))（长度前缀保证
-// 长度序）。非 Bytewise comparator 返回 false（调用方走原路径）。
-bool BuildSortKeys(const std::vector<std::string>& keys,
-                   const rocksdb::Comparator* ucmp, std::string* buf,
-                   std::vector<size_t>* off) {
-  if (ucmp->Name() != rocksdb::BytewiseComparator()->Name()) {
-    return false;
-  }
-  buf->clear();
-  off->clear();
-  off->reserve(keys.size());
-  buf->reserve(keys.size() * 30);
-  for (const auto& ik : keys) {
-    const size_t n = ik.size() - 8;  // user key 长度（尾 8B 为 seq/type）
-    off->push_back(buf->size());
-    buf->push_back(static_cast<char>(n >> 24));
-    buf->push_back(static_cast<char>(n >> 16));
-    buf->push_back(static_cast<char>(n >> 8));
-    buf->push_back(static_cast<char>(n));
-    buf->append(ik.data(), n);
-    // tail 为小端 (seq<<8|type)，数值比较高位优先——memcmp 需高位在前。
-    for (int i = 7; i >= 0; --i) {
-      buf->push_back(~ik[ik.size() - 8 + i]);
-    }
-  }
-  return true;
-}
-
-// M4.6e：按缓冲编码键（memcmp 序）重排 keys/values（string 移动，O(n)），
-// 返回可直接构造"不排序" VectorIterator 的已排序向量。
-void ReorderBySortKeys(std::vector<std::string>* keys,
-                       std::vector<std::string>* values,
-                       const std::string& buf,
-                       const std::vector<size_t>& off) {
-  std::vector<size_t> idx(keys->size());
-  std::iota(idx.begin(), idx.end(), 0);
-  const size_t buf_size = buf.size();
-  std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b) {
-    const char* pa = buf.data() + off[a];
-    const char* pb = buf.data() + off[b];
-    const size_t la = (a + 1 < off.size() ? off[a + 1] : buf_size) - off[a];
-    const size_t lb = (b + 1 < off.size() ? off[b + 1] : buf_size) - off[b];
-    const size_t m = la < lb ? la : lb;
-    const int r = std::memcmp(pa, pb, m);
-    return r < 0 || (r == 0 && la < lb);
-  });
-  std::vector<std::string> sk, sv;
-  sk.reserve(keys->size());
-  sv.reserve(values->size());
-  for (size_t i : idx) {
-    sk.push_back(std::move((*keys)[i]));
-    sv.push_back(std::move((*values)[i]));
-  }
-  *keys = std::move(sk);
-  *values = std::move(sv);
-}
+// M4.6e 的打包排序实现已迁至 zeroflush/materialize_backend.cc（V2 的
+// "归并排序阶段"由物化后端承担，host 后端即原实现；此处只保留 internal
+// key 构造）。
 
 }  // namespace
 
@@ -846,9 +785,15 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           continue;
         }
         // 原生 compaction 正在使用该文件 → 冲突降级（§7.3 不等待）。
-        if (zf_recent) {
-          fprintf(stderr, "ZFDBG-mm-scanf num=%llu -> conflict(!ok)\n",
-                  (unsigned long long)f->fd.GetNumber());
+        if (getenv("ZF_DBG_MM") != nullptr) {
+          fprintf(stderr,
+                  "ZFDBG-mm-scanf num=%llu -> conflict(!ok) merge_hold=%d "
+                  "hold_size=%zu epoch=%llu\n",
+                  (unsigned long long)f->fd.GetNumber(),
+                  (int)ROCKSDB_NAMESPACE::zf_sink_diag::MergeHolds(
+                      f->fd.GetNumber()),
+                  ROCKSDB_NAMESPACE::zf_sink_diag::MergeHoldSize(),
+                  (unsigned long long)epoch_);
         }
         *ok_out = false;
         return;
@@ -1569,7 +1514,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       const auto it = se_.part_bytes.find(pid);
       const uint64_t pending =
           (it != se_.part_bytes.end()) ? it->second : 0;
-      if (pending + overlap_bytes > kRangeMergeBytes &&
+      if (pending + overlap_bytes > ctx_->zfo_.sink_yield_threshold_bytes &&
           !ctx_->closing_flush()) {
         // 判据 2：F 让位（下沉请求 + 本批转 recovery）。
         zf_sink_request.fetch_add(1, std::memory_order_relaxed);
@@ -1656,32 +1601,41 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
         std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */,
         ROCKSDB_NAMESPACE::CompactionReason::kFlush, "" /* trim_ts */,
         -1 /* score */, !plan.l0_overlap.empty() /* l0_files_might_overlap */);
+    // step V0.6-A16b（关键证据：`Compaction` **构造函数内部**即调用
+    // `MarkFilesBeingCompacted(true)`，backtrace 证实）——因此**构造之后的任何
+    // "放弃融合"出口都必须显式解除标记**，否则输入 L1 文件永久 being_compacted
+    // （无人持有、无人解除）⇒ 该分区此后恒 `ok=0/busy=1`。构造即入台账。
+    {
+      RegisteredCompaction rc;
+      rc.compaction = compaction.get();
+      rc.registered = false;
+      rc.released = false;
+      registered_compactions_.push_back(std::move(rc));
+    }
+    auto abandon_compaction = [&](std::unique_ptr<ROCKSDB_NAMESPACE::Compaction>* c) {
+      if (*c != nullptr) {
+        (*c)->MarkFilesBeingCompacted(false);  // 解除构造函数设置的标记
+        for (RegisteredCompaction& rc : registered_compactions_) {
+          if (rc.compaction == c->get() && !rc.released) {
+            rc.released = true;
+            rc.compaction = nullptr;
+          }
+        }
+      }
+      c->reset();
+    };
     // Proximal level 有效（preclude_last_level_data_seconds 场景）会触发
     // RegisterCompaction 的 debug assert → 放弃融合（保守降级）。
     if (compaction->GetProximalLevel() != ROCKSDB_NAMESPACE::Compaction::kInvalidLevel) {
+      abandon_compaction(&compaction);
       plans_.push_back(std::move(plan));
       continue;
     }
-    mc_.compaction_picker->RegisterCompaction(compaction.get());
-    // step 0a 诊断（临时）：登记本融合占用（being_compacted）的 existing
-    // 文件号，用于回答"下沉目标文件被谁占用"。
-    for (ROCKSDB_NAMESPACE::FileMetaData* hf : plan.overlap_all) {
-      ROCKSDB_NAMESPACE::zf_sink_diag::MergeHoldAdd(hf->fd.GetNumber());
-    }
-    // 记录被本注册标记 being_compacted 的 existing 文件号，供同批次
-    // 后序 epoch 的 PlanLocked 识别并跳过（§7.4 批内链式替换互斥）。
-    for (ROCKSDB_NAMESPACE::FileMetaData* r : overlap) {
-      batch_registered_files_.insert(r->fd.GetNumber());
-    }
-    // step V0.6-C2（用户指定字段）：**所有融合计划**的收益决策现场都经过这里
-    // （此前只插桩了 L0 融合分支 ⇒ 实测 0 命中：本 workload 的融合走的是本路径）。
-    // step V0.6-C2 修复（用户指令："如果证据确认累计值被拿来判断收益，再改为
-    // 本次 attempt 的新增输入字节，并保留上限"）——实测证据表明**不是**累计值问题：
-    // `se_part_bytes`（= 本 epoch 该分区封存字节）与 `new_input` 相等，而本路径
-    // **根本没有 ratio 判据**（ratio=0.004 也照融合：为 104KB 新数据重写 25MB base
-    // ⇒ 写放大 ~25×）。故在此就地加**收益阈值**：目标模式下收益不足则攒批
-    // （数据留在 frozen 索引 + WAL，仍可读），由 `base_merge_skip_max_generations`
-    // 上限保证最终一定进入融合 ⇒ 不牺牲进展与排空。
+    // step V0.6-A15（用户 2026-09-17 第 2 项："已卡住的 epoch 必须能重新入队；任务在飞期间不得反复生成空批次"）：
+    // **收益门禁必须放在 `RegisterCompaction` 之前**。此前它位于注册之后，kSkip 计划
+    // 直接 `continue` ⇒ 该分区 base 层文件**永久保持 being_compacted**（无人注销）⇒ 
+    // 之后任何批次（含排空收养出的 epoch）扫描该分区都返回 `ok=0` ⇒ `busy=1` 让位 ⇒ 
+    // 死循环：`frz 空尾 → adopt skip → tasks=0` 反复（实测 36 次 adopt、pending 不减）。
     {
       const auto itb = se_.part_bytes.find(pid);
       const uint64_t pend_bytes = (itb != se_.part_bytes.end()) ? itb->second : 0;
@@ -1709,6 +1663,33 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
       // db_bench 的读阶段退化（136k→35k ops/s、pending 718MB 未排空）。启用前需要
       // 配套"积压驱动排空"（按分区积压触发物化批次，而非只在封存时）。收益已验证：
       // 写放大 24×→1.8×（prof_output_bytes 4.5GB→355MB）、写吞吐 93k→176k ops/s。
+      // step V0.6-P1 验收（用户指令："在规划点直接断言 ratio < threshold、原因为
+      // 收益不足、确实进入 skip"）：打印**判据的全部输入**——此前仅凭最终
+      // `decision=merge` 无法区分"阈值没到"与"门禁被 drain_mode/gens 上限挡掉"，
+      // 导致用例只能记 SETUP_INVALID（实测 skip_merge_benefit 恒 0）。
+      if (getenv("ZF_DBG_MERGE") != nullptr) {
+        fprintf(stderr,
+                "ZFDBG-skipgate pid=%u epoch=%llu ratio=%.4f min=%.4f gens=%u "
+                "maxgens=%u budget=%llu backlog=%llu drain_mode=%d(close=%d "
+                "active=%d size=%d gens_cap=%d) skip_ok=%d forbid_l0=%d "
+                "skip_batch=%d gate=%d\n",
+                pid, (unsigned long long)epoch_, benefit_ratio,
+                ctx_->zfo_.base_merge_min_ratio, PendingGenCount(pid),
+                ctx_->zfo_.base_merge_skip_max_generations,
+                (unsigned long long)ctx_->zfo_.base_merge_skip_max_bytes,
+                (unsigned long long)part_backlog, drain_mode ? 1 : 0,
+                ctx_->closing_flush() ? 1 : 0,
+                ctx_->backlog_drain_active() ? 1 : 0,
+                part_backlog >= ctx_->zfo_.base_merge_skip_max_bytes ? 1 : 0,
+                PendingGenCount(pid) >= kMaxSkipGenerations ? 1 : 0,
+                skip_ok ? 1 : 0, ctx_->zfo_.forbid_l0_install ? 1 : 0,
+                ctx_->zfo_.skip_batching ? 1 : 0,
+                (ctx_->zfo_.base_merge_skip_max_generations > 0 && !drain_mode &&
+                 ctx_->zfo_.forbid_l0_install && ctx_->zfo_.skip_batching &&
+                 benefit_ratio < ctx_->zfo_.base_merge_min_ratio)
+                    ? 1
+                    : 0);
+      }
       if (ctx_->zfo_.base_merge_skip_max_generations > 0 && !drain_mode &&
           ctx_->zfo_.forbid_l0_install && ctx_->zfo_.skip_batching &&
           benefit_ratio < ctx_->zfo_.base_merge_min_ratio) {
@@ -1720,11 +1701,60 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::PlanLocked() {
           plan.decision = MaterializeDecision::kSkip;
           ctx_->skip_merge_benefit_.fetch_add(1, std::memory_order_relaxed);
           ctx_->skip_count_.fetch_add(1, std::memory_order_relaxed);
+          // **必须解除构造函数设下的 being_compacted**（本计划不再融合）。
+          abandon_compaction(&compaction);
           plans_.push_back(std::move(plan));
           continue;  // 未注册 compaction ⇒ 无需回滚
         }
+      } else if (drain_mode && skip_ok &&
+                 benefit_ratio < ctx_->zfo_.base_merge_min_ratio) {
+        // step V0.6-P1 度量（用户 2026-09-18）：**本应攒批、但被排空模式强制融合**——
+        // 这就是"排空额外造成的重写"的直接计数（对照写放大下降是否以排空重写为代价）。
+        ctx_->NoteDrainForcedMerge();
       }
     }
+    mc_.compaction_picker->RegisterCompaction(compaction.get());
+    // step V0.6-A16：注册即登记**台账**（{compaction, 被占文件号}），释放只认台账
+    // ——计划后续被改判（kSkip/kFallback）或批次提前返回都不会漏释放。
+    for (RegisteredCompaction& rc : registered_compactions_) {
+      if (rc.compaction == compaction.get() && !rc.released) {
+        rc.registered = true;
+        for (ROCKSDB_NAMESPACE::FileMetaData* hf : plan.overlap_all) {
+          rc.held_files.push_back(hf->fd.GetNumber());
+        }
+      }
+    }
+    if (getenv("ZF_DBG_MM") != nullptr) {
+      std::string held;
+      for (ROCKSDB_NAMESPACE::FileMetaData* hf : plan.overlap_all) {
+        held += std::to_string(hf->fd.GetNumber()) + " ";
+      }
+      fprintf(stderr,
+              "ZFDBG-mm-regdone epoch=%llu pid=%u overlap=%zu overlap_all=%zu "
+              "held=[%s] ledger=%zu\n",
+              (unsigned long long)epoch_, pid, plan.overlap.size(),
+              plan.overlap_all.size(), held.c_str(),
+              registered_compactions_.size());
+    }
+    // step 0a 诊断（临时）：登记本融合占用（being_compacted）的 existing
+    // 文件号，用于回答"下沉目标文件被谁占用"。
+    for (ROCKSDB_NAMESPACE::FileMetaData* hf : plan.overlap_all) {
+      ROCKSDB_NAMESPACE::zf_sink_diag::MergeHoldAdd(hf->fd.GetNumber());
+    }
+    // 记录被本注册标记 being_compacted 的 existing 文件号，供同批次
+    // 后序 epoch 的 PlanLocked 识别并跳过（§7.4 批内链式替换互斥）。
+    for (ROCKSDB_NAMESPACE::FileMetaData* r : overlap) {
+      batch_registered_files_.insert(r->fd.GetNumber());
+    }
+    // step V0.6-C2（用户指定字段）：**所有融合计划**的收益决策现场都经过这里
+    // （此前只插桩了 L0 融合分支 ⇒ 实测 0 命中：本 workload 的融合走的是本路径）。
+    // step V0.6-C2 修复（用户指令："如果证据确认累计值被拿来判断收益，再改为
+    // 本次 attempt 的新增输入字节，并保留上限"）——实测证据表明**不是**累计值问题：
+    // `se_part_bytes`（= 本 epoch 该分区封存字节）与 `new_input` 相等，而本路径
+    // **根本没有 ratio 判据**（ratio=0.004 也照融合：为 104KB 新数据重写 25MB base
+    // ⇒ 写放大 ~25×）。故在此就地加**收益阈值**：目标模式下收益不足则攒批
+    // （数据留在 frozen 索引 + WAL，仍可读），由 `base_merge_skip_max_generations`
+    // 上限保证最终一定进入融合 ⇒ 不牺牲进展与排空。
     if (getenv("ZF_DBG_MERGE") != nullptr) {
       uint32_t consumed_gens = 0;
       uint64_t new_input_bytes = 0;
@@ -1943,22 +1973,52 @@ std::vector<ZfMaterializeJob::FenceRange> ZfMaterializeJob::ConsumedRanges()
 
 void ZfMaterializeJob::FinishPlansLocked() {
   mc_.db_mutex->AssertHeld();
-  for (PartitionPlan& p : plans_) {
-    if (p.decision != MaterializeDecision::kMergeBase) {
+  // step V0.6-A16（用户 2026-09-17 第 3 项："epoch 引用未释放：修批次完成后的
+  // 正常释放路径"）：释放**以注册台账为准**，不再以"计划当前是否仍为 kMergeBase"
+  // 为准。旧实现在计划被改判（kMergeBase → kSkip/kFallback）或批次经让位/异常出口
+  // 提前返回时**漏释放** ⇒ 输入 L1 文件永久 `being_compacted` ⇒ 该分区此后每次规划
+  // 都 `ok=0 / busy=1` 让位（实测：case 1 排空陷入
+  // `frz 空尾 → adopt skip → tasks=0` 死循环，pending 永不归零；`mm-mark`
+  // 显示 `set=1 inputs=[9]` 后**没有**对应的 `set=0`）。
+  if (getenv("ZF_DBG_MM") != nullptr) {
+    size_t pend_n = 0;
+    std::string pend;
+    for (const RegisteredCompaction& rc : registered_compactions_) {
+      if (rc.compaction == nullptr || rc.released) continue;
+      ++pend_n;
+      pend += "[";
+      for (uint64_t num : rc.held_files) pend += std::to_string(num) + " ";
+      pend += "]";
+    }
+    fprintf(stderr, "ZFDBG-mm-release epoch=%llu ledger=%zu pending=%zu %s\n",
+            (unsigned long long)epoch_, registered_compactions_.size(), pend_n,
+            pend.c_str());
+  }
+  for (RegisteredCompaction& rc : registered_compactions_) {
+    if (rc.compaction == nullptr || rc.released) {
       continue;
     }
-    // 释放注册 + 解除 being_compacted。不调 Compaction::ReleaseCompactionFiles：
-    // 其走 cfd_->compaction_picker()（cfd_ 为 nullptr）且失败路径
-    // ResetNextCompactionIndex 断言 input_version_ 非空（我们未调
-    // FinalizeInputInfo）。二者均为 public，等价手动完成。
-    mc_.compaction_picker->UnregisterCompaction(p.compaction.get());
-    p.compaction->MarkFilesBeingCompacted(false);
-    // step 0a 诊断（临时）：解除占用登记（与注册 1:1，窗口 = being_compacted）。
-    for (ROCKSDB_NAMESPACE::FileMetaData* hf : p.overlap_all) {
-      ROCKSDB_NAMESPACE::zf_sink_diag::MergeHoldDel(hf->fd.GetNumber());
+    // 不调 Compaction::ReleaseCompactionFiles：其走 cfd_->compaction_picker()
+    // （cfd_ 为 nullptr）且失败路径 ResetNextCompactionIndex 断言 input_version_
+    // 非空（我们未调 FinalizeInputInfo）。二者均为 public，等价手动完成。
+    if (rc.registered) {
+      mc_.compaction_picker->UnregisterCompaction(rc.compaction);
     }
-    p.compaction.reset();
-    p.decision = MaterializeDecision::kDirect;  // 防重复释放
+    // 构造函数已 MarkFilesBeingCompacted(true)：无论是否走到 RegisterCompaction，
+    // 在此**统一解除**（未注册的条目只需 unmark）。
+    rc.compaction->MarkFilesBeingCompacted(false);
+    for (uint64_t num : rc.held_files) {
+      ROCKSDB_NAMESPACE::zf_sink_diag::MergeHoldDel(num);
+    }
+    rc.released = true;
+    rc.compaction = nullptr;
+  }
+  // 计划侧的 compaction 句柄随之作废（防重复释放语义保留）。
+  for (PartitionPlan& p : plans_) {
+    if (p.decision == MaterializeDecision::kMergeBase) {
+      p.compaction.reset();
+      p.decision = MaterializeDecision::kDirect;
+    }
   }
 }
 
@@ -2027,15 +2087,32 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
                                 std::memory_order_relaxed);
   ctx_->prof_scan_bytes_.fetch_add(prof_ab, std::memory_order_relaxed);
 
-  // 排序（M4.6e：Bytewise 时编码排序键 + memcmp 索引排序——InternalKey
-  // Comparator 的逐次解析是物化排序大头；非 Bytewise 走原 VectorIterator
-  // 排序）。
+  // 归并排序：交给物化后端（V2 的 host CPU / CSD 设备两条路径；见
+  // materialize_backend.h）。host 后端 = 原实现（M4.6e：Bytewise 时编码
+  // 排序键 + memcmp 索引排序；非 Bytewise 走原 VectorIterator 排序）；
+  // 设备后端不可用/失败时**在内部回退 host**，调用方看到的仍是成功 +
+  // 正确的全序（缺口由 csd_* 属性与日志暴露）。
   const uint64_t prof_b0 = mc_.db_options->clock->NowMicros();
   const uint64_t sort_start = mc_.db_options->clock->NowMicros();
-  std::string sort_buf;
-  std::vector<size_t> sort_off;
-  if (BuildSortKeys(keys, mc_.cfd->user_comparator(), &sort_buf, &sort_off)) {
-    ReorderBySortKeys(&keys, &values, sort_buf, sort_off);
+  bool packed_sorted = false;
+  {
+    SortStageInput sin;
+    sin.keys = &keys;
+    sin.values = &values;
+    sin.user_comparator = mc_.cfd->user_comparator();
+    sin.internal_comparator = &mc_.cfd->internal_comparator();
+    sin.part_id = part_id;
+    sin.input_bytes = prof_ab;
+    sin.input_gens = static_cast<uint32_t>(gens.size());
+    SortStageResult sres;
+    MaterializeBackend* be = ctx_->materialize_backend();
+    const ROCKSDB_NAMESPACE::Status ss =
+        be != nullptr ? be->RunSortStage(sin, &sres)
+                      : ROCKSDB_NAMESPACE::Status::OK();
+    if (!ss.ok()) {
+      return ss;
+    }
+    packed_sorted = sres.fully_ordered;
   }
   sort_micros_.fetch_add(mc_.db_options->clock->NowMicros() - sort_start,
                          std::memory_order_relaxed);
@@ -2194,7 +2271,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
         std::unique_ptr<ROCKSDB_NAMESPACE::VectorIterator> vit(
             new ROCKSDB_NAMESPACE::VectorIterator(
                 std::move(k2), std::move(v2),
-                sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
+                packed_sorted ? nullptr : &mc_.cfd->internal_comparator()));
         ROCKSDB_NAMESPACE::Status ss = build_one(std::move(vit));
         if (!ss.ok()) {
           ctx_->prof_build_us_.fetch_add(
@@ -2212,7 +2289,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
       std::unique_ptr<ROCKSDB_NAMESPACE::VectorIterator> vit(
           new ROCKSDB_NAMESPACE::VectorIterator(
               std::move(k2), std::move(v2),
-              sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
+              packed_sorted ? nullptr : &mc_.cfd->internal_comparator()));
       ROCKSDB_NAMESPACE::Status ss = build_one(std::move(vit));
       if (!ss.ok()) {
         ctx_->prof_build_us_.fetch_add(
@@ -2230,7 +2307,7 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializePartition(
   std::unique_ptr<ROCKSDB_NAMESPACE::VectorIterator> iter(
       new ROCKSDB_NAMESPACE::VectorIterator(
           std::move(keys), std::move(values),
-          sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
+          packed_sorted ? nullptr : &mc_.cfd->internal_comparator()));
   iter->SeekToFirst();
   assert(iter->Valid());
   ROCKSDB_NAMESPACE::Status bs3 = build_one(std::move(iter));
@@ -2319,17 +2396,32 @@ ROCKSDB_NAMESPACE::Status ZfMaterializeJob::MaterializeMergePartition(
                                 std::memory_order_relaxed);
   ctx_->prof_scan_bytes_.fetch_add(prof_ab, std::memory_order_relaxed);
 
-  // M4.6e：同 MaterializePartition——Bytewise 时编码排序键 + memcmp 重排。
+  // 归并排序：同 MaterializePartition——经物化后端（host CPU / CSD 设备）。
   const uint64_t sort_start = mc_.db_options->clock->NowMicros();
-  std::string sort_buf;
-  std::vector<size_t> sort_off;
-  if (BuildSortKeys(keys, mc_.cfd->user_comparator(), &sort_buf, &sort_off)) {
-    ReorderBySortKeys(&keys, &values, sort_buf, sort_off);
+  bool packed_sorted = false;
+  {
+    SortStageInput sin;
+    sin.keys = &keys;
+    sin.values = &values;
+    sin.user_comparator = mc_.cfd->user_comparator();
+    sin.internal_comparator = &mc_.cfd->internal_comparator();
+    sin.part_id = part_id;
+    sin.input_bytes = prof_ab;
+    sin.input_gens = static_cast<uint32_t>(gens.size());
+    SortStageResult sres;
+    MaterializeBackend* be = ctx_->materialize_backend();
+    const ROCKSDB_NAMESPACE::Status ss =
+        be != nullptr ? be->RunSortStage(sin, &sres)
+                      : ROCKSDB_NAMESPACE::Status::OK();
+    if (!ss.ok()) {
+      return ss;
+    }
+    packed_sorted = sres.fully_ordered;
   }
   std::unique_ptr<ROCKSDB_NAMESPACE::VectorIterator> a_iter(
       new ROCKSDB_NAMESPACE::VectorIterator(
           std::move(keys), std::move(values),
-          sort_buf.empty() ? &mc_.cfd->internal_comparator() : nullptr));
+          packed_sorted ? nullptr : &mc_.cfd->internal_comparator()));
   sort_micros_.fetch_add(mc_.db_options->clock->NowMicros() - sort_start,
                          std::memory_order_relaxed);
   a_iter->SeekToFirst();

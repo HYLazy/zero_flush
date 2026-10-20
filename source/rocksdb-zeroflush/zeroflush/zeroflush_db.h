@@ -28,6 +28,7 @@
 #include "rocksdb/status.h"
 #include "db/write_thread.h"
 #include "zeroflush/repartition_controller.h"  // M4: 每分区统计 + 治理决策策略
+#include "zeroflush/materialize_backend.h"    // V2: 物化后端（host / CSD）
 
 namespace ROCKSDB_NAMESPACE {
 class ColumnFamilyData;
@@ -233,6 +234,49 @@ struct ZeroFlushOptions {
   // （在飞冲突 → Busy 退避重试），排空+rewrite 后释放——杜绝"宽区间融合
   // 替换 vs 子分区 L1 并发安装"的 L1 重叠竞态。
   bool governance_active_tail_split = true;
+
+  // ---- V2：融合/下沉的让位阈值（range 攒批到量阈值）----
+  // 语义（原 kRangeMergeBytes 硬编码 64MiB，V0 行为）：规划时若
+  // pending + |L1 overlap| > 阈值，则**请求下沉该 range 并让位**
+  // （本批转 recovery）。设计原意是"攒到单文件上限就下沉"，但 V2 的
+  // 攒批（最多 8 代）会先超过 64MiB ⇒ 每次规划都触发下沉让位，
+  // 形成"融合↔下沉"以 ~500MB 切片反复重写的乒乓（实测 50GB：
+  // 写入 39× 放大、5MB/s）。V2 档把它抬到 1GiB，使融合能吃到攒批、
+  // 下沉只在 L1 切片真的变大时触发。
+  uint64_t sink_yield_threshold_bytes = 64ull << 20;
+
+  // ---- ZeroFlush V2：固定范围分区档（无动态分区）----
+  // 用户口径（2026-10）：V2 = ①按**固定范围**决定 key 属于哪个 partition
+  // （不做动态分区）；②保持"取消 memtable→flush 路径、数据直写分区 WAL"；
+  // ③WAL 落盘后与 L1 做 compaction 并生成 SST；④保留主机 CPU 路径与 CSD
+  // 介入路径（见 materialize_backend.h）。
+  // 打开本档时 Open() 会做**严格规范化与校验**（在 ZeroFlushContext 构造
+  // 之前，避免 C1 那类"改的是 ctx 的 options 拷贝"的空操作）：
+  //   · routing_mode 强制 kStatic 且必须有显式边界（或 P=1 单分区）；
+  //     kHash/kSampled/kAlignL1 一律拒绝；
+  //   · 动态分区全部拒绝：dynamic_governance 必须关、
+  //     split_after_skewed_epochs 必须 0、growth_split_min_bytes 必须 0；
+  //   · forbid_l0_install 与 merge_into_base_level 强制开启（禁 L0 目标
+  //     模式只有配合融合才有合法安装路径，D-45/D-46 实证）；
+  //   · 收益攒批（base_merge_skip_max_generations）关闭——V2 只保留
+  //     "固定范围 + 直写 WAL + 融合安装"这一条确定路径。
+  bool v2_fixed_range = false;
+
+  // ---- ZeroFlush V2：物化后端（主机 CPU / CSD 设备）----
+  // 物化的"归并排序"阶段由哪个执行体承担；持久化、定层、fence、账本全部
+  // 留在主机（见 materialize_backend.h 的分层约定）。
+  MaterializeBackendKind materialize_backend = MaterializeBackendKind::kHost;
+  // 设备列表（显式；"sim" = 内建仿真，用于打通接线与等价性验收）。
+  std::vector<std::string> csd_devices;
+  // 真设备共享库路径（C ABI v1，见 materialize_backend.cc 的
+  // zf_csd_plugin_create）。空 = 不使用插件。
+  std::string csd_kernel_path;
+  // 设备槽位策略 / 回退策略 / 单任务输入代数上限（设备端口上限）。
+  CsdSlotPolicy csd_slot_policy = CsdSlotPolicy::kFreeSlot;
+  CsdFallbackPolicy csd_fallback_policy = CsdFallbackPolicy::kHost;
+  uint32_t csd_max_input_files = 4;
+  // kFreeSlot 策略下的有界等待（微秒；0 = 不等，立即回退 host）。
+  uint64_t csd_slot_wait_micros = 10ull * 1000;
 };
 
 class ZeroFlushContext {
@@ -672,6 +716,31 @@ class ZeroFlushContext {
   // 不变式：收养本身**不改变** pending / installed / drained / fence；建任务失败则退回归属。
   // 返回：0=成功收养；1=无 skip 代可收养；-1=失败（已退回）。
   int AdoptSkippedGensForDrainLocked();
+  // step V0.6-A11（用户契约）：**在飞 epoch 台账**——"未安装"不能等同于"可退回"。
+  // 正在排队/执行/等待提交、以及提交结果不确定的 epoch 都记在这里 ⇒ 排空的"卡住 epoch"
+  // 退回判据必须排除它们（否则原任务与新批次会同时消费同一代）。
+  void NoteEpochInFlight(uint64_t epoch) const {
+    std::lock_guard<std::mutex> l(epoch_flight_mu_);
+    epochs_in_flight_.insert(epoch);
+  }
+  void ClearEpochInFlight(uint64_t epoch) const {
+    std::lock_guard<std::mutex> l(epoch_flight_mu_);
+    epochs_in_flight_.erase(epoch);
+  }
+  bool EpochInFlight(uint64_t epoch) const {
+    std::lock_guard<std::mutex> l(epoch_flight_mu_);
+    return epochs_in_flight_.count(epoch) > 0;
+  }
+  size_t epochs_in_flight_count() const {
+    std::lock_guard<std::mutex> l(epoch_flight_mu_);
+    return epochs_in_flight_.size();
+  }
+  // 提交结果不确定的 epoch（保持"在飞"，由恢复协议对账；期间不得被重新规划）。
+  void NoteEpochCommitUncertain(uint64_t epoch) const {
+    std::lock_guard<std::mutex> l(epoch_flight_mu_);
+    epochs_commit_uncertain_.insert(epoch);
+  }
+
   uint64_t adopt_calls() const {
     return adopt_calls_.load(std::memory_order_relaxed);
   }
@@ -686,6 +755,15 @@ class ZeroFlushContext {
   bool NeedsBacklogDrain() const;
   // 积压年龄维护：写/封存路径登记"该分区开始积压的时刻"，清零时复位。
   void TouchBacklogAge(uint32_t part) const;
+  // 该分区当前这段积压的年龄（微秒；0 = 无积压或未登记）——诊断/验收用。
+  uint64_t BacklogAgeMicros(uint32_t part) const {
+    if (env_ == nullptr) return 0;
+    const uint64_t now = env_->NowMicros();
+    std::lock_guard<std::mutex> l(backlog_age_mu_);
+    if (part >= backlog_since_micros_.size()) return 0;
+    const uint64_t since = backlog_since_micros_[part];
+    return (since != 0 && now > since) ? (now - since) : 0;
+  }
   uint64_t backlog_drain_requests() const {
     return backlog_drain_requests_.load(std::memory_order_relaxed);
   }
@@ -695,6 +773,29 @@ class ZeroFlushContext {
   }
   void NoteInstallProgressFailure() const {
     install_progress_failures_.fetch_add(1, std::memory_order_relaxed);
+  }
+  // step V0.6-P1 度量（用户 2026-09-18 全生命周期对照清单）：
+  //   install_wait_rounds / install_wait_timeouts —— 安装准入循环的**等待次数**与
+  //   其中"有界等待到期而无进度"的次数（`WaitInstallProgress` 返回 false）。
+  //   drain_forced_merges —— 收益门禁本应攒批、但被排空模式（drain/收尾）强制融合的
+  //   次数 = "排空额外造成的重写"的直接计数。
+  void NoteInstallWaitRound() const {
+    install_wait_rounds_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void NoteInstallWaitTimeout() const {
+    install_wait_timeouts_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t install_wait_rounds() const {
+    return install_wait_rounds_.load(std::memory_order_relaxed);
+  }
+  uint64_t install_wait_timeouts() const {
+    return install_wait_timeouts_.load(std::memory_order_relaxed);
+  }
+  void NoteDrainForcedMerge() const {
+    drain_forced_merges_.fetch_add(1, std::memory_order_relaxed);
+  }
+  uint64_t drain_forced_merges() const {
+    return drain_forced_merges_.load(std::memory_order_relaxed);
   }
   // 排空模式（积压驱动执行中）——收益攒批在此模式下**强制融合**。
   // step V0.6-A3：**排空模式**——关闭排空或积压驱动执行中。此时规划器禁止 kSkip
@@ -817,6 +918,18 @@ class ZeroFlushContext {
     return fifo_bypass_.load(std::memory_order_relaxed);
   }
   class SealedFileCache* sealed_cache() const { return sealed_cache_.get(); }
+
+  // V2：物化后端（归并排序执行体）。host = 主机 CPU（默认）；csd = 设备。
+  // 设备不可用时按 csd_fallback_policy 回退 host（此时这里返回 host 后端，
+  // 设备缺口由 materialize_backend_stats() 的 probe_failures/fallbacks 暴露）。
+  MaterializeBackend* materialize_backend() const {
+    return materialize_backend_.get();
+  }
+  MaterializeBackendStats* materialize_backend_stats() {
+    return &backend_stats_;
+  }
+  // V2 档标记（属性/校验器口径）。
+  bool v2_fixed_range() const { return zfo_.v2_fixed_range; }
 
   uint64_t fence_hole_advance_count() const {
     return fence_hole_advance_count_.load(std::memory_order_relaxed);
@@ -1262,6 +1375,10 @@ class ZeroFlushContext {
   std::atomic<uint64_t> materialize_oob_count_{0};
   // ---- M4.3 终态 ----
   std::unique_ptr<class PartitionIndexSet> index_set_;  // 分区索引（L0 索引）
+  // ---- V2：物化后端（host CPU / CSD 设备）----
+  // 只覆盖物化的"归并排序"阶段；持久化/定层/fence/账本仍在主机侧。
+  std::shared_ptr<MaterializeBackend> materialize_backend_;
+  MaterializeBackendStats backend_stats_;
   // M4.7b：value cache（LRU；键 = locator 16B，值 = std::string*）。
   mutable std::shared_ptr<ROCKSDB_NAMESPACE::Cache> value_cache_;
   // ---- M3.2 物化状态与统计 ----
@@ -1375,9 +1492,15 @@ class ZeroFlushContext {
   mutable std::atomic<bool> backlog_drain_requested_{false};
   mutable std::atomic<bool> backlog_drain_active_{false};
   mutable std::atomic<uint64_t> backlog_drain_requests_{0};
+  mutable std::mutex epoch_flight_mu_;
+  mutable std::unordered_set<uint64_t> epochs_in_flight_;
+  mutable std::unordered_set<uint64_t> epochs_commit_uncertain_;
   mutable std::atomic<uint64_t> adopt_calls_{0};
   mutable std::atomic<uint64_t> adopt_rolled_back_{0};
   mutable std::atomic<uint64_t> install_progress_failures_{0};
+  mutable std::atomic<uint64_t> install_wait_rounds_{0};
+  mutable std::atomic<uint64_t> install_wait_timeouts_{0};
+  mutable std::atomic<uint64_t> drain_forced_merges_{0};
   // part → 开始积压的微秒时刻（0 = 无积压）。用 mutex 保护的向量（按分区数）。
   mutable std::mutex backlog_age_mu_;
   mutable std::vector<uint64_t> backlog_since_micros_;

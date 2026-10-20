@@ -313,6 +313,21 @@ class ZfMaterializeJob {
   // 阶段 0 失败或任务池失败时释放已注册 Compaction（须持 DB mutex）。
   void FinishPlansLocked();
 
+  // step V0.6-A16：**注册台账**——`RegisterCompaction` 成功即登记 {compaction,
+  // 被占文件号}，释放只认本台账（与"计划当前是否仍为 kMergeBase"无关）。
+  // 目的：任何"注册后改判（kSkip/kFallback）/提前返回"的出口都不会漏释放
+  // being_compacted，否则该分区的 L1 文件永久被占 ⇒ 后续所有批次恒
+  // `ok=0/busy=1` 让位（实测 case 1：排空陷入 `frz 空尾 → adopt → tasks=0` 死循环）。
+  struct RegisteredCompaction {
+    ROCKSDB_NAMESPACE::Compaction* compaction = nullptr;
+    std::vector<uint64_t> held_files;
+    // 构造（内部 MarkFilesBeingCompacted(true)）即入台账；registered 表示是否
+    // 已交给 CompactionPicker::RegisterCompaction（决定释放时是否 Unregister）。
+    bool registered = false;
+    bool released = false;
+  };
+  std::vector<RegisteredCompaction> registered_compactions_;
+
   // M5 安装期复检让位：整批放弃安装时（检测到与在飞安装的重叠冲突）——
   // (a) 删除本 job 已产出的全部物理文件；(b) 把本 epoch 全部 gens 移交
   // recovery（数据保持可读，下一 epoch 收养后重物化）。

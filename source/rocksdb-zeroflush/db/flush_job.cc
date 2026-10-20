@@ -468,6 +468,23 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
                      s.ToString().c_str());
     }
   }
+  // step V0.6-A11：在飞台账——成功提交 ⇒ 清；**结果不确定** ⇒ 保留（不得被重新规划，
+  // 由恢复协议对账）；让位/未提交 ⇒ 清（数据仍可读、允许下次重新规划）。
+  if (zf_mode_) {
+    if (auto zc1 = cfd_->GetZfCtx(); zc1 != nullptr) {
+      const bool uncertain = !s.ok();
+      for (const auto& pi : zf_planned_installs_) {
+        if (uncertain) {
+          zc1->NoteEpochCommitUncertain(pi.epoch);
+        } else {
+          zc1->ClearEpochInFlight(pi.epoch);
+        }
+      }
+      if (!uncertain) {
+        for (uint64_t ep : in_flight_before_) zc1->ClearEpochInFlight(ep);
+      }
+    }
+  }
   zf_planned_installs_.clear();  // 无论成败都清（失败/让位不得留待销账）
   if (getenv("ZF_DBG_MM") != nullptr) {
     fprintf(stderr, "ZFDBG-mm-installed job=%d ok=%d\n",
@@ -1415,7 +1432,10 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       }
       const uint64_t observed = zf_ctx->InstallProgressEpoch();
       db_mutex_->Unlock();
-      zf_ctx->WaitInstallProgress(observed, 100000 /*100ms 兜底*/);
+      zf_ctx->NoteInstallWaitRound();
+      if (!zf_ctx->WaitInstallProgress(observed, 100000 /*100ms 兜底*/)) {
+        zf_ctx->NoteInstallWaitTimeout();
+      }
       db_mutex_->Lock();
       continue;
     }
@@ -1423,7 +1443,10 @@ Status FlushJob::ZfMaterializeAllEpochs() {
     if (!zf_ctx->AcquireInstallLock()) {
       const uint64_t observed = zf_ctx->InstallProgressEpoch();
       db_mutex_->Unlock();
-      zf_ctx->WaitInstallProgress(observed, 100000);
+      zf_ctx->NoteInstallWaitRound();
+      if (!zf_ctx->WaitInstallProgress(observed, 100000)) {
+        zf_ctx->NoteInstallWaitTimeout();
+      }
       db_mutex_->Lock();
       continue;
     }
@@ -1445,7 +1468,10 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       }
       const uint64_t observed = zf_ctx->InstallProgressEpoch();
       db_mutex_->Unlock();
-      zf_ctx->WaitInstallProgress(observed, 100000);
+      zf_ctx->NoteInstallWaitRound();
+      if (!zf_ctx->WaitInstallProgress(observed, 100000)) {
+        zf_ctx->NoteInstallWaitTimeout();
+      }
       db_mutex_->Lock();
       continue;
     }
@@ -1465,7 +1491,10 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       zf_ctx->ReleaseInstallLock();
       const uint64_t observed = zf_ctx->InstallProgressEpoch();
       db_mutex_->Unlock();
-      zf_ctx->WaitInstallProgress(observed, 100000);
+      zf_ctx->NoteInstallWaitRound();
+      if (!zf_ctx->WaitInstallProgress(observed, 100000)) {
+        zf_ctx->NoteInstallWaitTimeout();
+      }
       db_mutex_->Lock();
       continue;
     }
@@ -2289,6 +2318,9 @@ Status FlushJob::ZfMaterializeAllEpochs() {
   // step 1y：记录本次 attempt 的安装候选 + 待校验输出（此时 edit_ 已装配，
   // 但**尚未提交**；让位/失败路径在此之前 return ⇒ 集合为空 ⇒ 不会提前销账）。
   {
+    // step V0.6-A11：记下本批**先前的在飞 epoch**（下面会清集合，需保留以便批次结束时清理）。
+    in_flight_before_.clear();
+    for (const auto& p0 : zf_planned_installs_) in_flight_before_.push_back(p0.epoch);
     zf_planned_installs_.clear();
     for (const auto& o : zf_batch_outputs_) {
       auto it = std::find_if(
@@ -2297,6 +2329,9 @@ Status FlushJob::ZfMaterializeAllEpochs() {
       if (it == zf_planned_installs_.end()) {
         ZfPlannedInstall p;
         p.epoch = o.src_epoch;
+        if (auto zc0 = cfd_->GetZfCtx(); zc0 != nullptr) {
+          zc0->NoteEpochInFlight(p.epoch);  // 在飞台账：本批正在处理这些 epoch
+        }
         zf_planned_installs_.push_back(std::move(p));
         it = std::prev(zf_planned_installs_.end());
       }

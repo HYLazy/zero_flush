@@ -894,6 +894,32 @@ DEFINE_double(zf_merge_ratio, 0.25,
               "ZeroFlush base-merge trigger ratio: sealed bytes / base-level "
               "overlap bytes must exceed this to fuse (else fall back to L0).");
 
+// ---- ZeroFlush V2：固定范围分区档 ----
+DEFINE_bool(zf_v2, false,
+            "ZeroFlush V2 profile: fixed-range partitioning only (no dynamic "
+            "partitioning), direct partition-WAL writes (no memtable flush "
+            "path), WAL->L1 fused SST materialization. Requires --zf_routing="
+            "static with boundaries (or --zf_partitions=1).");
+DEFINE_string(zf_materialize_backend, "host",
+              "ZeroFlush V2 materialize backend for the merge/sort stage: "
+              "host (CPU) | csd (device; falls back to host when unavailable).");
+DEFINE_string(zf_csd_devices, "",
+              "ZeroFlush V2 CSD device list (comma separated; 'sim' = built-in "
+              "device emulation for pipeline/equivalence tests).");
+DEFINE_string(zf_csd_kernel_path, "",
+              "ZeroFlush V2 path to the device plugin shared library "
+              "(C ABI v1: zf_csd_plugin_create).");
+DEFINE_string(zf_csd_slot_policy, "free_slot",
+              "ZeroFlush V2 device slot policy: free_slot | any_idle | all_free.");
+DEFINE_string(zf_csd_fallback_policy, "host",
+              "ZeroFlush V2 device fallback policy: host | fail.");
+DEFINE_int32(zf_csd_max_input_files, 4,
+             "ZeroFlush V2 device port limit: tasks with more input generations "
+             "(or, for 'sim', the concurrent slot count) fall back to host.");
+DEFINE_int32(zf_csd_slot_wait_ms, 10,
+             "ZeroFlush V2 free_slot policy: bounded wait for a device slot "
+             "(ms; 0 = fall back immediately).");
+
 DEFINE_bool(use_existing_keys, false,
             "If true, uses existing keys in the DB, "
             "rather than generating new ones. This involves some startup "
@@ -4273,7 +4299,15 @@ class Benchmark {
           "prof_build_us",
           "prof_merge_us",
           "prof_output_bytes",
-          "prof_tasks"};
+          "prof_tasks",
+          // ---- V2：档位与物化后端（host CPU / CSD 设备）----
+          "engine_profile",
+          "materialize_backend",
+          "csd_tasks",
+          "csd_device_tasks",
+          "csd_fallbacks",
+          "csd_probe_failures",
+          "csd_micros"};
       fprintf(stdout, "ZEROFLUSH PROPERTIES:\n");
       for (const char* p : zf_props) {
         std::string v;
@@ -5643,6 +5677,56 @@ class Benchmark {
       }
       if (FLAGS_zf_merge_ratio > 0) {
         zfo.base_merge_min_ratio = FLAGS_zf_merge_ratio;
+      }
+      // ---- ZeroFlush V2：固定范围档 + 物化后端（host | csd）----
+      if (FLAGS_zf_v2) {
+        zfo.v2_fixed_range = true;
+      }
+      if (FLAGS_zf_materialize_backend != "host") {
+        if (!zeroflush::ParseMaterializeBackendKind(
+                FLAGS_zf_materialize_backend, &zfo.materialize_backend)) {
+          fprintf(stderr,
+                  "Unknown --zf_materialize_backend: %s (host|csd)\n",
+                  FLAGS_zf_materialize_backend.c_str());
+          ErrorExit();
+        }
+      }
+      if (!FLAGS_zf_csd_devices.empty()) {
+        const std::string& dv = FLAGS_zf_csd_devices;
+        size_t pos = 0;
+        while (pos <= dv.size()) {
+          const size_t comma = dv.find(',', pos);
+          const std::string one = dv.substr(
+              pos, comma == std::string::npos ? std::string::npos : comma - pos);
+          if (!one.empty()) {
+            zfo.csd_devices.push_back(one);
+          }
+          if (comma == std::string::npos) {
+            break;
+          }
+          pos = comma + 1;
+        }
+      }
+      zfo.csd_kernel_path = FLAGS_zf_csd_kernel_path;
+      if (!zeroflush::ParseCsdSlotPolicy(FLAGS_zf_csd_slot_policy,
+                                         &zfo.csd_slot_policy)) {
+        fprintf(stderr, "Unknown --zf_csd_slot_policy: %s\n",
+                FLAGS_zf_csd_slot_policy.c_str());
+        ErrorExit();
+      }
+      if (!zeroflush::ParseCsdFallbackPolicy(FLAGS_zf_csd_fallback_policy,
+                                             &zfo.csd_fallback_policy)) {
+        fprintf(stderr, "Unknown --zf_csd_fallback_policy: %s\n",
+                FLAGS_zf_csd_fallback_policy.c_str());
+        ErrorExit();
+      }
+      if (FLAGS_zf_csd_max_input_files > 0) {
+        zfo.csd_max_input_files =
+            static_cast<uint32_t>(FLAGS_zf_csd_max_input_files);
+      }
+      if (FLAGS_zf_csd_slot_wait_ms >= 0) {
+        zfo.csd_slot_wait_micros =
+            static_cast<uint64_t>(FLAGS_zf_csd_slot_wait_ms) * 1000;
       }
       s = zeroflush::Open(options, zfo, db_name, &db->db_owner);
       if (s.ok()) {

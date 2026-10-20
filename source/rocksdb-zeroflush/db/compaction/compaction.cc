@@ -18,6 +18,9 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/sst_partitioner.h"
 #include "test_util/sync_point.h"
+#include <atomic>
+#include <execinfo.h>
+
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -724,6 +727,33 @@ bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
 
 // Mark (or clear) each file that is being compacted
 void Compaction::MarkFilesBeingCompacted(bool being_compacted) const {
+  // 诊断（case 1 卡住：目标分区的 L1 文件恒 being_compacted、无持有者登记）：
+  // 打印**谁在标记/清除**哪些文件号——用于定位"注册后未解除"的路径。
+  if (getenv("ZF_DBG_MM") != nullptr) {
+    static std::atomic<uint64_t> zf_mark_dbg{0};
+    if (zf_mark_dbg.fetch_add(1, std::memory_order_relaxed) < 2000) {
+      std::string nums;
+      for (size_t i = 0; i < num_input_levels(); i++) {
+        for (size_t j = 0; j < inputs_[i].size(); j++) {
+          nums += std::to_string(inputs_[i][j]->fd.GetNumber());
+          nums += " ";
+        }
+      }
+      fprintf(stderr,
+              "ZFDBG-mm-mark set=%d reason=%d out_level=%d inputs=[%s]\n",
+              being_compacted ? 1 : 0, static_cast<int>(compaction_reason()),
+              output_level(), nums.c_str());
+      if (being_compacted && getenv("ZF_DBG_MARK_BT") != nullptr) {
+        static std::atomic<uint64_t> zf_bt_dbg{0};
+        if (zf_bt_dbg.fetch_add(1, std::memory_order_relaxed) < 3) {
+          void* frames[24];
+          const int nf = backtrace(frames, 24);
+          fprintf(stderr, "ZFDBG-mm-mark-bt n=%d\n", nf);
+          backtrace_symbols_fd(frames, nf, 2);
+        }
+      }
+    }
+  }
   for (size_t i = 0; i < num_input_levels(); i++) {
     for (size_t j = 0; j < inputs_[i].size(); j++) {
       assert(being_compacted != inputs_[i][j]->being_compacted);

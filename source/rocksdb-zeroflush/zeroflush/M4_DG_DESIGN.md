@@ -1,6 +1,6 @@
 # ZeroFlushV0 M4 动态治理 DG 设计/状态档（v1）
 
-状态：v1 已落地并 e2e 闭合（2026-09-09）。依据 ZEROFLUSHV0_ROADMAP.md
+状态：v1 已落地并 e2e 闭合（2026-09-09）。依据 archive/report/study/ZEROFLUSHV0_ROADMAP.md
 §2 M4；M4_DESIGN.md 为旧架构档，与修订版编号无关（本文件是新 M4 的设计档）。
 
 ## 0. 目标与总览

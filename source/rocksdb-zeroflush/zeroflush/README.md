@@ -101,6 +101,18 @@ python3 generate_html_report.py    # 生成 report.html
   直装 base level → M3.3 Materialize-into-BaseLevel 融合归并 →
   M3.4 多列族/Merge/DeleteRange → M3.5 CSD 卸载后端
 - ⏳ **下一步**：M3.1（PartitionTable 范围路由），在 [M3_DESIGN.md](M3_DESIGN.md) 中由 13 例全绿准入门槛保护
+- ✅ **ZeroFlush V2 档已交付**（2026-10-16，见 [V2_DESIGN.md](V2_DESIGN.md)）：
+  - **固定范围分区**（`routing_mode=kStatic` + 显式边界）、**无动态分区**
+    （DG/split/merge/生长拆分在 V2 档被拒绝或强制关闭）、保留"取消
+    memtable→flush、数据直写分区 WAL"、封存后与 L1 融合出 SST（禁 L0）；
+  - **物化后端抽象**（`materialize_backend.{h,cc}`）：CPU `host` 路径（默认，
+    零行为改动）+ CSD 设备路径（`csd-sim` 内建仿真 / `csd-plugin` 共享库 ABI v1），
+    设备不可用即回退 host 并计数；
+  - 开关：`--zf_v2`、`--zf_materialize_backend`、`--zf_csd_*`；属性：
+    `engine_profile` / `materialize_backend` / `csd_tasks` / `csd_device_tasks`
+    / `csd_fallbacks` / `csd_probe_failures` / `csd_micros`；
+  - 验收用例：`zf_valcheck <db> v2 <n> <threads>`、`zf_valcheck <db> backendeq
+    <n> <threads>`（host vs csd 逐键 + 层级 + 字节等价）。
 
 ## 参考
 

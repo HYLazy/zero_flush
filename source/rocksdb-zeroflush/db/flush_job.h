@@ -299,6 +299,8 @@ class FlushJob {
     std::vector<std::pair<uint64_t, int>> outputs;
   };
   std::vector<ZfPlannedInstall> zf_planned_installs_;
+  // step V0.6-A11：本批开始前已在飞的 epoch（批次结束时清理台账用）。
+  std::vector<uint64_t> in_flight_before_;
   // M5P1b（多 flush 并行）：本批次的跨批互斥登记 token。登记在
   // ZfMaterializeAllEpochs 计划期（注册产出分区）；**成功路径不在
   // ZfMaterializeAllEpochs 内释放**——安装（TryInstallMemtableFlushResults/

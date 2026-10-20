@@ -3886,6 +3886,21 @@ Status DBImpl::ZfSwitchMemtable(ColumnFamilyData* cfd) {
     GenerateFlushRequest({cfd}, FlushReason::kWriteBufferFull, &flush_req);
     EnqueuePendingFlush(flush_req);
   }
+  if (getenv("ZF_TRACE_IMM") != nullptr) {
+    fprintf(stderr,
+            "ZFTRACE site=ZfSwitchMemtable queued=%d pending=%d notflushed=%d\n",
+            (int)cfd->queued_for_flush(), (int)cfd->imm()->IsFlushPending(),
+            (int)cfd->imm()->NumNotFlushed());
+  }
+  // step V0.6-A14（用户 2026-09-17 第 2 项："核对对应 flush 是否已经入队、
+  // 有没有可运行的 worker"）：**入队后必须触发调度**。`EnqueuePendingFlush` 只把
+  // 请求放进 `flush_queue_` 并 `++unscheduled_flushes_`，不会唤醒 worker；上游
+  // 依赖调用方随后调用 `MaybeScheduleFlushOrCompaction()`（连续写入时写路径会频繁
+  // 调用，掩盖了这个缺口）。实测（case 1：线程栈 + 入队 trace）：
+  //   `EnqueuePendingFlush enqueue=1` → `flushq=1 unschedflush=1 bgflush=0
+  //   maxflush=4`（worker 全空闲）→ **30s 无任何批次被规划**，直到关闭路径才被调度
+  //   ⇒ "停写后已封存代永不物化"。封存路径必须自行调度。
+  MaybeScheduleFlushOrCompaction();
   return s;
 }
 

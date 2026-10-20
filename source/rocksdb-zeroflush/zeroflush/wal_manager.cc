@@ -125,6 +125,13 @@ bool WalScanner::Next(ZfRecordHeader* h, rocksdb::Slice* key,
       return false;
     }
     if (buf_pos_ + total > buf_.size()) {
+      if (getenv("ZF_DBG_RECOVER") != nullptr) {
+        fprintf(stderr,
+                "ZFDBG-scan-tail path=%s offset=%llu need=%u have=%zu "
+                "eof_reached=1\n",
+                path_.c_str(), (unsigned long long)offset_, total,
+                buf_.size() - buf_pos_);
+      }
       // 尾部记录不完整：对已封存文件意味着数据丢失（封存时已完整刷盘）。
       zeroflush::get_trace::NoteReadErrorSite(
           22 /*scanner.body*/, 0, 0, offset_, total, buf_.size() - buf_pos_, 0, 1,
@@ -169,6 +176,14 @@ bool WalScanner::Refill() {
   buf_.resize(old + kScanChunkSize);
   rocksdb::Slice result;
   rocksdb::Status s = file_->Read(kScanChunkSize, &result, &buf_[old]);
+  if (getenv("ZF_DBG_RECOVER") != nullptr) {
+    // 诊断（lifecycle 重启读错误）：**短读**假设验证——单次 Read 若返回
+    // 少于请求字节数（POSIX 允许），而调用方把它当 EOF ⇒ 尾部记录被静默丢弃。
+    fprintf(stderr,
+            "ZFDBG-scan-read path=%s req=%zu got=%zu buf_before=%zu ok=%d\n",
+            path_.c_str(), static_cast<size_t>(kScanChunkSize), result.size(),
+            old, s.ok() ? 1 : 0);
+  }
   if (!s.ok()) {
     if (info_log_ != nullptr) {
       ROCKSDB_NAMESPACE::Error(info_log_,

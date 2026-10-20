@@ -366,6 +366,9 @@ void SealedFileCache::MarkEpochInstalled(uint64_t epoch) {
   }
 }
 
+// step V0.6-A12（用户口径）：逐代回收分类——installed / epoch 归属 / 读引用数 /
+// 是否已请求回收 / retiring / 是否在 purge 队列 / 文件是否存在。
+// 只读诊断：不 unlink、不清 registry。
 std::string SealedFileCache::DescribeGen(uint32_t part, uint32_t gen) const {
   rocksdb::MutexLock l(&mu_);
   const ZfFileKey k = MakeFileKey(part, gen);
@@ -399,6 +402,23 @@ std::string SealedFileCache::DescribeGen(uint32_t part, uint32_t gen) const {
              std::to_string(it->second) + " ";
     }
   }
+  // V0.6-A12：回收分类字段（installed/归属见上；以下为回收相关证据）
+  {
+    out += "| read_refs=" +
+           std::to_string(gen_read_refs_.count(k) > 0 ? gen_read_refs_.at(k) : 0);
+    out += std::string(" retiring=") + (retiring_gens_.count(k) > 0 ? "1" : "0");
+    out += std::string(" reclaim_requested=") +
+           (reclaim_pending_.count(k) > 0 ? "1" : "0");
+    const std::string fname = FileName(part, gen);
+    bool queued = false;
+    for (const auto& r : pending_unlink_) {
+      if (r.name == fname) { queued = true; break; }
+    }
+    out += std::string(" in_unlink_queue=") + (queued ? "1" : "0");
+    uint64_t fsz = 0;
+    const rocksdb::Status fs = env_->GetFileSize(fname, &fsz);
+    out += std::string(" file=") + ((fs.ok() && fsz > 0) ? "1" : "0");
+  }
   return out;
 }
 
@@ -430,10 +450,22 @@ size_t SealedFileCache::registered_gens() const {
 void SealedFileCache::ForEachEpoch(
     const std::function<void(
         uint64_t, const std::vector<std::pair<uint32_t, uint32_t>>&)>& fn) const {
-  rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
-  rocksdb::MutexLock l(m);
-  for (const auto& [ep, se] : epochs_) {
-    fn(ep, se.gens);
+  // step V0.6-A11 修复（gdb 栈实证）：**先在锁内做快照、释放锁后再回调**。
+  // 原实现在持锁状态下调用 fn，而调用方（排空的"卡住 epoch"扫描）在回调里又调用
+  // `GenInstalledPublished()`/`IsGenInstalled()` ⇒ 对非递归锁二次加锁 ⇒ 死锁
+  // （实测：主线程查询 pending_gens 与 LOW worker 全部堵在 sealed_cache mu_ 上）。
+  std::vector<std::pair<uint64_t, std::vector<std::pair<uint32_t, uint32_t>>>>
+      snap;
+  {
+    rocksdb::port::Mutex* m = const_cast<rocksdb::port::Mutex*>(&mu_);
+    rocksdb::MutexLock l(m);
+    snap.reserve(epochs_.size());
+    for (const auto& [ep, se] : epochs_) {
+      snap.emplace_back(ep, se.gens);
+    }
+  }
+  for (const auto& [ep, gens] : snap) {
+    fn(ep, gens);
   }
 }
 

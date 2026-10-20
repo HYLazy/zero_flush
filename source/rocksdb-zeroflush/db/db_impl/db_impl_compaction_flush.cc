@@ -3227,9 +3227,12 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       const auto* vstorage =
           default_cf_handle_->cfd()->current()->storage_info();
       fprintf(stderr,
-              "ZFDBG-sched unsched=%d bgc=%d l1score=%.2f l2score=%.2f "
+              "ZFDBG-sched unsched=%d bgc=%d flushq=%zu unschedflush=%d "
+              "bgflush=%d maxflush=%d l1score=%.2f l2score=%.2f "
               "l1n=%zu l2n=%zu l2bytes=%llu\n",
-              unscheduled_compactions_, bg_compaction_scheduled_,
+              unscheduled_compactions_, bg_compaction_scheduled_, flush_queue_.size(),
+              unscheduled_flushes_, bg_flush_scheduled_,
+              GetBGJobLimits().max_flushes,
               vstorage->CompactionScore(1), vstorage->CompactionScore(2),
               vstorage->LevelFiles(1).size(), vstorage->LevelFiles(2).size(),
               (unsigned long long)vstorage->NumLevelBytes(2));
@@ -3369,7 +3372,7 @@ void DBImpl::MaybeScheduleZfSink() {
     const long long mb = atoll(v);
     return mb > 0 ? static_cast<uint64_t>(mb) << 20 : (4ull << 30);
   }();
-  // step 0a 结论（2026-09-15，见 output/zeroflush_m5_perf/sink_tuning/
+  // step 0a 结论（2026-09-15，见 archive/zeroflush_m5_perf/sink_tuning/
   // REPORT_0A.md 第 7 节）：单文件窄下沉请求成本高（成功率 12%）、吞吐低约 30%、
   // 且不降低写放大；合批在当前 L1 扇出（每分区 1–2 个 L1 文件）下判据从不生效。
   // 因此**默认回到整分区下沉**，两种实验策略降级为开关：
@@ -4132,6 +4135,29 @@ void DBImpl::MaybeScheduleZfDrainLocked() {
   if (!zf_ctx_->NeedsBacklogDrain()) {
     return;
   }
+  if (getenv("ZF_DBG_DRAINWORK") != nullptr && zf_ctx_->sealed_cache() != nullptr) {
+    // 触发证据：哪个分区、多少未安装字节、年龄起点（用于区分"字节阈值"与
+    // "年龄判据"；此前年龄判据因 `since` 不复位而退化，见 zeroflush_db.cc）。
+    std::string detail;
+    const uint32_t nparts = zf_ctx_->options().partitions;
+    for (uint32_t q = 0; q < nparts; ++q) {
+      const uint64_t qb = zf_ctx_->sealed_cache()->UninstalledBytesOf(q);
+      if (qb == 0) continue;
+      char buf[96];
+      snprintf(buf, sizeof(buf), " %u:%lluB(age=%llums)", q, (unsigned long long)qb,
+               (unsigned long long)(zf_ctx_->BacklogAgeMicros(q) / 1000));
+      detail += buf;
+    }
+    fprintf(stderr,
+            "ZFDBG-drainenq trigger part_bytes=%s skipped=%llu pending=%llu "
+            "size_thr=%llu age_thr=%llums\n",
+            detail.empty() ? "-" : detail.c_str(),
+            (unsigned long long)zf_ctx_->sealed_cache()->skipped_bytes(),
+            (unsigned long long)zf_ctx_->PendingMaterializeBytes(),
+            (unsigned long long)zf_ctx_->options().base_merge_skip_max_bytes,
+            (unsigned long long)(zf_ctx_->options().backlog_drain_max_age_micros /
+                                 1000));
+  }
   // 无进展后的退避：由定时器按 deadline 唤醒（不立即重排）。
   const uint64_t now = env_->NowMicros();
   if (zf_drain_next_deadline_us_.load(std::memory_order_relaxed) > now) {
@@ -4240,16 +4266,62 @@ void DBImpl::BackgroundCallZfDrain() {
       pending_before = zf_ctx_->PendingMaterializeBytes();
       zf_ctx_->SetBacklogDrainActive(true);
       // step V0.6-A9：先把 skip 代**收养**成可规划的 drain work item（所有权转移），
-      // 再走正常排空（seal→规划→冲突检查→安装）。无 skip 代时返回 1，正常排空照做。
-      zf_ctx_->AdoptSkippedGensForDrainLocked();
-    }
-    // 用户口径：**只绕过"收益不足"的等待**（由 closing_flush/drain 模式在规划器里实现），
-    // 安全冲突检查照常（文件占用/输入未就绪/安装冲突 ⇒ 让位 + 退避）。
-    // 强制为空尾产生真实批次，使收养出的 epoch 进入正常规划/安装。
-    ZfDrainForceFlushEmptyEpoch();
-    ZfDrainNow();
-    if (zf_ctx_ != nullptr) {
+      // 再走正常排空（seal→规划→冲突检查→安装）。返回值 0 = **确有** skip 代待采纳；
+      // 1 = 无。
+      const int adopt_rc = zf_ctx_->AdoptSkippedGensForDrainLocked();
+      // 用户口径（2026-09-17 第 2 项："任务在飞期间不得再次收养或反复生成空批次"）：
+      // **没有可采纳的 skip 代就不要强制封存**。此前无条件调用 ⇒ 每次排空都造出
+      // 一个**合成 epoch**，随后的用户写入批次会并入该 epoch 并在 drain 模式下规划
+      // ⇒ 收益门槛被无谓绕过（实测 case 1：`skipgate ... drain_mode=1(active=1)`，
+      // `skip_merge_benefit` 恒 0）。
+      if (adopt_rc == 0) {
+        // 用户口径：**只绕过"收益不足"的等待**（由 closing_flush/drain 模式在规划器里
+        // 实现），安全冲突检查照常（文件占用/输入未就绪/安装冲突 ⇒ 让位 + 退避）。
+        // 强制为空尾产生真实批次，使收养出的 epoch 进入正常规划/安装。
+        ZfDrainForceFlushEmptyEpoch();
+      }
+      ZfDrainNow();
+      // 规划阶段到此结束：`backlog_drain_active` 只用于**影响规划**（禁止 kSkip），
+      // 随后的清理观察窗（最长 3s）不应继续保持该标记——否则窗口内新到的用户批次
+      // 仍按"排空模式"强制融合（实测抑制了"收益不足 ⇒ skip"）。
       zf_ctx_->SetBacklogDrainActive(false);
+    }
+    // step V0.6-A12（逐代分类证据：installed=1/refs=0/retiring=1/in_unlink_queue=1/file=1
+    // ⇒ "已入队但无人处理"）：排空完成后接入**生产回收入口**（与
+    // DBImpl::PurgeObsoleteFiles 调用的同一个 `PurgeSealedFiles()`）⇒ 真实 unlink +
+    // 记账 + registry 条目清理，全部走既有机制（不直接 unlink、不手工清 registry）。
+    if (zf_ctx_ != nullptr) {
+      // 有界重试：unlink 入队发生在**引用释放之后**（批次 imm 析构时），可能晚于
+      // 本次 purge ⇒ 小步重试直到队列空（仍走生产入口）。
+      // 有界观察窗（≤3s）：unlink 入队发生在**引用释放之后**（批次 imm 析构），
+      // 可能晚于本次排空 ⇒ 轮询并在非空时立即走生产入口回收。
+      for (int pp = 0; pp < 60; ++pp) {
+        const size_t pend_unlink = zf_ctx_->sealed_cache() != nullptr
+                                       ? zf_ctx_->sealed_cache()->pending_count()
+                                       : 0;
+        if (pend_unlink > 0) {
+          zf_ctx_->PurgeSealedFiles();
+          if (getenv("ZF_DBG_DRAINWORK") != nullptr) {
+            fprintf(stderr,
+                    "ZFDBG-drainwork purge round=%d pending_unlink=%zu reclaimed=%llu "
+                    "registered=%zu\n",
+                    pp, pend_unlink,
+                    (unsigned long long)(zf_ctx_->sealed_cache() != nullptr
+                                             ? zf_ctx_->sealed_cache()->reclaimed_bytes()
+                                             : 0),
+                    zf_ctx_->sealed_cache() != nullptr
+                        ? zf_ctx_->sealed_cache()->registered_gens()
+                        : 0);
+          }
+          if (zf_ctx_->sealed_cache() != nullptr &&
+              zf_ctx_->sealed_cache()->registered_gens() == 0) {
+            break;
+          }
+        }
+        env_->SleepForMicroseconds(50 * 1000);
+      }
+    }
+    if (zf_ctx_ != nullptr) {
       progress = (zf_ctx_->DrainedMaterializeBytes() > drained_before) ||
                  (zf_ctx_->PendingMaterializeBytes() < pending_before);
     }

@@ -86,6 +86,16 @@ uint64_t Prop2(rocksdb::DB* db, const char* full_name) {
   return strtoull(v.c_str(), nullptr, 10);
 }
 
+// 字符串属性（zeroflush 前缀），用于 "engine_profile"/"materialize_backend"
+// 这类枚举型属性。
+std::string PropS(rocksdb::DB* db, const char* name) {
+  std::string v;
+  if (!db->GetProperty(std::string("rocksdb.zeroflush.") + name, &v)) {
+    return "";
+  }
+  return v;
+}
+
 uint64_t Prop(rocksdb::DB* db, const char* name) {
   std::string v;
   if (!db->GetProperty(std::string("rocksdb.zeroflush.") + name, &v)) {
@@ -98,6 +108,13 @@ void DiagKeyState(rocksdb::DB* db,
                   const std::shared_ptr<zeroflush::ZeroFlushContext>& ctx,
                   const std::string& dbdir, uint64_t key_v, int key_size,
                   int val_size);
+
+// ZF 上下文取用（null 安全）：诊断路径使用。
+inline std::shared_ptr<zeroflush::ZeroFlushContext> GetZfCtx(rocksdb::DB* db) {
+  if (db == nullptr) return nullptr;
+  auto* impl = static_cast<rocksdb::DBImpl*>(db);
+  return impl->GetZeroFlushContext();
+}
 
 void CheckRange(rocksdb::DB* db, const rocksdb::Snapshot* snap, uint64_t lo,
                 uint64_t hi, uint64_t half, Stats* st) {
@@ -300,6 +317,15 @@ std::unique_ptr<rocksdb::DB> OpenDb(const std::string& dbdir, bool create) {
       zfo.base_merge_skip_max_generations = static_cast<uint32_t>(v);
     }
   }
+  // step V0.6-P1 参数扫描（用户 2026-09-18 第 2 项）：积压"强制融合"阈值
+  // （`base_merge_skip_max_bytes`，默认 32MB）——它同时决定攒批上限与排空触发，
+  // 是"写放大 vs 立即读吞吐/积压峰值"的主旋钮。
+  if (const char* sb = getenv("ZF_VC_SKIP_MAX_MB")) {
+    const long v = strtol(sb, nullptr, 10);
+    if (v > 0) {
+      zfo.base_merge_skip_max_bytes = static_cast<uint64_t>(v) << 20;
+    }
+  }
   // step V0.6-A3 验收：积压年龄上限（ms；用例可缩短以便快速验证年龄唤醒路径）。
   if (const char* bam = getenv("ZF_VC_BACKLOG_AGE_MS")) {
     const long v = strtol(bam, nullptr, 10);
@@ -308,6 +334,56 @@ std::unique_ptr<rocksdb::DB> OpenDb(const std::string& dbdir, bool create) {
   if (getenv("ZF_VC_MERGE_OFF") != nullptr) {
     zfo.merge_into_base_level = false;
     zfo.merge_into_base_level_explicit = true;
+  }
+  // ---- ZeroFlush V2：固定范围档 + 物化后端（host CPU / CSD 设备）----
+  // ZF_VC_V2=1                 ⇒ 打开 V2 档（固定范围、无动态分区、融合安装）
+  // ZF_VC_BACKEND=host|csd     ⇒ 物化后端
+  // ZF_VC_CSD_DEVICES=sim,...  ⇒ 设备列表（"sim" = 内建设备仿真）
+  // ZF_VC_CSD_KERNEL_PATH=<so> ⇒ 设备插件（C ABI v1）
+  // ZF_VC_CSD_FALLBACK=host|fail、ZF_VC_CSD_SLOT_POLICY=...、ZF_VC_CSD_MAX_INPUT
+  if (getenv("ZF_VC_V2") != nullptr) {
+    zfo.v2_fixed_range = true;
+  }
+  if (const char* be = getenv("ZF_VC_BACKEND")) {
+    if (!zeroflush::ParseMaterializeBackendKind(be, &zfo.materialize_backend)) {
+      fprintf(stderr, "ZF_VC_BACKEND must be host|csd (got '%s')\n", be);
+      return nullptr;
+    }
+  }
+  if (const char* dv = getenv("ZF_VC_CSD_DEVICES")) {
+    std::string s(dv);
+    size_t pos = 0;
+    while (pos <= s.size()) {
+      const size_t comma = s.find(',', pos);
+      const std::string one = s.substr(
+          pos, comma == std::string::npos ? std::string::npos : comma - pos);
+      if (!one.empty()) zfo.csd_devices.push_back(one);
+      if (comma == std::string::npos) break;
+      pos = comma + 1;
+    }
+  }
+  if (const char* kp = getenv("ZF_VC_CSD_KERNEL_PATH")) {
+    zfo.csd_kernel_path = kp;
+  }
+  if (const char* sp = getenv("ZF_VC_CSD_SLOT_POLICY")) {
+    if (!zeroflush::ParseCsdSlotPolicy(sp, &zfo.csd_slot_policy)) {
+      fprintf(stderr, "ZF_VC_CSD_SLOT_POLICY unknown: %s\n", sp);
+      return nullptr;
+    }
+  }
+  if (const char* fp = getenv("ZF_VC_CSD_FALLBACK")) {
+    if (!zeroflush::ParseCsdFallbackPolicy(fp, &zfo.csd_fallback_policy)) {
+      fprintf(stderr, "ZF_VC_CSD_FALLBACK must be host|fail (got '%s')\n", fp);
+      return nullptr;
+    }
+  }
+  if (const char* mi = getenv("ZF_VC_CSD_MAX_INPUT")) {
+    const long v = strtol(mi, nullptr, 10);
+    if (v > 0) zfo.csd_max_input_files = static_cast<uint32_t>(v);
+  }
+  if (const char* sw = getenv("ZF_VC_CSD_SLOT_WAIT_MS")) {
+    const long v = strtol(sw, nullptr, 10);
+    if (v >= 0) zfo.csd_slot_wait_micros = static_cast<uint64_t>(v) * 1000;
   }
   std::unique_ptr<rocksdb::DB> db;
   const auto s = zeroflush::Open(opt, zfo, dbdir, &db);
@@ -506,7 +582,8 @@ void ScanSstsFor(rocksdb::DB* db, uint64_t key_v, int value_size,
 int main(int argc, char** argv) {
   if (argc < 4) {
     fprintf(stderr,
-            "usage: %s <dbdir> <all|verify|walhit|l1hit> <num_keys> "
+            "usage: %s <dbdir> <all|verify|walhit|l1hit|v2|backendeq> "
+            "<num_keys> "
             "[threads] [per_thread]\n",
             argv[0]);
     return 2;
@@ -527,16 +604,40 @@ int main(int argc, char** argv) {
        mode == "baccept" || mode == "installtest" || mode == "routingneg" ||
        mode == "failaccept" || mode == "aprobe" || mode == "mini" ||
        mode == "snapmini" || mode == "migrate" || mode == "closestress" ||
-       mode == "autodrain" || mode == "drainlife" || mode == "skipdrain");
+       mode == "autodrain" || mode == "drainlife" || mode == "skipdrain" ||
+       mode == "lifecycle" || mode == "v2" || mode == "backendeq");
   const bool do_flush = (mode == "all" || mode == "l1hit");
   const bool write_only = (mode == "write");
 
   Stats st;
   // step B-2b：installtest 用**固定 range 路由**开库（必须在 OpenDb 之前设定，
   // 保证"从第一条写入起"就是固定表；重开时同一配置 ⇒ 由 ZFPROPS 校验一致性）。
-  if (mode == "installtest") {
+  if (mode == "v2" || mode == "backendeq") {
+    // V2 档必须从**第一次写入**起就是固定范围表（重开由 ZFPROPS 校验一致性）。
+    setenv("ZF_VC_V2", "1", 1);
     setenv("ZF_VC_FIXED_ROUTING", "1", 1);
   }
+  if (mode == "v2") {
+    // 把封存阈值抬到高于本轮写入量 ⇒ "写入后、封存前"这一刻真的存在
+    // （v2 用例要在该时刻证明"没有 SST、数据只在 WAL/索引"，见 ②）；
+    // 封存由用例显式 ForceSealForTest 触发（与 mini/lifecycle 同法）。
+    setenv("ZF_VC_PARTITION_TARGET_KB", "131072", 1);  // 128MB/分区（K=8 时满足内存上界）
+    setenv("ZF_VC_EPOCH_TARGET_MB", "2048", 1);        // 2GB/epoch
+  }
+  if (mode == "installtest" || mode == "lifecycle") {
+    // lifecycle：固定 range 路由 4 分区（边界按 num_keys 等分，键 0..N-1 均匀落盘）
+    // ——与用户指定的"4 分区"口径一致，且两组对照使用**同一路由**。
+    setenv("ZF_VC_FIXED_ROUTING", "1", 1);
+  }
+  // step V0.6-A13（case 1 观察窗口）：**不要**用 `ZF_TEST_DRAIN_GATE_RUN` 去"关排空"
+  // ——实测该屏障会让排空任务占住后台 worker，而本 fork 里 flush 批次与排空任务
+  // **共用同一个池**（`MaybeScheduleFlushOrCompaction` 在 `GetBackgroundThreads(HIGH)==0`
+  // 时回退 LOW）⇒ 观察期第二轮批次被饿死，规划直到 close 才发生（实测
+  // `skigate ... close=1`）。观察窗口改用**生产选项**：把积压年龄阈值抬到高于
+  // 第二轮规划延迟、低于用例等待窗（`ZF_VC_BACKLOG_AGE_MS=5000`），使观察期内
+  // 没有排空任务在飞（`backlog_drain_active=false`）⇒ 规划点按收益不足进入 skip。
+  // 注：`ZF_ENABLE_BACKLOG_DRAIN` 是**死变量**（引擎不读）；排空由
+  // `NeedsBacklogDrain()` 按积压字节/年龄驱动。
   std::unique_ptr<rocksdb::DB> db = OpenDb(dbdir, do_write);
   if (db == nullptr) {
     return 1;
@@ -3086,6 +3187,27 @@ int main(int argc, char** argv) {
       ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(), q,
                             ctx->wal()->ActiveGenOpt(q).value_or(0), &sg);
     }
+    // step V0.6-A17（本轮的关闭窗口重跑要求）：**制造"持久积压"**。
+    // 旧夹具依赖一个已修复的缺陷行为——`backlog_since` 在积压归零后不复位
+    // （`TouchBacklogAge` 无调用点）⇒ 年龄判据在 30s 后恒真 ⇒ 排空任务总会入队。
+    // 年龄判据修正为"当前这段连续积压的年龄"后，一个完整 epoch（ratio=1.0 ⇒
+    // 直接融合安装）在 ~100ms 内被装完 ⇒ 积压清零 ⇒ 年龄永不触发 ⇒ 关闭窗口
+    // 没有在飞任务可取消/可等待（实测 ev{enqueued=0}）。
+    // 改为与 case 1 同构：收益攒批开启时写**极小第二批**并封存 ⇒ 该代被收益门禁
+    // 判为"不足"⇒ 留在 skip 集合（未安装）⇒ 积压持续存在 ⇒ 年龄（测试用 1s）到点
+    // 即入队 ⇒ 关闭窗口回到"任务在队/在跑"的真实场景。
+    if (getenv("ZF_VC_MERGE_BENEFIT") != nullptr) {
+      for (int i = 0; i < 2; ++i) {
+        const uint64_t kk = static_cast<uint64_t>(i) * 13 + 7;
+        const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
+        db->Put(rocksdb::WriteOptions(), k, zf_keygen::ValueFor(kk, 1, kValueSize));
+      }
+      for (uint32_t q = 0; q < 4; ++q) {
+        uint32_t sg = 0;
+        ctx->ForceSealForTest(impl, impl->GetDefaultColumnFamily(), q,
+                              ctx->wal()->ActiveGenOpt(q).value_or(0), &sg);
+      }
+    }
     const uint64_t t0 = rocksdb::Env::Default()->NowMicros();
     std::string dl_state;
     while (rocksdb::Env::Default()->NowMicros() - t0 < 30ull * 1000 * 1000) {
@@ -3391,6 +3513,9 @@ int main(int argc, char** argv) {
       keys.push_back(k);
     }
     auto ctx = impl->GetZeroFlushContext();
+    // step V0.6-A13：case 1 的"先关排空/后开排空"改由**硬屏障**实现（见 main 中
+    // `ZF_TEST_DRAIN_GATE_RUN` 的设定）——`ZF_ENABLE_BACKLOG_DRAIN` 是死变量
+    // （引擎不读），此前"观察期关排空"实际未生效，前置因此不可达。
     auto seal_all = [&] {
       for (uint32_t q = 0; q < 4; ++q) {
         ctx->wal()->Sync(q).PermitUncheckedError();
@@ -3406,41 +3531,90 @@ int main(int argc, char** argv) {
       // case 1：分两轮——第一轮建立 base（ratio=1.0 ⇒ 直接融合安装），
       // 第二轮才有较大 base ⇒ 收益不足 ⇒ 触发 **skip 攒批**（本用例的前置）。
       seal_all();
-      for (int t = 0; t < 40 && p("pending_materialize_bytes") != 0; ++t) {
-        env_sleep_ms(50);
+      // 第一轮必须等**安装完成**（pending 归零 + drained 推进）后才写第二轮，
+      // 否则 base 尚未成形 ⇒ ratio 不达标 ⇒ 前置（收益不足 ⇒ skip）建不起来。
+      {
+        const uint64_t t_r1 = rocksdb::Env::Default()->NowMicros();
+        const uint64_t dr_b = p("drained_materialize_bytes");
+        bool r1_ok = false;
+        for (int t = 0; t < 200; ++t) {
+          if (p("pending_materialize_bytes") == 0 &&
+              p("drained_materialize_bytes") > dr_b) {
+            r1_ok = true;
+            break;
+          }
+          env_sleep_ms(50);
+        }
+        // 阶段耗时（诊断"第二轮数据为何迟迟不被规划"：若这里已耗掉数秒，
+        // 说明第一轮的安装延迟把"积压年龄"时钟提前启动了，年龄判据会先于
+        // 第二轮规划触发排空 ⇒ 规划落在 drain 模式里）。
+        printf("skipdrain case=1 第一轮: 完成=%d 耗时=%llu ms pending=%llu "
+               "drained=%llu\n",
+               r1_ok ? 1 : 0,
+               (unsigned long long)((rocksdb::Env::Default()->NowMicros() - t_r1) /
+                                    1000),
+               (unsigned long long)p("pending_materialize_bytes"),
+               (unsigned long long)p("drained_materialize_bytes"));
       }
       // 第二轮**极小批量**（约为 base 的 1/64）⇒ 每分区 ratio ≪ 0.25
       // ⇒ 规划点按"收益不足"进入 skip（本用例的前置状态，用 skip_merge_benefit 计数断言）。
-      for (int i = 0; i < n / 64; ++i) {
+      for (int i = 0; i < 2; ++i) {  // 极小批量（2 条记录）⇒ ratio ≪ 阈值 ⇒ 必然 skip
         const uint64_t kk = static_cast<uint64_t>(i) * 19 + 7;
         const std::string k = zf_keygen::KeyFromInt(kk, kKeySize);
         db->Put(rocksdb::WriteOptions(), k, zf_keygen::ValueFor(kk, 1, kValueSize));
         keys.push_back(k);
       }
       seal_all();
+      // 第二轮封存完成后立刻记录 pending（诊断：第二轮数据在规划前停留多久）。
+      printf("skipdrain case=1 第二轮: 封存完成 pending=%llu skip_merge_benefit=%llu\n",
+             (unsigned long long)p("pending_materialize_bytes"),
+             (unsigned long long)p("skip_merge_benefit"));
     }
-    // 前置：确认确实存在 **skip 归属** 的未安装代（否则本用例前提不成立）。
+    // 前置（用户口径："在规划点直接断言 ratio < threshold、原因为收益不足、
+    // 确实进入 skip"）：**case 1 的权威证据 = `skip_merge_benefit` 计数**——它只在
+    // 真实规划点的收益门禁内自增（materialize_job.cc 的 kSkip 分支）。`+skip` 归属
+    // 标记是瞬态（排空任务一旦收养即消失）⇒ 只作补充记录。
+    // case 2 仍用 `+skip` 归属：其前提是"冲突让位 ⇒ 代进入 skip 集合"，与收益门禁无关。
     bool saw_skip = false;
+    uint64_t skip_hits = 0;
     const uint64_t t_pre = rocksdb::Env::Default()->NowMicros();
     while (rocksdb::Env::Default()->NowMicros() - t_pre < 30ull * 1000 * 1000) {
-      const std::string pg = sp("rocksdb.zeroflush.pending_gens");
-      if (pg.find("+skip") != std::string::npos) {
-        saw_skip = true;
-        break;
-      }
-      env_sleep_ms(50);
+      skip_hits = p("skip_merge_benefit");
+      saw_skip = sp("rocksdb.zeroflush.pending_gens").find("+skip") !=
+                 std::string::npos;
+      if (cse == 1 ? skip_hits > 0 : saw_skip) break;
+      env_sleep_ms(20);
     }
     const uint64_t pend0 = p("pending_materialize_bytes");
     const uint64_t dr0 = p("drained_materialize_bytes");
-    printf("skipdrain case=%d 前置: 观察到 skip 归属=%d pending=%llu drained=%llu "
-           "adopt=[%s]\n",
-           cse, saw_skip ? 1 : 0, (unsigned long long)pend0,
-           (unsigned long long)dr0, sp("rocksdb.zeroflush.adopt_stats").c_str());
-    if (!saw_skip) {
-      printf("skipdrain case=%d: SETUP_INVALID (未观察到 skip 归属；"
-             "收益不足判据 skip_merge_benefit=%llu)\n",
-             cse, (unsigned long long)p("skip_merge_benefit"));
+    printf("skipdrain case=%d 前置: skip_merge_benefit=%llu skip归属=%d pending=%llu "
+           "drained=%llu adopt=[%s]\n",
+           cse, (unsigned long long)skip_hits, saw_skip ? 1 : 0,
+           (unsigned long long)pend0, (unsigned long long)dr0,
+           sp("rocksdb.zeroflush.adopt_stats").c_str());
+    if (cse == 1 && skip_hits == 0) {
+      printf("skipdrain case=%d: SETUP_INVALID (规划点未进入收益不足 skip；"
+             "skip_merge_benefit=%llu)\n",
+             cse, (unsigned long long)skip_hits);
       return 3;
+    }
+    if (cse == 2 && !saw_skip) {
+      printf("skipdrain case=%d: SETUP_INVALID (冲突期未观察到 skip 归属；"
+             "skip_merge_benefit=%llu)\n",
+             cse, (unsigned long long)skip_hits);
+      return 3;
+    }
+    if (cse == 1) {
+      // 观察确认后**放行**被硬屏障拦住的排空任务（唯一的外部动作 = 创建放行文件；
+      // 不新写、不手工排空、不关闭）。排空任务随后自行走 收养 → 强制封存空尾 →
+      // 规划/冲突检查 → 安装 → 生产回收。
+      const char* gp = getenv("ZF_TEST_DRAIN_GATE_RUN");
+      if (gp != nullptr && *gp != '\0') {
+        FILE* gf = fopen(gp, "w");
+        if (gf != nullptr) fclose(gf);
+      }
+      printf("skipdrain case=1 前置已确认（skip_merge_benefit=%llu），放行后台排空\n",
+             (unsigned long long)p("skip_merge_benefit"));
     }
     // ---- 等待阶段：**不新写、不 Flush/DrainNow、不关闭** ----
     const uint64_t t0 = rocksdb::Env::Default()->NowMicros();
@@ -3490,6 +3664,22 @@ int main(int argc, char** argv) {
     const uint64_t reg_end = p("registered_gens");
     const uint64_t recl = p("reclaimed_bytes");
     const std::string ast = sp("rocksdb.zeroflush.adopt_stats");
+    // V0.6-A12：逐代回收分类（installed/归属/读引用/回收请求/retiring/队列/文件）。
+    if (getenv("ZF_DBG_RECLAIMDIAG") != nullptr) {
+      for (uint32_t dq = 0; dq < 4; ++dq) {
+        for (uint32_t dg = 0; dg < 4; ++dg) {
+          char dp[64];
+          snprintf(dp, sizeof(dp), "rocksdb.zeroflush.describe_gen:%u:%u", dq, dg);
+          std::string dv;
+          db->GetProperty(dp, &dv);
+          if (dv.find("registry=absent") != std::string::npos &&
+              dv.find("file_exists=0") != std::string::npos) {
+            continue;  // 从未存在的代，跳过
+          }
+          printf("skipdrain case=%d gen %u:%u -> %s\n", cse, dq, dg, dv.c_str());
+        }
+      }
+    }
     printf("skipdrain case=%d 终态: pending=%llu registered=%llu reclaimed=%llu "
            "pending_gens=%s adopt=[%s]\n",
            cse, (unsigned long long)pend, (unsigned long long)reg_end,
@@ -3513,6 +3703,349 @@ int main(int argc, char** argv) {
                                  : "INCOMPLETE"),
            pend == 0 ? 1 : 0, reg_end == 0 ? 1 : 0, recl > 0 ? 1 : 0, bad2 == 0 ? 1 : 0,
            consist_ok ? 1 : 0);
+    return pass ? 0 : 1;
+  }
+
+  if (mode == "lifecycle") {
+    // step V0.6-P1 验收（用户 2026-09-18 指定的度量流程；不新增任何排空动作）：
+    //   写入 → **停止写入** → 不调用 Flush/DrainNow、不关闭 DB →
+    //   等后台 pending=0（全程采样 pending 峰值）→ 立即读一遍（停写后立刻读的延迟，
+    //   此时可能仍有积压）→ 重开 → 再读一遍 → 确认旧代 WAL 已回收。
+    // 两组对照由**环境**切换（同一 build）：
+    //   基线：不设 `ZF_VC_MERGE_BENEFIT`（收益攒批关闭）
+    //   实验：`ZF_VC_MERGE_BENEFIT=8`（收益攒批 + 积压驱动排空）
+    // 输出单行 `LIFECYCLE …` 便于两两对照；判据不在这里做（由人工/脚本比对）。
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    rocksdb::DBImpl* impl = static_cast<rocksdb::DBImpl*>(db.get());
+    std::shared_ptr<zeroflush::ZeroFlushContext> ctx = impl->GetZeroFlushContext();
+    auto p = [&](const char* k) { return Prop(db.get(), k); };
+    auto sp = [&](const char* k) {
+      std::string v;
+      db->GetProperty(k, &v);
+      return v;
+    };
+    const int n = static_cast<int>(total);
+    const int wthreads = threads > 0 ? threads : 4;
+    std::vector<std::string> keys(n);
+    for (int i = 0; i < n; ++i) {
+      keys[i] = zf_keygen::KeyFromInt(static_cast<uint64_t>(i), kKeySize);
+    }
+    const uint64_t input_bytes =
+        static_cast<uint64_t>(n) * (kKeySize + kValueSize);
+    // ---- 阶段 1：写入（wthreads 个线程，键区间均分）----
+    const uint64_t t_w0 = rocksdb::Env::Default()->NowMicros();
+    {
+      std::vector<std::thread> th;
+      std::atomic<size_t> werr{0};
+      const int per = n / wthreads;
+      for (int t = 0; t < wthreads; ++t) {
+        const int lo = t * per;
+        const int hi = (t == wthreads - 1) ? n : lo + per;
+        th.emplace_back([&, lo, hi] {
+          for (int i = lo; i < hi; ++i) {
+            const uint64_t kk = static_cast<uint64_t>(i);
+            const rocksdb::Status ws = db->Put(
+                rocksdb::WriteOptions(), keys[i],
+                zf_keygen::ValueFor(kk, 1, kValueSize));
+            if (!ws.ok()) ++werr;
+          }
+        });
+      }
+      for (auto& x : th) x.join();
+      if (werr.load() != 0) {
+        printf("LIFECYCLE result=WRITE_ERROR errors=%zu\n", werr.load());
+        return 1;
+      }
+    }
+    const uint64_t write_ms =
+        (rocksdb::Env::Default()->NowMicros() - t_w0) / 1000;
+    // 立即读（停写后**不等待**任何后台完成）——积压最重时的读延迟。
+    auto read_sample = [&](int samples, uint64_t* bad, uint64_t* avg_us) {
+      const uint64_t t0 = rocksdb::Env::Default()->NowMicros();
+      uint64_t b = 0;
+      for (int s = 0; s < samples; ++s) {
+        const int i = static_cast<int>((static_cast<uint64_t>(s) * 7919u) %
+                                       static_cast<uint64_t>(n));
+        std::string got;
+        const rocksdb::Status sdst = db->Get(rocksdb::ReadOptions(), keys[i], &got);
+        if (!sdst.ok() ||
+            got != zf_keygen::ValueFor(static_cast<uint64_t>(i), 1, kValueSize)) {
+          ++b;
+        }
+      }
+      *bad = b;
+      *avg_us = (rocksdb::Env::Default()->NowMicros() - t0) /
+                static_cast<uint64_t>(samples);
+    };
+    // 多线程读吞吐（用户判据："写放大下降但读吞吐明显下降" ⇒ 暂不默认开启）：
+    // 两处各测一次——停写后（可能仍有积压，走 WAL/索引）与排空后（走 LSM/索引）。
+    auto read_throughput = [&](int rthreads, int ops_per_thread, uint64_t* bad,
+                               double* ops_per_sec) {
+      std::atomic<uint64_t> eb{0};
+      std::vector<std::thread> th;
+      const uint64_t t0 = rocksdb::Env::Default()->NowMicros();
+      for (int t = 0; t < rthreads; ++t) {
+        th.emplace_back([&, t] {
+          uint64_t x = 12345u + static_cast<uint64_t>(t) * 7919u;
+          for (int i = 0; i < ops_per_thread; ++i) {
+            x = x * 6364136223846793005ull + 1442695040888963407ull;
+            const int idx =
+                static_cast<int>((x >> 33) % static_cast<uint64_t>(n));
+            std::string got;
+            const rocksdb::Status sdst =
+                db->Get(rocksdb::ReadOptions(), keys[idx], &got);
+            if (!sdst.ok() ||
+                got != zf_keygen::ValueFor(static_cast<uint64_t>(idx), 1,
+                                           kValueSize)) {
+              eb.fetch_add(1, std::memory_order_relaxed);
+            }
+          }
+        });
+      }
+      for (auto& x : th) x.join();
+      const double us = static_cast<double>(
+          rocksdb::Env::Default()->NowMicros() - t0);
+      *bad = eb.load();
+      *ops_per_sec = us > 0 ? (static_cast<double>(rthreads) *
+                               static_cast<double>(ops_per_thread) * 1e6 / us)
+                            : 0.0;
+    };
+    uint64_t imm_bad = 0, imm_us = 0;
+    uint64_t imm_tb = 0, post_tb = 0;
+    double imm_tput = 0.0, post_tput = 0.0;
+    // 顺序：先测**立即读吞吐**（积压最重），再测延迟样本；排空后同序再来一遍。
+    read_throughput(4, 5000, &imm_tb, &imm_tput);
+    read_sample(2000, &imm_bad, &imm_us);
+    const uint64_t pend_at_stop = p("pending_materialize_bytes");
+    // ---- 阶段 2：只等待（不 Flush / 不 DrainNow / 不 Close）----
+    const uint64_t t_d0 = rocksdb::Env::Default()->NowMicros();
+    uint64_t pend = pend_at_stop, peak = pend_at_stop;
+    uint64_t last_change = t_d0;
+    bool drained = (pend == 0);
+    while (rocksdb::Env::Default()->NowMicros() - t_d0 <
+           600ull * 1000 * 1000) {
+      env_sleep_ms(100);
+      pend = p("pending_materialize_bytes");
+      if (pend > peak) peak = pend;
+      if (pend == 0) {
+        drained = true;
+        break;
+      }
+      if (pend != peak) last_change = rocksdb::Env::Default()->NowMicros();
+      (void)last_change;
+    }
+    const uint64_t drain_ms =
+        (rocksdb::Env::Default()->NowMicros() - t_d0) / 1000;
+    // ---- 阶段 2b：有界等待"旧代 WAL 回收"（用户流程最后一步，不能靠竞态）----
+    // 说明：pending 归零只代表"安装完成"，旧代 WAL 的 unlink 由生产 purge 路径
+    // 随后完成（入队在引用释放之后）。此处**有界等待**它归零并记录耗时；
+    // 超时则明确失败（而不是让后续断言随机通过/失败）。
+    uint64_t reclaim_wait_ms = 0;
+    {
+      const uint64_t t_r = rocksdb::Env::Default()->NowMicros();
+      while (rocksdb::Env::Default()->NowMicros() - t_r < 120ull * 1000 * 1000) {
+        uint64_t old_n = 0, all_n = 0;
+        const std::string wdir = dbdir + "/zfwal";
+        if (DIR* d = opendir(wdir.c_str())) {
+          while (struct dirent* e = readdir(d)) {
+            uint32_t q = 0, g = 0;
+            if (!ParseZfWalName(e->d_name, &q, &g)) continue;
+            ++all_n;
+            if (ctx == nullptr) continue;
+            const auto act = ctx->wal()->ActiveGenOpt(q);
+            if (act.has_value() && g >= act.value()) continue;  // 活跃代
+            // 只统计**非空**旧代文件：排空的"强制空尾封存"会留下 0 字节文件桩
+            //（无数据，不占空间；数据侧回收由 reclaimed_bytes 直接计量）。
+            std::ifstream in(ZfWalPath(wdir, q, g), std::ios::binary | std::ios::ate);
+            const std::streampos pos = in.tellg();
+            const uint64_t fsz = (pos < static_cast<std::streampos>(0))
+                                     ? 0u
+                                     : static_cast<uint64_t>(pos);
+            if (fsz > 0) ++old_n;
+          }
+          closedir(d);
+        }
+        if (old_n == 0) break;
+        env_sleep_ms(100);
+      }
+      reclaim_wait_ms = (rocksdb::Env::Default()->NowMicros() - t_r) / 1000;
+      printf("LIFECYCLE phase=reclaim 等待旧代WAL回收=%llu ms\n",
+             (unsigned long long)reclaim_wait_ms);
+    }
+    // ---- 阶段 3：排空后再读一遍（与"立即读"同一样本集）----
+    uint64_t post_bad = 0, post_us = 0;
+    read_throughput(4, 5000, &post_tb, &post_tput);
+    read_sample(2000, &post_bad, &post_us);
+    // ---- 阶段 4：指标快照（关闭前）----
+    const uint64_t out_bytes = p("prof_output_bytes");
+    const uint64_t scan_bytes = p("prof_scan_bytes");
+    const uint64_t drained_bytes = p("drained_materialize_bytes");
+    const uint64_t recl_bytes = p("reclaimed_bytes");
+    const std::string wait_stats = sp("rocksdb.zeroflush.install_wait_stats");
+    // 用户 2026-09-18 第 2 项：把"**安装等待超时**"（有界 100ms 等待到期、随后因
+    // 进度推进而重试）与"**最终安装失败**"（连续无进展，install_progress_failures）
+    // 分开统计——前者是正常的准入退避，后者才是滞留。
+    const uint64_t inst_prog_fail = p("install_progress_failures");
+    const uint64_t inst_uncertain = p("install_uncertain");
+    const uint64_t forced_merges = p("drain_forced_merges");
+    const std::string drain_ctr = sp("rocksdb.zeroflush.zf_drain_counters");
+    const uint64_t registered = p("registered_gens");
+    const uint64_t skip_hits = p("skip_merge_benefit");
+    const uint64_t merge_rewritten = p("base_merge_rewritten_bytes");
+    const uint64_t peers_before_close = p("pending_materialize_bytes");
+    // 旧代 WAL 文件数（只统计**非活跃**代：活跃代仍会被持续使用）。
+    auto count_wal_files = [&](uint64_t* total_files) {
+      uint64_t cnt = 0, tot = 0;
+      const std::string wal_dir = dbdir + "/zfwal";
+      if (DIR* d = opendir(wal_dir.c_str())) {
+        while (struct dirent* e = readdir(d)) {
+          uint32_t q = 0, g = 0;
+          if (!ParseZfWalName(e->d_name, &q, &g)) continue;
+          ++tot;
+          if (ctx != nullptr) {
+            const auto act = ctx->wal()->ActiveGenOpt(q);
+            if (!act.has_value() || g < act.value()) ++cnt;
+          }
+        }
+        closedir(d);
+      }
+      *total_files = tot;
+      return cnt;
+    };
+    uint64_t wal_all_before = 0;
+    const uint64_t wal_old_before = count_wal_files(&wal_all_before);
+    printf("LIFECYCLE phase=summary n=%d threads=%d input_bytes=%llu "
+           "write_ms=%llu out_bytes=%llu scan_bytes=%llu drained_bytes=%llu "
+           "wa_out=%.4f wa_drained=%.4f pend_at_stop=%llu pending_peak=%llu "
+           "drain_ms=%llu drained=%d imm_read_bad=%llu imm_read_us=%llu "
+           "imm_tput=%.0f(4T) imm_tput_bad=%llu post_tput=%.0f(4T) "
+           "post_tput_bad=%llu "
+           "post_read_bad=%llu post_read_us=%llu reclaimed_bytes=%llu "
+           "registered_gens=%llu skip_merge_benefit=%llu merge_rewritten=%llu "
+           "forced_merges=%llu old_wal_before=%llu wal_before=%llu "
+           "install_progress_failures=%llu install_uncertain=%llu "
+           "wait[%s] drain[%s]\n",
+           n, wthreads, (unsigned long long)input_bytes,
+           (unsigned long long)write_ms, (unsigned long long)out_bytes,
+           (unsigned long long)scan_bytes, (unsigned long long)drained_bytes,
+           input_bytes > 0
+               ? static_cast<double>(out_bytes) / static_cast<double>(input_bytes)
+               : 0.0,
+           input_bytes > 0 ? static_cast<double>(drained_bytes) /
+                                 static_cast<double>(input_bytes)
+                           : 0.0,
+           (unsigned long long)pend_at_stop, (unsigned long long)peak,
+           (unsigned long long)drain_ms, drained ? 1 : 0,
+           (unsigned long long)imm_bad, (unsigned long long)imm_us,
+           imm_tput, (unsigned long long)imm_tb, post_tput,
+           (unsigned long long)post_tb,
+           (unsigned long long)post_bad, (unsigned long long)post_us,
+           (unsigned long long)recl_bytes, (unsigned long long)registered,
+           (unsigned long long)skip_hits, (unsigned long long)merge_rewritten,
+           (unsigned long long)forced_merges, (unsigned long long)wal_old_before,
+           (unsigned long long)wal_all_before,
+           (unsigned long long)inst_prog_fail,
+           (unsigned long long)inst_uncertain, wait_stats.c_str(),
+           drain_ctr.c_str());
+    // ---- 阶段 5：重启 + 全量读 + 旧代 WAL 回收确认 ----
+    db.reset();
+    db = OpenDb(dbdir, /*create=*/false);
+    if (db == nullptr) {
+      printf("LIFECYCLE result=REOPEN_FAILED\n");
+      return 1;
+    }
+    rocksdb::DBImpl* impl2 = static_cast<rocksdb::DBImpl*>(db.get());
+    std::shared_ptr<zeroflush::ZeroFlushContext> ctx2 = impl2->GetZeroFlushContext();
+    size_t restart_bad = 0;
+    for (int i = 0; i < n; ++i) {
+      std::string got;
+      const rocksdb::Status sdst = db->Get(rocksdb::ReadOptions(), keys[i], &got);
+      const std::string want =
+          zf_keygen::ValueFor(static_cast<uint64_t>(i), 1, kValueSize);
+      if (!sdst.ok() || got != want) {
+        ++restart_bad;
+        if (restart_bad <= 8) {
+          // 复现取证（用户口径："重启后读错误必须逐键可核对"）：期望/实际身份
+          // 与内容指纹（前 16 字节 + 长度），以及该键是否在 WAL/索引中可见。
+          char hexw[64] = {0}, hexg[64] = {0};
+          for (size_t b = 0; b < 16 && b < want.size(); ++b) {
+            snprintf(hexw + b * 3, 4, "%02x ", static_cast<unsigned char>(want[b]));
+          }
+          for (size_t b = 0; b < 16 && b < got.size(); ++b) {
+            snprintf(hexg + b * 3, 4, "%02x ", static_cast<unsigned char>(got[b]));
+          }
+          printf("LIFECYCLE restart_bad key=%d status=%s want_len=%zu got_len=%zu\n"
+                 "  want[0..16]=%s\n  got [0..16]=%s\n",
+                 i, sdst.ToString().c_str(), want.size(), got.size(), hexw, hexg);
+          // 三个决定性探针（区分"未进索引" / "快照边界" / "locator 失效"）：
+          //  ① 显式最新快照读（排除 LastSequence 边界）；
+          //  ② 逐键状态取证（索引链 / WAL / LSM 命中）；
+          //  ③ 该键的重路由分区（当前表版本）——确认恢复期索引归属。
+          {
+            const rocksdb::Snapshot* snap2 = db->GetSnapshot();
+            rocksdb::ReadOptions ro2;
+            ro2.snapshot = snap2;
+            std::string got2;
+            const rocksdb::Status s2 = db->Get(ro2, keys[i], &got2);
+            printf("  snap_read=%s match=%d last_seq=%llu\n",
+                   s2.ToString().c_str(), (got2 == want) ? 1 : 0,
+                   (unsigned long long)db->GetLatestSequenceNumber());
+            db->ReleaseSnapshot(snap2);
+            DiagKeyState(db.get(), ctx2, dbdir,
+                         static_cast<uint64_t>(i), kKeySize, kValueSize);
+          }
+        }
+      }
+    }
+    uint64_t wal_all_after = 0;
+    uint64_t wal_old_after = 0;   // 非空旧代文件（数据未回收）
+    uint64_t wal_stubs_after = 0; // 0 字节桩（空尾封存遗留，无数据）
+    {
+      const std::string wal_dir = dbdir + "/zfwal";
+      if (DIR* d = opendir(wal_dir.c_str())) {
+        while (struct dirent* e = readdir(d)) {
+          uint32_t q = 0, g = 0;
+          if (!ParseZfWalName(e->d_name, &q, &g)) continue;
+          ++wal_all_after;
+          bool is_old = false;
+          if (ctx2 != nullptr) {
+            const auto act = ctx2->wal()->ActiveGenOpt(q);
+            is_old = !act.has_value() || g < act.value();
+          }
+          if (!is_old) continue;
+          std::ifstream in(ZfWalPath(wal_dir, q, g), std::ios::binary | std::ios::ate);
+          const std::streampos pos = in.tellg();
+          const uint64_t fsz = (pos < static_cast<std::streampos>(0))
+                                   ? 0u
+                                   : static_cast<uint64_t>(pos);
+          if (fsz > 0) {
+            ++wal_old_after;
+          } else {
+            ++wal_stubs_after;
+          }
+        }
+        closedir(d);
+      }
+    }
+    const bool pass = drained && (imm_bad == 0) && (post_bad == 0) &&
+                      (restart_bad == 0) && (wal_old_after == 0) &&
+                      (peers_before_close == 0);
+    printf("LIFECYCLE phase=restart restart_read_errors=%zu "
+           "old_wal_after=%llu wal_after=%llu empty_stubs=%llu "
+           "pending_before_close=%llu "
+           "insert_dropped=%llu index_resegmented=%llu last_seq=%llu\n",
+           restart_bad, (unsigned long long)wal_old_after,
+           (unsigned long long)wal_all_after,
+           (unsigned long long)wal_stubs_after,
+           (unsigned long long)peers_before_close,
+           (unsigned long long)p("insert_dropped"),
+           (unsigned long long)p("index_resegmented"),
+           (unsigned long long)db->GetLatestSequenceNumber());
+    printf("LIFECYCLE n=%d: %s (自动排空=%d 立即读正确=%d 排空后读正确=%d "
+           "重启读正确=%d 旧代WAL清零=%d)\n",
+           n, pass ? "PASS" : "FAIL", drained ? 1 : 0, imm_bad == 0 ? 1 : 0,
+           post_bad == 0 ? 1 : 0, restart_bad == 0 ? 1 : 0,
+           wal_old_after == 0 ? 1 : 0);
     return pass ? 0 : 1;
   }
 
@@ -4543,6 +5076,305 @@ int main(int argc, char** argv) {
       show(t);
     }
     return 0;
+  }
+
+  // =========================================================================
+  // ZeroFlush V2：固定范围分区档端到端验收（自包含：自写 / 自封存 / 自读）
+  // =========================================================================
+  // 性质断言（不涉性能）：
+  //   ① 档位生效：engine_profile == "v2"；
+  //   ② 写路径 = 直写分区 WAL（**没有 memtable→flush 这条路**）：写入后、
+  //      封存前，全量读回正确 **且** 该时刻 LSM 里没有任何 SST 文件
+  //      （数据只在分区 WAL/索引里，pending > 0）；
+  //   ③ 封存后与 L1 融合并生成 SST：L0 文件数 == 0，L1 及以下文件数 > 0
+  //      （目标模式禁 L0 ⇒ 输出只进 base level）；
+  //   ④ 排空收敛：pending_materialize_bytes == 0 且 registered_gens == 0；
+  //   ⑤ 逐键读回正确（含覆盖写）+ 重开后仍正确。
+  if (mode == "v2") {
+    auto files_at = [&](rocksdb::DB* d, int lv) {
+      std::string v;
+      d->GetProperty("rocksdb.num-files-at-level" + std::to_string(lv), &v);
+      return v.empty() ? 0ull : strtoull(v.c_str(), nullptr, 10);
+    };
+    auto sst_bytes = [&](rocksdb::DB* d) {
+      std::string v;
+      d->GetProperty("rocksdb.total-sst-files-size", &v);
+      return v.empty() ? 0ull : strtoull(v.c_str(), nullptr, 10);
+    };
+    auto seal_all_and_drain = [&](rocksdb::DB* d) {
+      auto* di = static_cast<rocksdb::DBImpl*>(d);
+      auto c = di->GetZeroFlushContext();
+      const uint32_t P = c->options().partitions;
+      for (uint32_t p = 0; p < P; ++p) {
+        c->wal()->Sync(p).PermitUncheckedError();
+        const uint32_t g0 = c->wal()->ActiveGenOpt(p).value_or(0);
+        uint32_t sg = 0;
+        c->ForceSealForTest(di, di->GetDefaultColumnFamily(), p, g0, &sg);
+      }
+      for (int t = 0; t < 400 && Prop(d, "pending_materialize_bytes") != 0; ++t) {
+        di->ZfDrainNow();
+        env_sleep_ms(20);
+      }
+      // 回收（release → 入队 → 真实 unlink）需要显式走生产入口 + 有界重试：
+      // 只等自动 purge 会看到 registered_gens 残留（与 baccept phase4 同因）。
+      for (int t = 0; t < 20 && Prop(d, "registered_gens") != 0; ++t) {
+        di->ZfDrainNow();
+        c->PurgeSealedFiles();
+        env_sleep_ms(50);
+      }
+    };
+
+    printf("v2 profile: engine_profile=%s backend=%s forbid_l0=%llu\n",
+           PropS(db.get(), "engine_profile").c_str(),
+           PropS(db.get(), "materialize_backend").c_str(),
+           (unsigned long long)Prop(db.get(), "forbid_l0_install"));
+    // 写（多线程，与 V2 的写路径一致）
+    {
+      std::vector<std::thread> ts;
+      const uint64_t chunk = total / threads + 1;
+      for (int i = 0; i < threads; ++i) {
+        const uint64_t lo = static_cast<uint64_t>(i) * chunk;
+        const uint64_t hi = std::min<uint64_t>(lo + chunk, total);
+        if (lo >= hi) break;
+        ts.emplace_back(WriteRange, db.get(), lo, hi, 1);
+      }
+      for (auto& t : ts) t.join();
+    }
+    // ② 封存前：数据可读，且 LSM 里没有任何 SST（= 确实没走 flush）
+    Stats pre;
+    CheckRange(db.get(), nullptr, 0, total, 0 /* 无覆盖写：期望恒 seed=1 */, &pre);
+    const uint64_t pre_bad = pre.mismatch.load() + pre.miss.load() +
+                             pre.unexpected_found.load() + pre.errors.load();
+    uint64_t pre_sst = 0;
+    for (int lv = 0; lv <= 6; ++lv) pre_sst += files_at(db.get(), lv);
+    // "数据在分区 WAL 里"的直接证据：zfwal 目录下的代文件字节数 > 0。
+    // （pending_materialize_bytes 只统计"已封存未安装"，封存前恒 0，
+    //  因此不能拿它当"写入落在 WAL"的判据。）
+    auto wal_files_bytes = [&](const std::string& dir) {
+      uint64_t tot = 0;
+      size_t n = 0;
+      const std::string wdir = dir + "/zfwal";
+      if (DIR* dp = opendir(wdir.c_str())) {
+        while (struct dirent* e = readdir(dp)) {
+          uint32_t pp = 0, gg = 0;
+          if (!ParseZfWalName(e->d_name, &pp, &gg)) continue;
+          const std::string path = ZfWalPath(wdir, pp, gg);
+          std::ifstream in(path, std::ios::binary | std::ios::ate);
+          if (in.good()) {
+            tot += static_cast<uint64_t>(in.tellg());
+            ++n;
+          }
+        }
+        closedir(dp);
+      }
+      return std::make_pair(n, tot);
+    };
+    const auto [pre_wal_n, pre_wal_bytes] = wal_files_bytes(dbdir);
+    const bool pre_ok = (pre_bad == 0) && (pre_sst == 0) &&
+                        (pre_wal_n > 0) && (pre_wal_bytes > 0);
+    printf("v2 pre-seal: read_bad=%llu sst_files=%llu wal_files=%zu "
+           "wal_bytes=%llu -> %s\n",
+           (unsigned long long)pre_bad, (unsigned long long)pre_sst, pre_wal_n,
+           (unsigned long long)pre_wal_bytes, pre_ok ? "OK" : "FAIL");
+
+    // ③④ 封存 → 融合安装 → 收敛
+    seal_all_and_drain(db.get());
+    const uint64_t l0 = files_at(db.get(), 0);
+    uint64_t deeper = 0;
+    for (int lv = 1; lv <= 6; ++lv) deeper += files_at(db.get(), lv);
+    const uint64_t pending = Prop(db.get(), "pending_materialize_bytes");
+    const uint64_t reg = Prop(db.get(), "registered_gens");
+    // ⑤ 读回（共享判据）+ 重开校验
+    Stats st2;
+    CheckRange(db.get(), nullptr, 0, total, 0, &st2);
+    const uint64_t bad2 = st2.mismatch.load() + st2.miss.load() +
+                          st2.unexpected_found.load() + st2.errors.load();
+    const uint64_t l0_install = Prop(db.get(), "l0_install_count");
+    const uint64_t l0_blocked = Prop(db.get(), "l0_install_blocked");
+    struct V2Snap {
+      uint64_t l0, deeper, sst, pending, reg, bad, l0_install, l0_blocked;
+    } snap_v2{l0, deeper, sst_bytes(db.get()), pending, reg, bad2, l0_install,
+              l0_blocked};
+    printf("v2 post-seal: L0=%llu L1+=%llu sst_bytes=%llu pending=%llu "
+           "registry=%zu read_bad=%llu l0_install=%llu l0_blocked=%llu "
+           "backend=%s device_tasks=%llu fallbacks=%llu probe_failures=%llu\n",
+           (unsigned long long)snap_v2.l0, (unsigned long long)snap_v2.deeper,
+           (unsigned long long)snap_v2.sst,
+           (unsigned long long)snap_v2.pending, (size_t)snap_v2.reg,
+           (unsigned long long)snap_v2.bad,
+           (unsigned long long)snap_v2.l0_install,
+           (unsigned long long)snap_v2.l0_blocked,
+           PropS(db.get(), "materialize_backend").c_str(),
+           (unsigned long long)Prop(db.get(), "csd_device_tasks"),
+           (unsigned long long)Prop(db.get(), "csd_fallbacks"),
+           (unsigned long long)Prop(db.get(), "csd_probe_failures"));
+
+    const bool post_ok = (l0 == 0) && (deeper > 0) && (pending == 0) &&
+                         (reg == 0) && (bad2 == 0) &&
+                         PropS(db.get(), "engine_profile") == "v2";
+    // 重开校验（关闭 → 重开 → 逐键）
+    const uint64_t wal_free_after = Prop(db.get(), "pending_materialize_bytes");
+    db.reset();
+    std::unique_ptr<rocksdb::DB> re = OpenDb(dbdir, false);
+    if (re == nullptr) {
+      printf("v2: FAIL (reopen 失败)\n");
+      return 1;
+    }
+    Stats st3;
+    CheckRange(re.get(), nullptr, 0, total, 0, &st3);
+    const uint64_t bad3 = st3.mismatch.load() + st3.miss.load() +
+                          st3.unexpected_found.load() + st3.errors.load();
+    printf("v2 reopen: checked=%llu bad=%llu (pending_before_close=%llu)\n",
+           (unsigned long long)st3.checked.load(), (unsigned long long)bad3,
+           (unsigned long long)wal_free_after);
+    const bool ok_v2 = pre_ok && post_ok && (bad3 == 0);
+    printf("v2: %s (pre_seal=%d post_seal=%d reopen=%d)\n",
+           ok_v2 ? "PASS" : "FAIL", pre_ok ? 1 : 0, post_ok ? 1 : 0,
+           bad3 == 0 ? 1 : 0);
+    return ok_v2 ? 0 : 1;
+  }
+
+  // =========================================================================
+  // ZeroFlush V2：物化后端等价性（host CPU vs CSD 设备路径）
+  // =========================================================================
+  // 三组同一输入（同一固定范围表、同一键空间）：
+  //   A = backend host           —— 基准（CPU 路径）
+  //   B = backend csd + 设备 sim —— 设备路径（内建仿真；真设备留插件口）
+  //   C = backend csd 无设备     —— 回退语义（必须回退 host 且数据正确）
+  // 断言：A/B 逐键相同、层级文件数相同、SST 总字节相同；B 的 csd_device_tasks
+  // > 0 且 fallbacks == 0；C 的 probe_failures/fallbacks > 0 且数据与 A 相同。
+  if (mode == "backendeq") {
+    const std::string dirA = dbdir + "_eq_host";
+    const std::string dirB = dbdir + "_eq_csd";
+    const std::string dirC = dbdir + "_eq_fb";
+    auto rmrf = [](const std::string& d) {
+      const std::string cmd = "rm -rf '" + d + "'";
+      if (system(cmd.c_str()) != 0) {
+        printf("backendeq SETUP_WARN: rm -rf 非零\n");
+      }
+    };
+    rmrf(dirA);
+    rmrf(dirB);
+    rmrf(dirC);
+    setenv("ZF_VC_V2", "1", 1);
+    setenv("ZF_VC_FIXED_ROUTING", "1", 1);
+
+    auto write_all = [&](rocksdb::DB* d) {
+      auto* di = static_cast<rocksdb::DBImpl*>(d);
+      auto c = di->GetZeroFlushContext();
+      std::vector<std::thread> ts;
+      const uint64_t chunk = total / threads + 1;
+      for (int i = 0; i < threads; ++i) {
+        const uint64_t lo = static_cast<uint64_t>(i) * chunk;
+        const uint64_t hi = std::min<uint64_t>(lo + chunk, total);
+        if (lo >= hi) break;
+        ts.emplace_back(WriteRange, d, lo, hi, 1);
+      }
+      for (auto& t : ts) t.join();
+      const uint32_t P = c->options().partitions;
+      for (uint32_t p = 0; p < P; ++p) {
+        c->wal()->Sync(p).PermitUncheckedError();
+        const uint32_t g0 = c->wal()->ActiveGenOpt(p).value_or(0);
+        uint32_t sg = 0;
+        c->ForceSealForTest(di, di->GetDefaultColumnFamily(), p, g0, &sg);
+      }
+      for (int t = 0; t < 400 && Prop(d, "pending_materialize_bytes") != 0; ++t) {
+        di->ZfDrainNow();
+        env_sleep_ms(20);
+      }
+    };
+    auto read_all = [&](rocksdb::DB* d, std::vector<std::string>* out) {
+      out->clear();
+      out->reserve(total);
+      rocksdb::ReadOptions ro;
+      for (uint64_t v = 0; v < total; ++v) {
+        std::string got;
+        const rocksdb::Status s =
+            d->Get(ro, zf_keygen::KeyFromInt(v, kKeySize), &got);
+        out->push_back(s.ok() ? got : std::string("<missing>"));
+      }
+    };
+    auto inventory = [&](rocksdb::DB* d, uint64_t* files, uint64_t* bytes) {
+      *files = 0;
+      for (int lv = 0; lv <= 6; ++lv) {
+        std::string v;
+        d->GetProperty("rocksdb.num-files-at-level" + std::to_string(lv), &v);
+        if (!v.empty()) *files += strtoull(v.c_str(), nullptr, 10);
+      }
+      std::string b;
+      d->GetProperty("rocksdb.total-sst-files-size", &b);
+      *bytes = b.empty() ? 0ull : strtoull(b.c_str(), nullptr, 10);
+    };
+
+    // A：host
+    unsetenv("ZF_VC_BACKEND");
+    unsetenv("ZF_VC_CSD_DEVICES");
+    auto dA = OpenDb(dirA, true);
+    if (dA == nullptr) {
+      printf("backendeq: FAIL (host DB 打开失败)\n");
+      return 1;
+    }
+    write_all(dA.get());
+    std::vector<std::string> va;
+    read_all(dA.get(), &va);
+    uint64_t fa = 0, ba = 0;
+    inventory(dA.get(), &fa, &ba);
+
+    // B：csd + 内建设备仿真
+    setenv("ZF_VC_BACKEND", "csd", 1);
+    setenv("ZF_VC_CSD_DEVICES", "sim", 1);
+    auto dB = OpenDb(dirB, true);
+    if (dB == nullptr) {
+      printf("backendeq: FAIL (csd DB 打开失败)\n");
+      return 1;
+    }
+    write_all(dB.get());
+    std::vector<std::string> vb;
+    read_all(dB.get(), &vb);
+    uint64_t fb = 0, bb = 0;
+    inventory(dB.get(), &fb, &bb);
+    const uint64_t b_dev = Prop(dB.get(), "csd_device_tasks");
+    const uint64_t b_fb = Prop(dB.get(), "csd_fallbacks");
+    const uint64_t b_pf = Prop(dB.get(), "csd_probe_failures");
+
+    // C：csd 无设备 ⇒ 回退 host
+    unsetenv("ZF_VC_CSD_DEVICES");
+    auto dC = OpenDb(dirC, true);
+    if (dC == nullptr) {
+      printf("backendeq: FAIL (fallback DB 打开失败——回退策略应为 host)\n");
+      return 1;
+    }
+    write_all(dC.get());
+    std::vector<std::string> vc;
+    read_all(dC.get(), &vc);
+    const uint64_t c_fb = Prop(dC.get(), "csd_fallbacks");
+    const uint64_t c_pf = Prop(dC.get(), "csd_probe_failures");
+
+    size_t diff_ab = 0, diff_ac = 0;
+    for (size_t i = 0; i < va.size(); ++i) {
+      if (i >= vb.size() || va[i] != vb[i]) ++diff_ab;
+      if (i >= vc.size() || va[i] != vc[i]) ++diff_ac;
+    }
+    printf("backendeq host   : files=%llu sst_bytes=%llu backend=%s\n",
+           (unsigned long long)fa, (unsigned long long)ba,
+           PropS(dA.get(), "materialize_backend").c_str());
+    printf("backendeq csd-sim: files=%llu sst_bytes=%llu backend=%s "
+           "device_tasks=%llu fallbacks=%llu probe_failures=%llu\n",
+           (unsigned long long)fb, (unsigned long long)bb,
+           PropS(dB.get(), "materialize_backend").c_str(),
+           (unsigned long long)b_dev, (unsigned long long)b_fb,
+           (unsigned long long)b_pf);
+    printf("backendeq fb-host: backend=%s fallbacks=%llu probe_failures=%llu\n",
+           PropS(dC.get(), "materialize_backend").c_str(),
+           (unsigned long long)c_fb, (unsigned long long)c_pf);
+    const bool ok_eq = (diff_ab == 0) && (diff_ac == 0) && (fa == fb) &&
+                       (ba == bb) && (b_dev > 0);
+    printf("backendeq: %s (value_diff_ab=%zu value_diff_ac=%zu files %llu/%llu "
+           "bytes %llu/%llu)\n",
+           ok_eq ? "PASS" : "FAIL", diff_ab, diff_ac,
+           (unsigned long long)fa, (unsigned long long)fb,
+           (unsigned long long)ba, (unsigned long long)bb);
+    return ok_eq ? 0 : 1;
   }
 
   const rocksdb::Snapshot* snap = nullptr;

@@ -3,7 +3,7 @@
 > M4 是 ZeroFlush 的终态收敛：**L0 不再产出任何 SST**，分区 WAL 段本身就是 L0，
 > 每分区 slim memtable 跳表是 L0 的有序索引；L0→L1 直接从跳表顺序产出标准
 > key+value SST，随后跳表释放、WAL 段整段删除。
-> 本文基于 2026-08-21 写路径剖析（`output/zeroflush_m3_perf/profiling/profiling_report.md`）
+> 本文基于 2026-08-21 写路径剖析（`archive/zeroflush_m3_perf/profiling/profiling_report.md`）
 > 与两轮架构对齐讨论，定义 M4.0~M4.4 的落地计划。
 
 **版本**：v1.0（2026-08-21）
@@ -484,7 +484,7 @@ M4.3a 已含 Get 分区化与恢复重建；M4.3d 完成后回归 28/28 + 数据
 
 - **P2 稳态复测**（D3）：cache 256MB、lz4、readrandom 前等 compaction 队列清空——重查 vs256 读优势归因，重定 vs1024 读目标
 - value cache（可选）：若 vs1024 读仍差，locator 命中后先查块缓存再落盘
-- 50GB 终态 vs 原生全量基准 + `report.html` + `DEVELOPMENT_PROGRESS.md` 基线更新
+- 50GB 终态 vs 原生全量基准 + `report.html` + `archive/report/progress/DEVELOPMENT_PROGRESS.md` 基线更新
 - 总验收：写吞吐与原生差距 ≤2×（长期目标 1.5×）；vs256 读不劣于原生；空间与写放大维持或优于当前（0.70）
 
 ### M4.5 消除 L0 中转（进行中 ✅ 2026-08-23）
@@ -705,8 +705,8 @@ L0 堆积的根源仍在**（批次小不融合）——50GB 后期循环重现�
 
 ---
 
-**参考**：[M3_DESIGN.md](M3_DESIGN.md) · [DEVELOPMENT_PROGRESS.md](../DEVELOPMENT_PROGRESS.md) ·
-[写路径剖析报告](../../../output/zeroflush_m3_perf/profiling/profiling_report.md) ·
+**参考**：[M3_DESIGN.md](M3_DESIGN.md) · [DEVELOPMENT_PROGRESS.md](../../../archive/report/progress/DEVELOPMENT_PROGRESS.md) ·
+[写路径剖析报告](../../../archive/zeroflush_m3_perf/profiling/profiling_report.md) ·
 `source/gParaKV-GC-pipeline-h2d/`（CSD/GDS 流水线经验，M3.5 复用）
 
 ---
